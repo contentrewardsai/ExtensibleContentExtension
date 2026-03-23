@@ -1,0 +1,24 @@
+{
+  "id": "getFollowingProfile",
+  "label": "Get Following Profile",
+  "description": "Retrieve a specific Following/Pulse profile by name or ID with all details.",
+  "category": "following",
+  "inputs": [
+    { "key": "profileNameVariableKey", "label": "Profile name variable", "type": "text", "hint": "Variable containing the profile name to look up" },
+    { "key": "profileIdVariableKey", "label": "Profile ID variable", "type": "text", "hint": "Variable containing the profile ID (alternative to name)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text", "default": "followingProfile" }
+  ],
+  "defaultAction": {
+    "type": "getFollowingProfile",
+    "profileNameVariableKey": "",
+    "profileIdVariableKey": "",
+    "saveAsVariable": "followingProfile"
+  },
+  "formSchema": [
+    { "key": "profileNameVariableKey", "label": "Profile name variable", "type": "text" },
+    { "key": "profileIdVariableKey", "label": "Profile ID variable", "type": "text" },
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text" }
+  ]
+}

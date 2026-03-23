@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sample Page – Page Capture Test Fixture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; color: #1a1a2e; background: #f8f9fa; line-height: 1.6; }
+
+    header {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    header .logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    header .logo img { height: 28px; width: 28px; vertical-align: middle; margin-right: 8px; border-radius: 4px; }
+
+    nav {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 0 32px;
+      display: flex;
+      gap: 24px;
+    }
+    nav a {
+      display: inline-block;
+      padding: 12px 0;
+      color: #4a5568;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+    }
+    nav a.active { color: #667eea; border-bottom-color: #667eea; }
+    nav a:hover { color: #667eea; }
+
+    .page-body {
+      display: flex;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 32px;
+      gap: 24px;
+    }
+
+    main {
+      flex: 1;
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    main h1 { font-size: 26px; margin-bottom: 12px; color: #1a1a2e; }
+    main p { margin-bottom: 16px; color: #4a5568; font-size: 15px; }
+    main img.hero-img {
+      width: 100%;
+      max-width: 400px;
+      height: auto;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .form-section { margin-top: 24px; }
+    .form-section label { display: block; font-size: 13px; font-weight: 600; color: #2d3748; margin-bottom: 4px; }
+    .form-section input, .form-section select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e0;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 12px;
+      background: #fff;
+    }
+    .form-section input:focus, .form-section select:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.15); }
+    .btn {
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.2s;
+    }
+    .btn-primary { background: #667eea; color: #fff; }
+    .btn-primary:hover { background: #5a6fd6; }
+    .btn-secondary { background: #edf2f7; color: #4a5568; }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    .pii-section {
+      margin-top: 20px;
+      padding: 16px;
+      background: #fffbeb;
+      border: 1px solid #fbbf24;
+      border-radius: 8px;
+    }
+    .pii-section p { font-size: 13px; color: #92400e; }
+
+    aside {
+      width: 260px;
+      flex-shrink: 0;
+    }
+    aside .sidebar-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      margin-bottom: 16px;
+    }
+    aside .sidebar-card h3 { font-size: 15px; margin-bottom: 8px; color: #2d3748; }
+    aside .sidebar-card p { font-size: 13px; color: #718096; }
+    aside .sidebar-card img {
+      width: 100%;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+
+    footer {
+      background: #1a1a2e;
+      color: #a0aec0;
+      padding: 24px 32px;
+      text-align: center;
+      font-size: 13px;
+      margin-top: 32px;
+    }
+    footer a { color: #667eea; text-decoration: none; }
+
+    #status { margin-top: 12px; font-size: 13px; color: #38a169; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">
+      <!-- 1x1 purple PNG as inline base64 logo -->
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Logo">
+      Acme Dashboard
+    </span>
+    <button id="signup-btn" data-testid="signup-btn" class="btn btn-secondary" style="color:#fff; border:1px solid rgba(255,255,255,0.3);">Sign Up</button>
+  </header>
+
+  <nav>
+    <a href="#" class="active" data-testid="nav-home">Home</a>
+    <a href="#" data-testid="nav-products">Products</a>
+    <a href="#" data-testid="nav-pricing">Pricing</a>
+    <a href="#" data-testid="nav-contact">Contact</a>
+  </nav>
+
+  <div class="page-body">
+    <main>
+      <h1>Welcome to Acme Dashboard</h1>
+      <p>Manage your account, view analytics, and configure your settings all in one place.</p>
+
+      <!-- 4x4 gradient PNG as hero image (inline base64) -->
+      <img class="hero-img" data-testid="hero-image"
+           src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAJklEQVR42mJ4z8DAwPCfgYHhPwMDw38GBob/DAwM/xkYGP4zMDAAAF4IBQ0jUMIFAAAAAElFTkSuQmCC"
+           alt="Dashboard overview illustration">
+
+      <p>Our platform helps teams collaborate efficiently with real-time updates and powerful integrations.</p>
+
+      <div class="form-section">
+        <label for="email-input">Email Address</label>
+        <input type="email" id="email-input" data-testid="email-input" placeholder="you@example.com">
+
+        <label for="plan-select">Select Plan</label>
+        <select id="plan-select" data-testid="plan-select">
+          <option value="free">Free</option>
+          <option value="starter">Starter – $9/mo</option>
+          <option value="pro">Pro – $29/mo</option>
+          <option value="enterprise">Enterprise – Custom</option>
+        </select>
+
+        <button id="submit-btn" data-testid="submit-btn" class="btn btn-primary">Get Started</button>
+        <button id="secondary-btn" data-testid="secondary-btn" class="btn btn-secondary" style="margin-left:8px;">Learn More</button>
+        <div id="status"></div>
+      </div>
+
+      <div class="pii-section">
+        <p><strong>Welcome back,</strong> <span id="user-display-name">John Doe</span></p>
+        <p><strong>Payment on file:</strong> Card ending in 4111-1111-1111-1111</p>
+        <p><strong>Tax ID:</strong> 123-45-6789</p>
+        <input type="hidden" id="stored-card" value="4111111111111111">
+        <input type="hidden" id="stored-ssn" value="123456789">
+      </div>
+    </main>
+
+    <aside>
+      <div class="sidebar-card">
+        <h3>Quick Stats</h3>
+        <p>Active users: 1,234</p>
+        <p>Revenue: $56,789</p>
+      </div>
+      <div class="sidebar-card">
+        <h3>Featured</h3>
+        <p>Check out the new analytics dashboard.</p>
+        <!-- 2x2 blue PNG as sidebar image (inline base64) -->
+        <img data-testid="sidebar-image"
+             src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR42mNk+M/AwMDAxAAGABJkAQFEOqDhAAAAAElFTkSuQmCC"
+             alt="Analytics preview">
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Acme Inc. All rights reserved. <a href="#">Privacy</a> &middot; <a href="#">Terms</a></p>
+  </footer>
+
+  <script>
+    document.getElementById('signup-btn').addEventListener('click', function() {
+      document.getElementById('status').textContent = 'Signup button clicked';
+    });
+    document.getElementById('submit-btn').addEventListener('click', function() {
+      document.getElementById('status').textContent = 'Form submitted with email: ' + document.getElementById('email-input').value;
+    });
+    document.getElementById('secondary-btn').addEventListener('click', function() {
+      document.getElementById('status').textContent = 'Learn more clicked';
+    });
+  </script>
+</body>
+</html>

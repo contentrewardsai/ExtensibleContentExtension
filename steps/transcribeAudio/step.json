@@ -1,0 +1,15 @@
+{
+  "id": "transcribeAudio",
+  "label": "Transcribe audio",
+  "category": "data",
+  "description": "Transcribe an audio blob (from a row variable, e.g. data URL from a previous step) using Whisper in the QC sandbox. Saves the transcript to a row variable for use by the next step (e.g. whisperCheck).",
+  "defaultAction": {
+    "type": "transcribeAudio",
+    "audioVariable": "capturedAudio",
+    "saveAsVariable": "transcript"
+  },
+  "formSchema": [
+    { "key": "audioVariable", "label": "Row variable with audio (data URL or variable name)", "inputType": "text" },
+    { "key": "saveAsVariable", "label": "Save transcript to variable", "inputType": "text" }
+  ]
+}

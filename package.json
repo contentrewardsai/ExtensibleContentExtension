@@ -1,0 +1,24 @@
+{
+  "name": "content-for-sales",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension for recording and automating workflows",
+  "scripts": {
+    "check:content-bundle": "node scripts/check-content-bundle.cjs",
+    "build:step-tests": "node scripts/build-step-tests.cjs",
+    "test:e2e": "npm run build:step-tests && node scripts/build-step-e2e.cjs && npx playwright test",
+    "test:e2e:ci": "npm run build:step-tests && node scripts/build-step-e2e.cjs && CI=1 npx playwright test",
+    "test:e2e:puppeteer": "node scripts/run-e2e-puppeteer.mjs",
+    "test:unit": "node scripts/run-unit-tests.mjs",
+    "test:recorder-integration": "node scripts/run-recorder-integration-tests.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "playwright": "^1.49.0",
+    "puppeteer": "^24.0.0"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15"
+  }
+}

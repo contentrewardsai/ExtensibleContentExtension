@@ -1,0 +1,29 @@
+{
+  "id": "checkSuccessfulGenerations",
+  "label": "Check successful generations",
+  "category": "flow",
+  "description": "Count successful results (e.g. videos) using a list or success-container selectors. If count is below minimum, the row fails; you can set retry, stop, or skip to next row.",
+  "defaultAction": {
+    "type": "checkSuccessfulGenerations",
+    "listSelector": "[data-testid=\"virtuoso-item-list\"]",
+    "itemSelector": "[data-index]",
+    "minSuccessful": 1,
+    "failedGenerationPhrases": ["failed generation", "generation failed", "something went wrong", "try again", "generation error", "couldn't generate", "could not generate"],
+    "onZeroSuccess": "retry",
+    "maxRetriesOnFail": 5
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "" },
+    { "key": "listSelector", "label": "List selector (or use Success container selectors below)", "inputType": "text", "pickOnPage": true },
+    { "key": "itemSelector", "label": "Item selector (optional)", "inputType": "text", "placeholder": "[data-index]" },
+    { "key": "successContainerSelectors", "label": "Success container selectors (JSON array; overrides list when set)", "inputType": "textarea" },
+    { "key": "minSuccessful", "label": "Min successful count", "inputType": "number", "min": 0 },
+    { "key": "failedGenerationPhrases", "label": "Failed generation phrases (JSON array)", "inputType": "textarea" },
+    { "key": "onZeroSuccess", "label": "On zero success", "inputType": "select", "options": ["retry", "stop", "skip"] },
+    { "key": "maxRetriesOnFail", "label": "Max retries on fail", "inputType": "number", "min": 1 },
+    { "key": "onlyText", "label": "Only text", "inputType": "checkbox" },
+    { "key": "onlyImages", "label": "Only images", "inputType": "checkbox" },
+    { "key": "onlyVideo", "label": "Only video", "inputType": "checkbox" },
+    { "key": "highlight", "label": "Highlight matching elements", "inputType": "checkbox" }
+  ]
+}

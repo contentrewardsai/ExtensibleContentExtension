@@ -1,0 +1,35 @@
+{
+  "id": "getPostAnalytics",
+  "label": "Get Post Analytics",
+  "category": "data",
+  "description": "Get total impressions aggregated across platforms or per-post analytics. Use profileUsername for total impressions, or requestId for specific post analytics.",
+  "defaultAction": {
+    "type": "getPostAnalytics",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "profileUsernameVariableKey": "profileUsername",
+    "requestIdVariableKey": "",
+    "startDateVariableKey": "",
+    "endDateVariableKey": "",
+    "saveAsVariable": "postAnalytics"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "profileUsernameVariableKey", "description": "Row variable for profile username (for total impressions)" },
+    { "key": "requestIdVariableKey", "description": "Row variable for request ID (for per-post analytics)" },
+    { "key": "startDateVariableKey", "description": "Row variable for start date filter (optional, ISO-8601)" },
+    { "key": "endDateVariableKey", "description": "Row variable for end date filter (optional, ISO-8601)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the analytics data" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "profileUsernameVariableKey", "label": "Profile username variable key", "inputType": "text", "placeholder": "profileUsername", "hint": "For total impressions endpoint." },
+    { "key": "requestIdVariableKey", "label": "Request ID variable key", "inputType": "text", "placeholder": "", "hint": "For per-post analytics. Overrides profileUsername if set." },
+    { "key": "startDateVariableKey", "label": "Start date variable key (optional)", "inputType": "text", "placeholder": "", "hint": "ISO-8601 date for filtering total impressions." },
+    { "key": "endDateVariableKey", "label": "End date variable key (optional)", "inputType": "text", "placeholder": "", "hint": "ISO-8601 date for filtering total impressions." },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "postAnalytics" }
+  ]
+}

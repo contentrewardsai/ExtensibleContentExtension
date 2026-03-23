@@ -1,0 +1,18 @@
+{
+  "id": "captureAudio",
+  "label": "Capture audio",
+  "category": "media",
+  "description": "Capture audio from an element (video/audio), the current tab, or display picker. Saves as data URL to a row variable for use by transcribeAudio or other steps.",
+  "defaultAction": {
+    "type": "captureAudio",
+    "mode": "element",
+    "durationMs": 10000,
+    "saveAsVariable": "capturedAudio"
+  },
+  "formSchema": [
+    { "key": "mode", "label": "Source", "inputType": "select", "options": ["element", "tab", "display"] },
+    { "key": "selectors", "label": "Element selectors (element mode)", "inputType": "textarea", "placeholder": "[\"video\", \"audio\"] or .media-container", "rows": 2 },
+    { "key": "durationMs", "label": "Duration (ms)", "inputType": "number", "min": 1000 },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "capturedAudio" }
+  ]
+}

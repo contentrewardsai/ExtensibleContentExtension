@@ -1,0 +1,10 @@
+{
+  "e2e": {
+    "workflowId": "e2e-test-saveGenerationToProject",
+    "rows": [{ "generatedImage": "__TINY_DATA_URL__" }],
+    "assert": "smoke",
+    "prereqs": ["fixture", "projectFolder"],
+    "skipInCI": false,
+    "skipReason": ""
+  }
+}

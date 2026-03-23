@@ -1,0 +1,29 @@
+{
+  "id": "getPostHistory",
+  "label": "Get Post History",
+  "description": "Retrieve past post history from local storage and UploadPost API.",
+  "category": "social",
+  "defaultAction": {
+    "type": "getPostHistory",
+    "runIf": "",
+    "userVariableKey": "",
+    "platformVariableKey": "",
+    "limitVariableKey": "",
+    "saveAsVariable": "postHistory"
+  },
+  "inputs": [
+    { "key": "userVariableKey", "description": "Row variable for user filter (optional)" },
+    { "key": "platformVariableKey", "description": "Row variable for platform filter (optional)" },
+    { "key": "limitVariableKey", "description": "Row variable for max results (optional)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store array of post objects" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "userVariableKey", "label": "User variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Filter by user identifier." },
+    { "key": "platformVariableKey", "label": "Platform variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Filter by platform (e.g. tiktok, instagram)." },
+    { "key": "limitVariableKey", "label": "Limit variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Max number of results." },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "postHistory" }
+  ]
+}

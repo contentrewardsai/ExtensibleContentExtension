@@ -1,0 +1,21 @@
+{
+  "id": "getFollowingProfiles",
+  "label": "Get Following Profiles",
+  "description": "Retrieve all Following/Pulse profiles with accounts, phones, emails, addresses, and notes.",
+  "category": "following",
+  "inputs": [
+    { "key": "nameFilterVariableKey", "label": "Name filter variable", "type": "text", "hint": "Optional: variable containing name to filter by" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "label": "Save results to variable", "type": "text", "default": "followingProfiles" }
+  ],
+  "defaultAction": {
+    "type": "getFollowingProfiles",
+    "nameFilterVariableKey": "",
+    "saveAsVariable": "followingProfiles"
+  },
+  "formSchema": [
+    { "key": "nameFilterVariableKey", "label": "Name filter variable", "type": "text", "hint": "Optional: filter profiles by name" },
+    { "key": "saveAsVariable", "label": "Save results to variable", "type": "text" }
+  ]
+}

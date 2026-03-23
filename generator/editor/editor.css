@@ -1,0 +1,668 @@
+/* Unified editor */
+.cfs-unified-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 100%;
+  height: 100%;
+  background: var(--gen-bg);
+}
+
+.cfs-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--gen-surface);
+  border-bottom: 1px solid var(--gen-border);
+}
+
+.cfs-editor-toolbar.cfs-toolbar-in-preview {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.cfs-editor-toolbar button {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 6px;
+  color: var(--gen-text);
+  cursor: pointer;
+}
+
+.cfs-editor-toolbar button:hover {
+  background: var(--gen-border);
+}
+
+.cfs-editor-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cfs-editor-toolbar button.primary {
+  background: var(--gen-accent);
+  border-color: var(--gen-accent);
+  color: #fff;
+}
+
+.cfs-editor-toolbar select {
+  padding: 4px 8px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text);
+  font-size: 12px;
+}
+
+.cfs-editor-toolbar label {
+  font-size: 11px;
+  color: var(--gen-muted);
+  margin-right: 4px;
+}
+
+.cfs-editor-custom-dims input {
+  padding: 4px 8px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text);
+  font-size: 12px;
+  text-align: center;
+}
+
+.cfs-editor-custom-dims input:focus {
+  outline: none;
+  border-color: var(--gen-accent, #3b82f6);
+}
+
+.cfs-editor-canvas-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cfs-editor-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  background: var(--gen-bg, #1a1a1a);
+}
+
+.cfs-editor-canvas-frame {
+  flex-shrink: 0;
+  flex-grow: 0;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.cfs-editor-canvas-wrap [data-fabric-canvas] {
+  box-shadow: none;
+  flex-shrink: 0;
+  flex-grow: 0;
+  display: block;
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.cfs-editor-canvas-wrap [data-fabric-canvas] canvas {
+  pointer-events: auto;
+  display: block;
+  box-sizing: border-box;
+}
+
+.cfs-editor-right-column {
+  width: 220px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  background: var(--gen-surface);
+  border-left: 1px solid var(--gen-border);
+  overflow: hidden;
+}
+
+.cfs-editor-layers-panel {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--gen-border);
+  overflow-y: auto;
+  max-height: 180px;
+}
+
+.cfs-editor-panel-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gen-muted);
+  margin-bottom: 8px;
+}
+
+.cfs-layer-item {
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cfs-layer-item:hover {
+  background: var(--gen-border);
+}
+
+.cfs-layer-item.active {
+  background: var(--gen-accent);
+  color: #fff;
+}
+
+.cfs-editor-property-panel {
+  flex: 1;
+  padding: 12px;
+  font-size: 12px;
+  overflow-y: auto;
+}
+
+.cfs-prop-linked {
+  font-size: 11px;
+  color: var(--gen-muted);
+  margin-bottom: 4px;
+}
+
+.cfs-prop-linked .cfs-prop-label strong {
+  color: var(--gen-text);
+}
+
+.cfs-properties-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gen-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cfs-properties-toggle:hover {
+  color: var(--gen-text);
+}
+
+.cfs-properties-chevron {
+  display: inline-block;
+  width: 14px;
+  margin-right: 4px;
+  font-size: 10px;
+}
+
+.cfs-properties-form-wrap {
+  overflow: hidden;
+}
+
+.cfs-properties-form-wrap.cfs-properties-collapsed {
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.cfs-properties-empty {
+  color: var(--gen-muted);
+  font-size: 12px;
+}
+
+.cfs-btn-delete {
+  margin-top: 12px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--gen-danger);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.cfs-btn-delete:hover {
+  opacity: 0.9;
+}
+
+.cfs-prop-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cfs-btn-secondary {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text);
+  cursor: pointer;
+}
+
+.cfs-btn-secondary:hover {
+  background: var(--gen-border);
+}
+
+.cfs-properties-editing {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--gen-text, #e8e8ed);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--gen-border, #2a2a32);
+}
+
+.cfs-editor-property-panel .cfs-prop-row {
+  margin-bottom: 8px;
+}
+
+.cfs-editor-property-panel label {
+  color: var(--gen-muted);
+}
+
+.cfs-editor-property-panel input {
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text);
+  padding: 4px 6px;
+}
+
+.cfs-editor-canvas-wrap.book-mode {
+  flex-direction: column;
+  align-items: center;
+}
+
+.cfs-editor-canvas-page {
+  position: relative;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  border: 1px solid var(--gen-border);
+}
+
+.cfs-editor-canvas-page .page-break-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -12px;
+  height: 2px;
+  background: var(--gen-accent);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.cfs-editor-timeline-wrap {
+  border-top: 1px solid var(--gen-border);
+  background: var(--gen-surface);
+  max-height: 180px;
+  overflow: auto;
+}
+
+.cfs-editor-timeline {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--gen-muted);
+}
+
+.cfs-editor-timeline-ruler {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  overflow-x: auto;
+}
+
+.cfs-editor-track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-top: 4px;
+}
+
+.cfs-editor-track-label {
+  flex-shrink: 0;
+  width: 52px;
+  font-size: 10px;
+  color: var(--gen-muted);
+}
+
+.cfs-editor-track {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+}
+
+.cfs-editor-clip {
+  height: 28px;
+  min-width: 40px;
+  background: var(--gen-accent);
+  border-radius: 4px;
+  flex-shrink: 0;
+  cursor: grab;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  color: #fff;
+  overflow: hidden;
+  user-select: none;
+}
+
+.cfs-editor-clip-audio {
+  background: #6366f1;
+}
+
+.cfs-editor-clip-tts { background: #059669; }
+.cfs-editor-clip-caption { background: #0d9488; }
+.cfs-editor-clip-tti { background: #7c3aed; }
+.cfs-editor-clip-luma { background: #4f46e5; }
+.cfs-editor-clip-html { background: #dc2626; }
+
+.cfs-editor-clip-resize {
+  flex: 0 0 6px;
+  cursor: ew-resize;
+  background: rgba(0, 0, 0, 0.2);
+}
+.cfs-editor-clip-resize:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+.cfs-editor-clip-resize-left { border-radius: 4px 0 0 4px; }
+.cfs-editor-clip-resize-right { border-radius: 0 4px 4px 0; }
+
+.cfs-editor-timeline-resize-wrap {
+  position: relative;
+}
+
+.cfs-editor-timeline-resize-handle:hover {
+  background: var(--gen-accent, #6366f1) !important;
+}
+
+.cfs-editor-timeline-area {
+  min-height: 80px;
+  height: 100%;
+  overflow: auto;
+}
+.cfs-editor-playhead {
+  top: 0;
+  bottom: 0;
+}
+.cfs-editor-timeline-ruler {
+  cursor: pointer;
+}
+.cfs-editor-timeline-toolbar {
+  flex-wrap: wrap;
+}
+.cfs-editor-timeline-toolbar button {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  flex-shrink: 0;
+}
+
+.cfs-editor-book-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--gen-surface);
+  border-top: 1px solid var(--gen-border);
+}
+
+.cfs-editor-book-pages {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.cfs-editor-book-page-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 12px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text);
+  cursor: pointer;
+}
+
+.cfs-editor-book-page-btn.active {
+  background: var(--gen-accent);
+  border-color: var(--gen-accent);
+  color: #fff;
+}
+
+.cfs-editor-export-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cfs-editor-export-group button {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.cfs-editor-dimensions {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--gen-muted);
+}
+
+.cfs-prop-align {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.cfs-prop-align .cfs-prop-label {
+  margin-right: 4px;
+  font-size: 11px;
+  color: var(--gen-muted);
+}
+
+.cfs-btn-align {
+  padding: 2px 6px;
+  font-size: 10px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 3px;
+  color: var(--gen-text);
+  cursor: pointer;
+}
+
+.cfs-btn-align:hover {
+  background: var(--gen-border);
+}
+
+.cfs-editor-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 140px;
+  padding: 4px 0;
+  background: var(--gen-surface);
+  border: 1px solid var(--gen-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.cfs-editor-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--gen-text);
+  cursor: pointer;
+}
+
+.cfs-editor-context-menu button:hover {
+  background: var(--gen-border);
+}
+
+.cfs-recording-status {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: var(--gen-surface);
+  border: 1px solid var(--gen-border);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--gen-muted);
+  z-index: 100;
+  display: none;
+}
+
+.cfs-unified-editor {
+  position: relative;
+}
+
+.cfs-unified-editor [data-fabric-canvas] {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+/* Walkthrough output panel */
+.cfs-editor-walkthrough-panel {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: var(--gen-bg);
+}
+
+.cfs-walkthrough-section {
+  margin-bottom: 20px;
+}
+
+.cfs-walkthrough-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: var(--gen-text);
+}
+
+.cfs-walkthrough-code {
+  margin: 0 0 8px 0;
+  padding: 12px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: monospace;
+  font-size: 12px;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.cfs-walkthrough-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.cfs-editor-hint {
+  font-size: 12px;
+  color: var(--gen-muted);
+  margin: 8px 0;
+}
+
+.cfs-editor-hint.error {
+  color: #c00;
+}
+
+.cfs-editor-elearning-content h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.cfs-editor-elearning-content p {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Edit step content (walkthrough panel) */
+.cfs-walkthrough-edit-section {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--gen-border);
+}
+
+.cfs-walkthrough-edit-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+
+.cfs-walkthrough-edit-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.cfs-walkthrough-edit-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cfs-walkthrough-edit-step label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gen-text);
+}
+
+.cfs-walkthrough-edit-step textarea,
+.cfs-walkthrough-edit-step input[type="text"] {
+  font-size: 12px;
+  padding: 6px 8px;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cfs-walkthrough-edit-step textarea {
+  min-height: 36px;
+  resize: vertical;
+}

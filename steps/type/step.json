@@ -1,0 +1,20 @@
+{
+  "id": "type",
+  "label": "Type",
+  "category": "interaction",
+  "description": "Type text into an input, textarea, or contenteditable. Value comes from the current row variable (e.g. spreadsheet column).",
+  "defaultAction": {
+    "type": "type",
+    "selectors": [],
+    "variableKey": "",
+    "optional": false,
+    "reactCompat": false
+  },
+  "inputs": [{ "key": "variableKey", "description": "Row variable or column name for the value to type" }],
+  "formSchema": [
+    { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "variableKey", "label": "Variable key (spreadsheet column)", "inputType": "text", "placeholder": "e.g. email, prompt" },
+    { "key": "optional", "label": "Optional (skip if element not found)", "inputType": "checkbox" },
+    { "key": "reactCompat", "label": "React compatibility (type char-by-char)", "inputType": "checkbox" }
+  ]
+}

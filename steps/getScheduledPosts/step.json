@@ -1,0 +1,23 @@
+{
+  "id": "getScheduledPosts",
+  "label": "Get Scheduled Posts",
+  "description": "Retrieve future scheduled posts from UploadPost API and local posts/ (status=scheduled).",
+  "category": "social",
+  "defaultAction": {
+    "type": "getScheduledPosts",
+    "runIf": "",
+    "userVariableKey": "",
+    "saveAsVariable": "scheduledPosts"
+  },
+  "inputs": [
+    { "key": "userVariableKey", "description": "Row variable for user filter (optional)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store array of scheduled post objects" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "userVariableKey", "label": "User variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Filter by user identifier." },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "scheduledPosts" }
+  ]
+}

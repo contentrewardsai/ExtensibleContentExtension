@@ -1,0 +1,121 @@
+{
+  "manifest_version": 3,
+  "name": "Extensible Content",
+  "version": "1.0.0",
+  "description": "Record workflows by performing tasks, analyze patterns across runs, and automate via spreadsheet-driven execution",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "alarms",
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "tabs",
+    "windows",
+    "sidePanel",
+    "tabCapture",
+    "offscreen",
+    "videoCapture",
+    "audioCapture"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://api.upload-post.com/*",
+    "https://api.shotstack.io/*",
+    "https://cdn.jsdelivr.net/*",
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://www.extensiblecontent.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "Extensible Content"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "shared/selectors.js",
+        "shared/recording-value.js",
+        "shared/selector-parity.js",
+        "shared/manifest-loader.js",
+        "shared/template-resolver.js",
+        "shared/personal-info-sync.js",
+        "steps/registry.js",
+        "steps/loader.js",
+        "content/recorder.js",
+        "content/player.js",
+        "content/auto-discovery.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.extensiblecontent.com/extension/*",
+        "http://localhost:3000/extension/*",
+        "http://127.0.0.1:3000/extension/*"
+      ],
+      "js": [
+        "content/whop-auth-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://www.extensiblecontent.com/*",
+      "http://localhost:3000/*",
+      "http://127.0.0.1:3000/*"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "docs/BACKEND.md",
+        "test/fixtures/record-playback-test.html",
+        "steps/manifest.json",
+        "steps/*/handler.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "models/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; object-src 'self'"
+  },
+  "sandbox": {
+    "pages": [
+      "sandbox/quality-check.html"
+    ]
+  }
+}

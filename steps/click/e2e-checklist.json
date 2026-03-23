@@ -1,0 +1,11 @@
+{
+  "section": "Click",
+  "items": [
+    {
+      "id": "basic",
+      "label": "Basic click",
+      "desc": "Add Click step, run. Element is clicked.",
+      "snippet": null
+    }
+  ]
+}

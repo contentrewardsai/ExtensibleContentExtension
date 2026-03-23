@@ -1,0 +1,15 @@
+{
+  "id": "click",
+  "label": "Click",
+  "category": "interaction",
+  "description": "Click an element on the page. Use selectors or Select on page to target the element.",
+  "defaultAction": {
+    "type": "click",
+    "selectors": [],
+    "optional": false
+  },
+  "formSchema": [
+    { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "optional", "label": "Optional (skip if element not found)", "inputType": "checkbox" }
+  ]
+}

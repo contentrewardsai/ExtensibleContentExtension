@@ -1,0 +1,28 @@
+{
+  "id": "qualityCheck",
+  "label": "Quality check",
+  "category": "flow",
+  "description": "After the workflow runs, compare output to input (embedding/Whisper or LaMini). Define pass/fail, comparison method, and whether to rerun on fail.",
+  "defaultAction": {
+    "type": "qualityCheck",
+    "enabled": true,
+    "threshold": 0.75,
+    "minOutputs": 1,
+    "rerunOnFail": true,
+    "maxRetries": 3,
+    "strategy": "retryOnFail",
+    "comparisonMethod": "auto"
+  },
+  "formSchema": [
+    { "key": "enabled", "label": "Enabled", "inputType": "checkbox" },
+    { "key": "threshold", "label": "Pass threshold (0–1)", "inputType": "number", "min": 0, "max": 1 },
+    { "key": "comparisonMethod", "label": "Comparison method", "inputType": "select", "options": [
+      { "value": "auto", "label": "Auto (LaMini then embedding)" },
+      { "value": "llm", "label": "LaMini only" },
+      { "value": "embedding", "label": "Embedding only (sandbox)" }
+    ]},
+    { "key": "minOutputs", "label": "Min outputs to look for", "inputType": "number", "min": 1 },
+    { "key": "rerunOnFail", "label": "Rerun on fail", "inputType": "checkbox" },
+    { "key": "maxRetries", "label": "Max retries", "inputType": "number", "min": 1 }
+  ]
+}

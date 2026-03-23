@@ -1,0 +1,24 @@
+{
+  "id": "deleteFollowingProfile",
+  "label": "Delete Following Profile",
+  "description": "Soft-delete a Following/Pulse profile by name or ID.",
+  "category": "following",
+  "inputs": [
+    { "key": "profileIdVariableKey", "label": "Profile ID variable", "type": "text", "hint": "Variable containing the profile ID" },
+    { "key": "profileNameVariableKey", "label": "Profile name variable", "type": "text", "hint": "Variable containing the profile name" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text", "default": "deleteResult" }
+  ],
+  "defaultAction": {
+    "type": "deleteFollowingProfile",
+    "profileIdVariableKey": "",
+    "profileNameVariableKey": "",
+    "saveAsVariable": "deleteResult"
+  },
+  "formSchema": [
+    { "key": "profileIdVariableKey", "label": "Profile ID variable", "type": "text" },
+    { "key": "profileNameVariableKey", "label": "Profile name variable", "type": "text" },
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text" }
+  ]
+}

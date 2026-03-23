@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Recorder integration – stop vs typing</title>
+</head>
+<body>
+  <p>Recorder integration tests (driven by Puppeteer via <code>?case=</code>).</p>
+  <script>
+    window.chrome = {
+      runtime: {
+        onMessage: {
+          addListener: function (fn) {
+            window.__recorderOnMessage = fn;
+          },
+        },
+      },
+    };
+    if (typeof window.__CFS_contentScriptRecorderInstalled !== 'undefined') {
+      try {
+        delete window.__CFS_contentScriptRecorderInstalled;
+      } catch (_) {}
+    }
+  </script>
+  <script src="../shared/selectors.js"></script>
+  <script src="../shared/recording-value.js"></script>
+  <script src="../content/recorder.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      function fail(msg) {
+        window.__RECORDER_TEST_RESULT__ = { ok: false, error: String(msg) };
+        window.__RECORDER_TEST_DONE__ = true;
+      }
+      function pass() {
+        window.__RECORDER_TEST_RESULT__ = { ok: true };
+        window.__RECORDER_TEST_DONE__ = true;
+      }
+
+      function sendRecorder(msg) {
+        var res;
+        if (typeof window.__recorderOnMessage !== 'function') {
+          fail('recorder onMessage not registered');
+          return null;
+        }
+        window.__recorderOnMessage(msg, {}, function (r) {
+          res = r;
+        });
+        return res;
+      }
+
+      function dispatchInput(el) {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
+      function dispatchEnter(el) {
+        el.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+        );
+      }
+
+      var caseParam = new URLSearchParams(location.search).get('case') || 'debounce';
+
+      window.__RECORDER_TEST_DONE__ = false;
+      window.__RECORDER_TEST_RESULT__ = null;
+
+      try {
+        if (caseParam === 'debounce') {
+          var r0 = sendRecorder({ type: 'RECORDER_START', workflowId: 't1' });
+          if (!r0 || !r0.ok) return fail('RECORDER_START: ' + JSON.stringify(r0));
+          var input = document.createElement('input');
+          input.type = 'text';
+          document.body.appendChild(input);
+          input.value = 'hello';
+          dispatchInput(input);
+          var stop = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stop || !stop.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stop));
+          var types = (stop.actions || []).filter(function (a) {
+            return a.type === 'type';
+          });
+          if (types.length !== 1) {
+            return fail('expected 1 type action, got ' + types.length + ': ' + JSON.stringify(stop.actions));
+          }
+          if (types[0].recordedValue !== 'hello') {
+            return fail('recordedValue expected hello, got ' + JSON.stringify(types[0].recordedValue));
+          }
+          return pass();
+        }
+
+        if (caseParam === 'stable') {
+          var r1 = sendRecorder({ type: 'RECORDER_START', workflowId: 't2' });
+          if (!r1 || !r1.ok) return fail('RECORDER_START: ' + JSON.stringify(r1));
+          var inp2 = document.createElement('input');
+          inp2.type = 'text';
+          document.body.appendChild(inp2);
+          inp2.value = 'x';
+          dispatchInput(inp2);
+          var stop2 = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stop2 || !stop2.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stop2));
+          var n = (stop2.actions || []).length;
+          setTimeout(function () {
+            var st = sendRecorder({ type: 'RECORDER_STATUS' });
+            if (!st || st.actionCount !== n) {
+              return fail(
+                'after 650ms RECORDER_STATUS actionCount ' +
+                  (st && st.actionCount) +
+                  ' !== stop actions length ' +
+                  n
+              );
+            }
+            pass();
+          }, 650);
+          return;
+        }
+
+        if (caseParam === 'enter') {
+          var r2 = sendRecorder({ type: 'RECORDER_START', workflowId: 't3' });
+          if (!r2 || !r2.ok) return fail('RECORDER_START: ' + JSON.stringify(r2));
+          var form = document.createElement('form');
+          var inp3 = document.createElement('input');
+          inp3.type = 'text';
+          inp3.name = 'q';
+          form.appendChild(inp3);
+          document.body.appendChild(form);
+          inp3.focus();
+          inp3.value = 'line';
+          dispatchInput(inp3);
+          dispatchEnter(inp3);
+          var stop3 = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stop3 || !stop3.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stop3));
+          var types3 = (stop3.actions || []).filter(function (a) {
+            return a.type === 'type';
+          });
+          if (types3.length !== 1) {
+            return fail('enter: expected 1 type, got ' + types3.length);
+          }
+          if (types3[0].recordedValue !== 'line') {
+            return fail('enter: recordedValue ' + JSON.stringify(types3[0].recordedValue));
+          }
+          setTimeout(function () {
+            var st3 = sendRecorder({ type: 'RECORDER_STATUS' });
+            var n3 = (stop3.actions || []).length;
+            if (!st3 || st3.actionCount !== n3) {
+              return fail('enter: status count drift');
+            }
+            pass();
+          }, 200);
+          return;
+        }
+
+        if (caseParam === 'contenteditable') {
+          var r3 = sendRecorder({ type: 'RECORDER_START', workflowId: 't4' });
+          if (!r3 || !r3.ok) return fail('RECORDER_START: ' + JSON.stringify(r3));
+          var div = document.createElement('div');
+          div.setAttribute('contenteditable', 'true');
+          document.body.appendChild(div);
+          div.textContent = '';
+          div.appendChild(document.createTextNode('ce'));
+          dispatchInput(div);
+          var stop4 = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stop4 || !stop4.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stop4));
+          var types4 = (stop4.actions || []).filter(function (a) {
+            return a.type === 'type';
+          });
+          if (types4.length !== 1) return fail('ce: expected 1 type');
+          if (types4[0].recordedValue !== 'ce') {
+            return fail('ce: value ' + JSON.stringify(types4[0].recordedValue));
+          }
+          return pass();
+        }
+
+        fail('unknown case: ' + caseParam);
+      } catch (e) {
+        fail(e && e.message ? e.message : String(e));
+      }
+    })();
+  </script>
+</body>
+</html>

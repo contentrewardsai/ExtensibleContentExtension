@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extensible Content</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="container">
+    <section class="backend-auth-section" id="backendAuthSection">
+      <div id="authLoggedOut" class="auth-form">
+        <p class="hint">Sign in to sync across devices and receive remote workflow triggers.</p>
+        <div class="form-row">
+          <button id="authLoginWhop" class="btn btn-primary">Login with Whop</button>
+        </div>
+        <div class="form-row auth-reload-row" style="margin-top:8px; gap:4px; align-items:center;">
+          <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root; workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
+          <span id="projectFolderStatusLoggedOut" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
+          <button type="button" id="reloadExtensionBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (chrome.runtime.reload). Rebuilds manifests only if a project folder is set; otherwise reloads code only. Use a normal webpage to record, not chrome://.">Reload Extension</button>
+          <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Open settings, API keys, and tests">Settings</button>
+        </div>
+      </div>
+      <div id="authLoggedIn" class="auth-logged-in" style="display:none">
+        <p><strong id="authUsernameDisplay"></strong> <span id="authProBadge" class="auth-pro-badge" style="display:none">Pro</span> <button id="authLogout" class="btn btn-outline btn-small">Log out</button> <span id="connectionStatusIcon" class="connection-status-icon" role="img" aria-label="Connection status" data-tooltip="Connection status"></span></p>
+        <div id="backendOfflineBanner" class="backend-offline-banner hint" style="display:none; margin-bottom:10px;" role="status">
+          Backend unavailable. Local workflows, playback, and generators (e.g. bulk images, book export) still work offline.
+        </div>
+        <div class="form-row auth-reload-row" style="margin-bottom:6px; gap:4px; align-items:center;">
+          <button type="button" id="reloadExtensionBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (no chrome://extensions needed). Rebuilds manifests when the project folder is set and writable; otherwise reloads code only. Record workflows on a normal https:// page, not chrome://.">Reload Extension</button>
+          <span id="reloadExtensionStatus" class="hint" style="font-size:11px; display:none;"></span>
+          <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root (ideally your extension folder for Load unpacked); workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
+          <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
+          <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Open settings, API keys, and tests">Settings</button>
+        </div>
+        <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Set your project folder so we can read and write workflows, steps, and plugins. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there and new steps/plugins load on reload. You can also choose another folder; we'll import what we can from it.</p>
+        <div class="sidebar-name-row form-row">
+          <label for="sidebarName"><strong>Sidebar Name:</strong></label>
+          <input type="text" id="sidebarName" placeholder="e.g. Office PC, Laptop">
+          <button id="saveSidebarName" class="btn btn-outline btn-small">Save</button>
+        </div>
+        <p id="sidebarNameSaveStatus" class="sidebar-save-status hint" style="display:none; margin:0 0 6px 0;"></p>
+      </div>
+      <div class="auth-project-row form-row" style="margin-top:6px;">
+        <label for="projectSelect" class="project-label"><strong>Project:</strong></label>
+        <select id="projectSelect" class="project-select" title="Select a project">
+          <option value="">— Select project —</option>
+        </select>
+        <button type="button" id="addProjectBtn" class="btn btn-outline btn-small" title="Add new project">+</button>
+        <button type="button" id="editProjectBtn" class="btn btn-outline btn-small" title="Edit selected project">Edit</button>
+        <button type="button" id="saveProjectBtn" class="btn btn-outline btn-small" title="Save as default project">Save</button>
+      </div>
+      <div id="addProjectForm" class="add-project-form" style="display:none">
+        <label for="newProjectName">Project Name</label>
+        <input type="text" id="newProjectName" placeholder="New project name">
+        <div class="add-project-industries">
+          <label class="add-project-platforms-heading">Industry</label>
+          <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Select one or more.</p>
+          <div id="newProjectIndustryCheckboxes" class="get-started-checkbox-group"></div>
+        </div>
+        <div class="add-project-platforms">
+          <label class="add-project-platforms-heading">Your platforms</label>
+          <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Where you create or publish content.</p>
+          <div id="newProjectPlatformCheckboxes" class="get-started-checkbox-group"></div>
+        </div>
+        <div class="add-project-monetization">
+          <label class="add-project-platforms-heading">What are you selling?</label>
+          <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Select one or more.</p>
+          <div id="newProjectMonetizationCheckboxes" class="get-started-checkbox-group"></div>
+        </div>
+        <div class="add-project-form-actions">
+          <button type="button" id="saveNewProjectBtn" class="btn btn-primary">Save</button>
+          <button type="button" id="cancelProjectFormBtn" class="btn btn-outline">Cancel</button>
+          <button type="button" id="deleteProjectBtn" class="btn btn-outline" style="margin-left:auto; color:var(--error-color,#c00); display:none;" title="Delete this project">Delete</button>
+        </div>
+      </div>
+      <p id="projectSaveStatus" class="project-save-status hint" style="display:none; margin:0 0 6px 0;"></p>
+    </section>
+
+    <header>
+      <nav class="header-tabs">
+        <button type="button" class="header-tab active" data-tab="automations">Plan</button>
+        <button type="button" class="header-tab" data-tab="pulse">Pulse</button>
+        <button type="button" class="header-tab" data-tab="activity">Activity</button>
+        <button type="button" class="header-tab" data-tab="library">Library</button>
+      </nav>
+    </header>
+
+    <section class="tab-panel activity-section" id="activityPanel" data-tab="activity" style="display:none">
+      <div class="chrome-upgrade-required" id="activityChromeUpgrade" style="display:none" role="alert">
+        <p>Please upgrade your version of Chrome to 116 or later for these features to work.</p>
+      </div>
+      <div class="activity-main-content">
+      <h2>Activity</h2>
+      <div class="activity-upcoming-section">
+        <h3 class="activity-heading">Upcoming &amp; in progress</h3>
+        <div id="activityCurrentBatch" class="activity-current-batch" style="display:none">
+          <p class="activity-batch-status" id="activityBatchStatus"></p>
+          <button type="button" id="activityCancelBatch" class="btn btn-outline btn-small">Cancel</button>
+        </div>
+        <div id="activityScheduledList" class="activity-scheduled-list"></div>
+        <p id="activityScheduledEmpty" class="hint activity-empty" style="display:none">No scheduled runs.</p>
+      </div>
+      <div class="activity-history-section">
+        <h3 class="activity-heading">Workflow run history</h3>
+        <div id="activityRunHistory" class="activity-run-history"></div>
+        <p id="activityHistoryEmpty" class="hint activity-empty" style="display:none">No runs yet.</p>
+      </div>
+      <div class="activity-upload-history-section">
+        <h3 class="activity-heading">Upload Post history</h3>
+        <div id="activityUploadPostHistory" class="activity-run-history"></div>
+        <p id="activityUploadPostHistoryEmpty" class="hint activity-empty" style="display:none">No Upload Post uploads yet.</p>
+      </div>
+      <div class="activity-socket-section">
+        <h3 class="activity-heading">Live activity</h3>
+        <p id="activitySocketStatus" class="socket-status hint" style="display:none"></p>
+        <div id="activitySocketMessageLog" class="socket-message-log hint" style="display:none"></div>
+      </div>
+      <div class="activity-sidebars-section">
+        <h3 class="activity-heading">Your connected sidebars</h3>
+        <div id="activityConnectedSidebars" class="activity-connected-sidebars"></div>
+        <p id="activitySidebarsEmpty" class="hint activity-empty" style="display:none">Sign in to see other sidebars. Configure get_sidebar_instances in backend to list them.</p>
+      </div>
+      </div>
+    </section>
+
+    <section class="tab-panel library-section" id="libraryPanel" data-tab="library" style="display:none">
+      <div class="chrome-upgrade-required" id="libraryChromeUpgrade" style="display:none" role="alert">
+        <p>Please upgrade your version of Chrome to 116 or later for these features to work.</p>
+      </div>
+      <div class="library-main-content">
+      <h2>Library</h2>
+      <div class="form-row" style="margin-bottom:12px">
+        <span id="libraryPendingCount" class="hint" style="display:none">0 pending generations to save.</span>
+        <button type="button" class="btn btn-primary btn-small" id="savePendingGenerationsBtn" style="display:none" title="Save queued generations to Library/{projectId}/generations/ with numeric names">Save pending generations</button>
+      </div>
+      <h3 class="activity-heading">Content Generator</h3>
+      <p class="hint" style="margin:0 0 8px 0;">Open the Content Generator in a new tab to create content.</p>
+      <button type="button" class="btn btn-outline" id="openGeneratorLink" title="Open in new tab">Content Generator</button>
+      <h3 class="activity-heading">Projects</h3>
+      <p id="libraryProjectsEmpty" class="hint activity-empty" style="display:none">Sign in to see projects. Generations save to <code>Library/{projectId}/generations/</code>.</p>
+      <p class="hint" style="margin:0 0 8px 0;">Click a project to open its uploads folder — then add subfolders, upload files, or download.</p>
+      <div id="libraryProjectsList" class="library-projects-list"></div>
+
+      <div id="uploadsBrowserWrap" class="uploads-browser-under-project" style="display:none; margin-top:8px; margin-left:12px; padding-left:12px; border-left:2px solid var(--border-color,#e5e5e7);">
+        <div class="uploads-toolbar form-row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <button type="button" class="btn btn-outline btn-small" id="uploadsPostsBtn" title="Open posts folder for this project (uploads/{projectId}/posts/)">Posts</button>
+          <button type="button" class="btn btn-outline btn-small" id="uploadsNewPostBtn" title="Create a new post folder with post.json" style="display:none;">New post</button>
+          <button type="button" class="btn btn-outline btn-small" id="uploadsNewSubfolderBtn" title="Create a new subfolder in current path">New subfolder</button>
+          <button type="button" class="btn btn-outline btn-small" id="uploadsUploadBtn" title="Copy files from your computer into this folder">Upload file(s)</button>
+        </div>
+        <div id="uploadsPostCard" class="uploads-post-card" style="display:none; margin-bottom:12px; padding:12px; border:1px solid var(--border-color,#e5e5e7); border-radius:8px; background:var(--bg-secondary,#f9f9f9);">
+          <div id="uploadsPostCardContent"></div>
+          <div class="form-row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
+            <button type="button" class="btn btn-outline btn-small" id="uploadsPostSetApiKeyBtn">Set Upload-Post API key</button>
+            <button type="button" class="btn btn-primary btn-small" id="uploadsPostSubmitBtn">Submit to Upload-Post</button>
+            <button type="button" class="btn btn-outline btn-small" id="uploadsPostCheckStatusBtn" title="Poll Upload-Post for request_id or job_id and update post.json">Check status</button>
+            <button type="button" class="btn btn-outline btn-small" id="uploadsPostCancelScheduledBtn" style="display:none;" title="Cancel this scheduled post on Upload-Post and clear job_id">Cancel scheduled</button>
+          </div>
+          <p id="uploadsPostCardStatus" class="hint" style="margin:8px 0 0 0; font-size:12px;"></p>
+        </div>
+        <div id="uploadsPathBar" class="hint" style="margin-bottom:6px;font-size:12px;"></div>
+        <div id="uploadsParentRow" style="margin-bottom:6px;display:none;">
+          <button type="button" class="btn btn-outline btn-small" id="uploadsParentBtn">↑ Parent folder</button>
+        </div>
+        <div id="uploadsList" class="uploads-list" style="min-height:60px;"></div>
+        <p id="uploadsEmpty" class="hint activity-empty" style="display:none;">This folder is empty. Add a subfolder or upload files.</p>
+      </div>
+      <p id="uploadsPrompt" class="hint" style="margin-top:12px;display:none;">Click a project above to open its uploads folder.</p>
+
+      <div class="library-categories-section">
+        <h3 class="activity-heading">Categories</h3>
+        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Browse workflows by category; highest rated at the top.</p>
+        <div id="workflowCategoryTabs" class="workflow-category-tabs"></div>
+        <div class="form-row" style="margin-top:8px">
+          <input type="text" id="workflowDiscoverySearch" placeholder="Search workflows…" class="get-started-search" style="flex:1;min-width:0">
+          <button type="button" id="workflowDiscoverySearchBtn" class="btn btn-outline btn-small">Search</button>
+        </div>
+        <div id="workflowDiscoveryResults" class="workflow-discovery-results hint" style="margin-top:8px;min-height:40px;">Select a category or search to see workflows.</div>
+      </div>
+
+      <h3 class="activity-heading" style="margin-top:24px;">Workflows</h3>
+      <div id="workflowContentRequiresProjectFolder" style="display:none">
+        <div class="create-workflow-row form-row" style="margin-bottom:8px">
+          <input type="text" id="newWorkflowName" placeholder="New workflow name">
+          <button id="createWorkflow" class="btn btn-primary">Create New Workflow</button>
+        </div>
+        <p class="hint" style="margin:0 0 6px;font-size:11px;">Manage workflows (add, import, export, sync) on the <strong>Settings</strong> page.</p>
+        <h3 class="your-workflows-heading" style="margin-top:12px;margin-bottom:6px;">Your workflows (local)</h3>
+        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Workflows are written to <code>workflows/{workflow-id}/</code> as <code>workflow-{id}-{version}.json</code> (highest number = latest). Synced to backend when you create or version.</p>
+        <div class="workflow-list" id="workflowList"></div>
+      </div>
+      <div id="versionHistoryPanel" class="version-history-panel" style="display:none">
+        <h3>Version history</h3>
+        <div id="versionHistoryList" class="version-history-list"></div>
+        <button id="closeVersionHistory" class="btn btn-outline">Close</button>
+      </div>
+
+      <section class="playback-section" style="margin-top:20px;">
+        <h2 class="playback-heading" style="display:none">Playback</h2>
+        <div class="playback-controls">
+          <div class="workflow-version-row" id="workflowVersionRow">
+            <label for="playbackWorkflow">Workflow</label>
+            <select id="playbackWorkflow" title="Select workflow and version to run"></select>
+            <button type="button" class="btn btn-small btn-outline" id="workflowNewVersionBtn" title="Save as new version (duplicate current)">+</button>
+            <button type="button" class="btn btn-small btn-outline" id="saveWorkflowToFolderBtn" title="Write to project folder: workflows/{id}/workflow-{id}-{version}.json (adds to existing; does not overwrite other versions)">Save to folder</button>
+            <button type="button" class="btn btn-small btn-outline" id="copyWorkflowBtn" title="Copy workflow JSON to clipboard (share or backup)">Copy workflow</button>
+          </div>
+        <div id="libraryPlaybackSlot">
+        <div id="sharedPlaybackBlock">
+        <details class="workflow-data-collapsible" id="workflowDataDetails" role="region" aria-label="Data input (variables/rows for this workflow)">
+          <summary>Data</summary>
+          <div id="dataPanel" class="data-panel" role="region" aria-label="Data input">
+          <p class="hint">Data columns and placeholders are set by the selected workflow. Paste CSV/JSON, import from URL/file, or add rows manually.</p>
+          <div class="import-export import-export-top">
+            <button id="loadFromPaste" class="btn btn-outline" title="Parse the pasted content below and load as rows.">Load from paste</button>
+            <button id="addExecutionRow" class="btn btn-outline" title="Add one empty execution row">+ Add execution</button>
+            <button id="importSpreadsheet" class="btn btn-outline" title="Select a CSV file from disk">Import CSV</button>
+            <button id="importJsonFile" class="btn btn-outline" title="Select a JSON file">Import JSON</button>
+            <button id="importFromUrl" class="btn btn-outline" title="Fetch data from a URL">From URL</button>
+            <button id="exportTemplate" class="btn btn-outline">Export CSV Template</button>
+            <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+            <input type="file" id="jsonFileInput" accept=".json" style="display:none">
+          </div>
+          <div id="workflowFormFields" class="workflow-form-fields" style="display:none"></div>
+          <div class="spreadsheet-input">
+            <label>Paste CSV or JSON (or add executions below):</label>
+            <textarea id="rowData" placeholder="Paste CSV or JSON (e.g. row_id, text), or add executions below."></textarea>
+          </div>
+          <div id="executionsListWrap" class="executions-list-wrap" style="display:none">
+            <label>Executions <span id="executionsCount" class="executions-count"></span></label>
+            <div id="executionsList" class="executions-list"></div>
+          </div>
+          </div>
+        </details>
+        <section class="steps-section" id="stepsSection">
+          <h2 class="steps-heading-row">Steps <span id="stepCount" class="step-count"></span>
+            <button type="button" class="btn btn-outline btn-small" id="recordWorkflowBtn" title="Record steps on the page (first time or new version)">Record workflow</button>
+            <button type="button" class="btn btn-outline btn-small" id="clearSelectorHighlightBtn" title="Remove the green selector highlight from the page">Clear highlight</button>
+          </h2>
+          <div class="steps-toolbar" style="display:none">
+            <button id="addEnsureSelectStep" class="btn btn-outline" title="Add step at start: ensure dropdown is set (e.g. Frames to Video). If already set, skips; otherwise clicks to change.">+ Ensure dropdown</button>
+            <button id="addWaitGenerationStep" class="btn btn-outline" title="Add wait step: polls until video[src] appears in the container (for AI video generation pages like Veo).">+ Wait for generation</button>
+          </div>
+          <div id="stepsList" class="steps-list"></div>
+        </section>
+        <div id="workflowProgressBlock" class="workflow-progress-block">
+          <p id="workflowProgressStatus" class="workflow-progress-status" aria-live="polite"></p>
+          <div id="inlineResultsSection" class="inline-results-section" style="display:none">
+            <h3 class="inline-results-heading">Results</h3>
+            <div id="inlineResultsContent" class="inline-results-content"></div>
+          </div>
+        </div>
+        <div class="row-nav" id="rowNav" style="display:none">
+          <span>Row <span id="currentRowNum">1</span> of <span id="totalRows">0</span></span>
+          <button id="prevRow" class="btn btn-outline">Prev</button>
+          <button id="nextRow" class="btn btn-outline">Next</button>
+          <button id="viewResultOnPage" class="btn btn-outline" title="Scroll to this row's result on the Flow page">View on page</button>
+          <button id="skipRow" class="btn btn-outline" title="Skip this row during Run All Rows">Skip</button>
+          <button id="deleteRow" class="btn btn-outline" title="Remove this row from the list">Delete</button>
+        </div>
+        <div id="countdownDisplay" class="countdown-display" style="display:none"></div>
+        <div class="btn-group">
+          <button id="runAllRows" class="btn btn-play" title="Run from current row to last (Ctrl+Shift+Enter). Delay between rows from last step.">Run All Rows</button>
+          <button id="runPlayback" class="btn btn-outline" title="Run Current Row (Ctrl+Enter / ⌘+Enter)">Run Current Row</button>
+          <button id="clearAllRows" class="btn btn-outline" title="Clear all imported rows from the list">Clear All Rows</button>
+          <button id="stopPlayback" class="btn btn-stop" style="display:none" title="Stop playback">Stop</button>
+          <button id="proceedToNextStep" class="btn btn-outline" style="display:none" title="Step is waiting for manual proceed (e.g. screen capture). Click when ready to continue.">Proceed</button>
+          <button id="recordNextStep" class="btn btn-outline" style="display:none" title="Stop playback, perform the next action on the page, then click Done to add it to the workflow">Record next step</button>
+          <button id="recordNextStepDone" class="btn btn-outline" style="display:none">Done</button>
+        </div>
+        <div class="btn-group" style="margin-top:6px;">
+          <button id="scheduleRun" class="btn btn-outline" title="Schedule this workflow to run at a later date and time">Schedule run</button>
+          <button id="scheduleFromData" class="btn btn-outline" title="Schedule multiple runs from CSV or JSON (one row per run)">Schedule from CSV/JSON</button>
+        </div>
+        <p id="workflowLastRunStatus" class="workflow-last-run-status hint" style="margin:6px 0 0 0;font-size:11px;min-height:16px;" aria-live="polite"></p>
+        <div id="scheduleRunForm" class="schedule-run-form" style="display:none">
+          <div class="step-field">
+            <label>Schedule type</label>
+            <select id="scheduleRunType">
+              <option value="once">One-time</option>
+              <option value="recurring">Recurring</option>
+            </select>
+          </div>
+          <div id="scheduleRunOnceFields" class="schedule-once-fields">
+            <label>Date &amp; time</label>
+            <input type="datetime-local" id="scheduleRunDateTime" min="">
+          </div>
+          <div id="scheduleRunRecurringFields" class="schedule-recurring-fields" style="display:none">
+            <div class="step-field">
+              <label>Timezone (e.g. America/New_York)</label>
+              <input type="text" id="scheduleRunTimezone" placeholder="America/New_York" value="America/New_York">
+            </div>
+            <div class="step-field">
+              <label>Time</label>
+              <input type="time" id="scheduleRunTime" value="09:00">
+            </div>
+            <div class="step-field">
+              <label>Pattern</label>
+              <select id="scheduleRunPattern">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div class="step-field schedule-run-dow" id="scheduleRunDowWrap" style="display:none">
+              <label>Day(s) of week (0=Sun … 6=Sat, comma-separated)</label>
+              <input type="text" id="scheduleRunDayOfWeek" placeholder="1,2,3,4,5">
+            </div>
+            <div class="step-field schedule-run-dom" id="scheduleRunDomWrap" style="display:none">
+              <label>Day of month (1–31)</label>
+              <input type="number" id="scheduleRunDayOfMonth" min="1" max="31" value="1">
+            </div>
+            <div class="step-field schedule-run-monthday" id="scheduleRunMonthDayWrap" style="display:none">
+              <label>Month/Day each year (e.g. 3/15)</label>
+              <input type="text" id="scheduleRunMonthDay" placeholder="3/15">
+            </div>
+          </div>
+          <div id="scheduleRunOnceTimezone" class="step-field" style="display:none">
+            <label>Timezone (optional, for display)</label>
+            <input type="text" id="scheduleRunOnceTz" placeholder="America/New_York">
+          </div>
+          <p class="hint">Scheduled runs appear under Activity → Upcoming. One-time runs at the set date/time; recurring runs at the set time (in that timezone) per pattern. Row data is stored with each schedule.</p>
+          <button type="button" id="scheduleRunSubmit" class="btn btn-primary">Add to schedule</button>
+          <button type="button" id="scheduleRunCancel" class="btn btn-outline">Cancel</button>
+        </div>
+        <div id="scheduleFromDataWrap" class="schedule-from-data-wrap" style="display:none">
+          <p class="hint">Paste CSV (header row + data) or JSON (array of objects). Each row becomes one scheduled run. Columns: <code>workflow_id</code> (optional), <code>run_at</code> (ISO datetime for one-time) or <code>schedule_type=recurring</code> with <code>timezone</code>, <code>time</code> (HH:mm), <code>pattern</code> (daily|weekly|monthly|yearly), <code>day_of_week</code>, <code>day_of_month</code>, <code>month_day</code> (M/D). Other columns become row data.</p>
+          <textarea id="scheduleFromDataInput" rows="8" placeholder="CSV or JSON..."></textarea>
+          <div class="form-row">
+            <button type="button" id="scheduleFromDataSubmit" class="btn btn-primary">Parse and schedule</button>
+            <button type="button" id="scheduleFromDataCancel" class="btn btn-outline">Cancel</button>
+          </div>
+        </div>
+        <div class="batch-config" id="batchConfig" style="display:none">
+          <label>Delay between runs (ms):</label>
+          <input type="number" id="batchDelayMs" value="30000" min="0" style="width:80px" title="Milliseconds between each row (e.g. 30000 = 30 seconds)">
+          <div class="batch-config-row">
+            <label><input type="checkbox" id="batchStopOnError" checked> Stop on first error</label>
+          </div>
+        </div>
+        </div>
+        </div>
+      </section>
+
+      </div>
+    </section>
+
+    <section class="tab-panel pulse-section" id="pulsePanel" data-tab="pulse" style="display:none">
+      <h2>Pulse</h2>
+      <div class="pulse-icon-row">
+        <a href="https://trends.google.com/trending" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="Google Trends – Trending now">
+          <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+            <polyline points="17 6 23 6 23 12"></polyline>
+          </svg>
+          <span class="pulse-icon-label">Google Trends</span>
+        </a>
+        <a href="https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="TikTok Trends – Hot content on TikTok">
+          <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/>
+          </svg>
+          <span class="pulse-icon-label">TikTok Trends</span>
+        </a>
+        <a href="https://www.facebook.com/watch/topic" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="Facebook Trends – Interest topic directory in Video">
+          <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
+          </svg>
+          <span class="pulse-icon-label">Facebook Trends</span>
+        </a>
+        <a href="https://x.com/explore?lang=en" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="X (Twitter) Trends – Explore">
+          <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+          </svg>
+          <span class="pulse-icon-label">X (Twitter) Trends</span>
+        </a>
+        <a href="https://trends.pinterest.com/" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="Pinterest Trends">
+          <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738.098.119.112.224.083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.214 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/>
+          </svg>
+          <span class="pulse-icon-label">Pinterest Trends</span>
+        </a>
+        <a href="https://www.reddit.com/r/popular/" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="Reddit (Popular)">
+          <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484 1.105 3.467 1.105.984 0 2.625-.263 3.467-1.105a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.547-1.691.73-2.556.73-1.026 0-2.031-.246-2.556-.73a.326.326 0 0 0-.232-.095z"/>
+          </svg>
+          <span class="pulse-icon-label">Reddit (Popular)</span>
+        </a>
+      </div>
+      <div class="following-section">
+        <div class="following-heading-row">
+          <h3 class="following-heading">Following:</h3>
+          <button type="button" id="followingAddNewBtn" class="btn btn-outline btn-small">Add New</button>
+        </div>
+        <div id="followingAddForm" class="following-add-form" style="display:none">
+          <input type="text" id="followingAddName" placeholder="Profile name" class="following-add-input">
+          <button type="button" id="followingAddSaveBtn" class="btn btn-primary btn-small">Save</button>
+        </div>
+        <div id="followingList" class="following-list"></div>
+        <p id="followingStatus" class="hint following-status" style="display:none;" role="status"></p>
+      </div>
+      <div class="connected-section">
+        <div class="connected-heading-row">
+          <h3 class="connected-heading">Connected:</h3>
+          <button type="button" id="connectedAddNewBtn" class="btn btn-outline btn-small">Add New</button>
+        </div>
+        <div id="connectedAddForm" class="connected-add-form" style="display:none">
+          <input type="text" id="connectedAddName" placeholder="Name" class="connected-add-input">
+          <button type="button" id="connectedAddSaveBtn" class="btn btn-primary btn-small">Save</button>
+        </div>
+        <div id="connectedProfilesList" class="connected-profiles-list"></div>
+        <p id="connectedProfilesStatus" class="hint connected-profiles-status" style="display:none;" role="status"></p>
+      </div>
+    </section>
+
+    <div class="tab-panel" id="automationsPanel" data-tab="automations">
+      <div class="chrome-upgrade-required" id="automationsChromeUpgrade" style="display:none" role="alert">
+        <p>Please upgrade your version of Chrome to 116 or later for these features to work.</p>
+      </div>
+      <div class="automations-main-content">
+      <div id="projectFolderBanner" class="project-folder-banner" style="display:none" role="alert">
+        <p>Set your project folder to create and run workflows and use exports.</p>
+        <button type="button" id="projectFolderBannerBtn" class="btn btn-primary btn-small">Set project folder</button>
+      </div>
+    <section class="process-section" id="processSection" style="display:none">
+      <h2>Process</h2>
+      <p class="hint">Chain workflows: Start → Loop (per row) → Quality check → End</p>
+      <div class="process-builder">
+        <div class="process-row">
+          <label>Start workflow</label>
+          <select id="processStartWorkflow">
+            <option value="">None</option>
+          </select>
+        </div>
+        <div class="process-row">
+          <label>Loop workflow</label>
+          <select id="processLoopWorkflow"></select>
+        </div>
+        <div class="process-row">
+          <label>Quality check workflow</label>
+          <select id="processQualityWorkflow">
+            <option value="">None</option>
+          </select>
+        </div>
+        <div class="process-row">
+          <label>End workflow</label>
+          <select id="processEndWorkflow">
+            <option value="">None</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <input type="text" id="processName" placeholder="Process name">
+          <button id="saveProcess" class="btn btn-primary">Save Process</button>
+          <button id="runProcess" class="btn btn-play">Run Process</button>
+        </div>
+        <div class="process-list" id="processList"></div>
+      </div>
+    </section>
+
+    <section class="process-export-section" style="display:none">
+      <h2>Import / Export</h2>
+      <div class="btn-group">
+        <button id="exportProcess" class="btn btn-outline">Export process (JSON)</button>
+        <button id="exportDataCSV" class="btn btn-outline">Export data (CSV)</button>
+        <button id="importProcess" class="btn btn-outline">Import process</button>
+        <input type="file" id="importProcessInput" accept=".json" style="display:none">
+      </div>
+    </section>
+
+    <section class="llm-chat-section" id="llmChatSection">
+      <h2>Local AI Chat</h2>
+      <div class="llm-chat-messages" id="llmChatMessages" role="log" aria-live="polite"></div>
+      <div class="llm-chat-input-row form-row">
+        <textarea id="llmChatInput" placeholder="How can I help?" rows="4" class="llm-chat-input"></textarea>
+        <div class="llm-chat-input-actions">
+          <label class="llm-chat-limit-site hint" title="Scope Q&amp;A search and new questions to the current tab site">
+            <input type="checkbox" id="llmChatLimitQaToSite" checked />
+            This site only
+          </label>
+          <button type="button" id="llmChatSubmitQuestionBtn" class="btn btn-outline btn-small">Submit last as question</button>
+          <button type="button" id="llmChatSendBtn" class="btn btn-primary btn-small">Send</button>
+        </div>
+      </div>
+      <p id="llmChatStatus" class="hint llm-chat-status" style="display:none;" role="status"></p>
+    </section>
+
+    <div id="recordingRequiresProjectFolder" style="display:none">
+      <section class="recording-section" id="recordingSection" style="margin-top:24px;">
+        <h3 class="activity-heading">Add / Edit Workflow</h3>
+        <div class="recording-controls">
+          <div class="plan-workflow-picker">
+            <div class="plan-workflow-picker-row plan-workflow-picker-name-row">
+              <label for="planWorkflowFamily" class="plan-workflow-picker-label">Workflow</label>
+              <select id="planWorkflowFamily" title="Workflow name"></select>
+            </div>
+            <div class="plan-workflow-picker-row plan-workflow-version-row">
+              <label for="planWorkflowVersion" class="plan-workflow-picker-label plan-workflow-version-label">Version</label>
+              <select id="planWorkflowVersion" title="Version" aria-label="Workflow version"></select>
+              <button type="button" id="planDeleteWorkflowVersionBtn" class="btn btn-small btn-outline" title="Delete this version (v1 cannot be removed)" disabled>Delete version</button>
+            </div>
+          </div>
+          <select id="workflowSelect" class="plan-workflow-id-select" aria-hidden="true" tabindex="-1"></select>
+        </div>
+        <div id="newWorkflowRow" class="form-row" style="display:none; margin-top:6px;">
+          <input type="text" id="recordingNewWorkflowName" placeholder="Workflow name">
+          <button type="button" id="recordingCreateWorkflowBtn" class="btn btn-primary btn-small">Create</button>
+        </div>
+        <div id="workflowUrlPatternPlan" style="display:none; margin-top:8px;">
+          <div id="workflowUrlPattern" class="url-pattern-row">
+            <label for="workflowStartUrl">Expected URL/domain:</label>
+            <input type="text" id="workflowStartUrl" placeholder="https://example.com or *.example.com">
+            <button type="button" id="openStartUrlBtn" class="btn btn-outline btn-small" title="Open this URL in a new tab (use before Run or Record)">Open start URL</button>
+          </div>
+          <div id="workflowAnswerToWrap" class="workflow-answer-to-row" style="display:none;margin-top:8px">
+            <span class="hint">Submit as answer to question:</span>
+            <select id="workflowAnswerToSelect" class="workflow-answer-to-select" title="Link this workflow as an answer to a question">
+              <option value="">— choose question —</option>
+            </select>
+            <button type="button" id="submitWorkflowAsAnswerBtn" class="btn btn-outline btn-small">Submit as answer</button>
+            <div id="workflowAnswersList" class="workflow-answers-list hint" style="margin-top:4px;font-size:11px;"></div>
+          </div>
+        </div>
+        <div id="planWorkflowSubTabs" class="sub-tabs" style="display:none; margin-top:10px;">
+          <button type="button" class="sub-tab active" data-subtab="record">Record Workflow</button>
+          <button type="button" class="sub-tab" data-subtab="editrun">Edit and Run Workflow</button>
+        </div>
+        <div id="workflowSelectedControls" style="display:none;">
+          <div id="planRecordPanel" data-subtab-panel="record">
+            <div id="personalInfoPanel" class="personal-info-panel" style="margin-top:12px;">
+              <h3 class="activity-heading">Personal information</h3>
+              <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Use <strong>Select on page</strong>, then drag to highlight the exact sensitive text (or click an element to mask its full text), or <strong>type a phrase</strong> below. We'll replace matches with a generic word or <strong>***</strong> for preview and runs. <strong>Published</strong> workflows only sync selector rules that do not include your phrase (<code>replaceWholeElement</code> / <code>replaceRegexInElement</code> in JSON); phrases and &quot;local only&quot; rows stay on this device.</p>
+              <div class="form-row" style="margin-bottom:6px">
+                <button type="button" id="selectPersonalInfoOnPageBtn" class="btn btn-outline btn-small">Select on page</button>
+              </div>
+              <div class="form-row" style="margin-bottom:8px; flex-wrap:wrap; align-items:center; gap:6px;">
+                <label for="personalInfoManualPhrase" class="hint" style="margin:0;font-size:11px;flex:1 1 100%;">Or type text to mask (anywhere it appears on the page):</label>
+                <input type="text" id="personalInfoManualPhrase" placeholder="e.g. Jane Doe or 555-0100" style="flex:1; min-width:120px; padding:4px 8px; font-size:12px;">
+                <input type="text" id="personalInfoManualReplacement" placeholder="Replace with (e.g. *** )" style="flex:1; min-width:100px; padding:4px 8px; font-size:12px;">
+                <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoManualLocalOnly"> Local only (never sync)</label>
+                <button type="button" id="personalInfoManualAddBtn" class="btn btn-primary btn-small">Add typed phrase</button>
+              </div>
+              <div id="personalInfoSelectedWrap" style="display:none; margin-bottom:8px;">
+                <div class="hint" style="font-size:11px;">Selected text:</div>
+                <div id="personalInfoSelectedText" class="personal-info-selected-text" style="margin:4px 0; padding:6px; background:#fff; border:1px solid #e5e5e7; border-radius:4px; font-size:12px; max-height:60px; overflow-y:auto;"></div>
+                <div class="form-row" style="margin-top:6px; align-items:center; gap:6px;">
+                  <label for="personalInfoReplacement" class="hint" style="font-size:11px; margin:0;">Replace with (generic word or ***):</label>
+                  <input type="text" id="personalInfoReplacement" placeholder="e.g. *** or Your Name" style="flex:1; min-width:0; padding:4px 8px; font-size:12px;">
+                  <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoPickerLocalOnly"> Local only</label>
+                  <button type="button" id="personalInfoAddToListBtn" class="btn btn-primary btn-small">Add to list</button>
+                </div>
+              </div>
+              <ul id="personalInfoList" class="personal-info-list hint" style="margin:0; padding-left:18px; font-size:12px;"></ul>
+              <button type="button" id="personalInfoPreviewToggle" class="btn btn-outline btn-small" style="margin-top:6px;">Preview on page</button>
+            </div>
+            <hr style="margin:16px 0 0 0; border:none; border-top:1px solid #d2d2d7;">
+            <h3 class="activity-heading" style="margin-top:12px;">Record Workflow</h3>
+            <div class="recording-mode-row" id="recordingModeRow" style="margin-top:12px;">
+              <span class="recording-mode-auto" id="recordingModeAuto"></span>
+            </div>
+            <div class="plan-record-media-section">
+              <div class="plan-record-media-section-title">Also capture media (optional)</div>
+              <div class="plan-record-media-grid">
+                <label class="plan-media-card">
+                  <input type="checkbox" id="planRecordScreen" class="plan-media-card-input" aria-label="Record screen">
+                  <span class="plan-media-card-face">
+                    <span class="plan-media-card-top">
+                      <span class="plan-media-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><circle cx="12" cy="10" r="2"/><path d="M8 20h8"/></svg>
+                      </span>
+                      <span class="plan-media-card-indicator" aria-hidden="true"><span class="plan-media-card-indicator-dot"></span></span>
+                    </span>
+                    <span class="plan-media-card-text">Screen</span>
+                  </span>
+                </label>
+                <label class="plan-media-card">
+                  <input type="checkbox" id="planRecordSystemAudio" class="plan-media-card-input" aria-label="Record computer audio">
+                  <span class="plan-media-card-face">
+                    <span class="plan-media-card-top">
+                      <span class="plan-media-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3,9 7,9 11,5 11,19 7,15 3,15"/><path d="M15 9c2 2 2 4 0 6"/></svg>
+                      </span>
+                      <span class="plan-media-card-indicator" aria-hidden="true"><span class="plan-media-card-indicator-dot"></span></span>
+                    </span>
+                    <span class="plan-media-card-text">Output</span>
+                  </span>
+                </label>
+                <label class="plan-media-card">
+                  <input type="checkbox" id="planRecordMic" class="plan-media-card-input" aria-label="Record microphone audio">
+                  <span class="plan-media-card-face">
+                    <span class="plan-media-card-top">
+                      <span class="plan-media-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+                      </span>
+                      <span class="plan-media-card-indicator" aria-hidden="true"><span class="plan-media-card-indicator-dot"></span></span>
+                    </span>
+                    <span class="plan-media-card-text">Mic</span>
+                  </span>
+                </label>
+                <label class="plan-media-card">
+                  <input type="checkbox" id="planRecordWebcam" class="plan-media-card-input" aria-label="Record webcam video (separate file)">
+                  <span class="plan-media-card-face">
+                    <span class="plan-media-card-top">
+                      <span class="plan-media-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="13" height="10" rx="2"/><polygon points="16,9 21,7 21,17 16,15"/></svg>
+                      </span>
+                      <span class="plan-media-card-indicator" aria-hidden="true"><span class="plan-media-card-indicator-dot"></span></span>
+                    </span>
+                    <span class="plan-media-card-text">Webcam</span>
+                  </span>
+                </label>
+              </div>
+              <p class="plan-record-media-hint hint">Unchecked = action-only. Screen: personal-info masking applies to the <strong>tab you record</strong>. Chrome may show a share picker; mic prompts separately. Webcam is a second video file—use with screen so Analyze can align clips per step.</p>
+            </div>
+            <div class="btn-group" style="margin-top:8px;">
+              <button id="startRecord" class="btn btn-record">Start Recording</button>
+              <button id="stopRecord" class="btn btn-stop" disabled>Stop Recording</button>
+            </div>
+            <div id="recordingInstruction" class="recording-instruction hint" style="display:none; margin:8px 0; padding:8px; background:#f0f7ff; border-radius:6px; border:1px solid #b8d4f0;"></div>
+            <p class="hint">Record 2–5 runs of the same task to improve pattern matching. After recording, click <strong>Analyze Runs → Create Workflow Steps</strong> below to turn your recording into steps.</p>
+            <div class="runs-list" id="runsList"></div>
+
+            <hr style="margin:16px 0 0 0; border:none; border-top:1px solid #d2d2d7;">
+            <section class="analyze-section" id="analyzeSection" style="margin-top:12px;">
+              <h3 class="activity-heading">Analyze &amp; Export</h3>
+              <div class="btn-group" style="margin-top:8px; flex-wrap:wrap; align-items:center; gap:8px;">
+                <button id="analyzeWorkflow" class="btn btn-secondary">Analyze Runs → Create Workflow Steps</button>
+              </div>
+              <div id="analyzeResult" class="analyze-result"></div>
+              <details id="variationReportDetails" class="variation-report-details">
+                <summary>Run variation report</summary>
+                <div id="variationReport" class="variation-report"></div>
+              </details>
+            </section>
+          </div>
+          <div id="planEditRunPanel" data-subtab-panel="editrun" style="display:none;">
+            <div id="planEditRunSlot"></div>
+          </div>
+        </div>
+    </div>
+
+      </div>
+    </div>
+
+    <section class="status-section">
+      <div id="status" class="status"></div>
+      <button type="button" id="statusReloadPageBtn" class="btn btn-small btn-outline" style="display:none; margin-top:6px;">Reload page</button>
+      <div id="rerecordCtaWrap" class="rerecord-cta-wrap" style="display:none; margin-top:10px; padding:10px; background:var(--warning-bg, #fef3cd); border:1px solid var(--warning-border, #f0ad4e); border-radius:6px;">
+        <p id="rerecordCtaMessage" class="rerecord-cta-message" style="margin:0 0 8px 0; font-size:12px;"></p>
+        <div class="rerecord-cta-buttons" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="rerecordStepBtn" class="btn btn-small">Re-record this step</button>
+          <button type="button" id="rerecordWorkflowBtn" class="btn btn-small btn-outline">Re-record workflow</button>
+          <button type="button" id="rerecordCtaDismiss" class="btn btn-small btn-outline">Dismiss</button>
+        </div>
+      </div>
+      <div id="suggestSelectorsCtaWrap" class="suggest-selectors-cta-wrap" style="display:none; margin-top:10px; padding:10px; background:#e8f4fd; border:1px solid #0d6efd; border-radius:6px;">
+        <p id="suggestSelectorsCtaMessage" class="suggest-selectors-cta-message" style="margin:0 0 8px 0; font-size:12px;"></p>
+        <div class="suggest-selectors-cta-buttons" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="suggestSelectorsReplaceBtn" class="btn btn-small btn-primary">Replace selectors</button>
+          <button type="button" id="suggestSelectorsMergeBtn" class="btn btn-small btn-outline">Merge as fallbacks</button>
+          <button type="button" id="suggestSelectorsCancelBtn" class="btn btn-small btn-outline">Cancel</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="../config/whop-auth.example.js"></script>
+  <script src="../config/whop-auth.js"></script>
+  <script src="../extension/config.js"></script>
+  <script src="../extension/api.js"></script>
+  <script src="../extension/following-sync-core.js"></script>
+  <script src="../extension/sidebars-api.js"></script>
+  <script src="../shared/upload-post.js"></script>
+  <script src="../shared/selectors.js"></script>
+  <script src="../shared/analyzer.js"></script>
+  <script src="../shared/discovery-selector-filters.js"></script>
+  <script src="../shared/discovery-from-analyze.js"></script>
+  <script src="../shared/cross-workflow-selectors.js"></script>
+  <script src="../shared/selector-parity.js"></script>
+  <script src="../shared/run-variation.js"></script>
+  <script src="../shared/step-validator.js"></script>
+  <script src="../steps/sidepanel-registry.js"></script>
+  <script src="../steps/sidepanel-loader.js"></script>
+  <script src="../shared/workflow-setup-constants.js"></script>
+  <script src="../shared/personal-info-sync.js"></script>
+  <script src="../shared/step-comment.js"></script>
+  <script src="../shared/walkthrough-export.js"></script>
+  <script src="../lib/ffmpeg/ffmpeg.js"></script>
+  <script src="../shared/ffmpeg-local.js"></script>
+  <script src="../shared/run-video-segments.js"></script>
+  <script src="../shared/plan-capture-idb.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

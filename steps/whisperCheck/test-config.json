@@ -1,0 +1,10 @@
+{
+  "e2e": {
+    "workflowId": "e2e-test-whisperCheck",
+    "rows": [{ "transcript": "hello world", "expectedText": "hello world" }],
+    "assert": "smoke",
+    "prereqs": ["qc"],
+    "skipInCI": false,
+    "skipReason": ""
+  }
+}

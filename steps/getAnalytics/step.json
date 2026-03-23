@@ -1,0 +1,26 @@
+{
+  "id": "getAnalytics",
+  "label": "Get Analytics",
+  "category": "data",
+  "description": "Retrieve detailed analytics and performance metrics for a social media profile. Supports Instagram, TikTok, LinkedIn, Facebook, X, YouTube, Threads, Pinterest, and Reddit.",
+  "defaultAction": {
+    "type": "getAnalytics",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "profileUsernameVariableKey": "profileUsername",
+    "saveAsVariable": "analytics"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "profileUsernameVariableKey", "description": "Row variable for the profile username to retrieve analytics for" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store analytics data (followers, impressions, reach, etc.)" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "profileUsernameVariableKey", "label": "Profile username variable key", "inputType": "text", "placeholder": "profileUsername", "hint": "The Upload Post profile username." },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "analytics" }
+  ]
+}

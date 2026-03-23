@@ -1,0 +1,15 @@
+{
+  "id": "goToUrl",
+  "label": "Go to URL",
+  "category": "flow",
+  "description": "Navigate the current tab to a URL. Use a fixed URL or a row variable (e.g. url, pageUrl).",
+  "defaultAction": {
+    "type": "goToUrl",
+    "url": "",
+    "variableKey": ""
+  },
+  "formSchema": [
+    { "key": "url", "label": "URL", "inputType": "text", "placeholder": "https://example.com or leave empty to use row value" },
+    { "key": "variableKey", "label": "Row variable (if URL empty)", "inputType": "text", "placeholder": "e.g. url or pageUrl" }
+  ]
+}

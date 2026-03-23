@@ -1,0 +1,17 @@
+{
+  "id": "key",
+  "label": "Send key",
+  "category": "interaction",
+  "description": "Dispatch a key (e.g. Escape) to close menus or trigger shortcuts. Does not require an element.",
+  "defaultAction": {
+    "type": "key",
+    "key": "Escape",
+    "count": 1,
+    "optional": false
+  },
+  "formSchema": [
+    { "key": "key", "label": "Key name", "inputType": "text", "placeholder": "Escape" },
+    { "key": "count", "label": "Times to send", "inputType": "number", "placeholder": "1" },
+    { "key": "optional", "label": "Optional", "inputType": "checkbox" }
+  ]
+}

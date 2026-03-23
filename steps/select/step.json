@@ -1,0 +1,18 @@
+{
+  "id": "select",
+  "label": "Select",
+  "category": "interaction",
+  "description": "Select an option in a dropdown. Value comes from the current row variable.",
+  "defaultAction": {
+    "type": "select",
+    "selectors": [],
+    "variableKey": "",
+    "optional": false
+  },
+  "inputs": [{ "key": "variableKey", "description": "Row variable for the option value or text to select" }],
+  "formSchema": [
+    { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "variableKey", "label": "Variable key (spreadsheet column)", "inputType": "text", "placeholder": "e.g. optionValue" },
+    { "key": "optional", "label": "Optional (skip if element not found)", "inputType": "checkbox" }
+  ]
+}

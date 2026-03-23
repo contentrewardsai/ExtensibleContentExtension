@@ -1,0 +1,24 @@
+{
+  "id": "waitForVideos",
+  "label": "Wait for videos",
+  "category": "flow",
+  "description": "Wait for video(s) to appear in a list item (e.g. Veo virtuoso). Optionally require videos to be rendered before continuing.",
+  "defaultAction": {
+    "type": "waitForVideos",
+    "listSelector": "[data-testid=\"virtuoso-item-list\"]",
+    "itemSelector": "[data-index]",
+    "whichItem": "last",
+    "requireRendered": true,
+    "failedGenerationPhrases": ["failed generation", "generation failed"],
+    "timeoutMs": 300000
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "" },
+    { "key": "listSelector", "label": "List selector", "inputType": "text", "pickOnPage": true },
+    { "key": "itemSelector", "label": "Item selector (within list)", "inputType": "text", "placeholder": "[data-index]" },
+    { "key": "whichItem", "label": "Which item", "inputType": "text", "placeholder": "last or first" },
+    { "key": "requireRendered", "label": "Require videos rendered", "inputType": "checkbox" },
+    { "key": "failedGenerationPhrases", "label": "Failed generation phrases (JSON array)", "inputType": "textarea" },
+    { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "min": 15000 }
+  ]
+}

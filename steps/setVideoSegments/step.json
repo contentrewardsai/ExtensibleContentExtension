@@ -1,0 +1,22 @@
+{
+  "id": "setVideoSegments",
+  "label": "Set video segments",
+  "category": "data",
+  "description": "Store video segment references for Combine videos. Use Intro/Main/Outro (2–3 clips) or List mode for any number of segments (2, 4, 5…). Resolves {{variable}} from row.",
+  "defaultAction": {
+    "type": "setVideoSegments",
+    "mode": "introMainOutro",
+    "introVariable": "",
+    "mainVariable": "{{generatedVideo}}",
+    "outroVariable": "",
+    "segmentsList": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{generatedVideo}}" },
+    { "key": "mode", "label": "Mode", "inputType": "select", "options": [["introMainOutro", "Intro / Main / Outro (2–3)"], ["list", "List (any number)"]], "default": "introMainOutro" },
+    { "key": "introVariable", "label": "Intro video (variable or URL)", "inputType": "text", "placeholder": "{{introVideo}} or leave empty" },
+    { "key": "mainVariable", "label": "Main video (variable or URL)", "inputType": "text", "placeholder": "{{generatedVideo}}" },
+    { "key": "outroVariable", "label": "Outro video (variable or URL)", "inputType": "text", "placeholder": "{{outroVideo}} or leave empty" },
+    { "key": "segmentsList", "label": "Segment variables or URLs (one per line or comma-separated)", "inputType": "textarea", "placeholder": "{{intro}}\n{{main}}\n{{outro}} or {{clip1}}, {{clip2}}, {{clip3}}, {{clip4}}" }
+  ]
+}

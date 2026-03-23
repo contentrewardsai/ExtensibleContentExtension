@@ -1,0 +1,18 @@
+{
+  "id": "runGenerator",
+  "label": "Run generator",
+  "category": "data",
+  "description": "Send data to a content generator plugin and get back image, video, or text. Map workflow variables to generator inputs; save output to a variable for later steps.",
+  "defaultAction": {
+    "type": "runGenerator",
+    "pluginId": "ad-apple-notes",
+    "inputMap": {},
+    "saveAsVariable": "generatedImage"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (row variable; skip step when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{prompt}} or leave empty" },
+    { "key": "pluginId", "label": "Generator plugin", "inputType": "select", "optionsSource": "generatorPlugins" },
+    { "key": "inputMap", "label": "Input mapping (generator input id → workflow variable or literal)", "inputType": "textarea", "rows": 4, "hint": "JSON object, e.g. {\"headline\": \"{{title}}\", \"body\": \"{{description}}\"}" },
+    { "key": "saveAsVariable", "label": "Save output to variable name", "inputType": "text", "placeholder": "e.g. generatedImage" }
+  ]
+}

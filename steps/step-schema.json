@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "content-for-sales-step-definition",
+  "title": "Step Definition",
+  "description": "Schema for steps/{id}/step.json. See docs/STEP_PLUGINS.md.",
+  "type": "object",
+  "required": ["id", "label", "defaultAction"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "description": "Step type ID (must match action.type)" },
+    "label": { "type": "string", "minLength": 1, "description": "Display name" },
+    "category": { "type": "string", "description": "Group for menus (e.g. interaction, data, flow)" },
+    "description": { "type": "string", "description": "Short help text" },
+    "defaultAction": {
+      "type": "object",
+      "description": "Object used when inserting a new step. Must include type",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string" }
+      }
+    },
+    "formSchema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "label": { "type": "string" },
+          "inputType": { "type": "string", "enum": ["text", "number", "textarea", "checkbox", "select", "radio"] },
+          "pickOnPage": { "type": "boolean" },
+          "placeholder": { "type": "string" },
+          "min": { "type": "number" },
+          "rows": { "type": "number" },
+          "options": { "type": "array" },
+          "hint": { "type": "string" }
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": { "type": "object", "properties": { "key": { "type": "string" }, "description": { "type": "string" } } }
+    },
+    "outputs": {
+      "type": "array",
+      "items": { "type": "object", "properties": { "key": { "type": "string" }, "description": { "type": "string" } } }
+    },
+    "variables": { "type": "array", "items": { "type": "string" } },
+    "wait": { "type": "object" },
+    "success": { "type": "object" },
+    "failure": { "type": "object" },
+    "conditions": { "type": "object" },
+    "loops": { "type": "object" }
+  }
+}

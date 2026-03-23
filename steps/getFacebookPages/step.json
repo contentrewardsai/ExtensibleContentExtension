@@ -1,0 +1,26 @@
+{
+  "id": "getFacebookPages",
+  "label": "Get Facebook Pages",
+  "category": "data",
+  "description": "Retrieve Facebook pages accessible through connected Upload Post accounts. Returns page IDs, names, and profile associations.",
+  "defaultAction": {
+    "type": "getFacebookPages",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "profileVariableKey": "",
+    "saveAsVariable": "facebookPages"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "profileVariableKey", "description": "Row variable for profile username (optional, filters to one profile)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the array of Facebook pages" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "profileVariableKey", "label": "Profile variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Filter results to a specific profile." },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "facebookPages" }
+  ]
+}

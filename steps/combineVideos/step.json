@@ -1,0 +1,24 @@
+{
+  "id": "combineVideos",
+  "label": "Combine videos",
+  "category": "data",
+  "description": "Combine 2, 3, 4 or more video segments (from Set video segments or JSON). Optional: image overlays, extra audio tracks. Use mismatch strategy when mixing aspect ratios: crop, zoom, letterbox, or error.",
+  "defaultAction": {
+    "type": "combineVideos",
+    "saveAsVariable": "combinedVideo",
+    "useSegmentsFromVariable": "videoSegments",
+    "outputWidth": 1280,
+    "outputHeight": 720,
+    "mismatchStrategy": "crop"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{mainVideo}}" },
+    { "key": "useSegmentsFromVariable", "label": "Segments from variable (object with intro/main/outro or list array)", "inputType": "text", "placeholder": "videoSegments" },
+    { "key": "overlaysFromVariable", "label": "Overlays from variable (optional, array)", "inputType": "text", "placeholder": "" },
+    { "key": "audioTracksFromVariable", "label": "Audio tracks from variable (optional, array)", "inputType": "text", "placeholder": "" },
+    { "key": "outputWidth", "label": "Output width", "inputType": "number", "default": 1280 },
+    { "key": "outputHeight", "label": "Output height", "inputType": "number", "default": 720 },
+    { "key": "mismatchStrategy", "label": "If aspect ratio differs (crop/zoom/letterbox/error)", "inputType": "select", "options": ["crop", "zoom", "letterbox", "error"] },
+    { "key": "saveAsVariable", "label": "Save combined video to variable", "inputType": "text", "placeholder": "combinedVideo" }
+  ]
+}

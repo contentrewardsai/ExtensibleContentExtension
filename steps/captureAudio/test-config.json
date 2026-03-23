@@ -1,0 +1,10 @@
+{
+  "e2e": {
+    "workflowId": "e2e-test-captureAudio",
+    "rows": [{}],
+    "assert": "smoke",
+    "prereqs": ["fixture"],
+    "skipInCI": false,
+    "skipReason": ""
+  }
+}

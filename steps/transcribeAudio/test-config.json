@@ -1,0 +1,10 @@
+{
+  "e2e": {
+    "workflowId": "e2e-test-transcribeAudio",
+    "rows": [{ "capturedAudio": "__TINY_AUDIO_URL__" }],
+    "assert": "smoke",
+    "prereqs": ["qc"],
+    "skipInCI": false,
+    "skipReason": ""
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "id": "renderShotstack",
+  "label": "Render with ShotStack",
+  "category": "data",
+  "description": "Render video or audio via the ShotStack cloud API. Uses the current generator template JSON or a ShotStack JSON from a workflow variable. Polls for completion and saves the result URL.",
+  "defaultAction": {
+    "type": "renderShotstack",
+    "runIf": "",
+    "shotstackJsonVariableKey": "",
+    "environment": "stage",
+    "outputFormat": "mp4",
+    "resolutionScale": "auto",
+    "saveAsVariable": "shotstackResult",
+    "saveRenderIdVariable": "",
+    "timeoutMs": 300000,
+    "projectId": ""
+  },
+  "inputs": [
+    { "key": "shotstackJsonVariableKey", "description": "Row variable containing ShotStack JSON. Leave empty to use the current generator template." },
+    { "key": "environment", "description": "ShotStack API environment: stage (sandbox, watermarked) or v1 (production)." },
+    { "key": "outputFormat", "description": "Output format: mp4, gif, mp3, wav." },
+    { "key": "resolutionScale", "description": "Resolution scaling: auto (cap at 1080p equivalent), or a specific scale like 0.5, 1." },
+    { "key": "projectId", "description": "Project ID for saving the generation to the project folder. Leave empty to skip." }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the rendered file URL." },
+    { "key": "saveRenderIdVariable", "description": "Row variable to store the ShotStack render ID." }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "shotstackJsonVariableKey", "label": "ShotStack JSON variable key", "inputType": "text", "placeholder": "e.g. shotstackTemplate", "hint": "Row variable containing a ShotStack JSON object with a timeline. Required in workflow mode. Use the generator Render ShotStack button for the current template." },
+    { "key": "environment", "label": "Environment", "inputType": "select", "options": [{ "value": "stage", "label": "Staging (watermarked)" }, { "value": "v1", "label": "Production" }] },
+    { "key": "outputFormat", "label": "Output format", "inputType": "select", "options": [{ "value": "mp4", "label": "MP4 (video)" }, { "value": "gif", "label": "GIF (animated)" }, { "value": "mp3", "label": "MP3 (audio)" }, { "value": "wav", "label": "WAV (audio)" }] },
+    { "key": "resolutionScale", "label": "Resolution scale", "inputType": "text", "placeholder": "auto", "hint": "'auto' caps at 1080p equivalent. Or set a number like 0.5, 1, 1.5." },
+    { "key": "saveAsVariable", "label": "Save result URL to variable", "inputType": "text", "placeholder": "shotstackResult" },
+    { "key": "saveRenderIdVariable", "label": "Save render ID to variable", "inputType": "text", "placeholder": "" },
+    { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "placeholder": "300000", "min": 30000, "hint": "Max wait for render completion. Default 5 minutes." },
+    { "key": "projectId", "label": "Project ID (for generation history)", "inputType": "text", "placeholder": "{{projectId}}", "hint": "Set to save this render to the project's generation history. Supports template variables." }
+  ]
+}

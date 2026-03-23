@@ -1,0 +1,29 @@
+{
+  "id": "getInstagramComments",
+  "label": "Get Instagram Comments",
+  "category": "data",
+  "description": "Retrieve comments on an Instagram post. Supports both media IDs and post URLs. Requires instagram_business_manage_comments permission.",
+  "defaultAction": {
+    "type": "getInstagramComments",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "mediaIdVariableKey": "",
+    "postUrlVariableKey": "",
+    "saveAsVariable": "instagramComments"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "mediaIdVariableKey", "description": "Row variable for Instagram media ID" },
+    { "key": "postUrlVariableKey", "description": "Row variable for Instagram post URL (alternative to media ID)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the array of comments" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "mediaIdVariableKey", "label": "Media ID variable key", "inputType": "text", "placeholder": "mediaId", "hint": "Instagram media ID. Use this or post URL." },
+    { "key": "postUrlVariableKey", "label": "Post URL variable key", "inputType": "text", "placeholder": "postUrl", "hint": "Instagram post URL. Use this or media ID." },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "instagramComments" }
+  ]
+}

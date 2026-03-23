@@ -1,0 +1,12 @@
+{
+  "version": "1",
+  "description": "Registry of generator templates. Each template has template.json (ShotStack format with __CFS_ editor metadata in merge fields).",
+  "templates": [
+    "ad-apple-notes",
+    "ad-facebook",
+    "ad-twitter",
+    "ad-real-estate",
+    "blank-canvas",
+    "color-block"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "download",
+  "label": "Download",
+  "category": "interaction",
+  "description": "Trigger a file download. The download URL can come from the current row variable or from a link/button on the page.",
+  "defaultAction": {
+    "type": "download",
+    "selectors": [],
+    "variableKey": "",
+    "optional": false
+  },
+  "inputs": [{ "key": "variableKey", "description": "Row variable for download URL (optional)" }],
+  "formSchema": [
+    { "key": "selectors", "label": "Selectors (JSON) – link or button to click", "inputType": "textarea", "pickOnPage": true },
+    { "key": "variableKey", "label": "Variable key for download URL (optional)", "inputType": "text", "placeholder": "downloadUrl" },
+    { "key": "optional", "label": "Optional", "inputType": "checkbox" }
+  ]
+}

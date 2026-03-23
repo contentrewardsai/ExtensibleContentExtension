@@ -1,0 +1,24 @@
+{
+  "id": "deleteFollowingDetail",
+  "label": "Delete Following Detail",
+  "description": "Remove a specific account, phone, email, address, or note from a Following profile.",
+  "category": "following",
+  "inputs": [
+    { "key": "detailTypeVariableKey", "label": "Detail type variable", "type": "text", "hint": "Variable containing type: account, phone, email, address, or note" },
+    { "key": "detailIdVariableKey", "label": "Detail ID variable", "type": "text", "hint": "Variable containing the detail ID to delete" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text", "default": "deleteDetailResult" }
+  ],
+  "defaultAction": {
+    "type": "deleteFollowingDetail",
+    "detailTypeVariableKey": "detailType",
+    "detailIdVariableKey": "detailId",
+    "saveAsVariable": "deleteDetailResult"
+  },
+  "formSchema": [
+    { "key": "detailTypeVariableKey", "label": "Detail type variable", "type": "text" },
+    { "key": "detailIdVariableKey", "label": "Detail ID variable", "type": "text" },
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text" }
+  ]
+}

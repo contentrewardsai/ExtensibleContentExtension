@@ -1,0 +1,24 @@
+{
+  "id": "llm",
+  "label": "Call LLM",
+  "category": "data",
+  "description": "Send a prompt (with {{variables}} from the row) to the local LaMini model (Xenova/LaMini-Flan-T5-783M). Response types: true/false, plain text, or text with feedback. Save the result to a row variable. Requires the model to be downloaded (see models/README.md).",
+  "defaultAction": {
+    "type": "llm",
+    "prompt": "Based on the following, answer the question.\n\nContent:\n{{content}}\n\nQuestion: Is this appropriate for our audience?",
+    "responseType": "boolean",
+    "saveAsVariable": "llmResult",
+    "saveFeedbackVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (variable or {{key}}; skip when empty/falsy)", "inputType": "text", "placeholder": "optional" },
+    { "key": "prompt", "label": "Prompt (use {{variableName}} for row variables)", "inputType": "textarea", "rows": 4 },
+    { "key": "responseType", "label": "Response type", "inputType": "select", "options": [
+      { "value": "boolean", "label": "True / False" },
+      { "value": "text", "label": "Text (no feedback)" },
+      { "value": "textWithFeedback", "label": "Text with feedback (response + reasoning)" }
+    ]},
+    { "key": "saveAsVariable", "label": "Save result to variable", "inputType": "text" },
+    { "key": "saveFeedbackVariable", "label": "Save feedback to variable (textWithFeedback only)", "inputType": "text" }
+  ]
+}

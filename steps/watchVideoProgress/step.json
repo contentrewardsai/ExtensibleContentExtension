@@ -1,0 +1,15 @@
+{
+  "id": "watchVideoProgress",
+  "label": "Watch video progress",
+  "category": "flow",
+  "description": "Wait until no container shows a percentage (e.g. video generation progress). Polls containers until no '%' progress text is visible.",
+  "defaultAction": {
+    "type": "watchVideoProgress",
+    "containerSelectors": [],
+    "timeoutMs": 120000
+  },
+  "formSchema": [
+    { "key": "containerSelectors", "label": "Container selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "min": 10000 }
+  ]
+}
