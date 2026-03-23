@@ -1,0 +1,25 @@
+{
+  "timeline": {
+    "background": "{{ BACKGROUND_COLOR }}",
+    "tracks": [
+      {
+        "clips": []
+      }
+    ]
+  },
+  "output": {
+    "format": "png",
+    "resolution": "hd",
+    "aspectRatio": "1:1",
+    "size": { "width": 1080, "height": 1080 }
+  },
+  "merge": [
+    { "find": "BACKGROUND_COLOR", "replace": "#ffffff" },
+    { "find": "__CFS_TEMPLATE_ID", "replace": "blank-canvas" },
+    { "find": "__CFS_TEMPLATE_NAME", "replace": "Blank Canvas" },
+    { "find": "__CFS_DESCRIPTION", "replace": "Start from a blank canvas and add layers in the editor panel." },
+    { "find": "__CFS_OUTPUT_TYPE", "replace": "image" },
+    { "find": "__CFS_PRESET_ID", "replace": "instagram_square" },
+    { "find": "__CFS_INPUT_SCHEMA", "replace": "[{\"id\":\"backgroundColor\",\"label\":\"Background\",\"type\":\"color\",\"default\":\"#ffffff\",\"mergeField\":\"BACKGROUND_COLOR\"},{\"id\":\"outputWidth\",\"label\":\"Width (px)\",\"type\":\"number\",\"default\":1080},{\"id\":\"outputHeight\",\"label\":\"Height (px)\",\"type\":\"number\",\"default\":1080}]" }
+  ]
+}

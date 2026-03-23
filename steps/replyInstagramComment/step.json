@@ -1,0 +1,29 @@
+{
+  "id": "replyInstagramComment",
+  "label": "Reply Instagram Comment",
+  "category": "data",
+  "description": "Send a private reply (DM) to an Instagram commenter. Requires instagram_business_manage_comments permission.",
+  "defaultAction": {
+    "type": "replyInstagramComment",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "commentIdVariableKey": "commentId",
+    "messageVariableKey": "message",
+    "saveAsVariable": "replyResult"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "commentIdVariableKey", "description": "Row variable for the comment ID to reply to" },
+    { "key": "messageVariableKey", "description": "Row variable for the reply message text" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the reply result" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "commentIdVariableKey", "label": "Comment ID variable key", "inputType": "text", "placeholder": "commentId" },
+    { "key": "messageVariableKey", "label": "Message variable key", "inputType": "text", "placeholder": "message" },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "replyResult" }
+  ]
+}

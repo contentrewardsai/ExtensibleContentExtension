@@ -1,0 +1,16 @@
+{
+  "id": "wait",
+  "label": "Wait",
+  "category": "flow",
+  "description": "Wait for a fixed time, for an element to appear, or for generation to complete.",
+  "defaultAction": {
+    "type": "wait",
+    "duration": 3000,
+    "waitFor": "time"
+  },
+  "formSchema": [
+    { "key": "waitFor", "label": "Wait for", "inputType": "radio", "options": ["time", "element", "generationComplete"] },
+    { "key": "duration", "label": "Duration (ms)", "inputType": "number", "min": 100 },
+    { "key": "waitForSelectors", "label": "Element selectors (when wait for = element)", "inputType": "textarea", "pickOnPage": true }
+  ]
+}

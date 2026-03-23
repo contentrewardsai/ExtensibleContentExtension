@@ -1,0 +1,330 @@
+/**
+ * Local FFmpeg WASM wrapper.
+ * Lazy-loads @ffmpeg/ffmpeg UMD + @ffmpeg/core WASM from lib/ffmpeg/
+ * and exposes window.FFmpegLocal for in-browser WebM-to-MP4 conversion.
+ */
+(function (global) {
+  'use strict';
+
+  var ffmpegInstance = null;
+  var loading = null;
+
+  function coreURL() {
+    return chrome.runtime.getURL('lib/ffmpeg/ffmpeg-core.js');
+  }
+  function wasmURL() {
+    return chrome.runtime.getURL('lib/ffmpeg/ffmpeg-core.wasm');
+  }
+
+  function ensureLoaded(report) {
+    if (ffmpegInstance && ffmpegInstance.loaded) return Promise.resolve(ffmpegInstance);
+    if (loading) return loading;
+
+    loading = (function () {
+      var FFmpegClass = global.FFmpegWASM && global.FFmpegWASM.FFmpeg;
+      if (!FFmpegClass) {
+        return Promise.reject(new Error('FFmpegWASM.FFmpeg not found – is lib/ffmpeg/ffmpeg.js loaded?'));
+      }
+      ffmpegInstance = new FFmpegClass();
+
+      /**
+       * ffmpeg.wasm progress payloads are supposed to use progress in [0, 1]; some ffmpeg-core
+       * builds emit signed or time-like values. Never multiply bogus numbers by 100 for UI.
+       */
+      function ffmpegProgressToPercent(ev) {
+        if (!ev || typeof ev !== 'object') return null;
+        var r = ev.progress;
+        if (typeof r !== 'number' || !isFinite(r)) {
+          r = ev.ratio;
+        }
+        if (typeof r !== 'number' || !isFinite(r)) return null;
+        if (r >= 0 && r <= 1) return Math.max(0, Math.min(100, Math.round(r * 100)));
+        if (r > 1 && r <= 100) return Math.round(r);
+        return null;
+      }
+
+      ffmpegInstance.on('progress', function (ev) {
+        if (typeof report === 'function') {
+          var pct = ffmpegProgressToPercent(ev);
+          if (pct != null) {
+            report('Converting... ' + pct + '%');
+          } else {
+            report('Converting...');
+          }
+        }
+      });
+
+      return ffmpegInstance.load({
+        coreURL: coreURL(),
+        wasmURL: wasmURL(),
+      }).then(function () {
+        return ffmpegInstance;
+      });
+    })();
+
+    loading.catch(function () {
+      ffmpegInstance = null;
+      loading = null;
+    });
+
+    return loading;
+  }
+
+  /**
+   * Convert a video/audio Blob to MP4 locally via FFmpeg WASM.
+   * @param {Blob} blob - Input media blob (e.g. video/webm).
+   * @param {function} [onProgress] - Optional callback receiving status strings.
+   * @returns {Promise<{ok:boolean, blob?:Blob, error?:string}>}
+   */
+  function convertToMp4(blob, onProgress) {
+    var report = typeof onProgress === 'function' ? onProgress : function () {};
+
+    report('Loading FFmpeg WASM...');
+
+    return ensureLoaded(report)
+      .then(function (ff) {
+        return blob.arrayBuffer().then(function (buf) {
+          var inputName = 'input.webm';
+          var outputName = 'output.mp4';
+          report('Writing input file...');
+          return ff.writeFile(inputName, new Uint8Array(buf))
+            .then(function () {
+              report('Converting to MP4...');
+              return ff.exec([
+                '-i', inputName,
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                outputName,
+              ]);
+            })
+            .then(function () {
+              report('Reading output...');
+              return ff.readFile(outputName);
+            })
+            .then(function (data) {
+              var mp4Blob = new Blob([data], { type: 'video/mp4' });
+              ff.deleteFile(inputName).catch(function () {});
+              ff.deleteFile(outputName).catch(function () {});
+              report('Conversion complete.');
+              return { ok: true, blob: mp4Blob };
+            });
+        });
+      })
+      .catch(function (err) {
+        var msg = err && err.message ? err.message : String(err);
+        return { ok: false, error: msg };
+      });
+  }
+
+  /**
+   * Convert a WAV/WebM audio Blob to M4A (MP4 audio) locally.
+   */
+  function convertToM4a(blob, onProgress) {
+    var report = typeof onProgress === 'function' ? onProgress : function () {};
+
+    report('Loading FFmpeg WASM...');
+
+    return ensureLoaded(report)
+      .then(function (ff) {
+        return blob.arrayBuffer().then(function (buf) {
+          var ext = (blob.type || '').indexOf('wav') >= 0 ? 'wav' : 'webm';
+          var inputName = 'input.' + ext;
+          var outputName = 'output.m4a';
+          report('Writing input file...');
+          return ff.writeFile(inputName, new Uint8Array(buf))
+            .then(function () {
+              report('Converting to M4A...');
+              return ff.exec([
+                '-i', inputName,
+                '-vn',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                outputName,
+              ]);
+            })
+            .then(function () {
+              report('Reading output...');
+              return ff.readFile(outputName);
+            })
+            .then(function (data) {
+              var m4aBlob = new Blob([data], { type: 'audio/mp4' });
+              ff.deleteFile(inputName).catch(function () {});
+              ff.deleteFile(outputName).catch(function () {});
+              report('Conversion complete.');
+              return { ok: true, blob: m4aBlob };
+            });
+        });
+      })
+      .catch(function (err) {
+        var msg = err && err.message ? err.message : String(err);
+        return { ok: false, error: msg };
+      });
+  }
+
+  /**
+   * Best-effort duration in seconds from media blob (parses ffmpeg -i log line).
+   * @returns {Promise<number>} 0 if unknown
+   */
+  function probeDurationSeconds(blob, onProgress) {
+    var report = typeof onProgress === 'function' ? onProgress : function () {};
+    return ensureLoaded(report)
+      .then(function (ff) {
+        return blob.arrayBuffer().then(function (buf) {
+          var inputName = 'probe_in.webm';
+          if ((blob.type || '').indexOf('mp4') >= 0) inputName = 'probe_in.mp4';
+          else if ((blob.type || '').indexOf('wav') >= 0) inputName = 'probe_in.wav';
+          var duration = 0;
+          function onLog(ev) {
+            var msg = (ev && ev.message) ? String(ev.message) : '';
+            var m = /Duration:\s*(\d{2}):(\d{2}):([\d.]+)/.exec(msg);
+            if (m) {
+              duration = parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]);
+            }
+          }
+          ff.on('log', onLog);
+          return ff.writeFile(inputName, new Uint8Array(buf))
+            .then(function () {
+              return ff.exec(['-i', inputName]).catch(function () { return null; });
+            })
+            .then(function () {
+              ff.off('log', onLog);
+              ff.deleteFile(inputName).catch(function () {});
+              return duration;
+            });
+        });
+      })
+      .catch(function () {
+        return 0;
+      });
+  }
+
+  /**
+   * Extract [startSec, startSec+durationSec) into a new MP4 (video+audio) or M4A (audio-only).
+   * @param {Blob} blob
+   * @param {number} startSec
+   * @param {number} durationSec
+   * @param {{ mode?: 'video'|'audio', includeAudio?: boolean, onProgress?: function }} opts
+   *   includeAudio: for mode video, false = video-only MP4 (no audio track). Default true.
+   */
+  function extractSegment(blob, startSec, durationSec, opts) {
+    opts = opts || {};
+    var mode = opts.mode === 'audio' ? 'audio' : 'video';
+    var includeAudio = opts.includeAudio !== false;
+    var report = typeof opts.onProgress === 'function' ? opts.onProgress : function () {};
+    var inName = 'ext_in.webm';
+    var bt = (blob.type || '').toLowerCase();
+    var bn = (typeof blob.name === 'string' ? blob.name : '').toLowerCase();
+    if (bt.indexOf('mp4') >= 0 || bt.indexOf('m4a') >= 0 || bt.indexOf('audio/mp4') >= 0) inName = 'ext_in.mp4';
+    else if (bt.indexOf('audio/') === 0) inName = 'ext_in.mp4';
+    else if (bn.endsWith('.m4a') || bn.endsWith('.mp4')) inName = 'ext_in.mp4';
+    var outName = mode === 'audio' ? 'ext_out.m4a' : 'ext_out.mp4';
+
+    function headArgs(beforeInput) {
+      return beforeInput
+        ? ['-ss', String(startSec), '-i', inName, '-t', String(durationSec)]
+        : ['-i', inName, '-ss', String(startSec), '-t', String(durationSec)];
+    }
+
+    function videoArgs(beforeInput, withAudio, mapVideo) {
+      var a = headArgs(beforeInput).slice();
+      if (mapVideo && !withAudio) {
+        a.push('-map', '0:v:0');
+      }
+      a.push(
+        '-c:v',
+        'libx264',
+        '-preset',
+        'ultrafast',
+        '-crf',
+        '28',
+        '-pix_fmt',
+        'yuv420p'
+      );
+      if (withAudio) {
+        a.push('-c:a', 'aac', '-b:a', '128k');
+      } else {
+        a.push('-an');
+      }
+      a.push(outName);
+      return a;
+    }
+
+    function audioArgs(beforeInput) {
+      return headArgs(beforeInput).concat([
+        '-vn',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        outName,
+      ]);
+    }
+
+    return ensureLoaded(report)
+      .then(function (ff) {
+        return blob.arrayBuffer().then(function (buf) {
+          report('Writing segment input...');
+          return ff.writeFile(inName, new Uint8Array(buf))
+            .then(function () {
+              report('Extracting segment...');
+              if (mode === 'audio') {
+                return ff
+                  .exec(audioArgs(true))
+                  .catch(function () {
+                    return ff.exec(audioArgs(false));
+                  });
+              }
+              if (!includeAudio) {
+                return ff
+                  .exec(videoArgs(true, false, true))
+                  .catch(function () {
+                    return ff.exec(videoArgs(true, false, false));
+                  })
+                  .catch(function () {
+                    return ff.exec(videoArgs(false, false, true));
+                  })
+                  .catch(function () {
+                    return ff.exec(videoArgs(false, false, false));
+                  });
+              }
+              return ff
+                .exec(videoArgs(true, true, false))
+                .catch(function () {
+                  return ff.exec(videoArgs(true, false, false));
+                })
+                .catch(function () {
+                  return ff.exec(videoArgs(false, true, false));
+                })
+                .catch(function () {
+                  return ff.exec(videoArgs(false, false, false));
+                });
+            })
+            .then(function () {
+              return ff.readFile(outName);
+            })
+            .then(function (data) {
+              var mime = mode === 'audio' ? 'audio/mp4' : 'video/mp4';
+              var outBlob = new Blob([data], { type: mime });
+              ff.deleteFile(inName).catch(function () {});
+              ff.deleteFile(outName).catch(function () {});
+              report('Segment done.');
+              return { ok: true, blob: outBlob, mimeType: mime };
+            });
+        });
+      })
+      .catch(function (err) {
+        var msg = err && err.message ? err.message : String(err);
+        return { ok: false, error: msg };
+      });
+  }
+
+  global.FFmpegLocal = {
+    convertToMp4: convertToMp4,
+    convertToM4a: convertToM4a,
+    probeDurationSeconds: probeDurationSeconds,
+    extractSegment: extractSegment,
+    isLoaded: function () { return !!(ffmpegInstance && ffmpegInstance.loaded); },
+  };
+})(typeof window !== 'undefined' ? window : self);

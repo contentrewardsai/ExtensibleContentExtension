@@ -1,0 +1,16 @@
+{
+  "id": "runWorkflow",
+  "label": "Run workflow",
+  "category": "flow",
+  "description": "Run another workflow as a sub-workflow. The child workflow receives the current row (optionally mapped via rowMapping). Resolved at playback from the workflow list.",
+  "defaultAction": {
+    "type": "runWorkflow",
+    "workflowId": "",
+    "rowMapping": {}
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{pageUrl}}" },
+    { "key": "workflowId", "label": "Workflow", "inputType": "select", "optionsSource": "workflows" },
+    { "key": "rowMapping", "label": "Row mapping (parent key → child key)", "inputType": "textarea", "hint": "JSON object, e.g. {\"url\": \"pageUrl\"}" }
+  ]
+}

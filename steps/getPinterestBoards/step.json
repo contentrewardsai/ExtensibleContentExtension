@@ -1,0 +1,26 @@
+{
+  "id": "getPinterestBoards",
+  "label": "Get Pinterest Boards",
+  "category": "data",
+  "description": "List all Pinterest boards (public and secret) from connected Upload Post accounts. Returns board IDs and names.",
+  "defaultAction": {
+    "type": "getPinterestBoards",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "profileVariableKey": "",
+    "saveAsVariable": "pinterestBoards"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "profileVariableKey", "description": "Row variable for profile username (optional)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the array of Pinterest boards" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "profileVariableKey", "label": "Profile variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Filter results to a specific profile." },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "pinterestBoards" }
+  ]
+}

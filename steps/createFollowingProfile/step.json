@@ -1,0 +1,24 @@
+{
+  "id": "createFollowingProfile",
+  "label": "Create Following Profile",
+  "description": "Create a new Following/Pulse profile with a name and optional birthday.",
+  "category": "following",
+  "inputs": [
+    { "key": "nameVariableKey", "label": "Name variable", "type": "text", "hint": "Variable containing the profile name (required)" },
+    { "key": "birthdayVariableKey", "label": "Birthday variable", "type": "text", "hint": "Optional: variable containing birthday" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "label": "Save profile ID to variable", "type": "text", "default": "createdProfileId" }
+  ],
+  "defaultAction": {
+    "type": "createFollowingProfile",
+    "nameVariableKey": "profileName",
+    "birthdayVariableKey": "",
+    "saveAsVariable": "createdProfileId"
+  },
+  "formSchema": [
+    { "key": "nameVariableKey", "label": "Name variable", "type": "text" },
+    { "key": "birthdayVariableKey", "label": "Birthday variable", "type": "text" },
+    { "key": "saveAsVariable", "label": "Save profile ID to variable", "type": "text" }
+  ]
+}

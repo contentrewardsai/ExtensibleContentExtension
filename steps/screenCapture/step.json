@@ -1,0 +1,19 @@
+{
+  "id": "screenCapture",
+  "label": "Screen capture",
+  "category": "media",
+  "description": "Record screen, tab, or both (video + audio). Use Proceed when: time elapsed, element appears, or manual (click Proceed). Optionally save recording URL to a variable.",
+  "defaultAction": {
+    "type": "screenCapture",
+    "mode": "screen",
+    "proceedWhen": "time",
+    "proceedAfterMs": 60000,
+    "saveAsVariable": ""
+  },
+  "formSchema": [
+    { "key": "mode", "label": "Capture mode", "inputType": "select", "options": ["screen", "tabAudio", "both"] },
+    { "key": "proceedWhen", "label": "Proceed when", "inputType": "select", "options": ["stepComplete", "time", "element", "manual"] },
+    { "key": "proceedAfterMs", "label": "Proceed after (ms)", "inputType": "number", "min": 1000 },
+    { "key": "saveAsVariable", "label": "Save recording to variable (data URL)", "inputType": "text", "placeholder": "e.g. screenRecording" }
+  ]
+}

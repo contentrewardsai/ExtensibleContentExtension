@@ -1,0 +1,138 @@
+{
+  "presets": [
+    {
+      "id": "youtube_16_9",
+      "label": "YouTube (16:9)",
+      "aspectRatio": "16:9",
+      "width": 1920,
+      "height": 1080,
+      "platforms": ["youtube", "vimeo", "landscape"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "instagram_square",
+      "label": "Instagram square (1:1)",
+      "aspectRatio": "1:1",
+      "width": 1080,
+      "height": 1080,
+      "platforms": ["instagram", "facebook"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "instagram_portrait",
+      "label": "Instagram portrait (4:5)",
+      "aspectRatio": "4:5",
+      "width": 1080,
+      "height": 1350,
+      "platforms": ["instagram", "facebook"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "instagram_story",
+      "label": "Instagram / Facebook story (9:16)",
+      "aspectRatio": "9:16",
+      "width": 1080,
+      "height": 1920,
+      "platforms": ["instagram", "facebook", "tiktok", "reels", "stories"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "tiktok_9_16",
+      "label": "TikTok (9:16)",
+      "aspectRatio": "9:16",
+      "width": 1080,
+      "height": 1920,
+      "platforms": ["tiktok", "reels", "stories"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "twitter_16_9",
+      "label": "Twitter / X video (16:9)",
+      "aspectRatio": "16:9",
+      "width": 1280,
+      "height": 720,
+      "platforms": ["twitter", "x"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "linkedin_1_91_1",
+      "label": "LinkedIn (1.91:1)",
+      "aspectRatio": "1.91:1",
+      "width": 1200,
+      "height": 628,
+      "platforms": ["linkedin"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "linkedin_square",
+      "label": "LinkedIn square (1:1)",
+      "aspectRatio": "1:1",
+      "width": 1080,
+      "height": 1080,
+      "platforms": ["linkedin"],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "sd_16_9",
+      "label": "SD 16:9 (720p)",
+      "aspectRatio": "16:9",
+      "width": 1280,
+      "height": 720,
+      "platforms": [],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "hd_16_9",
+      "label": "HD 16:9 (1080p)",
+      "aspectRatio": "16:9",
+      "width": 1920,
+      "height": 1080,
+      "platforms": [],
+      "outputTypes": ["video", "image"]
+    },
+    {
+      "id": "custom",
+      "label": "Custom",
+      "aspectRatio": null,
+      "width": null,
+      "height": null,
+      "platforms": [],
+      "outputTypes": ["video", "image", "audio", "book"],
+      "description": "User-defined width × height; aspect ratio derived or set separately."
+    },
+    {
+      "id": "audio_default",
+      "label": "Audio (default)",
+      "aspectRatio": null,
+      "width": 1920,
+      "height": 1080,
+      "platforms": ["podcast", "voiceover"],
+      "outputTypes": ["audio"],
+      "description": "Default dimensions for audio-only output (e.g. waveform or title card)."
+    },
+    {
+      "id": "book_letter",
+      "label": "US Letter (8.5 × 11 in)",
+      "aspectRatio": "8.5:11",
+      "width": 816,
+      "height": 1056,
+      "platforms": ["print", "pdf"],
+      "outputTypes": ["book"],
+      "description": "96 DPI equivalent for screen; adjust for print DPI as needed."
+    },
+    {
+      "id": "book_a4",
+      "label": "A4 (210 × 297 mm)",
+      "aspectRatio": "210:297",
+      "width": 794,
+      "height": 1123,
+      "platforms": ["print", "pdf"],
+      "outputTypes": ["book"],
+      "description": "96 DPI equivalent for screen."
+    }
+  ],
+  "defaultVideoPresetId": "youtube_16_9",
+  "defaultImagePresetId": "instagram_square",
+  "defaultBookPresetId": "book_letter",
+  "defaultAudioPresetId": "audio_default"
+}

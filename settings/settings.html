@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extensible Content – Settings</title>
+  <style>
+    :root {
+      --bg: #fff;
+      --fg: #1a1a1a;
+      --border: #ddd;
+      --muted: #666;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #16a34a;
+      --error: #dc2626;
+      --card-bg: #f9fafb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #18181b;
+        --fg: #e4e4e7;
+        --border: #3f3f46;
+        --muted: #a1a1aa;
+        --accent: #60a5fa;
+        --accent-hover: #3b82f6;
+        --success: #4ade80;
+        --error: #f87171;
+        --card-bg: #27272a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; max-width: 800px; margin: 0 auto; background: var(--bg); color: var(--fg); line-height: 1.5; }
+    h1 { font-size: 1.5rem; margin: 0 0 24px 0; }
+    h2 { font-size: 1.15rem; margin: 24px 0 12px 0; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    h3 { font-size: 0.95rem; margin: 16px 0 8px 0; }
+    .hint { color: var(--muted); font-size: 0.82rem; }
+    .section { margin-bottom: 28px; }
+    .form-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .form-row label { font-weight: 600; font-size: 0.88rem; min-width: 120px; }
+    input[type="text"], input[type="password"], input[type="time"] {
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.88rem;
+      background: var(--bg); color: var(--fg); flex: 1; min-width: 200px;
+    }
+    .btn { padding: 6px 12px; font-size: 0.82rem; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: var(--bg); color: var(--fg); white-space: nowrap; }
+    .btn:hover { background: var(--card-bg); }
+    .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-small { padding: 4px 8px; font-size: 0.78rem; }
+    .status-msg { font-size: 0.82rem; margin-top: 4px; }
+    .status-msg.success { color: var(--success); }
+    .status-msg.error { color: var(--error); }
+    .profile-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+    .profile-card .profile-name { font-weight: 600; margin-bottom: 4px; }
+    .profile-card .profile-socials { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+    .profile-card .profile-socials a { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; color: var(--accent); text-decoration: none; }
+    .profile-card .profile-socials a:hover { text-decoration: underline; }
+    .profile-card .profile-jwt { margin-top: 6px; font-size: 0.82rem; }
+    .profile-card .profile-jwt a { color: var(--accent); word-break: break-all; }
+    .jwt-section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+    .jwt-section .jwt-info { font-size: 0.82rem; color: var(--muted); }
+    #profilesList:empty::after { content: 'No profiles loaded yet.'; color: var(--muted); font-size: 0.82rem; }
+    .pass { color: var(--success); }
+    .fail { color: var(--error); }
+    #testModePanel { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
+    #checklistList { list-style: none; padding: 0; }
+    #checklistList li { margin: 6px 0; padding: 4px 0; }
+    #checklistList input { margin-right: 8px; }
+    .checklist-section { font-weight: bold; margin-top: 12px; }
+    .pd-field { margin-bottom: 10px; }
+    .pd-field label { display: block; font-weight: 600; font-size: 0.82rem; margin-bottom: 2px; }
+    .pd-field select, .pd-field input[type="text"] { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.85rem; background: var(--bg); color: var(--fg); }
+    .pd-field .pd-checkbox-label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; font-weight: normal; }
+  </style>
+</head>
+<body>
+  <h1>Settings</h1>
+
+  <div class="section" id="localKeysSection">
+    <h2>Local Keys</h2>
+    <p class="hint">Store API keys locally in this browser. These are used by workflow steps and for fetching profiles.</p>
+    <div class="form-row">
+      <label for="uploadPostApiKeyInput">UploadPost API Key</label>
+      <input type="password" id="uploadPostApiKeyInput" placeholder="Enter your Upload Post API key">
+      <button type="button" id="toggleKeyVisibility" class="btn btn-small">Show</button>
+      <button type="button" id="saveApiKeyBtn" class="btn btn-primary btn-small">Save</button>
+    </div>
+    <p id="apiKeyStatus" class="status-msg" style="display:none"></p>
+  </div>
+
+  <div class="section" id="shotstackKeysSection">
+    <h2>ShotStack Keys</h2>
+    <p class="hint">API keys for ShotStack cloud video/audio rendering. Get keys from <a href="https://dashboard.shotstack.io/" target="_blank" rel="noopener noreferrer">dashboard.shotstack.io</a>.</p>
+    <div class="form-row">
+      <label for="shotstackStagingKeyInput">Staging API Key</label>
+      <input type="password" id="shotstackStagingKeyInput" placeholder="Staging key (watermarked renders)">
+      <button type="button" class="btn btn-small toggle-ss-key" data-target="shotstackStagingKeyInput">Show</button>
+      <button type="button" id="saveSsStagingKeyBtn" class="btn btn-primary btn-small">Save</button>
+    </div>
+    <div class="form-row" style="margin-top:6px;">
+      <label for="shotstackProductionKeyInput">Production API Key</label>
+      <input type="password" id="shotstackProductionKeyInput" placeholder="Production key (no watermark)">
+      <button type="button" class="btn btn-small toggle-ss-key" data-target="shotstackProductionKeyInput">Show</button>
+      <button type="button" id="saveSsProductionKeyBtn" class="btn btn-primary btn-small">Save</button>
+    </div>
+    <p id="ssKeyStatus" class="status-msg" style="display:none"></p>
+  </div>
+
+  <div class="section" id="profilesSection">
+    <h2>Upload Post Profiles</h2>
+    <p class="hint">Profiles from your local API key and remote backend, deduplicated.</p>
+    <button type="button" id="refreshProfilesBtn" class="btn btn-small">Refresh Profiles</button>
+    <p id="profilesStatus" class="status-msg" style="display:none"></p>
+    <div id="profilesList" style="margin-top: 12px;"></div>
+  </div>
+
+  <div class="section" id="jwtSection">
+    <h2>JWT Token Management</h2>
+    <p class="hint">JWT tokens for Upload Post profiles expire every 48 hours. They are automatically refreshed daily.</p>
+    <div class="jwt-section">
+      <div class="form-row">
+        <label for="jwtRefreshTime">Daily refresh time</label>
+        <input type="time" id="jwtRefreshTime" value="23:59">
+        <button type="button" id="saveJwtTimeBtn" class="btn btn-small">Save Time</button>
+        <button type="button" id="refreshJwtNowBtn" class="btn btn-primary btn-small">Refresh Now</button>
+      </div>
+      <p id="jwtTimeStatus" class="status-msg" style="display:none"></p>
+      <div class="jwt-info" id="jwtLastRefresh" style="margin-top: 8px;"></div>
+    </div>
+  </div>
+
+  <div class="section" id="platformDefaultsSection">
+    <h2>Upload Post Platform Defaults</h2>
+    <p class="hint">Set default values for each platform. Per-profile defaults override global defaults. Priority (highest to lowest): generator fields, workflow variables, profile+platform defaults, global platform defaults.</p>
+
+    <div class="form-row" style="margin-bottom:8px;">
+      <label for="pd-profile-select">Profile scope</label>
+      <select id="pd-profile-select" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+        <option value="_global">All profiles (global default)</option>
+      </select>
+    </div>
+    <div class="form-row" style="margin-bottom:12px;">
+      <label for="pd-platform-select">Platform</label>
+      <select id="pd-platform-select" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+        <option value="youtube">YouTube</option>
+        <option value="instagram">Instagram</option>
+        <option value="tiktok">TikTok</option>
+        <option value="facebook">Facebook</option>
+        <option value="linkedin">LinkedIn</option>
+        <option value="x">X (Twitter)</option>
+        <option value="threads">Threads</option>
+        <option value="pinterest">Pinterest</option>
+        <option value="reddit">Reddit</option>
+        <option value="bluesky">Bluesky</option>
+      </select>
+    </div>
+
+    <p class="hint" id="pd-scope-hint" style="margin-bottom:8px;"></p>
+    <div id="pd-fields-container" style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;"></div>
+
+    <div style="display:flex;gap:8px;">
+      <button type="button" id="savePlatformDefaultsBtn" class="btn btn-primary btn-small">Save Defaults</button>
+      <button type="button" id="clearPlatformDefaultsBtn" class="btn btn-small">Clear This Scope</button>
+    </div>
+    <p id="pdStatus" class="status-msg" style="display:none"></p>
+  </div>
+
+  <div class="section" id="workflowsSection">
+    <h2>Workflows</h2>
+    <div class="form-row" style="margin-bottom:8px">
+      <input type="text" id="settingsNewWorkflowName" placeholder="New workflow name" style="flex:1;min-width:0">
+      <button type="button" id="settingsCreateWorkflow" class="btn btn-primary">Create New Workflow</button>
+    </div>
+
+    <h3>Add workflow</h3>
+    <div class="form-row" style="margin-top:6px">
+      <input type="text" id="settingsBackendSearchQuery" placeholder="Search public workflows by name…" style="flex:1;min-width:0">
+      <button type="button" id="settingsBackendSearchBtn" class="btn">From backend</button>
+    </div>
+    <div class="form-row" style="margin-top:6px">
+      <button type="button" id="settingsImportFromUrl" class="btn">Import from URL</button>
+      <button type="button" id="settingsImportFromFile" class="btn">Import from file</button>
+      <button type="button" id="settingsPasteWorkflow" class="btn" title="Paste workflow JSON from clipboard">Paste workflow</button>
+    </div>
+    <div class="form-row" style="margin-top:6px">
+      <input type="text" id="settingsPresetUrl" placeholder="Preset URL (fetched on load)" style="flex:1;min-width:0">
+      <button type="button" id="settingsFetchPreset" class="btn">Save &amp; fetch preset</button>
+    </div>
+    <input type="file" id="settingsImportFile" accept=".json" style="display:none">
+    <div id="settingsBackendSearchResults" style="margin-top:8px;min-height:0;"></div>
+
+    <div class="form-row" style="margin-top:12px;margin-bottom:6px">
+      <button type="button" id="settingsSyncAll" class="btn btn-small">Sync all to backend</button>
+      <button type="button" id="settingsExportJson" class="btn btn-small" title="Export selected workflow as JSON">Export workflow (JSON)</button>
+      <button type="button" id="settingsExportWalkthrough" class="btn btn-small" title="Export as walkthrough config + embeddable JS">Export as walkthrough</button>
+      <label style="margin-left:8px;font-size:0.82rem;font-weight:normal;min-width:auto;"><input type="checkbox" id="settingsWalkthroughQuiz" title="Add quiz"> Include quiz</label>
+    </div>
+    <div class="form-row" style="margin-top:6px;flex-wrap:wrap;gap:6px;align-items:center;">
+      <label for="settingsWalkthroughReportUrl" class="hint" style="font-size:0.78rem;margin:0;min-width:auto;font-weight:normal;">Progress report URL (optional):</label>
+      <input type="text" id="settingsWalkthroughReportUrl" placeholder="https://your-backend.com/api/walkthrough-progress" style="flex:1;min-width:180px;padding:4px 8px;font-size:0.82rem;">
+      <span class="hint" style="font-size:0.78rem;">POSTs step_completed, walkthrough_completed, walkthrough_closed, step_viewed. Or listen for <code>cfs-walkthrough-progress</code>.</span>
+    </div>
+
+    <h3 style="margin-top:16px;">Your workflows (local)</h3>
+    <p class="hint" style="margin:0 0 6px 0;">Workflows are written to <code>workflows/{workflow-id}/</code> as <code>workflow-{id}-{version}.json</code> (highest number = latest). Synced to backend when you create or version.</p>
+    <div id="settingsWorkflowList" style="margin-bottom:12px;"></div>
+    <p id="settingsWorkflowStatus" class="status-msg" style="display:none"></p>
+
+    <div id="settingsWorkflowDetails" style="display:none; margin-top:16px; border:1px solid var(--border); border-radius:6px; padding:12px; background:var(--card-bg);">
+      <h3 style="margin-top:0;">Workflow: <span id="settingsSelectedWfName"></span></h3>
+      <div id="settingsStepsList" style="margin-top:8px;"></div>
+      <div id="settingsWorkflowOptions" style="margin-top:12px;"></div>
+      <div class="form-row" style="margin-top:12px;">
+        <button type="button" id="settingsRunAllRows" class="btn btn-primary btn-small" title="Run from current row to last">Run All Rows</button>
+        <button type="button" id="settingsRunCurrentRow" class="btn btn-small" title="Run Current Row">Run Current Row</button>
+        <button type="button" id="settingsClearAllRows" class="btn btn-small" title="Clear all imported rows">Clear All Rows</button>
+      </div>
+      <div class="form-row" style="margin-top:6px;">
+        <button type="button" id="settingsScheduleRun" class="btn btn-small" title="Schedule this workflow to run later">Schedule run</button>
+        <button type="button" id="settingsScheduleFromData" class="btn btn-small" title="Schedule multiple runs from CSV or JSON">Schedule from CSV/JSON</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="testsSection">
+    <h2>Tests</h2>
+    <div id="unitTestResults"></div>
+    <div id="testModePanel">
+      <h3>E2E Test Checklist</h3>
+      <p class="hint">Tick items as you complete them. Progress is saved.</p>
+      <ul id="checklistList"></ul>
+    </div>
+  </div>
+
+  <script src="../config/whop-auth.example.js"></script>
+  <script src="../config/whop-auth.js"></script>
+  <script src="../extension/config.js"></script>
+  <script src="../extension/api.js"></script>
+  <script src="../shared/upload-post.js"></script>
+  <script src="../shared/step-validator.js"></script>
+  <script src="../shared/step-comment.js"></script>
+  <script src="../shared/template-resolver.js"></script>
+  <script src="../shared/selectors.js"></script>
+  <script src="../shared/analyzer.js"></script>
+  <script src="../shared/book-builder.js"></script>
+  <script src="../shared/walkthrough-export.js"></script>
+  <script src="../shared/run-variation.js"></script>
+  <script src="../shared/workflow-setup-constants.js"></script>
+  <script src="../shared/personal-info-sync.js"></script>
+  <script src="../shared/tooltip-overlay.js"></script>
+  <script src="../test/unit-test-runner.js"></script>
+  <script src="../test/unit-tests.js"></script>
+  <script src="../steps/registry.js"></script>
+  <!-- STEP_HANDLERS_START -->
+  <script src="../steps/click/handler.js"></script>
+  <script src="../steps/hover/handler.js"></script>
+  <script src="../steps/loop/handler.js"></script>
+  <script src="../steps/runWorkflow/handler.js"></script>
+  <script src="../steps/type/handler.js"></script>
+  <script src="../steps/select/handler.js"></script>
+  <script src="../steps/ensureSelect/handler.js"></script>
+  <script src="../steps/key/handler.js"></script>
+  <script src="../steps/upload/handler.js"></script>
+  <script src="../steps/download/handler.js"></script>
+  <script src="../steps/wait/handler.js"></script>
+  <script src="../steps/goToUrl/handler.js"></script>
+  <script src="../steps/openTab/handler.js"></script>
+  <script src="../steps/screenCapture/handler.js"></script>
+  <script src="../steps/watchVideoProgress/handler.js"></script>
+  <script src="../steps/waitForVideos/handler.js"></script>
+  <script src="../steps/checkCompletions/handler.js"></script>
+  <script src="../steps/checkSuccessfulGenerations/handler.js"></script>
+  <script src="../steps/qualityCheck/handler.js"></script>
+  <script src="../steps/extractData/handler.js"></script>
+  <script src="../steps/runGenerator/handler.js"></script>
+  <script src="../steps/sendToEndpoint/handler.js"></script>
+  <script src="../steps/uploadPost/handler.js"></script>
+  <script src="../steps/setVideoSegments/handler.js"></script>
+  <script src="../steps/combineVideos/handler.js"></script>
+  <script src="../steps/trimVideo/handler.js"></script>
+  <script src="../steps/saveGenerationToProject/handler.js"></script>
+  <script src="../steps/captureAudio/handler.js"></script>
+  <script src="../steps/transcribeAudio/handler.js"></script>
+  <script src="../steps/whisperCheck/handler.js"></script>
+  <script src="../steps/embeddingCheck/handler.js"></script>
+  <script src="../steps/llm/handler.js"></script>
+  <script src="../steps/delayBeforeNextRun/handler.js"></script>
+  <script src="../steps/getFacebookPages/handler.js"></script>
+  <script src="../steps/getLinkedInPages/handler.js"></script>
+  <script src="../steps/getPinterestBoards/handler.js"></script>
+  <script src="../steps/getInstagramComments/handler.js"></script>
+  <script src="../steps/replyInstagramComment/handler.js"></script>
+  <script src="../steps/sendInstagramDm/handler.js"></script>
+  <script src="../steps/getAnalytics/handler.js"></script>
+  <script src="../steps/getPostAnalytics/handler.js"></script>
+  <script src="../steps/getPostHistory/handler.js"></script>
+  <script src="../steps/getScheduledPosts/handler.js"></script>
+  <script src="../steps/renderShotstack/handler.js"></script>
+  <script src="../steps/getFollowingProfiles/handler.js"></script>
+  <script src="../steps/getFollowingProfile/handler.js"></script>
+  <script src="../steps/createFollowingProfile/handler.js"></script>
+  <script src="../steps/updateFollowingProfile/handler.js"></script>
+  <script src="../steps/deleteFollowingProfile/handler.js"></script>
+  <script src="../steps/deleteFollowingDetail/handler.js"></script>
+  <!-- STEP_HANDLERS_END -->
+  <!-- STEP_TESTS_START -->
+  <script src="../steps/click/step-tests.js"></script>
+  <script src="../steps/hover/step-tests.js"></script>
+  <script src="../steps/loop/step-tests.js"></script>
+  <script src="../steps/runWorkflow/step-tests.js"></script>
+  <script src="../steps/type/step-tests.js"></script>
+  <script src="../steps/select/step-tests.js"></script>
+  <script src="../steps/ensureSelect/step-tests.js"></script>
+  <script src="../steps/key/step-tests.js"></script>
+  <script src="../steps/upload/step-tests.js"></script>
+  <script src="../steps/download/step-tests.js"></script>
+  <script src="../steps/wait/step-tests.js"></script>
+  <script src="../steps/goToUrl/step-tests.js"></script>
+  <script src="../steps/openTab/step-tests.js"></script>
+  <script src="../steps/screenCapture/step-tests.js"></script>
+  <script src="../steps/watchVideoProgress/step-tests.js"></script>
+  <script src="../steps/waitForVideos/step-tests.js"></script>
+  <script src="../steps/checkCompletions/step-tests.js"></script>
+  <script src="../steps/checkSuccessfulGenerations/step-tests.js"></script>
+  <script src="../steps/qualityCheck/step-tests.js"></script>
+  <script src="../steps/extractData/step-tests.js"></script>
+  <script src="../steps/runGenerator/step-tests.js"></script>
+  <script src="../steps/sendToEndpoint/step-tests.js"></script>
+  <script src="../steps/uploadPost/step-tests.js"></script>
+  <script src="../steps/setVideoSegments/step-tests.js"></script>
+  <script src="../steps/combineVideos/step-tests.js"></script>
+  <script src="../steps/trimVideo/step-tests.js"></script>
+  <script src="../steps/saveGenerationToProject/step-tests.js"></script>
+  <script src="../steps/captureAudio/step-tests.js"></script>
+  <script src="../steps/transcribeAudio/step-tests.js"></script>
+  <script src="../steps/whisperCheck/step-tests.js"></script>
+  <script src="../steps/embeddingCheck/step-tests.js"></script>
+  <script src="../steps/llm/step-tests.js"></script>
+  <script src="../steps/delayBeforeNextRun/step-tests.js"></script>
+  <script src="../steps/getFacebookPages/step-tests.js"></script>
+  <script src="../steps/getLinkedInPages/step-tests.js"></script>
+  <script src="../steps/getPinterestBoards/step-tests.js"></script>
+  <script src="../steps/getInstagramComments/step-tests.js"></script>
+  <script src="../steps/replyInstagramComment/step-tests.js"></script>
+  <script src="../steps/sendInstagramDm/step-tests.js"></script>
+  <script src="../steps/getAnalytics/step-tests.js"></script>
+  <script src="../steps/getPostAnalytics/step-tests.js"></script>
+  <script src="../steps/getPostHistory/step-tests.js"></script>
+  <script src="../steps/getScheduledPosts/step-tests.js"></script>
+  <script src="../steps/renderShotstack/step-tests.js"></script>
+  <script src="../steps/getFollowingProfiles/step-tests.js"></script>
+  <script src="../steps/getFollowingProfile/step-tests.js"></script>
+  <script src="../steps/createFollowingProfile/step-tests.js"></script>
+  <script src="../steps/updateFollowingProfile/step-tests.js"></script>
+  <script src="../steps/deleteFollowingProfile/step-tests.js"></script>
+  <script src="../steps/deleteFollowingDetail/step-tests.js"></script>
+  <!-- STEP_TESTS_END -->
+  <script src="../generator/core/wrap-text.js"></script>
+  <script src="../generator/core/position-from-clip.js"></script>
+  <script src="../generator/core/scene.js"></script>
+  <script src="../generator/editor/fabric-to-timeline.js"></script>
+  <script src="../generator/editor/timeline-panel.js"></script>
+  <script src="../test/generator-tests.js"></script>
+  <script src="../test/test-mode-panel.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

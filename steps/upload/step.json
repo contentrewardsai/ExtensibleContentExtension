@@ -1,0 +1,18 @@
+{
+  "id": "upload",
+  "label": "Upload",
+  "category": "interaction",
+  "description": "Upload a file. The file URL or path comes from the current row variable (e.g. fileUrl). The extension fetches the URL and assigns it to the file input.",
+  "defaultAction": {
+    "type": "upload",
+    "selectors": [],
+    "variableKey": "fileUrl",
+    "optional": false
+  },
+  "inputs": [{ "key": "variableKey", "description": "Row variable containing the file URL (e.g. fileUrl)" }],
+  "formSchema": [
+    { "key": "selectors", "label": "Selectors (JSON) – file input", "inputType": "textarea", "pickOnPage": true },
+    { "key": "variableKey", "label": "Variable key (spreadsheet column)", "inputType": "text", "placeholder": "fileUrl" },
+    { "key": "optional", "label": "Optional (skip if element not found)", "inputType": "checkbox" }
+  ]
+}

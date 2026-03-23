@@ -1,0 +1,17 @@
+{
+  "id": "whisperCheck",
+  "label": "Whisper check",
+  "category": "data",
+  "description": "Compare transcript to expected text via embedding similarity in the QC sandbox. Fails the row (like any other step) if similarity is below the threshold.",
+  "defaultAction": {
+    "type": "whisperCheck",
+    "transcriptVariable": "transcript",
+    "expectedVariable": "expectedText",
+    "threshold": 0.75
+  },
+  "formSchema": [
+    { "key": "transcriptVariable", "label": "Row variable with transcript", "inputType": "text" },
+    { "key": "expectedVariable", "label": "Row variable with expected text", "inputType": "text" },
+    { "key": "threshold", "label": "Pass threshold (0–1)", "inputType": "number", "min": 0, "max": 1 }
+  ]
+}

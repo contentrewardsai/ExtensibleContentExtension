@@ -1,0 +1,44 @@
+{
+  "id": "extractData",
+  "label": "Extract data",
+  "category": "data",
+  "description": "Extract a list from the page (e.g. table rows, list items) into a table of rows. Use Run All Rows to process them with a workflow.",
+  "defaultAction": {
+    "type": "extractData",
+    "listSelector": "",
+    "itemSelector": "li, [data-index], tr",
+    "fields": [
+      { "key": "name", "selectors": [] },
+      { "key": "email", "selectors": [] }
+    ],
+    "maxItems": 0
+  },
+  "formSchema": [
+    {
+      "key": "listSelector",
+      "label": "List container selector",
+      "inputType": "text",
+      "placeholder": "e.g. table tbody, ul, [data-list]",
+      "pickOnPage": true
+    },
+    {
+      "key": "itemSelector",
+      "label": "Item selector (within list)",
+      "inputType": "text",
+      "placeholder": "li, tr, [data-index]"
+    },
+    {
+      "key": "fields",
+      "label": "Fields to extract (JSON array)",
+      "inputType": "textarea",
+      "rows": 4,
+      "hint": "Each item: { \"key\": \"columnName\", \"selectors\": [...] }. Selectors are evaluated inside each list item."
+    },
+    {
+      "key": "maxItems",
+      "label": "Max items (0 = no limit)",
+      "inputType": "number",
+      "min": 0
+    }
+  ]
+}

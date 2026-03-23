@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Record &amp; Playback Test – Extensible Content</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; }
+    h1 { margin-top: 0; }
+    .btn { padding: 10px 16px; font-size: 16px; cursor: pointer; margin: 8px 8px 8px 0; border-radius: 6px; }
+    .btn-primary { background: #2563eb; color: white; border: none; }
+    .btn-primary:hover { background: #1d4ed8; }
+    #status { margin-top: 16px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; min-height: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Record &amp; Playback Test</h1>
+  <p>Use this page for Playwright/Puppeteer E2E: record a click, then run the workflow.</p>
+
+  <button type="button" id="primaryBtn" class="btn btn-primary" data-testid="primary-action">
+    Click me
+  </button>
+  <button type="button" id="secondaryBtn" class="btn" data-testid="secondary-action">
+    Secondary
+  </button>
+  <div id="hoverTarget" data-testid="hover-target" style="padding: 12px; margin: 8px 0; background: #f0f0f0; border-radius: 6px;">Hover me</div>
+  <span id="keyPressed" data-testid="key-pressed" style="margin-left: 8px; color: #059669;">—</span>
+  <span id="waitDone" data-testid="wait-done" style="display:none;">wait-complete</span>
+
+  <div id="status">Waiting for click.</div>
+
+  <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e5e7eb;">
+    <h2 style="margin-top: 0;">Type / Select / Extract</h2>
+    <div style="margin-bottom: 12px;">
+      <label for="textInput">Type step target:</label>
+      <input id="textInput" data-testid="text-input" placeholder="Type here" style="margin-left: 8px; padding: 6px;" />
+      <span id="typedValue" data-testid="typed-value" style="margin-left: 8px; color: #059669; min-width: 1px; display: inline-block;">—</span>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label for="choiceSelect">Select step target:</label>
+      <select id="choiceSelect" data-testid="choice-select" style="margin-left: 8px; padding: 6px;">
+        <option value="">— choose —</option>
+        <option value="a">Option A</option>
+        <option value="b">Option B</option>
+      </select>
+      <span id="selectedValue" data-testid="selected-value" style="margin-left: 8px; color: #059669; min-width: 1px; display: inline-block;">—</span>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label>Custom dropdown (ensureSelect target):</label>
+      <div style="position:relative; display:inline-block; margin-left:8px;">
+        <button role="combobox" aria-expanded="false" aria-controls="customDropdownList" id="customDropdownBtn" data-testid="custom-dropdown" style="padding:6px 12px; cursor:pointer;">Choose…</button>
+        <div role="listbox" id="customDropdownList" style="display:none; position:absolute; left:0; top:100%; background:#fff; border:1px solid #ccc; border-radius:4px; min-width:120px; z-index:10;">
+          <div role="option" data-value="opt1" style="padding:6px 12px; cursor:pointer;">Option 1</div>
+          <div role="option" data-value="opt2" style="padding:6px 12px; cursor:pointer;">Option 2</div>
+          <div role="option" data-value="opt3" style="padding:6px 12px; cursor:pointer;">Option 3</div>
+        </div>
+      </div>
+      <span id="customDropdownValue" data-testid="custom-dropdown-value" style="margin-left: 8px; color: #059669;">—</span>
+    </div>
+    <div>
+      <label>Extract data target (list):</label>
+      <ul id="itemList" data-testid="item-list" style="list-style: none; padding: 0; margin-top: 8px;">
+        <li data-testid="item" data-name="Alice" data-email="alice@test.com">
+          <span class="item-name">Alice</span>
+          <span class="item-email">alice@test.com</span>
+        </li>
+        <li data-testid="item" data-name="Bob" data-email="bob@test.com">
+          <span class="item-name">Bob</span>
+          <span class="item-email">bob@test.com</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e5e7eb;">
+    <h2 style="margin-top: 0;">Media (video / audio)</h2>
+    <video id="testVideo" data-testid="test-video" width="64" height="64" muted loop playsinline
+           style="background:#000; display:block; margin-bottom:8px;"></video>
+    <audio id="testAudio" data-testid="test-audio" preload="auto"></audio>
+    <span id="mediaStatus" data-testid="media-status" style="color:#059669;">—</span>
+  </div>
+
+  <script>
+    (function() {
+      var primary = document.getElementById('primaryBtn');
+      var secondary = document.getElementById('secondaryBtn');
+      var status = document.getElementById('status');
+      var textInput = document.getElementById('textInput');
+      var typedValue = document.getElementById('typedValue');
+      var choiceSelect = document.getElementById('choiceSelect');
+      var selectedValue = document.getElementById('selectedValue');
+      primary.addEventListener('click', function() {
+        status.textContent = 'Primary button clicked at ' + new Date().toISOString();
+      });
+      secondary.addEventListener('click', function() {
+        status.textContent = 'Secondary button clicked.';
+      });
+      textInput.addEventListener('input', function() {
+        typedValue.textContent = 'Typed: ' + textInput.value;
+      });
+      textInput.addEventListener('change', function() {
+        typedValue.textContent = 'Typed: ' + textInput.value;
+      });
+      choiceSelect.addEventListener('change', function() {
+        selectedValue.textContent = choiceSelect.value ? 'Selected: ' + choiceSelect.value : '—';
+      });
+      var hoverTarget = document.getElementById('hoverTarget');
+      var keyPressed = document.getElementById('keyPressed');
+      if (hoverTarget) {
+        hoverTarget.addEventListener('mouseenter', function() { status.textContent = 'Hover target entered'; });
+        hoverTarget.addEventListener('mouseover', function() { status.textContent = 'Hover target entered'; });
+      }
+      document.addEventListener('keydown', function(e) {
+        if (keyPressed) keyPressed.textContent = 'Key: ' + (e.key || e.keyCode);
+      });
+      var ddBtn = document.getElementById('customDropdownBtn');
+      var ddList = document.getElementById('customDropdownList');
+      var ddVal = document.getElementById('customDropdownValue');
+      if (ddBtn && ddList) {
+        ddBtn.addEventListener('click', function() {
+          var open = ddList.style.display !== 'none';
+          ddList.style.display = open ? 'none' : 'block';
+          ddBtn.setAttribute('aria-expanded', String(!open));
+        });
+        ddList.querySelectorAll('[role="option"]').forEach(function(opt) {
+          opt.addEventListener('click', function() {
+            ddBtn.textContent = opt.textContent.trim();
+            ddList.style.display = 'none';
+            ddBtn.setAttribute('aria-expanded', 'false');
+            if (ddVal) ddVal.textContent = 'Selected: ' + opt.getAttribute('data-value');
+          });
+        });
+      }
+
+      /* Generate a tiny same-origin video from Canvas so captureStream() works */
+      (function initTestMedia() {
+        var c = document.createElement('canvas');
+        c.width = 4; c.height = 4;
+        var cx = c.getContext('2d');
+        cx.fillStyle = '#2563eb'; cx.fillRect(0,0,4,4);
+        try {
+          var stream = c.captureStream(1);
+          var rec = new MediaRecorder(stream, { mimeType: 'video/webm' });
+          var chunks = [];
+          rec.ondataavailable = function(e) { if (e.data.size) chunks.push(e.data); };
+          rec.onstop = function() {
+            stream.getTracks().forEach(function(t){t.stop();});
+            if (!chunks.length) return;
+            var blob = new Blob(chunks, { type: 'video/webm' });
+            var vid = document.getElementById('testVideo');
+            var ms = document.getElementById('mediaStatus');
+            if (vid) {
+              vid.src = URL.createObjectURL(blob);
+              vid.load();
+              vid.play().catch(function(){});
+            }
+            if (ms) ms.textContent = 'media-ready';
+          };
+          rec.start();
+          /* paint 4 distinct frames so the video has real duration */
+          var frames = 0;
+          var paintFrame = function() {
+            cx.fillStyle = frames % 2 ? '#1d4ed8' : '#2563eb';
+            cx.fillRect(0,0,4,4);
+            frames++;
+            if (frames < 8) { setTimeout(paintFrame, 125); }
+            else { rec.stop(); }
+          };
+          paintFrame();
+        } catch(e) {
+          var ms = document.getElementById('mediaStatus');
+          if (ms) ms.textContent = 'media-error: ' + e.message;
+        }
+      })();
+    })();
+  </script>
+</body>
+</html>

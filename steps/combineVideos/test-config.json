@@ -1,0 +1,10 @@
+{
+  "e2e": {
+    "workflowId": "e2e-test-combineVideos",
+    "rows": [{ "imageUrl": "__TINY_DATA_URL__" }],
+    "assert": "smoke",
+    "prereqs": [],
+    "skipInCI": false,
+    "skipReason": ""
+  }
+}

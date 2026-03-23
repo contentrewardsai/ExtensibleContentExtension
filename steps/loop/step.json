@@ -1,0 +1,22 @@
+{
+  "id": "loop",
+  "label": "Loop",
+  "category": "flow",
+  "description": "Repeat a sequence of steps N times, or run once per item in a row array (list variable). Use {{item}} and {{itemIndex}} in nested steps when looping over a list. Optional wait between iterations.",
+  "defaultAction": {
+    "type": "loop",
+    "count": 1,
+    "listVariable": "",
+    "itemVariable": "item",
+    "indexVariable": "itemIndex",
+    "steps": [],
+    "waitBeforeNext": { "type": "time", "minMs": 500, "maxMs": 1500 }
+  },
+  "formSchema": [
+    { "key": "listVariable", "label": "Loop over list (row variable name; if set, count is ignored)", "inputType": "text", "placeholder": "e.g. urls" },
+    { "key": "count", "label": "Repeat count (used when list variable is empty)", "inputType": "number" },
+    { "key": "itemVariable", "label": "Variable name for current item (e.g. item)", "inputType": "text" },
+    { "key": "indexVariable", "label": "Variable name for current index (e.g. itemIndex)", "inputType": "text" },
+    { "key": "waitBeforeNext", "label": "Wait between iterations (ms)", "inputType": "text", "hint": "JSON: { \"type\": \"time\", \"minMs\": 500, \"maxMs\": 1500 } or { \"type\": \"element\", \"selectors\": [...], \"timeoutMs\": 10000 }" }
+  ]
+}

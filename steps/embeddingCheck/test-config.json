@@ -1,0 +1,10 @@
+{
+  "e2e": {
+    "workflowId": "e2e-test-embeddingCheck",
+    "rows": [{ "outputText": "the cat sat on the mat", "expectedText": "a cat was sitting on a mat" }],
+    "assert": "smoke",
+    "prereqs": ["qc"],
+    "skipInCI": false,
+    "skipReason": ""
+  }
+}

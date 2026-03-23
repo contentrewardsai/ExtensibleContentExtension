@@ -1,0 +1,8 @@
+{
+  "inputCandidates": [
+    "textarea",
+    "input:not([type=\"hidden\"]):not([type=\"submit\"]):not([type=\"button\"])",
+    "[contenteditable=\"true\"]",
+    "[role=\"textbox\"]"
+  ]
+}

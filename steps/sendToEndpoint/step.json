@@ -1,0 +1,73 @@
+{
+  "id": "sendToEndpoint",
+  "label": "Send to endpoint",
+  "category": "data",
+  "description": "Send data to an HTTP endpoint. URL and body can use row variables (e.g. endpointUrl). Use {{variableName}} in URL, body, or headers to substitute values from the current run. Optionally wait for the response and save it to a row variable.",
+  "defaultAction": {
+    "type": "sendToEndpoint",
+    "runIf": "",
+    "url": "",
+    "urlVariableKey": "",
+    "method": "POST",
+    "bodySource": "template",
+    "bodyTemplate": "",
+    "dataVariable": "",
+    "bodyContentType": "json",
+    "headersJson": "",
+    "successStatuses": "2xx",
+    "waitForResponse": true,
+    "saveAsVariable": "",
+    "saveStatusToVariable": "",
+    "saveHeadersToVariable": "",
+    "responsePath": "",
+    "timeoutMs": "",
+    "retryCount": 0,
+    "retryDelayMs": 1000
+  },
+  "inputs": [
+    { "key": "url", "description": "Endpoint URL (literal or leave empty to use row variable)" },
+    { "key": "urlVariableKey", "description": "Row variable for URL when url is empty (e.g. endpointUrl)" },
+    { "key": "dataVariable", "description": "Row variable whose value is the request body (with {{var}} substitution)" },
+    { "key": "bodyTemplate", "description": "Literal body template with {{variableName}} placeholders" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the response (full body or value at responsePath)" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "url", "label": "Endpoint URL", "inputType": "text", "placeholder": "https://api.example.com/webhook or leave empty to use row variable", "hint": "Literal URL or leave empty and set Row variable for URL below." },
+    { "key": "urlVariableKey", "label": "Row variable for URL (if URL empty)", "inputType": "text", "placeholder": "e.g. endpointUrl, apiUrl" },
+    { "key": "method", "label": "Method", "inputType": "select", "options": [
+      { "value": "GET", "label": "GET" },
+      { "value": "HEAD", "label": "HEAD" },
+      { "value": "POST", "label": "POST" },
+      { "value": "PUT", "label": "PUT" },
+      { "value": "PATCH", "label": "PATCH" },
+      { "value": "DELETE", "label": "DELETE" }
+    ] },
+    { "key": "bodySource", "label": "Body source", "inputType": "select", "options": [
+      { "value": "template", "label": "Template (body text with {{var}})" },
+      { "value": "variable", "label": "Row variable (value as body, {{var}} substituted)" }
+    ] },
+    { "key": "bodyTemplate", "label": "Body template", "inputType": "textarea", "rows": 4, "placeholder": "{\"name\": \"{{name}}\", \"id\": \"{{id}}\"}", "hint": "Use {{variableName}} for values from the current row. Ignored when Body source is Row variable." },
+    { "key": "dataVariable", "label": "Row variable for body (when Body source = Row variable)", "inputType": "text", "placeholder": "e.g. payload, requestBody" },
+    { "key": "bodyContentType", "label": "Body Content-Type (when no header set)", "inputType": "select", "options": [
+      { "value": "json", "label": "application/json" },
+      { "value": "form", "label": "application/x-www-form-urlencoded" },
+      { "value": "plain", "label": "text/plain" }
+    ], "hint": "Used only if Headers do not set Content-Type." },
+    { "key": "headersJson", "label": "Headers (optional, JSON or key: value lines)", "inputType": "textarea", "rows": 2, "placeholder": "Authorization: Bearer {{token}}" },
+    { "key": "successStatuses", "label": "Accept as success", "inputType": "select", "options": [
+      { "value": "2xx", "label": "2xx only" },
+      { "value": "2xx-3xx", "label": "2xx and 3xx" }
+    ] },
+    { "key": "waitForResponse", "label": "Wait for response", "inputType": "checkbox" },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "e.g. responseBody, apiResult" },
+    { "key": "saveStatusToVariable", "label": "Save status code to variable", "inputType": "text", "placeholder": "e.g. responseStatus" },
+    { "key": "saveHeadersToVariable", "label": "Save response headers to variable", "inputType": "text", "placeholder": "e.g. responseHeaders" },
+    { "key": "responsePath", "label": "Response path (optional, dot notation)", "inputType": "text", "placeholder": "e.g. data.id or items.0.name", "hint": "Extract a nested value from JSON response. Leave empty to save full response." },
+    { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "placeholder": "e.g. 30000 (empty = no limit)", "min": 1000, "hint": "Abort request after this many milliseconds. Leave empty for no timeout." },
+    { "key": "retryCount", "label": "Retry count", "inputType": "number", "placeholder": "0", "min": 0, "hint": "Number of retries on failure (0 = no retry)." },
+    { "key": "retryDelayMs", "label": "Retry delay (ms)", "inputType": "number", "placeholder": "1000", "min": 100, "hint": "Delay between retries." }
+  ]
+}

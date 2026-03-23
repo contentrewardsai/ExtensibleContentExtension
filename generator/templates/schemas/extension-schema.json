@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Generator template extension manifest",
+  "description": "Chrome extension-specific settings for a template. Paired with template.json (ShotStack Edit API format) in the same folder.",
+  "type": "object",
+  "required": ["id", "name", "outputType"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique template id (folder name)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name in generator UI"
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description for the template"
+    },
+    "outputType": {
+      "type": "string",
+      "enum": ["image", "audio", "video", "book", "text"],
+      "description": "Primary output: image, audio, video, book (multi-page), or text"
+    },
+    "outputPresetId": {
+      "type": "string",
+      "description": "Optional id from output-presets.json (e.g. youtube_16_9, instagram_1_1). Overrides dimensions from shotstack.json output when set."
+    },
+    "inputSchema": {
+      "type": "array",
+      "description": "Fields for the sidebar; same types as generator inputs: text, textarea, number, color, select, checkbox, list, file, hidden, voice",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "type": { "type": "string", "enum": ["text", "textarea", "number", "color", "select", "checkbox", "list", "file", "hidden", "voice"] },
+          "default": {},
+          "options": { "type": "array", "items": { "type": "string" } },
+          "placeholder": { "type": "string" },
+          "mergeField": { "type": "string", "description": "Template merge variable name used as {{ mergeField }} in template.json. Prefer unique names to avoid collisions: e.g. TEXT_INPUT_1 or TEMPLATE_ID_TEXT_1 (e.g. AD_APPLE_NOTES_TEXT_1)." }
+        }
+      }
+    },
+    "defaultWorkflowId": {
+      "type": "string",
+      "description": "Optional workflow id for Run generator step / bulk generation"
+    },
+    "handler": {
+      "type": "string",
+      "description": "Deprecated. All generation is template-only (template-engine + shared modules). Omit."
+    },
+    "editorExtensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Editor extension ids from generator/extensions/ (e.g. tts, stt). Loaded when the unified editor opens; they add toolbar buttons and export handlers."
+    },
+    "editor": {
+      "type": "object",
+      "description": "Hints for the unified editor (Fabric + GSAP)",
+      "properties": {
+        "allowSvgImport": { "type": "boolean", "default": true },
+        "defaultDurationSeconds": { "type": "number" },
+        "editableObjectNames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Fabric object names that are user-editable in the editor"
+        }
+      }
+    },
+    "bookSettings": {
+      "type": "object",
+      "description": "Default book layout when outputType is 'book'. Unified editor uses these when rendering/exporting book output; inputSchema can override per-field.",
+      "properties": {
+        "screenshotPosition": { "type": "string", "enum": ["above", "below", "left", "right"], "default": "above" },
+        "fontFamily": { "type": "string", "default": "Georgia, serif" },
+        "fontSizePt": { "type": "number", "default": 11 },
+        "fontColor": { "type": "string", "default": "#222222" },
+        "trimSizePreset": { "type": "string", "default": "6x9" },
+        "marginInsideIn": { "type": "number", "default": 0.5 },
+        "marginOutsideIn": { "type": "number", "default": 0.5 },
+        "marginTopIn": { "type": "number", "default": 0.75 },
+        "marginBottomIn": { "type": "number", "default": 0.75 },
+        "keepStepTogether": { "type": "boolean", "default": true },
+        "headerText": { "type": "string" },
+        "footerText": { "type": "string" },
+        "footerPageNumbers": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,2 @@
+{ "workflowId": "e2e-test-send-endpoint", "rows": [{ "name": "E2E-Test", "endpointUrl": "__ECHO_URL__" }], "assert": "echo" }
+

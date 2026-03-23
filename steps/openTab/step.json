@@ -1,0 +1,19 @@
+{
+  "id": "openTab",
+  "label": "Open tab / window",
+  "category": "flow",
+  "description": "Open a new tab or window with a URL. Optionally switch playback to the new tab for subsequent steps.",
+  "defaultAction": {
+    "type": "openTab",
+    "url": "",
+    "variableKey": "",
+    "andSwitchToTab": false,
+    "openInNewWindow": false
+  },
+  "formSchema": [
+    { "key": "url", "label": "URL", "inputType": "text", "placeholder": "https://example.com or leave empty to use row value" },
+    { "key": "variableKey", "label": "Row variable (if URL empty)", "inputType": "text", "placeholder": "e.g. url" },
+    { "key": "andSwitchToTab", "label": "Use this tab for next steps", "inputType": "checkbox" },
+    { "key": "openInNewWindow", "label": "Open in new window", "inputType": "checkbox" }
+  ]
+}

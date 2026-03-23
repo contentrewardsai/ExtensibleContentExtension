@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extensible Content – Unit Tests</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; max-width: 800px; margin: 0 auto; }
+    .pass { color: #0a0; }
+    .fail { color: #c00; }
+    #testModePanel { margin-top: 24px; border-top: 1px solid #ccc; padding-top: 16px; }
+    #checklistList { list-style: none; padding: 0; }
+    #checklistList li { margin: 6px 0; padding: 4px 0; }
+    #checklistList input { margin-right: 8px; }
+    .checklist-section { font-weight: bold; margin-top: 12px; }
+    .btn { padding: 4px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; background: #fff; }
+    .btn:hover { background: #f5f5f5; }
+  </style>
+</head>
+<body>
+  <div id="unitTestResults"></div>
+  <div id="testModePanel">
+    <h2>E2E Test Checklist</h2>
+    <p class="hint">Tick items as you complete them. Progress is saved.</p>
+    <ul id="checklistList"></ul>
+  </div>
+
+  <script>
+    if (typeof chrome === 'undefined') {
+      window.chrome = {
+        runtime: {
+          sendMessage: function (_msg, cb) {
+            if (typeof cb === 'function') cb({});
+          },
+          lastError: undefined,
+        },
+      };
+    }
+  </script>
+  <script src="../extension/config.js"></script>
+  <script src="../extension/api.js"></script>
+  <script src="../extension/following-sync-core.js"></script>
+  <script src="../shared/step-validator.js"></script>
+  <script src="../shared/step-comment.js"></script>
+  <script src="../shared/template-resolver.js"></script>
+  <script src="../shared/selectors.js"></script>
+  <script src="../shared/recording-value.js"></script>
+  <script src="../shared/selector-parity.js"></script>
+  <script src="../shared/analyzer.js"></script>
+  <script src="../shared/discovery-selector-filters.js"></script>
+  <script src="../shared/discovery-from-analyze.js"></script>
+  <script src="../shared/cross-workflow-selectors.js"></script>
+  <script src="../shared/book-builder.js"></script>
+  <script src="../shared/walkthrough-export.js"></script>
+  <script src="../shared/run-variation.js"></script>
+  <script src="../shared/run-video-segments.js"></script>
+  <script src="../shared/workflow-setup-constants.js"></script>
+  <script src="../shared/tooltip-overlay.js"></script>
+  <script src="unit-test-runner.js"></script>
+  <script src="unit-tests.js"></script>
+  <script src="../steps/registry.js"></script>
+  <!-- STEP_HANDLERS_START -->
+  <script src="../steps/click/handler.js"></script>
+  <script src="../steps/hover/handler.js"></script>
+  <script src="../steps/loop/handler.js"></script>
+  <script src="../steps/runWorkflow/handler.js"></script>
+  <script src="../steps/type/handler.js"></script>
+  <script src="../steps/select/handler.js"></script>
+  <script src="../steps/ensureSelect/handler.js"></script>
+  <script src="../steps/key/handler.js"></script>
+  <script src="../steps/upload/handler.js"></script>
+  <script src="../steps/download/handler.js"></script>
+  <script src="../steps/wait/handler.js"></script>
+  <script src="../steps/goToUrl/handler.js"></script>
+  <script src="../steps/openTab/handler.js"></script>
+  <script src="../steps/screenCapture/handler.js"></script>
+  <script src="../steps/watchVideoProgress/handler.js"></script>
+  <script src="../steps/waitForVideos/handler.js"></script>
+  <script src="../steps/checkCompletions/handler.js"></script>
+  <script src="../steps/checkSuccessfulGenerations/handler.js"></script>
+  <script src="../steps/qualityCheck/handler.js"></script>
+  <script src="../steps/extractData/handler.js"></script>
+  <script src="../steps/runGenerator/handler.js"></script>
+  <script src="../steps/sendToEndpoint/handler.js"></script>
+  <script src="../steps/uploadPost/handler.js"></script>
+  <script src="../steps/setVideoSegments/handler.js"></script>
+  <script src="../steps/combineVideos/handler.js"></script>
+  <script src="../steps/trimVideo/handler.js"></script>
+  <script src="../steps/saveGenerationToProject/handler.js"></script>
+  <script src="../steps/captureAudio/handler.js"></script>
+  <script src="../steps/transcribeAudio/handler.js"></script>
+  <script src="../steps/whisperCheck/handler.js"></script>
+  <script src="../steps/embeddingCheck/handler.js"></script>
+  <script src="../steps/llm/handler.js"></script>
+  <script src="../steps/delayBeforeNextRun/handler.js"></script>
+  <script src="../steps/getFacebookPages/handler.js"></script>
+  <script src="../steps/getLinkedInPages/handler.js"></script>
+  <script src="../steps/getPinterestBoards/handler.js"></script>
+  <script src="../steps/getInstagramComments/handler.js"></script>
+  <script src="../steps/replyInstagramComment/handler.js"></script>
+  <script src="../steps/sendInstagramDm/handler.js"></script>
+  <script src="../steps/getAnalytics/handler.js"></script>
+  <script src="../steps/getPostAnalytics/handler.js"></script>
+  <script src="../steps/getPostHistory/handler.js"></script>
+  <script src="../steps/getScheduledPosts/handler.js"></script>
+  <script src="../steps/renderShotstack/handler.js"></script>
+  <script src="../steps/getFollowingProfiles/handler.js"></script>
+  <script src="../steps/getFollowingProfile/handler.js"></script>
+  <script src="../steps/createFollowingProfile/handler.js"></script>
+  <script src="../steps/updateFollowingProfile/handler.js"></script>
+  <script src="../steps/deleteFollowingProfile/handler.js"></script>
+  <script src="../steps/deleteFollowingDetail/handler.js"></script>
+  <!-- STEP_HANDLERS_END -->
+  <!-- STEP_TESTS_START -->
+  <script src="../steps/click/step-tests.js"></script>
+  <script src="../steps/hover/step-tests.js"></script>
+  <script src="../steps/loop/step-tests.js"></script>
+  <script src="../steps/runWorkflow/step-tests.js"></script>
+  <script src="../steps/type/step-tests.js"></script>
+  <script src="../steps/select/step-tests.js"></script>
+  <script src="../steps/ensureSelect/step-tests.js"></script>
+  <script src="../steps/key/step-tests.js"></script>
+  <script src="../steps/upload/step-tests.js"></script>
+  <script src="../steps/download/step-tests.js"></script>
+  <script src="../steps/wait/step-tests.js"></script>
+  <script src="../steps/goToUrl/step-tests.js"></script>
+  <script src="../steps/openTab/step-tests.js"></script>
+  <script src="../steps/screenCapture/step-tests.js"></script>
+  <script src="../steps/watchVideoProgress/step-tests.js"></script>
+  <script src="../steps/waitForVideos/step-tests.js"></script>
+  <script src="../steps/checkCompletions/step-tests.js"></script>
+  <script src="../steps/checkSuccessfulGenerations/step-tests.js"></script>
+  <script src="../steps/qualityCheck/step-tests.js"></script>
+  <script src="../steps/extractData/step-tests.js"></script>
+  <script src="../steps/runGenerator/step-tests.js"></script>
+  <script src="../steps/sendToEndpoint/step-tests.js"></script>
+  <script src="../steps/uploadPost/step-tests.js"></script>
+  <script src="../steps/setVideoSegments/step-tests.js"></script>
+  <script src="../steps/combineVideos/step-tests.js"></script>
+  <script src="../steps/trimVideo/step-tests.js"></script>
+  <script src="../steps/saveGenerationToProject/step-tests.js"></script>
+  <script src="../steps/captureAudio/step-tests.js"></script>
+  <script src="../steps/transcribeAudio/step-tests.js"></script>
+  <script src="../steps/whisperCheck/step-tests.js"></script>
+  <script src="../steps/embeddingCheck/step-tests.js"></script>
+  <script src="../steps/llm/step-tests.js"></script>
+  <script src="../steps/delayBeforeNextRun/step-tests.js"></script>
+  <script src="../steps/getFacebookPages/step-tests.js"></script>
+  <script src="../steps/getLinkedInPages/step-tests.js"></script>
+  <script src="../steps/getPinterestBoards/step-tests.js"></script>
+  <script src="../steps/getInstagramComments/step-tests.js"></script>
+  <script src="../steps/replyInstagramComment/step-tests.js"></script>
+  <script src="../steps/sendInstagramDm/step-tests.js"></script>
+  <script src="../steps/getAnalytics/step-tests.js"></script>
+  <script src="../steps/getPostAnalytics/step-tests.js"></script>
+  <script src="../steps/getPostHistory/step-tests.js"></script>
+  <script src="../steps/getScheduledPosts/step-tests.js"></script>
+  <script src="../steps/renderShotstack/step-tests.js"></script>
+  <script src="../steps/getFollowingProfiles/step-tests.js"></script>
+  <script src="../steps/getFollowingProfile/step-tests.js"></script>
+  <script src="../steps/createFollowingProfile/step-tests.js"></script>
+  <script src="../steps/updateFollowingProfile/step-tests.js"></script>
+  <script src="../steps/deleteFollowingProfile/step-tests.js"></script>
+  <script src="../steps/deleteFollowingDetail/step-tests.js"></script>
+  <!-- STEP_TESTS_END -->
+  <script src="../generator/core/wrap-text.js"></script>
+  <script src="../generator/core/position-from-clip.js"></script>
+  <script src="../generator/core/scene.js"></script>
+  <script src="../generator/editor/fabric-to-timeline.js"></script>
+  <script src="../generator/editor/timeline-panel.js"></script>
+  <script src="generator-tests.js"></script>
+  <script src="test-mode-panel.js"></script>
+  <script src="unit-tests-bootstrap.js"></script>
+</body>
+</html>

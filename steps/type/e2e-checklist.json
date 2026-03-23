@@ -1,0 +1,11 @@
+{
+  "section": "Type",
+  "items": [
+    {
+      "id": "basic",
+      "label": "Type step",
+      "desc": "Add step, set variableKey. Paste row with value. Run; value typed into target.",
+      "snippet": null
+    }
+  ]
+}

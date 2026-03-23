@@ -1,0 +1,29 @@
+{
+  "id": "sendInstagramDm",
+  "label": "Send Instagram DM",
+  "category": "data",
+  "description": "Send a direct message to an Instagram user by IGSID. Supports customer support workflows within Instagram's 24-hour messaging window. Requires instagram_business_manage_messages permission.",
+  "defaultAction": {
+    "type": "sendInstagramDm",
+    "runIf": "",
+    "apiKeyVariableKey": "uploadPostApiKey",
+    "recipientIdVariableKey": "recipientId",
+    "messageVariableKey": "message",
+    "saveAsVariable": "dmResult"
+  },
+  "inputs": [
+    { "key": "apiKeyVariableKey", "description": "Row variable for Upload Post API key" },
+    { "key": "recipientIdVariableKey", "description": "Row variable for recipient IGSID (Instagram Scoped ID)" },
+    { "key": "messageVariableKey", "description": "Row variable for the DM message text" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store the DM result" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey" },
+    { "key": "recipientIdVariableKey", "label": "Recipient ID (IGSID) variable key", "inputType": "text", "placeholder": "recipientId", "hint": "Instagram Scoped ID of the recipient." },
+    { "key": "messageVariableKey", "label": "Message variable key", "inputType": "text", "placeholder": "message" },
+    { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "dmResult" }
+  ]
+}

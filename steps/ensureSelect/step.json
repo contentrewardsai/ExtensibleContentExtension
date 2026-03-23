@@ -1,0 +1,33 @@
+{
+  "id": "ensureSelect",
+  "label": "Ensure dropdown",
+  "category": "interaction",
+  "description": "Ensure a dropdown shows a specific value. If it already does, the step is skipped; otherwise open the dropdown and select the option.",
+  "defaultAction": {
+    "type": "ensureSelect",
+    "expectedText": "",
+    "optionText": "",
+    "optionTexts": [],
+    "optionTextsClickDelayMs": 250,
+    "optionTextsCloseKey": "Escape",
+    "optionTextsCloseKeyCount": 2,
+    "optionTextsAfterCloseDelayMs": 300,
+    "checkSelectors": [],
+    "openSelectors": [],
+    "optionSelectors": [],
+    "optional": false
+  },
+  "formSchema": [
+    { "key": "expectedText", "label": "Expected text (if already set, skip)", "inputType": "text", "placeholder": "e.g. Frames to Video" },
+    { "key": "optionText", "label": "Option text (to click when changing)", "inputType": "text", "placeholder": "e.g. Frames to Video" },
+    { "key": "optionTexts", "label": "Multiple options (tabs) — JSON array", "inputType": "textarea", "placeholder": "e.g. [\"Video\", \"Frames\", \"Landscape\", \"x4\"]" },
+    { "key": "optionTextsClickDelayMs", "label": "Delay after each option click (ms)", "inputType": "number", "placeholder": "250" },
+    { "key": "optionTextsCloseKey", "label": "Key to close menu", "inputType": "text", "placeholder": "Escape" },
+    { "key": "optionTextsCloseKeyCount", "label": "Times to send close key", "inputType": "number", "placeholder": "2" },
+    { "key": "optionTextsAfterCloseDelayMs", "label": "Delay after close (ms)", "inputType": "number", "placeholder": "300" },
+    { "key": "checkSelectors", "label": "Check selectors (element showing current value)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "openSelectors", "label": "Open selectors (click to open dropdown)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "optionSelectors", "label": "Option selectors (optional)", "inputType": "textarea" },
+    { "key": "optional", "label": "Optional", "inputType": "checkbox" }
+  ]
+}

@@ -1,0 +1,42 @@
+.DS_Store
+.cursor
+.cursorrules
+Thumbs.db
+node_modules/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# E2E persistent profile (user data dir)
+test/.e2e-user-data*/
+
+# Build / test artifacts
+test/e2e-step-config.json
+playwright-report/
+test-results/
+
+# Extension signing keys (never commit)
+*.pem
+
+# Logs
+*.log
+
+# Local/user data (do not commit)
+config/**
+!config/whop-auth.example.js
+following/*
+!following/README.md
+uploads/*
+!uploads/README.md
+workflows/qa/
+
+# Generated workflow versions (keep workflow.json presets)
+workflows/**/workflow-*-*.json
+
+# Optional: generated exports / captures
+generator/outputs/*.tmp
+
+# FFmpeg WASM binary (large, regenerate via setup-ffmpeg.sh)
+lib/ffmpeg/ffmpeg-core.wasm

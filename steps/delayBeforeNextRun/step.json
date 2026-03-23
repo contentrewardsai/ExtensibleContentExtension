@@ -1,0 +1,17 @@
+{
+  "id": "delayBeforeNextRun",
+  "label": "Delay before next run",
+  "category": "flow",
+  "description": "When running multiple rows (Run All Rows), wait a random delay in this range (ms) after each row before starting the next. Max retries applies when a step fails with onFailure: retry. Always present as the last step.",
+  "defaultAction": {
+    "type": "delayBeforeNextRun",
+    "delayMinMs": 15000,
+    "delayMaxMs": 25000,
+    "maxRetriesOnFail": 3
+  },
+  "formSchema": [
+    { "key": "delayMinMs", "label": "Min delay (ms)", "inputType": "number", "min": 0, "placeholder": "15000" },
+    { "key": "delayMaxMs", "label": "Max delay (ms)", "inputType": "number", "min": 0, "placeholder": "25000" },
+    { "key": "maxRetriesOnFail", "label": "Max retries per row", "inputType": "number", "min": 1, "max": 10, "placeholder": "3" }
+  ]
+}

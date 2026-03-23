@@ -1,0 +1,51 @@
+{
+  "id": "updateFollowingProfile",
+  "label": "Update Following Profile",
+  "description": "Update a Following/Pulse profile: change name/birthday, or add accounts, phones, emails, addresses, notes.",
+  "category": "following",
+  "inputs": [
+    { "key": "profileIdVariableKey", "label": "Profile ID variable", "type": "text" },
+    { "key": "profileNameVariableKey", "label": "Profile name variable", "type": "text" },
+    { "key": "nameVariableKey", "label": "New name variable", "type": "text" },
+    { "key": "birthdayVariableKey", "label": "New birthday variable", "type": "text" },
+    { "key": "addAccountHandleVariableKey", "label": "Add account handle variable", "type": "text" },
+    { "key": "addAccountPlatformVariableKey", "label": "Add account platform variable", "type": "text" },
+    { "key": "addAccountUrlVariableKey", "label": "Add account URL variable", "type": "text" },
+    { "key": "addPhoneVariableKey", "label": "Add phone variable", "type": "text" },
+    { "key": "addEmailVariableKey", "label": "Add email variable", "type": "text" },
+    { "key": "addAddressVariableKey", "label": "Add address variable (JSON)", "type": "text" },
+    { "key": "addNoteVariableKey", "label": "Add note variable", "type": "text" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text", "default": "updateResult" }
+  ],
+  "defaultAction": {
+    "type": "updateFollowingProfile",
+    "profileIdVariableKey": "",
+    "profileNameVariableKey": "profileName",
+    "nameVariableKey": "",
+    "birthdayVariableKey": "",
+    "addAccountHandleVariableKey": "",
+    "addAccountPlatformVariableKey": "",
+    "addAccountUrlVariableKey": "",
+    "addPhoneVariableKey": "",
+    "addEmailVariableKey": "",
+    "addAddressVariableKey": "",
+    "addNoteVariableKey": "",
+    "saveAsVariable": "updateResult"
+  },
+  "formSchema": [
+    { "key": "profileIdVariableKey", "label": "Profile ID variable", "type": "text" },
+    { "key": "profileNameVariableKey", "label": "Profile name variable", "type": "text" },
+    { "key": "nameVariableKey", "label": "New name variable", "type": "text" },
+    { "key": "birthdayVariableKey", "label": "New birthday variable", "type": "text" },
+    { "key": "addAccountHandleVariableKey", "label": "Add account handle", "type": "text" },
+    { "key": "addAccountPlatformVariableKey", "label": "Add account platform", "type": "text" },
+    { "key": "addAccountUrlVariableKey", "label": "Add account URL", "type": "text" },
+    { "key": "addPhoneVariableKey", "label": "Add phone", "type": "text" },
+    { "key": "addEmailVariableKey", "label": "Add email", "type": "text" },
+    { "key": "addAddressVariableKey", "label": "Add address (JSON)", "type": "text" },
+    { "key": "addNoteVariableKey", "label": "Add note", "type": "text" },
+    { "key": "saveAsVariable", "label": "Save result to variable", "type": "text" }
+  ]
+}

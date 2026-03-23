@@ -1,0 +1,20 @@
+{
+  "id": "checkCompletions",
+  "label": "Check completions",
+  "category": "flow",
+  "description": "Wait until at least minCompletions items exist in the list (e.g. after batch generation). Detects failed generations and throws if no new completions.",
+  "defaultAction": {
+    "type": "checkCompletions",
+    "listSelector": "[data-testid=\"virtuoso-item-list\"]",
+    "minCompletions": 1,
+    "failedGenerationPhrases": ["failed generation", "generation failed"],
+    "timeoutMs": 300000
+  },
+  "formSchema": [
+    { "key": "listSelector", "label": "List selector", "inputType": "text", "pickOnPage": true },
+    { "key": "itemSelector", "label": "Item selector (optional)", "inputType": "text", "placeholder": "[data-index]" },
+    { "key": "minCompletions", "label": "Min completions", "inputType": "number", "min": 1 },
+    { "key": "failedGenerationPhrases", "label": "Failed generation phrases (JSON array)", "inputType": "textarea" },
+    { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "min": 30000 }
+  ]
+}

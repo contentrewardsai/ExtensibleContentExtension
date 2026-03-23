@@ -1,0 +1,1 @@
+{ "workflowId": "e2e-test-type", "rows": [{ "value": "E2E-typed" }], "assert": "fixture" }

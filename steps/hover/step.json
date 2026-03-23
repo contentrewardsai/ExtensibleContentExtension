@@ -1,0 +1,15 @@
+{
+  "id": "hover",
+  "label": "Hover",
+  "category": "interaction",
+  "description": "Hover over an element (mouseenter/mouseover) so menus or dropdowns appear. Use before a click when the target is only visible on hover.",
+  "defaultAction": {
+    "type": "hover",
+    "selectors": [],
+    "optional": false
+  },
+  "formSchema": [
+    { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "optional", "label": "Optional (skip if element not found)", "inputType": "checkbox" }
+  ]
+}

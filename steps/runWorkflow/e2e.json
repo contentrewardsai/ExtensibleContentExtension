@@ -1,0 +1,5 @@
+{
+  "workflowId": "e2e-test-runWorkflow",
+  "rows": [{}],
+  "assert": "fixture"
+}

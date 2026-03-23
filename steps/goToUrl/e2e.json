@@ -1,0 +1,1 @@
+{ "workflowId": "e2e-test-goToUrl", "rows": [{ "url": "__FIXTURE_URL__" }], "assert": "fixture" }
