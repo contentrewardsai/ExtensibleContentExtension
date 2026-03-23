@@ -19,9 +19,7 @@
     "windows",
     "sidePanel",
     "tabCapture",
-    "offscreen",
-    "videoCapture",
-    "audioCapture"
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>",

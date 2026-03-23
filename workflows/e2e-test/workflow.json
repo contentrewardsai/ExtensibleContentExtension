@@ -1,0 +1,493 @@
+{
+  "id": "e2e-test",
+  "name": "E2E Test",
+  "version": "1",
+  "description": "Workflows for Playwright/Puppeteer E2E: click, type, select, extract, send-endpoint on test/fixtures/record-playback-test.html",
+  "workflows": {
+    "e2e-test-click": {
+      "id": "e2e-test-click",
+      "name": "E2E Click Test",
+      "version": 1,
+      "initial_version": "e2e-test-click",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "click",
+            "selectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"primary-action\"]", "score": 9 }
+            ],
+            "fallbackSelectors": []
+          }
+        ]
+      }
+    },
+    "e2e-test-type": {
+      "id": "e2e-test-type",
+      "name": "E2E Type Test",
+      "version": 1,
+      "initial_version": "e2e-test-type",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "type",
+            "selectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"text-input\"]", "score": 9 }
+            ],
+            "fallbackSelectors": [],
+            "variableKey": "value"
+          }
+        ]
+      }
+    },
+    "e2e-test-select": {
+      "id": "e2e-test-select",
+      "name": "E2E Select Test",
+      "version": 1,
+      "initial_version": "e2e-test-select",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "select",
+            "selectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"choice-select\"]", "score": 9 }
+            ],
+            "fallbackSelectors": [],
+            "variableKey": "option"
+          }
+        ]
+      }
+    },
+    "e2e-test-extract": {
+      "id": "e2e-test-extract",
+      "name": "E2E Extract Test",
+      "version": 1,
+      "initial_version": "e2e-test-extract",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "extractData",
+            "listSelector": "[data-testid=\"item-list\"]",
+            "itemSelector": "[data-testid=\"item\"]",
+            "fields": [
+              { "key": "name", "selector": ".item-name" },
+              { "key": "email", "selector": ".item-email" }
+            ],
+            "maxItems": 0
+          }
+        ]
+      }
+    },
+    "e2e-test-send-endpoint": {
+      "id": "e2e-test-send-endpoint",
+      "name": "E2E Send Endpoint Test",
+      "version": 1,
+      "initial_version": "e2e-test-send-endpoint",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "sendToEndpoint",
+            "url": "",
+            "urlVariableKey": "endpointUrl",
+            "method": "POST",
+            "bodySource": "template",
+            "bodyTemplate": "{\"name\": \"{{name}}\"}",
+            "bodyContentType": "json",
+            "successStatuses": "2xx",
+            "waitForResponse": true
+          }
+        ]
+      }
+    },
+    "e2e-test-hover": {
+      "id": "e2e-test-hover",
+      "name": "E2E Hover Test",
+      "version": 1,
+      "initial_version": "e2e-test-hover",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "hover",
+            "selectors": [{ "type": "attr", "attr": "data-testid", "value": "[data-testid=\"hover-target\"]", "score": 9 }],
+            "fallbackSelectors": []
+          }
+        ]
+      }
+    },
+    "e2e-test-key": {
+      "id": "e2e-test-key",
+      "name": "E2E Key Test",
+      "version": 1,
+      "initial_version": "e2e-test-key",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "key",
+            "key": "Escape",
+            "count": 1
+          }
+        ]
+      }
+    },
+    "e2e-test-wait": {
+      "id": "e2e-test-wait",
+      "name": "E2E Wait Test",
+      "version": 1,
+      "initial_version": "e2e-test-wait",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "wait",
+            "waitFor": "time",
+            "duration": 300
+          }
+        ]
+      }
+    },
+    "e2e-test-goToUrl": {
+      "id": "e2e-test-goToUrl",
+      "name": "E2E Go to URL Test",
+      "version": 1,
+      "initial_version": "e2e-test-goToUrl",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "goToUrl",
+            "url": "",
+            "variableKey": "url"
+          }
+        ]
+      }
+    },
+    "e2e-test-delayBeforeNextRun": {
+      "id": "e2e-test-delayBeforeNextRun",
+      "name": "E2E Delay Before Next Run Test",
+      "version": 1,
+      "initial_version": "e2e-test-delayBeforeNextRun",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          { "type": "click", "selectors": [{ "type": "attr", "attr": "data-testid", "value": "[data-testid=\"primary-action\"]", "score": 9 }], "fallbackSelectors": [] },
+          { "type": "delayBeforeNextRun", "minMs": 100, "maxMs": 200, "maxRetriesPerRow": 1 }
+        ]
+      }
+    },
+    "e2e-test-runWorkflow": {
+      "id": "e2e-test-runWorkflow",
+      "name": "E2E Run Workflow Test",
+      "version": 1,
+      "initial_version": "e2e-test-runWorkflow",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "runWorkflow",
+            "workflowId": "e2e-test-click",
+            "rowMapping": {}
+          }
+        ]
+      }
+    },
+    "e2e-test-transcribeAudio": {
+      "id": "e2e-test-transcribeAudio",
+      "name": "E2E Transcribe Audio Test",
+      "version": 1,
+      "initial_version": "e2e-test-transcribeAudio",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "transcribeAudio",
+            "audioVariable": "capturedAudio",
+            "saveAsVariable": "transcript"
+          }
+        ]
+      }
+    },
+    "e2e-test-whisperCheck": {
+      "id": "e2e-test-whisperCheck",
+      "name": "E2E Whisper Check Test",
+      "version": 1,
+      "initial_version": "e2e-test-whisperCheck",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "whisperCheck",
+            "transcriptVariable": "transcript",
+            "expectedVariable": "expectedText",
+            "threshold": 0.75
+          }
+        ]
+      }
+    },
+    "e2e-test-saveGenerationToProject": {
+      "id": "e2e-test-saveGenerationToProject",
+      "name": "E2E Save Generation to Project Test (smoke)",
+      "version": 1,
+      "initial_version": "e2e-test-saveGenerationToProject",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "saveGenerationToProject",
+            "variableName": "generatedImage",
+            "folder": "generations",
+            "namingFormat": "numeric"
+          }
+        ]
+      }
+    },
+    "e2e-test-combineVideos": {
+      "id": "e2e-test-combineVideos",
+      "name": "E2E Combine Videos Test (image segments)",
+      "version": 1,
+      "initial_version": "e2e-test-combineVideos",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "combineVideos",
+            "segments": [
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 },
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 }
+            ],
+            "outputWidth": 64,
+            "outputHeight": 64,
+            "mismatchStrategy": "crop",
+            "saveAsVariable": "combinedVideo"
+          }
+        ]
+      }
+    },
+    "e2e-test-embeddingCheck": {
+      "id": "e2e-test-embeddingCheck",
+      "name": "E2E Embedding Check Test",
+      "version": 1,
+      "initial_version": "e2e-test-embeddingCheck",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "embeddingCheck",
+            "outputVariable": "outputText",
+            "expectedVariable": "expectedText",
+            "threshold": 0.5
+          }
+        ]
+      }
+    },
+    "e2e-test-captureAudio": {
+      "id": "e2e-test-captureAudio",
+      "name": "E2E Capture Audio Test (element mode)",
+      "version": 1,
+      "initial_version": "e2e-test-captureAudio",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "captureAudio",
+            "mode": "element",
+            "selectors": "#testVideo",
+            "durationMs": 2000,
+            "saveAsVariable": "capturedAudio"
+          }
+        ]
+      }
+    },
+    "e2e-test-ensureSelect": {
+      "id": "e2e-test-ensureSelect",
+      "name": "E2E Ensure Select Test",
+      "version": 1,
+      "initial_version": "e2e-test-ensureSelect",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "ensureSelect",
+            "expectedText": "Option 2",
+            "optionText": "Option 2",
+            "checkSelectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"custom-dropdown\"]", "score": 9 }
+            ],
+            "openSelectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"custom-dropdown\"]", "score": 9 }
+            ],
+            "optionSelectors": []
+          }
+        ]
+      }
+    },
+    "e2e-test-chain-type-send": {
+      "id": "e2e-test-chain-type-send",
+      "name": "E2E Chain: type → send (shared row)",
+      "version": 1,
+      "initial_version": "e2e-test-chain-type-send",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "type",
+            "selectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"text-input\"]", "score": 9 }
+            ],
+            "fallbackSelectors": [],
+            "variableKey": "message"
+          },
+          {
+            "type": "sendToEndpoint",
+            "url": "",
+            "urlVariableKey": "endpointUrl",
+            "method": "POST",
+            "bodySource": "template",
+            "bodyTemplate": "{\"typed\": \"{{message}}\"}",
+            "bodyContentType": "json",
+            "successStatuses": "2xx",
+            "waitForResponse": true
+          }
+        ]
+      }
+    },
+    "e2e-test-chain-send-forward": {
+      "id": "e2e-test-chain-send-forward",
+      "name": "E2E Chain: send → save → forward (variable passing)",
+      "version": 1,
+      "initial_version": "e2e-test-chain-send-forward",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "sendToEndpoint",
+            "url": "",
+            "urlVariableKey": "endpointUrl",
+            "method": "POST",
+            "bodySource": "template",
+            "bodyTemplate": "{\"seed\": \"data-flow-ok\"}",
+            "bodyContentType": "json",
+            "successStatuses": "2xx",
+            "waitForResponse": true,
+            "saveAsVariable": "echoResult",
+            "responsePath": "body.seed"
+          },
+          {
+            "type": "sendToEndpoint",
+            "url": "",
+            "urlVariableKey": "endpointUrl",
+            "method": "POST",
+            "bodySource": "template",
+            "bodyTemplate": "{\"forwarded\": \"{{echoResult}}\"}",
+            "bodyContentType": "json",
+            "successStatuses": "2xx",
+            "waitForResponse": true
+          }
+        ]
+      }
+    },
+    "e2e-test-chain-click-type-send": {
+      "id": "e2e-test-chain-click-type-send",
+      "name": "E2E Chain: click → type → send (3-step pipeline)",
+      "version": 1,
+      "initial_version": "e2e-test-chain-click-type-send",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "click",
+            "selectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"primary-action\"]", "score": 9 }
+            ],
+            "fallbackSelectors": []
+          },
+          {
+            "type": "type",
+            "selectors": [
+              { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"text-input\"]", "score": 9 }
+            ],
+            "fallbackSelectors": [],
+            "variableKey": "inputText"
+          },
+          {
+            "type": "sendToEndpoint",
+            "url": "",
+            "urlVariableKey": "endpointUrl",
+            "method": "POST",
+            "bodySource": "template",
+            "bodyTemplate": "{\"clicked\": true, \"text\": \"{{inputText}}\"}",
+            "bodyContentType": "json",
+            "successStatuses": "2xx",
+            "waitForResponse": true
+          }
+        ]
+      }
+    },
+    "e2e-test-chain-offscreen-same": {
+      "id": "e2e-test-chain-offscreen-same",
+      "name": "E2E Chain: combineVideos × 2 (same offscreen type, sequential mutex)",
+      "version": 1,
+      "initial_version": "e2e-test-chain-offscreen-same",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "combineVideos",
+            "segments": [
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 },
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 }
+            ],
+            "outputWidth": 64,
+            "outputHeight": 64,
+            "mismatchStrategy": "crop",
+            "saveAsVariable": "firstVideo"
+          },
+          {
+            "type": "combineVideos",
+            "segments": [
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 },
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 }
+            ],
+            "outputWidth": 64,
+            "outputHeight": 64,
+            "mismatchStrategy": "crop",
+            "saveAsVariable": "secondVideo"
+          }
+        ]
+      }
+    },
+    "e2e-test-chain-offscreen-switch": {
+      "id": "e2e-test-chain-offscreen-switch",
+      "name": "E2E Chain: combineVideos → embeddingCheck (offscreen type switch)",
+      "version": 1,
+      "initial_version": "e2e-test-chain-offscreen-switch",
+      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "combineVideos",
+            "segments": [
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 },
+              { "type": "image", "url": "{{imageUrl}}", "duration": 0.3 }
+            ],
+            "outputWidth": 64,
+            "outputHeight": 64,
+            "mismatchStrategy": "crop",
+            "saveAsVariable": "combinedVideo"
+          },
+          {
+            "type": "embeddingCheck",
+            "outputVariable": "outputText",
+            "expectedVariable": "expectedText",
+            "threshold": 0.5
+          }
+        ]
+      }
+    }
+  }
+}

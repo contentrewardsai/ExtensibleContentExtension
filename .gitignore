@@ -3,7 +3,10 @@
 .cursorrules
 Thumbs.db
 node_modules/
-models/
+# Large weights under models/ — keep README / placeholder tracked
+models/*
+!models/README.md
+!models/.gitkeep
 
 # Environment / secrets
 .env
@@ -31,10 +34,16 @@ following/*
 !following/README.md
 uploads/*
 !uploads/README.md
-workflows/qa/
 
-# Generated workflow versions (keep workflow.json presets)
-workflows/
+# Workflows: track shared QA/e2e templates and root docs; ignore per-user dirs (wf_*…) and their runs/media
+workflows/*
+!workflows/README.md
+!workflows/manifest.json
+!workflows/qa/
+workflows/qa/**
+!workflows/qa/.gitkeep
+!workflows/e2e-test/
+!workflows/e2e-test/**
 
 # Optional: generated exports / captures
 generator/outputs/*.tmp

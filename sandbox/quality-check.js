@@ -42,7 +42,8 @@
     env.backends.onnx.wasm.numThreads = 1;
   }
 
-  // Use bundled LaMini model if present (avoids runtime download timeouts)
+  // LaMini (and optional bundled weights) load from chrome-extension://.../models/...
+  // Large Xenova files live under the user's project folder; parent reads them via postMessage.
   const localModelBase = (typeof window !== 'undefined' && window.location?.origin)
     ? window.location.origin + '/models/'
     : '';
@@ -50,6 +51,56 @@
     env.localModelPath = localModelBase;
     env.allowLocalModels = true;
   }
+
+  const origFetch = globalThis.fetch.bind(globalThis);
+  const projectFetchPending = new Map();
+  window.addEventListener('message', (ev) => {
+    const d = ev.data || {};
+    if (d.type !== 'qc-project-model-fetch-resp' || !d.id) return;
+    const pend = projectFetchPending.get(d.id);
+    if (!pend) return;
+    projectFetchPending.delete(d.id);
+    clearTimeout(pend.timeoutId);
+    if (d.ok && d.buffer) {
+      pend.resolve(d.buffer);
+    } else {
+      pend.reject(new Error(String(d.status || 404)));
+    }
+  });
+
+  function fetchModelBytesFromProject(relPath) {
+    return new Promise((resolve, reject) => {
+      const id = 'qcmf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      const timeoutId = setTimeout(() => {
+        projectFetchPending.delete(id);
+        reject(new Error('project model fetch timeout'));
+      }, 120000);
+      projectFetchPending.set(id, { resolve, reject, timeoutId });
+      try {
+        window.parent.postMessage({ type: 'qc-project-model-fetch', id, path: relPath }, '*');
+      } catch (err) {
+        clearTimeout(timeoutId);
+        projectFetchPending.delete(id);
+        reject(err);
+      }
+    });
+  }
+
+  globalThis.fetch = async function(input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url);
+    if (localModelBase && typeof url === 'string' && url.startsWith(localModelBase)) {
+      const rel = url.slice(localModelBase.length);
+      if (rel.includes('LaMini-Flan-T5-783M')) {
+        try {
+          const buf = await fetchModelBytesFromProject(rel);
+          return new Response(buf, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
+        } catch (_) {
+          return origFetch(input, init);
+        }
+      }
+    }
+    return origFetch(input, init);
+  };
 
   async function getEmbeddingPipeline() {
     if (embeddingPipeline) return embeddingPipeline;

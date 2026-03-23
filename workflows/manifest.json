@@ -1,0 +1,13 @@
+{
+  "version": "1",
+  "description": "Workflow plugins. Each folder (e.g. veo3) contains workflow.json (domain discovery under discovery.domains). Global selector hints live in config/discovery-hints.json (no domain keys).",
+  "workflows": [
+    "e2e-test",
+    "veo3",
+    "wf_1771269782201",
+    "wf_1773412982209",
+    "wf_1773940645963_tkg9l6",
+    "wf_1774142556510_mtt8lw",
+    "wf_1774260224884_bq8hub"
+  ]
+}
