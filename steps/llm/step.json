@@ -2,7 +2,7 @@
   "id": "llm",
   "label": "Call LLM",
   "category": "data",
-  "description": "Send a prompt (with {{variables}} from the row) to the local LaMini model (Xenova/LaMini-Flan-T5-783M). Response types: true/false, plain text, or text with feedback. Save the result to a row variable. Requires the model to be downloaded (see models/README.md).",
+  "description": "Send a prompt (with {{variables}} from the row) to the local LaMini model (Xenova/LaMini-Flan-T5-783M). Response types: true/false, plain text, or text with feedback. Save the result to a row variable. With a project folder set, LaMini is saved under models/Xenova/ automatically (~820MB) or via scripts/download-lamini-model.sh.",
   "defaultAction": {
     "type": "llm",
     "prompt": "Based on the following, answer the question.\n\nContent:\n{{content}}\n\nQuestion: Is this appropriate for our audience?",

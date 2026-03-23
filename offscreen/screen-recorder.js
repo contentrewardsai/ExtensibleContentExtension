@@ -2,7 +2,7 @@
  * Offscreen document: screen/tab/mic recording via getDisplayMedia, getUserMedia, and MediaRecorder.
  * START_RECORDING accepts legacy `mode` (screen | tabAudio | both) or flags:
  *   recordScreen, systemAudio, microphone, recordWebcam (plan-record webcam = video-only WebM, separate file).
- * Requires manifest `videoCapture` for camera. Webcam getUserMedia runs here (not in the sidepanel) so Chrome can prompt.
+ * Webcam/mic use getUserMedia (no extension manifest entry for legacy app-only videoCapture/audioCapture). Webcam getUserMedia runs here (not in the sidepanel) so Chrome can prompt.
  * STOP_RECORDING returns { ok, captureInIdb, runId } (preferred) or { dataUrl?, webcamDataUrl? } when runId omitted.
  */
 (function() {

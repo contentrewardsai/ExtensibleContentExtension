@@ -4565,7 +4565,99 @@
       if (recordingWrap) recordingWrap.style.display = h ? '' : 'none';
       if (h && typeof renderGetStartedSection === 'function') renderGetStartedSection();
       if (typeof checkBackendStatus === 'function') checkBackendStatus();
+      if (typeof updateLaminiDownloadButtonVisibility === 'function') {
+        updateLaminiDownloadButtonVisibility().catch(() => {});
+      }
+      if (typeof updateLlmChatSectionAvailability === 'function') {
+        updateLlmChatSectionAvailability().catch(() => {});
+      }
     });
+  }
+
+  async function updateLaminiDownloadButtonVisibility() {
+    const auth = document.getElementById('downloadLaminiBtnAuth');
+    const loggedOut = document.getElementById('downloadLaminiBtnLoggedOut');
+    if (!auth && !loggedOut) return;
+    let show = false;
+    try {
+      if (typeof cfsLaminiModelLooksComplete !== 'function') return;
+      const h = await getStoredProjectFolderHandle();
+      if (h && !(await cfsLaminiModelLooksComplete(h))) show = true;
+    } catch (_) {}
+    if (auth) auth.style.display = show ? '' : 'none';
+    if (loggedOut) loggedOut.style.display = show ? '' : 'none';
+  }
+
+  async function updateLlmChatSectionAvailability() {
+    const unavailableEl = document.getElementById('llmChatUnavailable');
+    const unavailableTextEl = document.getElementById('llmChatUnavailableText');
+    const wrapEl = document.getElementById('llmChatUiWrap');
+    const sectionEl = document.getElementById('llmChatSection');
+    if (!unavailableEl || !wrapEl) return;
+    const setUnavailable = (show, text) => {
+      unavailableEl.style.display = show ? 'block' : 'none';
+      wrapEl.style.display = show ? 'none' : '';
+      wrapEl.setAttribute('aria-hidden', show ? 'true' : 'false');
+      if (unavailableTextEl && text) unavailableTextEl.textContent = text;
+      if (sectionEl) sectionEl.classList.toggle('llm-chat-section-disabled', !!show);
+    };
+    if (typeof cfsLaminiModelLooksComplete !== 'function' || typeof getStoredProjectFolderHandle !== 'function') {
+      setUnavailable(
+        true,
+        'Local AI Chat could not verify the LaMini model. Reload the side panel or extension.'
+      );
+      return;
+    }
+    try {
+      const h = await getStoredProjectFolderHandle();
+      if (!h) {
+        setUnavailable(
+          true,
+          'Local AI Chat uses the LaMini model in your project folder. Set a project folder above, then use Download LaMini (~820MB) when it appears.'
+        );
+        return;
+      }
+      if (!(await cfsLaminiModelLooksComplete(h))) {
+        setUnavailable(
+          true,
+          'Download the LaMini model (~820MB) to use Local AI Chat. Use the Download LaMini button next to Set project folder when it is visible.'
+        );
+        return;
+      }
+      setUnavailable(false, '');
+    } catch (_) {
+      setUnavailable(true, 'Could not check the LaMini model. Set your project folder and try Download LaMini.');
+    }
+  }
+
+  function doDownloadLaminiIntoProject() {
+    return (async () => {
+      const h = await getStoredProjectFolderHandle();
+      if (!h) {
+        setStatus('Set project folder first.', 'error');
+        return;
+      }
+      if (typeof cfsEnsureLaminiDirTree !== 'function' || typeof cfsDownloadXenovaLaminiIfNeeded !== 'function') {
+        setStatus('LaMini download script not loaded.', 'error');
+        return;
+      }
+      try {
+        let q = await h.queryPermission({ mode: 'readwrite' });
+        if (q !== 'granted') {
+          const r = await h.requestPermission({ mode: 'readwrite' });
+          if (r !== 'granted') {
+            setStatus('Folder read/write access is required to download LaMini.', 'error');
+            return;
+          }
+        }
+        await cfsEnsureLaminiDirTree(h);
+        await cfsDownloadXenovaLaminiIfNeeded(h, (msg) => setStatus(msg, ''), { createParentDirs: false });
+        await updateLaminiDownloadButtonVisibility();
+        if (typeof updateLlmChatSectionAvailability === 'function') await updateLlmChatSectionAvailability();
+      } catch (e) {
+        setStatus('LaMini model download failed: ' + (e?.message || e), 'error');
+      }
+    })();
   }
 
   /** Show/hide backend-offline banner only. Does not block any flows; playback, generator, and local workflows work offline. */
@@ -5009,9 +5101,27 @@
     return (async () => {
       try {
         const handle = await showDirectoryPicker({ mode: 'readwrite', startIn: 'documents' });
+        let laminiDirTreeOk = true;
+        if (typeof cfsEnsureLaminiDirTree === 'function') {
+          try {
+            await cfsEnsureLaminiDirTree(handle);
+          } catch (treeErr) {
+            laminiDirTreeOk = false;
+            setStatus('Could not create models/Xenova folders: ' + (treeErr?.message || treeErr), 'error');
+          }
+        }
         await setStoredProjectFolderHandle(handle);
         await syncProjectFolderStepsToBackground(handle);
         updateProjectFolderStatus();
+        if (laminiDirTreeOk && typeof cfsDownloadXenovaLaminiIfNeeded === 'function') {
+          try {
+            await cfsDownloadXenovaLaminiIfNeeded(handle, (msg) => setStatus(msg, ''), { createParentDirs: false });
+            if (typeof updateLaminiDownloadButtonVisibility === 'function') await updateLaminiDownloadButtonVisibility();
+            if (typeof updateLlmChatSectionAvailability === 'function') await updateLlmChatSectionAvailability();
+          } catch (lamErr) {
+            setStatus('LaMini model download failed: ' + (lamErr?.message || lamErr), 'error');
+          }
+        }
         if (window.refreshLibraryPanel) refreshLibraryPanel();
       } catch (err) {
         if (err.name === 'AbortError') setStatus('Cancelled.', '');
@@ -5024,6 +5134,8 @@
   document.getElementById('setProjectFolderBtnAuth')?.addEventListener('click', doSetProjectFolder);
   document.getElementById('setProjectFolderBtnLoggedOut')?.addEventListener('click', doSetProjectFolder);
   document.getElementById('projectFolderBannerBtn')?.addEventListener('click', doSetProjectFolder);
+  document.getElementById('downloadLaminiBtnAuth')?.addEventListener('click', doDownloadLaminiIntoProject);
+  document.getElementById('downloadLaminiBtnLoggedOut')?.addEventListener('click', doDownloadLaminiIntoProject);
 
   /** Workflow Q&A: questions and answers (workflow linked as answer to question). Stored locally; can sync to backend later. */
   const CFS_WORKFLOW_QUESTIONS_KEY = 'workflowQuestions';
@@ -6060,6 +6172,10 @@
     }
 
     async function sendChat() {
+      const wrap = document.getElementById('llmChatUiWrap');
+      if (!wrap || wrap.style.display === 'none' || wrap.getAttribute('aria-hidden') === 'true') {
+        return;
+      }
       const text = (inputEl?.value || '').trim();
       if (!text) return;
 
@@ -12881,13 +12997,57 @@
     }
   }
 
-  async function readRunCaptureBlobFromProject(folderId, refRun) {
+  /** readwrite for step-clip IO: prefer queryPermission (still granted after long FFmpeg) over requestPermission (needs user activation). */
+  async function ensureProjectFolderReadWriteForClips(projectRoot) {
+    if (!projectRoot) return false;
+    try {
+      if (typeof projectRoot.queryPermission === 'function') {
+        const q = await projectRoot.queryPermission({ mode: 'readwrite' });
+        // #region agent log
+        fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '053478' },
+          body: JSON.stringify({
+            sessionId: '053478',
+            location: 'sidepanel.js:ensureProjectFolderReadWriteForClips',
+            message: 'queryPermission readwrite',
+            data: { state: q },
+            timestamp: Date.now(),
+            hypothesisId: 'H1',
+          }),
+        }).catch(() => {});
+        // #endregion
+        if (q === 'granted') return true;
+      }
+      if (typeof projectRoot.requestPermission === 'function') {
+        const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+        return perm === 'granted';
+      }
+    } catch (e) {
+      // #region agent log
+      fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '053478' },
+        body: JSON.stringify({
+          sessionId: '053478',
+          location: 'sidepanel.js:ensureProjectFolderReadWriteForClips',
+          message: 'ensure RW catch',
+          data: { err: String(e && e.message ? e.message : e) },
+          timestamp: Date.now(),
+          hypothesisId: 'H1',
+        }),
+      }).catch(() => {});
+      // #endregion
+    }
+    return false;
+  }
+
+  async function readRunCaptureBlobFromProject(folderId, refRun, projectRootOpt) {
     if (!refRun?.mediaCaptureFile || typeof showDirectoryPicker === 'undefined') return null;
     try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
+      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
+      if (!projectRoot) return null;
+      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
       const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
       const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
       const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
@@ -12900,15 +13060,14 @@
   }
 
   /** When JSON omits mediaCaptureFile, try run-{runId}-capture.webm next to run JSON. */
-  async function readRunMainCaptureBlobFallbackByRunId(folderId, runId) {
+  async function readRunMainCaptureBlobFallbackByRunId(folderId, runId, projectRootOpt) {
     if (!runId || typeof showDirectoryPicker === 'undefined') return null;
     const rid = String(runId).replace(/^run_/, '');
     if (!rid) return null;
     try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
+      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
+      if (!projectRoot) return null;
+      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
       const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
       const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
       const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
@@ -12922,7 +13081,7 @@
   }
 
   /** Full-run AAC from `mediaCaptureAudioFile` or `run-{id}-audio.m4a` (same timeline as tab capture). */
-  async function readRunAudioM4aBlobFromProject(folderId, refRun) {
+  async function readRunAudioM4aBlobFromProject(folderId, refRun, projectRootOpt) {
     if (!refRun || typeof showDirectoryPicker === 'undefined') return null;
     const rid = refRun.runId != null ? String(refRun.runId).replace(/^run_/, '') : '';
     const tryNames = [];
@@ -12932,10 +13091,9 @@
     if (rid) tryNames.push('run-' + rid + '-audio.m4a');
     if (!tryNames.length) return null;
     try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
+      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
+      if (!projectRoot) return null;
+      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
       const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
       const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
       const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
@@ -12950,13 +13108,12 @@
     return null;
   }
 
-  async function readRunWebcamBlobFromProject(folderId, refRun) {
+  async function readRunWebcamBlobFromProject(folderId, refRun, projectRootOpt) {
     if (!refRun?.webcamCaptureFile || typeof showDirectoryPicker === 'undefined') return null;
     try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
+      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
+      if (!projectRoot) return null;
+      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
       const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
       const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
       const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
@@ -12972,7 +13129,7 @@
    * Split reference run capture into per-step files under workflows/<folderId>/media/analyze-<newWfId>/.
    * Adds comment.items video/audio with project-relative urls (workflows/...).
    */
-  async function attachAnalyzeStepCaptureClips(newWorkflowCopy, sourceWorkflow, parentWfId, referenceRunIndex, statusTargetEl) {
+  async function attachAnalyzeStepCaptureClips(newWorkflowCopy, sourceWorkflow, parentWfId, referenceRunIndex, statusTargetEl, projectRootPrimed) {
     const actions = newWorkflowCopy?.analyzed?.actions;
     if (!actions?.length) return { ok: true, skipped: true, reason: 'no_actions', written: 0 };
     const runs = sourceWorkflow?.runs || [];
@@ -12989,11 +13146,12 @@
     }
 
     const folderId = getWorkflowFolderId(parentWfId);
-    let blob = refRun.mediaCaptureFile ? await readRunCaptureBlobFromProject(folderId, refRun) : null;
+    const projectRootCached = projectRootPrimed || (await getStoredProjectFolderHandle());
+    let blob = refRun.mediaCaptureFile ? await readRunCaptureBlobFromProject(folderId, refRun, projectRootCached) : null;
     if ((!blob || blob.size < 1) && refRun.runId) {
-      blob = await readRunMainCaptureBlobFallbackByRunId(folderId, refRun.runId);
+      blob = await readRunMainCaptureBlobFallbackByRunId(folderId, refRun.runId, projectRootCached);
     }
-    const webBlob = refRun.webcamCaptureFile ? await readRunWebcamBlobFromProject(folderId, refRun) : null;
+    const webBlob = refRun.webcamCaptureFile ? await readRunWebcamBlobFromProject(folderId, refRun, projectRootCached) : null;
     if (!blob && !webBlob) return { ok: true, skipped: true, reason: 'no_blob', written: 0 };
 
     const hint = (t) => {
@@ -13058,7 +13216,7 @@
     let audioBlobForSteps = null;
     let audioDurationSec = durationSec;
     if (!isAudio && blob) {
-      audioBlobForSteps = await readRunAudioM4aBlobFromProject(folderId, refRun);
+      audioBlobForSteps = await readRunAudioM4aBlobFromProject(folderId, refRun, projectRootCached);
       if (audioBlobForSteps && audioBlobForSteps.size > 64) {
         const pa = await ff.probeDurationSeconds(audioBlobForSteps, () => {});
         if (pa > 0.1) {
@@ -13079,19 +13237,20 @@
     let webWritten = 0;
 
     async function writeClipToAnalyzeDir(fname, segBlob) {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot?.requestPermission) return false;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return false;
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const mediaRoot = await folderHandle.getDirectoryHandle('media', { create: true });
-      const sub = await mediaRoot.getDirectoryHandle(`analyze-${newWorkflowCopy.id}`, { create: true });
-      const outFh = await sub.getFileHandle(fname, { create: true });
-      const w = await outFh.createWritable();
-      await w.write(await segBlob.arrayBuffer());
-      await w.close();
-      return true;
+      if (!projectRootCached || !(await ensureProjectFolderReadWriteForClips(projectRootCached))) return false;
+      try {
+        const wfDir = await projectRootCached.getDirectoryHandle('workflows', { create: true });
+        const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
+        const mediaRoot = await folderHandle.getDirectoryHandle('media', { create: true });
+        const sub = await mediaRoot.getDirectoryHandle(`analyze-${newWorkflowCopy.id}`, { create: true });
+        const outFh = await sub.getFileHandle(fname, { create: true });
+        const w = await outFh.createWritable();
+        await w.write(await segBlob.arrayBuffer());
+        await w.close();
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
 
     for (let i = 0; i < actions.length; i++) {
@@ -13260,6 +13419,27 @@
       setStatus('Record at least one run first.', 'error');
       return;
     }
+    let analyzeProjectRootPrimed = null;
+    try {
+      analyzeProjectRootPrimed = await getStoredProjectFolderHandle();
+      if (analyzeProjectRootPrimed && typeof analyzeProjectRootPrimed.requestPermission === 'function') {
+        await analyzeProjectRootPrimed.requestPermission({ mode: 'readwrite' });
+      }
+    } catch (_) {}
+    // #region agent log
+    fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '053478' },
+      body: JSON.stringify({
+        sessionId: '053478',
+        location: 'sidepanel.js:analyzeWorkflow-click',
+        message: 'after project folder prime',
+        data: { hasRoot: !!analyzeProjectRootPrimed },
+        timestamp: Date.now(),
+        hypothesisId: 'H2',
+      }),
+    }).catch(() => {});
+    // #endregion
     const fallbackHost = await getActiveTabDiscoveryHost();
     const affinitySet = await buildDiscoveryAffinitySetForAnalyze(fallbackHost);
     const analyzeOpts = affinitySet.size > 0 ? { discoveryAffinitySet: affinitySet } : undefined;
@@ -13346,7 +13526,8 @@
         wf,
         wfId,
         clipSourceRunIdx,
-        analyzeResult
+        analyzeResult,
+        analyzeProjectRootPrimed
       );
       if (clipAttachRes && !clipAttachRes.skipped && clipAttachRes.written > 0) {
         mediaClipNote =

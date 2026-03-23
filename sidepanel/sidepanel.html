@@ -16,6 +16,7 @@
         </div>
         <div class="form-row auth-reload-row" style="margin-top:8px; gap:4px; align-items:center;">
           <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root; workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
+          <button type="button" id="downloadLaminiBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusLoggedOut" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="reloadExtensionBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (chrome.runtime.reload). Rebuilds manifests only if a project folder is set; otherwise reloads code only. Use a normal webpage to record, not chrome://.">Reload Extension</button>
           <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Open settings, API keys, and tests">Settings</button>
@@ -30,6 +31,7 @@
           <button type="button" id="reloadExtensionBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (no chrome://extensions needed). Rebuilds manifests when the project folder is set and writable; otherwise reloads code only. Record workflows on a normal https:// page, not chrome://.">Reload Extension</button>
           <span id="reloadExtensionStatus" class="hint" style="font-size:11px; display:none;"></span>
           <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root (ideally your extension folder for Load unpacked); workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
+          <button type="button" id="downloadLaminiBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Open settings, API keys, and tests">Settings</button>
         </div>
@@ -470,19 +472,24 @@
 
     <section class="llm-chat-section" id="llmChatSection">
       <h2>Local AI Chat</h2>
-      <div class="llm-chat-messages" id="llmChatMessages" role="log" aria-live="polite"></div>
-      <div class="llm-chat-input-row form-row">
-        <textarea id="llmChatInput" placeholder="How can I help?" rows="4" class="llm-chat-input"></textarea>
-        <div class="llm-chat-input-actions">
-          <label class="llm-chat-limit-site hint" title="Scope Q&amp;A search and new questions to the current tab site">
-            <input type="checkbox" id="llmChatLimitQaToSite" checked />
-            This site only
-          </label>
-          <button type="button" id="llmChatSubmitQuestionBtn" class="btn btn-outline btn-small">Submit last as question</button>
-          <button type="button" id="llmChatSendBtn" class="btn btn-primary btn-small">Send</button>
-        </div>
+      <div id="llmChatUnavailable" class="llm-chat-unavailable hint" style="display:block;margin:0 0 10px 0;padding:10px;border-radius:6px;background:var(--bg-secondary,#f5f5f5);" role="status">
+        <p id="llmChatUnavailableText" style="margin:0;">Checking whether the local LaMini model is available…</p>
       </div>
-      <p id="llmChatStatus" class="hint llm-chat-status" style="display:none;" role="status"></p>
+      <div id="llmChatUiWrap" style="display:none;" aria-hidden="true">
+        <div class="llm-chat-messages" id="llmChatMessages" role="log" aria-live="polite"></div>
+        <div class="llm-chat-input-row form-row">
+          <textarea id="llmChatInput" placeholder="How can I help?" rows="4" class="llm-chat-input"></textarea>
+          <div class="llm-chat-input-actions">
+            <label class="llm-chat-limit-site hint" title="Scope Q&amp;A search and new questions to the current tab site">
+              <input type="checkbox" id="llmChatLimitQaToSite" checked />
+              This site only
+            </label>
+            <button type="button" id="llmChatSubmitQuestionBtn" class="btn btn-outline btn-small">Submit last as question</button>
+            <button type="button" id="llmChatSendBtn" class="btn btn-primary btn-small">Send</button>
+          </div>
+        </div>
+        <p id="llmChatStatus" class="hint llm-chat-status" style="display:none;" role="status"></p>
+      </div>
     </section>
 
     <div id="recordingRequiresProjectFolder" style="display:none">
@@ -689,6 +696,7 @@
   <script src="../shared/ffmpeg-local.js"></script>
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/plan-capture-idb.js"></script>
+  <script src="../shared/download-xenova-lamini.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

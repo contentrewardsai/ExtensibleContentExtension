@@ -1,6 +1,7 @@
 #!/bin/bash
 # Download Xenova/LaMini-Flan-T5-783M to models/ for local use.
 # Run from project root: ./scripts/download-lamini-model.sh
+# The extension also downloads these files into your project folder after you set it in the side panel.
 # Uses quantized encoder+decoder (~820MB total).
 
 set -e

@@ -22,7 +22,7 @@ On Chrome 114–115, **Pulse** and **Activity** tabs work; **Plan** and **Librar
 
 **Policy (for now):** The extension must **not** connect to external LLM or AI APIs (e.g. OpenAI, Anthropic, or any third-party chat/completion endpoint).
 
-- The **LLM step** uses only the **local LaMini model** (Xenova/LaMini-Flan-T5-783M) in the QC sandbox via Transformers.js. No outbound calls to external AI services. Requires the model to be downloaded (see models/README.md).
+- The **LLM step** uses only the **local LaMini model** (Xenova/LaMini-Flan-T5-783M) in the QC sandbox via Transformers.js. No outbound calls to external AI services. Weights are not in the repo (size); after the user sets a **project folder**, the side panel downloads them to `models/Xenova/` (or use `scripts/download-lamini-model.sh`).
 - Do **not** add:
   - External LLM provider options (e.g. “OpenAI”, “External API”).
   - API keys or endpoints for third-party AI services.
