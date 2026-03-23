@@ -47,6 +47,3 @@ workflows/qa/**
 
 # Optional: generated exports / captures
 generator/outputs/*.tmp
-
-# FFmpeg WASM binary (large, regenerate via setup-ffmpeg.sh)
-lib/ffmpeg/ffmpeg-core.wasm
