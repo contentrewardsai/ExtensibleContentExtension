@@ -10,6 +10,8 @@
   var DEFAULT_REPO = 'ExtensibleContentExtension';
   var DEFAULT_BRANCH = 'main';
   var STORAGE_KEY = 'cfs_github_extension_update';
+  /** Written in the project folder (extension root). Gitignored; see github-sync-state.example.json */
+  var SYNC_STATE_FILENAME = 'github-sync-state.json';
 
   /** Paths we never overwrite from GitHub (user data / huge binaries). */
   var SKIP_PREFIXES = [
@@ -61,14 +63,23 @@
     });
   }
 
+  /** UI defaults only (owner / repo / branch). Baseline lives in github-sync-state.json on disk. */
   function saveState(partial) {
-    return new Promise(function (resolve) {
-      loadState().then(function (prev) {
-        var next = Object.assign({}, prev, partial);
+    return loadState().then(function (prev) {
+      var next = Object.assign({}, prev, partial);
+      if (Object.prototype.hasOwnProperty.call(partial, 'lastSyncedSha') && partial.lastSyncedSha == null) {
+        delete next.lastSyncedSha;
+      }
+      return new Promise(function (resolve) {
         try {
           var bag = {};
           bag[STORAGE_KEY] = next;
           chrome.storage.local.set(bag, function () {
+            if (chrome.runtime.lastError) {
+              try {
+                console.warn('[CFS GitHub update] storage save failed:', chrome.runtime.lastError.message);
+              } catch (_) {}
+            }
             resolve(next);
           });
         } catch (_) {
@@ -76,6 +87,75 @@
         }
       });
     });
+  }
+
+  async function readSyncStateFile(projectRoot) {
+    if (!projectRoot) return null;
+    try {
+      var perm = await projectRoot.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') return null;
+      var fh = await projectRoot.getFileHandle(SYNC_STATE_FILENAME, { create: false });
+      var file = await fh.getFile();
+      var text = await file.text();
+      var j = JSON.parse(text);
+      return j && typeof j === 'object' ? j : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function writeSyncStateFile(projectRoot, updates) {
+    if (!projectRoot) throw new Error('No project folder');
+    var perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') throw new Error('Project folder permission denied');
+    var base = {};
+    try {
+      var fh0 = await projectRoot.getFileHandle(SYNC_STATE_FILENAME, { create: false });
+      var t = await (await fh0.getFile()).text();
+      var parsed = JSON.parse(t);
+      if (parsed && typeof parsed === 'object') base = parsed;
+    } catch (_) {}
+    var manifestVersion = '';
+    try {
+      manifestVersion = String((chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '');
+    } catch (_) {}
+    var next = Object.assign({}, base, updates, {
+      schemaVersion: 1,
+      updatedAt: new Date().toISOString(),
+    });
+    if (updates.manifestVersion != null) next.manifestVersion = updates.manifestVersion;
+    else if (!next.manifestVersion && manifestVersion) next.manifestVersion = manifestVersion;
+    if (updates.baselineCommitSha != null) next.baselineCommitSha = updates.baselineCommitSha;
+    var fh = await projectRoot.getFileHandle(SYNC_STATE_FILENAME, { create: true });
+    var w = await fh.createWritable();
+    await w.write(JSON.stringify(next, null, 2));
+    await w.close();
+    return next;
+  }
+
+  /**
+   * Baseline for compare: sync file first, then legacy chrome.storage lastSyncedSha (one-time migration).
+   */
+  async function getBaselineCommitSha(projectRoot, loadStateFn) {
+    var file = await readSyncStateFile(projectRoot);
+    if (file && typeof file.baselineCommitSha === 'string' && file.baselineCommitSha.length >= 7) {
+      return file.baselineCommitSha;
+    }
+    if (typeof loadStateFn === 'function') {
+      var st = await loadStateFn();
+      if (st && typeof st.lastSyncedSha === 'string' && st.lastSyncedSha.length >= 7) return st.lastSyncedSha;
+    }
+    return null;
+  }
+
+  function formatSyncStateSummary(file) {
+    if (!file || typeof file.baselineCommitSha !== 'string' || file.baselineCommitSha.length < 7) {
+      return 'Sync file (' + SYNC_STATE_FILENAME + '): no baseline yet — use Record baseline.';
+    }
+    var short = file.baselineCommitSha.slice(0, 7);
+    var mv = file.manifestVersion ? ' · extension v' + String(file.manifestVersion) : '';
+    var at = file.updatedAt ? ' · updated ' + String(file.updatedAt).slice(0, 10) : '';
+    return 'Sync file: baseline ' + short + mv + at;
   }
 
   function rawUrl(owner, repo, commitSha, filename) {
@@ -260,8 +340,13 @@
     DEFAULT_REPO: DEFAULT_REPO,
     DEFAULT_BRANCH: DEFAULT_BRANCH,
     STORAGE_KEY: STORAGE_KEY,
+    SYNC_STATE_FILENAME: SYNC_STATE_FILENAME,
     loadState: loadState,
     saveState: saveState,
+    readSyncStateFile: readSyncStateFile,
+    writeSyncStateFile: writeSyncStateFile,
+    getBaselineCommitSha: getBaselineCommitSha,
+    formatSyncStateSummary: formatSyncStateSummary,
     shouldSkipPath: shouldSkipPath,
     projectLooksLikeExtensionRoot: projectLooksLikeExtensionRoot,
     getLatestCommit: getLatestCommit,

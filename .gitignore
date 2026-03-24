@@ -47,3 +47,6 @@ workflows/qa/**
 
 # Optional: generated exports / captures
 generator/outputs/*.tmp
+
+# GitHub incremental sync baseline (written by side panel; see github-sync-state.example.json)
+github-sync-state.json
