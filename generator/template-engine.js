@@ -473,8 +473,48 @@
   }
 
   /**
-   * Render timeline to a 2d canvas at t=0 (single frame). Used when template has timeline.
-   * Draws background, then title clips and image clips visible at start. Returns Promise<dataURL>.
+   * Seek time for a single still frame so progressive animation presets (typewriter, fade-in, etc.)
+   * match their completed state. Mirrors defaults in pixi-timeline-player seek (anim duration vs clip length).
+   */
+  function computeStillImageSeekTimeSec(mergedTemplate, timelineDurationSec) {
+    var tracks = (mergedTemplate && mergedTemplate.timeline && mergedTemplate.timeline.tracks) || [];
+    var maxEnd = 0;
+    var progressivePresets = {
+      typewriter: true,
+      fadein: true,
+      'fade-in': true,
+      slidein: true,
+      'slide-in': true,
+      ascend: true,
+      shift: true,
+      movingletters: true,
+      'moving-letters': true,
+    };
+    tracks.forEach(function (track) {
+      (track.clips || []).forEach(function (clip) {
+        var asset = clip.asset || {};
+        var anim = asset.animation;
+        if (!anim || anim.preset == null || anim.preset === 'none') return;
+        var preset = String(anim.preset).toLowerCase();
+        if (!progressivePresets[preset]) return;
+        var start = Number(clip.start);
+        if (!isFinite(start)) start = 0;
+        var clipLen = Number(clip.length);
+        if (!isFinite(clipLen) || clipLen <= 0) clipLen = 2;
+        var animDur = (typeof anim.duration === 'number' && isFinite(anim.duration)) ? anim.duration : Math.min(clipLen, 2);
+        maxEnd = Math.max(maxEnd, start + animDur);
+      });
+    });
+    var cap = (typeof timelineDurationSec === 'number' && isFinite(timelineDurationSec) && timelineDurationSec > 0)
+      ? timelineDurationSec - 0.001
+      : maxEnd;
+    return Math.min(Math.max(maxEnd, 0), cap);
+  }
+
+  /**
+   * Render timeline to a 2d canvas (one frame). Used when template has timeline.
+   * Seeks past progressive text/animation so PNG/JPEG stills show final content; video export still plays from 0.
+   * Returns Promise<dataURL>.
    */
   function renderTemplateToImageWithPixi(mergedTemplate) {
     if (!mergedTemplate || !mergedTemplate.timeline) return Promise.reject(new Error('No timeline'));
@@ -494,7 +534,9 @@
     }
     return player.load(mergedTemplate)
       .then(function () {
-        player.seek(0);
+        var durationSec = typeof player.getDuration === 'function' ? player.getDuration() : 0;
+        var seekT = computeStillImageSeekTimeSec(mergedTemplate, durationSec);
+        player.seek(seekT);
         return player.captureFrame({ format: 'png', quality: 1 });
       })
       .then(function (dataUrl) {
@@ -1041,6 +1083,7 @@
     renderTimelineToAudioBlob: renderTimelineToAudioBlob,
     preGenerateTtsForTemplate: preGenerateTtsForTemplate,
     applyCaptionResultToTemplate: applyCaptionResultToTemplate,
+    computeStillImageSeekTimeSec: computeStillImageSeekTimeSec,
     AD_CARD_TEMPLATE_IDS: AD_CARD_TEMPLATE_IDS,
   };
 })();

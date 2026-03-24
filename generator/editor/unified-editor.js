@@ -1215,6 +1215,36 @@
       return buildMergeValuesFrom(values);
     }
 
+    /** Match template-engine still PNG: seek past typewriter/fade-in so Fabric preview shows final text. */
+    function computeEditorStillSeekSec(fabricCanvasArg) {
+      var eng = global.__CFS_templateEngine;
+      if (!eng || typeof eng.computeStillImageSeekTimeSec !== 'function' || !template) return 0;
+      var fc = fabricCanvasArg || canvas;
+      var dur = (coreScene && coreScene.getTimelineFromCanvas && fc) ? coreScene.getTimelineFromCanvas(fc).durationSec : 0;
+      if (!dur || dur <= 0 || !isFinite(dur)) {
+        dur = 10;
+        if (template.timeline && template.timeline.tracks) {
+          template.timeline.tracks.forEach(function (tr) {
+            (tr.clips || []).forEach(function (c) {
+              var end = (Number(c.start) || 0) + (Number(c.length) || 0);
+              if (end > dur) dur = end;
+            });
+          });
+        }
+      }
+      return eng.computeStillImageSeekTimeSec(template, dur);
+    }
+
+    /** Image: seek past typewriter so canvas matches still export; video/audio: use playhead. */
+    function applySeekForOutputPreview(fabricCanvasArg) {
+      var fc = fabricCanvasArg || canvas;
+      if (!coreScene || !coreScene.seekToTime || !fc) return;
+      var ot = outputTypeSelect && outputTypeSelect.value;
+      var t = (ot === 'image') ? computeEditorStillSeekSec(fc) : (currentPlayheadSec || 0);
+      if (ot === 'image') setPlayheadTime(t);
+      coreScene.seekToTime(fc, t);
+    }
+
     /** Fix Fabric.js 5 typo, apply cfsAlignHorizontal to textAlign, ensure origin for correct positioning. */
     function fixTextBaseline(c) {
       if (!c || !c.getObjects) return;
@@ -1523,6 +1553,7 @@
             applyCfsShadowVisual(obj);
             applyCfsFilterVisual(obj);
           });
+          applySeekForOutputPreview(fabricCanvas);
           setCanvasZoom(canvasZoom);
           fabricCanvas.renderAll();
           /* Delayed passes: re-apply scaled geometry in case Fabric/canvas dimensions weren't ready; refreshTextboxWrapping fixes textbox height */
@@ -1538,7 +1569,7 @@
             updateCanvasWrapAlignment();
             refreshLayersPanel();
             refreshPropertyPanel();
-            if (coreScene && coreScene.seekToTime) coreScene.seekToTime(fabricCanvas, 0);
+            applySeekForOutputPreview(fabricCanvas);
             if (typeof onDone === 'function') onDone();
           }, 150);
           if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.ready === 'object') {
@@ -1546,7 +1577,7 @@
               setTimeout(function () {
                 applyResponsivePositions(fabricCanvas);
                 refreshTextboxWrapping(fabricCanvas);
-                if (coreScene && coreScene.seekToTime) coreScene.seekToTime(fabricCanvas, currentPlayheadSec || 0);
+                applySeekForOutputPreview(fabricCanvas);
                 fabricCanvas.requestRenderAll();
               }, 50);
             });
@@ -1767,7 +1798,7 @@
             applyResponsivePositions(canvas);
             refreshTextboxWrapping(canvas);
             constrainToBounds(canvas);
-            if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0);
+            applySeekForOutputPreview(canvas);
             if (typeof onAfterLoad === 'function') { try { onAfterLoad(); } catch (_) {} }
             canvas.renderAll();
             if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
@@ -1781,7 +1812,7 @@
               syncCanvasToPresetDimensions();
               applyResponsivePositions(canvas);
               refreshTextboxWrapping(canvas);
-              if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0);
+              applySeekForOutputPreview(canvas);
               if (canvas.requestRenderAll) canvas.requestRenderAll();
               if (typeof zoomToFit === 'function') zoomToFit();
               if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
@@ -1793,7 +1824,7 @@
               syncCanvasToPresetDimensions();
               applyResponsivePositions(canvas);
               refreshTextboxWrapping(canvas);
-              if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0);
+              applySeekForOutputPreview(canvas);
               if (canvas.requestRenderAll) canvas.requestRenderAll();
               if (typeof zoomToFit === 'function') zoomToFit();
               if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
@@ -6511,6 +6542,7 @@
       if (newType === 'book') initBookPages();
       else if (showCanvas) {
         canvas = null;
+        if (newType === 'video' || newType === 'audio') setPlayheadTime(0);
         repopulatePresetSelect(newType);
         var needTrackAssign = (newType === 'video' || newType === 'audio');
         initSingleCanvas(savedState, needTrackAssign ? function () {
@@ -6572,27 +6604,27 @@
       if (zoomSelect) zoomSelect.value = 'fit';
       setTimeout(function () {
         syncCanvasToPresetDimensions();
-        if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0); canvas.requestRenderAll && canvas.requestRenderAll(); }
+        if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); applySeekForOutputPreview(canvas); canvas.requestRenderAll && canvas.requestRenderAll(); }
         if (typeof zoomToFit === 'function') zoomToFit();
         if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
       }, 50);
       setTimeout(function () {
         syncCanvasToPresetDimensions();
-        if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0); canvas.requestRenderAll && canvas.requestRenderAll(); }
+        if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); applySeekForOutputPreview(canvas); canvas.requestRenderAll && canvas.requestRenderAll(); }
         if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
         if (typeof zoomToFit === 'function') zoomToFit();
         updateCanvasWrapAlignment();
       }, 150);
       setTimeout(function () {
         syncCanvasToPresetDimensions();
-        if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0); canvas.requestRenderAll && canvas.requestRenderAll(); }
+        if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); applySeekForOutputPreview(canvas); canvas.requestRenderAll && canvas.requestRenderAll(); }
         if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
         updateCanvasWrapAlignment();
       }, 400);
       setTimeout(function () {
         requestAnimationFrame(function () {
           syncCanvasToPresetDimensions();
-          if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, currentPlayheadSec || 0); canvas.requestRenderAll && canvas.requestRenderAll(); }
+          if (canvas) { applyResponsivePositions(canvas); refreshTextboxWrapping(canvas); applySeekForOutputPreview(canvas); canvas.requestRenderAll && canvas.requestRenderAll(); }
           if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
           updateCanvasWrapAlignment();
         });
