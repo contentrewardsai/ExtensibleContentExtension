@@ -877,6 +877,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const files = msg.files;
     const projectStepIds = Array.isArray(msg.projectStepIds) ? msg.projectStepIds : [];
     if (!tabId) {
+      // #region agent log
+      try {
+        fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a0a8a1' }, body: JSON.stringify({ sessionId: 'a0a8a1', hypothesisId: 'H1', location: 'service-worker.js:INJECT_STEP_HANDLERS', message: 'No tabId for injection', data: { hasSenderTab: !!sender?.tab, senderUrl: sender?.url ? String(sender.url).slice(0, 120) : null }, timestamp: Date.now() }) }).catch(() => {});
+      } catch (_) {}
+      // #endregion
       sendResponse({ ok: false, error: 'No tab context for injection' });
       return true;
     }
@@ -890,7 +895,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const chunk = files.slice(offset, offset + CHUNK);
           offset += CHUNK;
           chrome.scripting.executeScript({ target: { tabId }, files: chunk }, () => {
-            if (chrome.runtime.lastError) return done(chrome.runtime.lastError.message);
+            if (chrome.runtime.lastError) {
+              // #region agent log
+              const em = chrome.runtime.lastError.message;
+              try {
+                fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a0a8a1' }, body: JSON.stringify({ sessionId: 'a0a8a1', hypothesisId: 'H2', location: 'service-worker.js:injectExtension', message: 'executeScript chunk failed', data: { tabId, chunk0: chunk[0], chunkLen: chunk.length, lastError: String(em) }, timestamp: Date.now() }) }).catch(() => {});
+              } catch (_) {}
+              // #endregion
+              return done(em);
+            }
             injectNextChunk();
           });
         };
@@ -912,7 +925,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           },
           args: [toInject],
         }, () => {
-          if (chrome.runtime.lastError) return done(chrome.runtime.lastError.message);
+          if (chrome.runtime.lastError) {
+            // #region agent log
+            try {
+              fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a0a8a1' }, body: JSON.stringify({ sessionId: 'a0a8a1', hypothesisId: 'H3', location: 'service-worker.js:injectProjectSteps', message: 'project step executeScript failed', data: { tabId, projectStepCount: projectStepIds.length, lastError: String(chrome.runtime.lastError.message) }, timestamp: Date.now() }) }).catch(() => {});
+            } catch (_) {}
+            // #endregion
+            return done(chrome.runtime.lastError.message);
+          }
           done();
         });
       };

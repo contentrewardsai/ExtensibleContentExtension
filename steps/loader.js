@@ -29,6 +29,14 @@
     chrome.runtime.sendMessage(
       { type: 'INJECT_STEP_HANDLERS', files: files, projectStepIds: projectStepIds },
       function(response) {
+        // #region agent log
+        var _le = chrome.runtime.lastError;
+        if (_le || (response && response.ok === false)) {
+          try {
+            fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a0a8a1' }, body: JSON.stringify({ sessionId: 'a0a8a1', hypothesisId: _le ? 'H4' : 'H2-H3', location: 'steps/loader.js:injectHandlers', message: 'INJECT_STEP_HANDLERS failure from content script', data: { lastError: _le ? String(_le.message) : null, responseOk: response ? response.ok : null, responseError: response && response.error ? String(response.error) : null, fileCount: files.length, projectStepCount: projectStepIds.length }, timestamp: Date.now() }) }).catch(function() {});
+          } catch (_) {}
+        }
+        // #endregion
         if (chrome.runtime.lastError) {
           try { console.warn('[CFS steps] inject failed:', chrome.runtime.lastError.message); } catch (_) {}
           onInjectFailed();
@@ -37,6 +45,7 @@
         if (!response || response.ok !== false) {
           onReady();
         } else {
+          try { console.warn('[CFS steps] inject failed (background):', response.error || '(no error detail)'); } catch (_) {}
           onInjectFailed();
         }
       }
@@ -60,6 +69,13 @@
     })
     .then(function(extensionStepIds) {
       chrome.runtime.sendMessage({ type: 'GET_PROJECT_STEP_IDS' }, function(response) {
+        // #region agent log
+        if (chrome.runtime.lastError) {
+          try {
+            fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a0a8a1' }, body: JSON.stringify({ sessionId: 'a0a8a1', hypothesisId: 'H4', location: 'steps/loader.js:GET_PROJECT_STEP_IDS', message: 'GET_PROJECT_STEP_IDS lastError', data: { lastError: String(chrome.runtime.lastError.message) }, timestamp: Date.now() }) }).catch(function() {});
+          } catch (_) {}
+        }
+        // #endregion
         var projectStepIds = (response && response.stepIds) || [];
         injectHandlers(extensionStepIds, projectStepIds);
       });
