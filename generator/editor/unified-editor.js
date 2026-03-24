@@ -16,9 +16,10 @@
       if (C.prototype.textBaseline === 'alphabetical') C.prototype.textBaseline = 'alphabetic';
       var orig = C.prototype._setTextStyles;
       if (typeof orig === 'function') {
-        C.prototype._setTextStyles = function (ctx) {
+        C.prototype._setTextStyles = function () {
           if (this.textBaseline === 'alphabetical') this.textBaseline = 'alphabetic';
-          return orig.call(this, ctx);
+          /* Must forward all args: _measureChar calls _setTextStyles(ctx, decl, true) for CACHE_FONT_SIZE (400px). */
+          return orig.apply(this, arguments);
         };
       }
     });
@@ -30,6 +31,23 @@
       cfsKeys.forEach(function (k) {
         if (FabricObj.customProperties.indexOf(k) === -1) FabricObj.customProperties.push(k);
       });
+    }
+    /** Fabric uses canvas.contextCache for Text#getMeasuringContext when present; that context is shared with
+     * rendering and can keep a non-identity transform, skewing measureText at CACHE_FONT_SIZE and __charBounds. */
+    if (fabric.Text && fabric.Text.prototype) {
+      fabric.Text.prototype.getMeasuringContext = function () {
+        if (!fabric._cfsTextMeasureCtx) {
+          var cnv = fabric.util.createCanvasElement();
+          cnv.width = 512;
+          cnv.height = 256;
+          fabric._cfsTextMeasureCtx = cnv.getContext('2d');
+        }
+        fabric._cfsTextMeasureCtx.setTransform(1, 0, 0, 1, 0, 0);
+        return fabric._cfsTextMeasureCtx;
+      };
+      try {
+        fabric.charWidthsCache = {};
+      } catch (_) {}
     }
   }
 
@@ -576,13 +594,15 @@
       /* Also constrain Fabric's wrapper in case frame is missing (e.g. book mode) */
       var wrapper = canvas.wrapperEl || (canvas.lowerCanvas && canvas.lowerCanvas.parentNode);
       if (wrapper && wrapper.nodeType === 1) {
-        var pxw = dim.w + 'px';
-        var pxh = dim.h + 'px';
-        wrapper.style.width = pxw;
-        wrapper.style.height = pxh;
-        wrapper.style.maxWidth = pxw;
-        wrapper.style.maxHeight = pxh;
         wrapper.style.overflow = 'hidden';
+        if (!(zoomSelect && zoomSelect.value === 'fit')) {
+          var pxw = dim.w + 'px';
+          var pxh = dim.h + 'px';
+          wrapper.style.width = pxw;
+          wrapper.style.height = pxh;
+          wrapper.style.maxWidth = pxw;
+          wrapper.style.maxHeight = pxh;
+        }
       }
       if (dimsChanged && (canvas.requestRenderAll || canvas.renderAll)) {
         if (canvas.requestRenderAll) canvas.requestRenderAll();
@@ -695,6 +715,20 @@
     if (outputType === 'book') canvasWrap.classList.add('book-mode');
 
     let canvas = null;
+
+    /** Clear Fabric char width cache and re-run initDimensions on text objects so __charBounds match measureText (fixes caret / arrow-key steps). */
+    function invalidateFabricTextLayout(c) {
+      if (!fabric || !c || !c.getObjects) return;
+      try {
+        fabric.charWidthsCache = {};
+      } catch (_) {}
+      c.getObjects().forEach(function (o) {
+        if (!o || typeof o.initDimensions !== 'function') return;
+        if (o.type === 'textbox' || o.type === 'i-text' || o.type === 'text') o.initDimensions();
+      });
+      if (c.requestRenderAll) c.requestRenderAll();
+    }
+
     let pages = [];
     let currentPageIndex = 0;
     const timelineWrap = document.createElement('div');
@@ -1069,6 +1103,7 @@
             refreshLayersPanel();
             refreshPropertyPanel();
             refreshTimeline();
+            invalidateFabricTextLayout(canvas);
             try { lastUndoFingerprint = JSON.stringify(state); } catch (_) {}
           });
       } finally {
@@ -1555,6 +1590,7 @@
           });
           applySeekForOutputPreview(fabricCanvas);
           setCanvasZoom(canvasZoom);
+          invalidateFabricTextLayout(fabricCanvas);
           fabricCanvas.renderAll();
           /* Delayed passes: re-apply scaled geometry in case Fabric/canvas dimensions weren't ready; refreshTextboxWrapping fixes textbox height */
           setTimeout(function () {
@@ -1563,6 +1599,7 @@
             syncCanvasToPresetDimensions();
             applyResponsivePositions(fabricCanvas);
             refreshTextboxWrapping(fabricCanvas);
+            invalidateFabricTextLayout(fabricCanvas);
             fabricCanvas.requestRenderAll();
             if (typeof zoomToFit === 'function') zoomToFit();
             if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
@@ -1575,6 +1612,7 @@
           if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.ready === 'object') {
             document.fonts.ready.then(function () {
               setTimeout(function () {
+                invalidateFabricTextLayout(fabricCanvas);
                 applyResponsivePositions(fabricCanvas);
                 refreshTextboxWrapping(fabricCanvas);
                 applySeekForOutputPreview(fabricCanvas);
@@ -1753,6 +1791,9 @@
       }
       canvas = pair.canvas;
       if (canvas) {
+        if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(function () { invalidateFabricTextLayout(canvas); });
+        }
         syncCanvasToPresetDimensions();
         setCanvasZoom(canvasZoom);
         if (savedState && savedState.objects && savedState.objects.length) {
@@ -1800,6 +1841,7 @@
             constrainToBounds(canvas);
             applySeekForOutputPreview(canvas);
             if (typeof onAfterLoad === 'function') { try { onAfterLoad(); } catch (_) {} }
+            invalidateFabricTextLayout(canvas);
             canvas.renderAll();
             if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
             refreshLayersPanel();
@@ -1813,6 +1855,7 @@
               applyResponsivePositions(canvas);
               refreshTextboxWrapping(canvas);
               applySeekForOutputPreview(canvas);
+              invalidateFabricTextLayout(canvas);
               if (canvas.requestRenderAll) canvas.requestRenderAll();
               if (typeof zoomToFit === 'function') zoomToFit();
               if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
@@ -1825,6 +1868,7 @@
               applyResponsivePositions(canvas);
               refreshTextboxWrapping(canvas);
               applySeekForOutputPreview(canvas);
+              invalidateFabricTextLayout(canvas);
               if (canvas.requestRenderAll) canvas.requestRenderAll();
               if (typeof zoomToFit === 'function') zoomToFit();
               if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
@@ -5165,6 +5209,7 @@
             refreshPropertyPanel();
             refreshTimeline();
           }
+          invalidateFabricTextLayout(canvas);
           canvas.renderAll();
           tempCanvas.dispose();
         });
@@ -5356,6 +5401,7 @@
         if (page.objects && page.objects.length) {
           canvas.loadFromJSON({ version: '4.0', objects: page.objects, background: page.background }, function () {
             fixTextBaseline(canvas);
+            invalidateFabricTextLayout(canvas);
             canvas.renderAll();
             refreshLayersPanel();
             refreshPropertyPanel();
@@ -6661,20 +6707,17 @@
       var cw = canvasWrap.clientWidth || 1;
       var ch = canvasWrap.clientHeight || 1;
       var pad = 32;
-      var scaleX = (cw - pad) / d.w;
-      var scaleY = (ch - pad) / d.h;
-      var scale = Math.max(0.1, Math.min(5, Math.min(scaleX, scaleY)));
       if (zoomSelect) zoomSelect.value = 'fit';
-      setCanvasZoom(scale);
+      /* Fit must not use viewport zoom: a scaled vpt + full-size CSS canvas (see scaleFrameToFit) left
+       * frame (~510px) mismatched with upper canvas CSS (~1080px), breaking getPointer and IText textarea (logs: hta fs 1px). */
+      setCanvasZoom(1);
       scaleFrameToFit();
       resetViewportAndScroll();
       syncZoomScrollArea();
     }
 
     /** Scale the canvas frame to fit viewport so 16:9 etc never extend past visible area.
-     *  Fabric zoom (set by zoomToFit / setCanvasZoom) handles content scaling;
-     *  this function only sizes the frame container — no CSS transform on the wrapper,
-     *  which would double-scale content and break pointer coordinates. */
+     *  Uses Fabric cssOnly dimensions (with viewport scale 1) so frame, wrapper, and canvas CSS match — required for correct pointers and IText. */
     function scaleFrameToFit() {
       if (!canvasFrameEl || !canvasWrap) return;
       var d = getCanvasDimensions();
@@ -6692,13 +6735,27 @@
       canvasFrameEl.style.maxWidth = displayW + 'px';
       canvasFrameEl.style.maxHeight = displayH + 'px';
       canvasFrameEl.style.transform = '';
+      var dpx = displayW + 'px';
+      var dpy = displayH + 'px';
       var wrapper = canvas && (canvas.wrapperEl || (canvas.lowerCanvas && canvas.lowerCanvas.parentNode) || (canvasFrameEl && canvasFrameEl.firstChild));
       if (wrapper && wrapper.style) {
         wrapper.style.transform = '';
         wrapper.style.transformOrigin = '';
-        wrapper.style.width = d.w + 'px';
-        wrapper.style.height = d.h + 'px';
+        wrapper.style.width = dpx;
+        wrapper.style.height = dpy;
+        wrapper.style.maxWidth = dpx;
+        wrapper.style.maxHeight = dpy;
       }
+      /* Fabric 5: cssOnly skips i+="px", so numeric values never become valid CSS — canvas stayed ~1080px inside a ~510px frame (clipped). Pass strings with units. */
+      if (canvas && typeof canvas.setDimensions === 'function') {
+        try {
+          canvas.setDimensions({ width: dpx, height: dpy }, { cssOnly: true });
+        } catch (_) {}
+      }
+      if (canvas && typeof canvas.calcOffset === 'function') {
+        try { canvas.calcOffset(); } catch (_) {}
+      }
+      if (canvas && canvas.requestRenderAll) canvas.requestRenderAll();
     }
 
     function resetFrameScale() {
@@ -6709,10 +6766,24 @@
       canvasFrameEl.style.height = d.h + 'px';
       canvasFrameEl.style.maxWidth = d.w + 'px';
       canvasFrameEl.style.maxHeight = d.h + 'px';
+      var pxw = d.w + 'px';
+      var pxh = d.h + 'px';
       var wrapper = canvas.wrapperEl || (canvas.lowerCanvas && canvas.lowerCanvas.parentNode) || (canvasFrameEl && canvasFrameEl.firstChild);
       if (wrapper && wrapper.style) {
         wrapper.style.transform = '';
         wrapper.style.transformOrigin = '';
+        wrapper.style.width = pxw;
+        wrapper.style.height = pxh;
+        wrapper.style.maxWidth = pxw;
+        wrapper.style.maxHeight = pxh;
+      }
+      if (typeof canvas.setDimensions === 'function') {
+        try {
+          canvas.setDimensions({ width: pxw, height: pxh }, { cssOnly: true });
+        } catch (_) {}
+      }
+      if (typeof canvas.calcOffset === 'function') {
+        try { canvas.calcOffset(); } catch (_) {}
       }
     }
 
