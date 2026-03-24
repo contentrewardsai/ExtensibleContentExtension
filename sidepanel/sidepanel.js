@@ -5113,6 +5113,9 @@
         await setStoredProjectFolderHandle(handle);
         await syncProjectFolderStepsToBackground(handle);
         updateProjectFolderStatus();
+        if (typeof window.__cfsRefreshGithubSyncSummary === 'function') {
+          window.__cfsRefreshGithubSyncSummary().catch(() => {});
+        }
         if (laminiDirTreeOk && typeof cfsDownloadXenovaLaminiIfNeeded === 'function') {
           try {
             await cfsDownloadXenovaLaminiIfNeeded(handle, (msg) => setStatus(msg, ''), { createParentDirs: false });
@@ -6984,6 +6987,8 @@
     const applyBtn = document.getElementById('githubUpdateApplyBtn');
     const fullBtn = document.getElementById('githubUpdateFullSyncBtn');
     const statusEl = document.getElementById('githubUpdateStatus');
+    const syncFileSummaryEl = document.getElementById('githubSyncFileSummary');
+    const githubDetailsEl = document.getElementById('githubUpdateDetails');
     if (!GH || !checkBtn || !applyBtn || !statusEl) return;
 
     let pendingApply = null;
@@ -6997,26 +7002,38 @@
     }
 
     function persistRepoFields() {
-      GH.saveState({
+      return GH.saveState({
         owner: (ownerEl && ownerEl.value.trim()) || GH.DEFAULT_OWNER,
         repo: (repoEl && repoEl.value.trim()) || GH.DEFAULT_REPO,
         branch: (branchEl && branchEl.value.trim()) || GH.DEFAULT_BRANCH,
       });
     }
 
+    async function refreshGithubSyncFileSummary() {
+      if (!syncFileSummaryEl) return;
+      const root = await getStoredProjectFolderHandle();
+      if (!root) {
+        syncFileSummaryEl.textContent = 'Sync file: set project folder to read ' + GH.SYNC_STATE_FILENAME + '.';
+        return;
+      }
+      const file = await GH.readSyncStateFile(root);
+      syncFileSummaryEl.textContent = GH.formatSyncStateSummary(file);
+    }
+
     GH.loadState().then((st) => {
       if (ownerEl) ownerEl.value = st.owner || GH.DEFAULT_OWNER;
       if (repoEl) repoEl.value = st.repo || GH.DEFAULT_REPO;
       if (branchEl) branchEl.value = st.branch || GH.DEFAULT_BRANCH;
-      return GH.loadState();
-    }).then((st) => {
-      if (st.lastSyncedSha) {
-        ghStatus('Last synced Git commit: ' + st.lastSyncedSha.slice(0, 7) + '…');
-      }
+    }).then(() => refreshGithubSyncFileSummary());
+
+    githubDetailsEl?.addEventListener('toggle', () => {
+      if (githubDetailsEl.open) refreshGithubSyncFileSummary();
     });
+    try {
+      window.__cfsRefreshGithubSyncSummary = refreshGithubSyncFileSummary;
+    } catch (_) {}
 
     checkBtn.addEventListener('click', () => {
-      persistRepoFields();
       pendingApply = null;
       applyBtn.disabled = true;
       const owner = (ownerEl && ownerEl.value.trim()) || GH.DEFAULT_OWNER;
@@ -7026,25 +7043,33 @@
       ghStatus('Checking GitHub…');
       (async () => {
         try {
+          await persistRepoFields();
+          const root = await getStoredProjectFolderHandle();
+          if (!root) {
+            ghStatus('Set your project folder (extension root) to use ' + GH.SYNC_STATE_FILENAME + ' for the baseline.');
+            return;
+          }
           const remote = await GH.getLatestCommit(owner, repo, branch, tok);
-          const st = await GH.loadState();
+          const baseSha = await GH.getBaselineCommitSha(root, () => GH.loadState());
           const short = remote.sha.slice(0, 7);
           const subj = (remote.message || '').split('\n')[0].slice(0, 100);
           let line = 'GitHub ' + branch + ' @ ' + short + (subj ? ' — ' + subj : '');
-          if (!st.lastSyncedSha) {
-            ghStatus(line + '\nNo baseline yet — use “Record baseline” (no download) or “Full tree sync”.');
+          if (!baseSha) {
+            ghStatus(line + '\nNo baseline in sync file — click Record baseline (writes ' + GH.SYNC_STATE_FILENAME + ') or Full tree sync.');
             pendingApply = null;
+            await refreshGithubSyncFileSummary();
             return;
           }
-          if (st.lastSyncedSha === remote.sha) {
-            ghStatus(line + '\nUp to date with your recorded baseline.');
+          if (baseSha === remote.sha) {
+            ghStatus(line + '\nUp to date with baseline in sync file.');
+            await refreshGithubSyncFileSummary();
             return;
           }
-          const cmp = await GH.compareCommits(owner, repo, st.lastSyncedSha, remote.sha, tok);
+          const cmp = await GH.compareCommits(owner, repo, baseSha, remote.sha, tok);
           const n = (cmp.files && cmp.files.length) || 0;
           const commits = cmp.total_commits != null ? cmp.total_commits : '?';
           pendingApply = {
-            baseSha: st.lastSyncedSha,
+            baseSha,
             headSha: remote.sha,
             owner,
             repo,
@@ -7054,6 +7079,7 @@
           };
           ghStatus(line + '\nBehind by ~' + commits + ' commit(s), ' + n + ' file change(s). Click Apply update.');
           applyBtn.disabled = false;
+          await refreshGithubSyncFileSummary();
         } catch (e) {
           ghStatus('Check failed: ' + (e.message || e));
         }
@@ -7061,18 +7087,29 @@
     });
 
     baselineBtn?.addEventListener('click', () => {
-      persistRepoFields();
       const owner = (ownerEl && ownerEl.value.trim()) || GH.DEFAULT_OWNER;
       const repo = (repoEl && repoEl.value.trim()) || GH.DEFAULT_REPO;
       const branch = (branchEl && branchEl.value.trim()) || GH.DEFAULT_BRANCH;
       ghStatus('Reading latest commit from GitHub…');
       (async () => {
         try {
+          await persistRepoFields();
+          const root = await getStoredProjectFolderHandle();
+          if (!root) {
+            ghStatus('Set your project folder first — baseline is saved to ' + GH.SYNC_STATE_FILENAME + ' there.');
+            return;
+          }
           const remote = await GH.getLatestCommit(owner, repo, branch, getTok());
-          await GH.saveState({ lastSyncedSha: remote.sha });
-          ghStatus('Baseline recorded: ' + remote.sha.slice(0, 7) + ' (no files were changed). Use Check, then Apply update after future pushes.');
+          var mv = '';
+          try {
+            mv = String(chrome.runtime.getManifest().version || '');
+          } catch (_) {}
+          await GH.writeSyncStateFile(root, { baselineCommitSha: remote.sha, manifestVersion: mv });
+          await GH.saveState({ lastSyncedSha: null });
+          ghStatus('Baseline written to sync file: ' + remote.sha.slice(0, 7) + ' (no repo files changed).');
           pendingApply = null;
           applyBtn.disabled = true;
+          await refreshGithubSyncFileSummary();
         } catch (e) {
           ghStatus('Baseline failed: ' + (e.message || e));
         }
@@ -7084,8 +7121,8 @@
         ghStatus('Run Check for updates first.');
         return;
       }
-      persistRepoFields();
       (async () => {
+        await persistRepoFields();
         const root = await getStoredProjectFolderHandle();
         if (!root) {
           setStatus('Set your project folder first (extension root for updates).', 'error');
@@ -7112,7 +7149,12 @@
               ghStatus('Writing ' + ev.done + '/' + ev.total + ': ' + (ev.path || ''));
             }
           );
-          await GH.saveState({ lastSyncedSha: pendingApply.headSha });
+          var mvApply = '';
+          try {
+            mvApply = String(chrome.runtime.getManifest().version || '');
+          } catch (_) {}
+          await GH.writeSyncStateFile(root, { baselineCommitSha: pendingApply.headSha, manifestVersion: mvApply });
+          await GH.saveState({ lastSyncedSha: null });
           ghStatus('Update applied. Reloading extension…');
           pendingApply = null;
           applyBtn.disabled = true;
@@ -7128,11 +7170,11 @@
       if (!window.confirm('Full tree sync writes repository files into your project folder (skips models/, node_modules/, .git/). This can take several minutes. Continue?')) {
         return;
       }
-      persistRepoFields();
       const owner = (ownerEl && ownerEl.value.trim()) || GH.DEFAULT_OWNER;
       const repo = (repoEl && repoEl.value.trim()) || GH.DEFAULT_REPO;
       const branch = (branchEl && branchEl.value.trim()) || GH.DEFAULT_BRANCH;
       (async () => {
+        await persistRepoFields();
         const root = await getStoredProjectFolderHandle();
         if (!root) {
           setStatus('Set your project folder first.', 'error');
@@ -7161,7 +7203,12 @@
           await GH.applyTreeBlobs(root, owner, repo, remote.sha, tree, tok, (ev) => {
             ghStatus('Writing ' + ev.done + '/' + ev.total + ': ' + (ev.path || ''));
           });
-          await GH.saveState({ lastSyncedSha: remote.sha });
+          var mvFull = '';
+          try {
+            mvFull = String(chrome.runtime.getManifest().version || '');
+          } catch (_) {}
+          await GH.writeSyncStateFile(root, { baselineCommitSha: remote.sha, manifestVersion: mvFull });
+          await GH.saveState({ lastSyncedSha: null });
           ghStatus('Full sync done. Reloading extension…');
           chrome.runtime.reload();
         } catch (e) {

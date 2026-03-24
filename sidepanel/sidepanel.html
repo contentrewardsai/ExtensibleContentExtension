@@ -80,7 +80,8 @@
       <details id="githubUpdateDetails" class="github-update-details" role="region" aria-label="Update from GitHub">
         <summary class="github-update-details-summary">Update from GitHub</summary>
         <div id="githubUpdateSection" class="github-update-details-body">
-          <p class="hint" style="margin:0 0 8px 0; font-size:11px; line-height:1.4;">When your <em>project folder</em> is the same directory you use for <em>Load unpacked</em>, you can pull changes from the public repo. <strong>Incremental</strong> updates download only files that changed between your recorded baseline and the latest commit on the branch.</p>
+          <p class="hint" style="margin:0 0 8px 0; font-size:11px; line-height:1.4;">When your <em>project folder</em> is the same directory you use for <em>Load unpacked</em>, you can pull changes from the public repo. <strong>Incremental</strong> updates use <code style="font-size:10px;">github-sync-state.json</code> in that folder (baseline commit + extension version); it is updated when you record a baseline or apply an update. See <code style="font-size:10px;">github-sync-state.example.json</code> in the repo.</p>
+          <p id="githubSyncFileSummary" class="hint" style="margin:0 0 8px 0; font-size:11px; color:var(--gen-muted,#6e6e73);" aria-live="polite"></p>
           <div class="form-row" style="gap:6px; flex-wrap:wrap; align-items:center;">
             <input type="text" id="githubUpdateOwner" placeholder="owner" style="width:110px; font-size:11px;" title="Repository owner" autocomplete="off" />
             <span style="font-size:11px;">/</span>

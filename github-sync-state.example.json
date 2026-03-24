@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "baselineCommitSha": null,
+  "manifestVersion": null,
+  "updatedAt": null,
+  "_comment": "The side panel writes github-sync-state.json in your project folder (gitignored). Use Record baseline or Apply update; do not commit the real file."
+}
