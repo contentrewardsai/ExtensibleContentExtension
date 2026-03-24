@@ -13250,42 +13250,13 @@
     try {
       if (typeof projectRoot.queryPermission === 'function') {
         const q = await projectRoot.queryPermission({ mode: 'readwrite' });
-        // #region agent log
-        fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '053478' },
-          body: JSON.stringify({
-            sessionId: '053478',
-            location: 'sidepanel.js:ensureProjectFolderReadWriteForClips',
-            message: 'queryPermission readwrite',
-            data: { state: q },
-            timestamp: Date.now(),
-            hypothesisId: 'H1',
-          }),
-        }).catch(() => {});
-        // #endregion
         if (q === 'granted') return true;
       }
       if (typeof projectRoot.requestPermission === 'function') {
         const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
         return perm === 'granted';
       }
-    } catch (e) {
-      // #region agent log
-      fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '053478' },
-        body: JSON.stringify({
-          sessionId: '053478',
-          location: 'sidepanel.js:ensureProjectFolderReadWriteForClips',
-          message: 'ensure RW catch',
-          data: { err: String(e && e.message ? e.message : e) },
-          timestamp: Date.now(),
-          hypothesisId: 'H1',
-        }),
-      }).catch(() => {});
-      // #endregion
-    }
+    } catch (_) {}
     return false;
   }
 
@@ -13673,20 +13644,6 @@
         await analyzeProjectRootPrimed.requestPermission({ mode: 'readwrite' });
       }
     } catch (_) {}
-    // #region agent log
-    fetch('http://127.0.0.1:7385/ingest/f766defb-4165-4bab-b7fa-03c3d5c9ed7d', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '053478' },
-      body: JSON.stringify({
-        sessionId: '053478',
-        location: 'sidepanel.js:analyzeWorkflow-click',
-        message: 'after project folder prime',
-        data: { hasRoot: !!analyzeProjectRootPrimed },
-        timestamp: Date.now(),
-        hypothesisId: 'H2',
-      }),
-    }).catch(() => {});
-    // #endregion
     const fallbackHost = await getActiveTabDiscoveryHost();
     const affinitySet = await buildDiscoveryAffinitySetForAnalyze(fallbackHost);
     const analyzeOpts = affinitySet.size > 0 ? { discoveryAffinitySet: affinitySet } : undefined;
