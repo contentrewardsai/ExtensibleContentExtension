@@ -77,6 +77,29 @@
         </div>
       </div>
       <p id="projectSaveStatus" class="project-save-status hint" style="display:none; margin:0 0 6px 0;"></p>
+      <div id="githubUpdateSection" class="github-update-section" style="margin-top:10px; padding:10px; border:1px solid var(--border-color,#ddd); border-radius:6px;">
+        <p class="hint" style="margin:0 0 8px 0; font-size:11px; line-height:1.4;"><strong>Update from GitHub</strong> — When your <em>project folder</em> is the same directory you use for <em>Load unpacked</em>, you can pull changes from the public repo. <strong>Incremental</strong> updates download only files that changed between your recorded baseline and the latest commit on the branch.</p>
+        <div class="form-row" style="gap:6px; flex-wrap:wrap; align-items:center;">
+          <input type="text" id="githubUpdateOwner" placeholder="owner" style="width:110px; font-size:11px;" title="Repository owner" autocomplete="off" />
+          <span style="font-size:11px;">/</span>
+          <input type="text" id="githubUpdateRepo" placeholder="repo" style="width:140px; font-size:11px;" autocomplete="off" />
+          <input type="text" id="githubUpdateBranch" placeholder="branch" style="width:72px; font-size:11px;" title="Branch name" autocomplete="off" />
+          <button type="button" id="githubUpdateCheckBtn" class="btn btn-outline btn-small">Check for updates</button>
+          <button type="button" id="githubUpdateBaselineBtn" class="btn btn-outline btn-small" title="Store current GitHub commit as baseline without downloading (use after a fresh clone or release ZIP)">Record baseline</button>
+          <button type="button" id="githubUpdateApplyBtn" class="btn btn-primary btn-small" disabled>Apply update</button>
+        </div>
+        <div class="form-row" style="margin-top:6px; gap:8px; flex-wrap:wrap; align-items:center;">
+          <button type="button" id="githubUpdateFullSyncBtn" class="btn btn-outline btn-small" title="Write every tracked file from the repo (skips models/, node_modules/, .git/). Large.">Full tree sync</button>
+          <label class="hint" style="font-size:11px; display:inline-flex; align-items:center; gap:4px; margin:0; cursor:pointer;">
+            <input type="checkbox" id="githubUpdateForce" />
+            Force (skip manifest name check — forks)
+          </label>
+        </div>
+        <div class="form-row" style="margin-top:6px;">
+          <input type="password" id="githubUpdateToken" placeholder="Optional GitHub token (higher API rate limits)" style="width:100%; max-width:420px; font-size:11px;" autocomplete="off" />
+        </div>
+        <p id="githubUpdateStatus" class="hint" style="margin:6px 0 0 0; font-size:11px; white-space:pre-wrap;" aria-live="polite"></p>
+      </div>
     </section>
 
     <header>
@@ -697,6 +720,7 @@
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/plan-capture-idb.js"></script>
   <script src="../shared/download-xenova-lamini.js"></script>
+  <script src="../shared/github-extension-update.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
