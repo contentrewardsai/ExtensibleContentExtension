@@ -28,6 +28,8 @@
     "https://cdn.jsdelivr.net/*",
     "https://huggingface.co/*",
     "https://*.huggingface.co/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
     "https://www.extensiblecontent.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
