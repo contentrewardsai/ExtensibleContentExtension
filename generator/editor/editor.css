@@ -555,8 +555,11 @@
   position: relative;
 }
 
+/* Shadow, not border: under box-sizing:border-box a 1px border shrinks the inner box vs Fabric’s canvas CSS width,
+   so lower/upper canvas clientWidth diverge and caret vs pointer misalign. */
 .cfs-unified-editor [data-fabric-canvas] {
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
   border-radius: 4px;
 }
 
