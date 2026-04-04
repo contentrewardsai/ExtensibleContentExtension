@@ -4915,6 +4915,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'SEND_TO_ENDPOINT') {
     const { url, method, body, headers, waitForResponse, timeoutMs } = msg || {};
+    /** When false (sendToEndpoint step / fire-and-forget), do not read or return body (step handler skips save). */
+    const waitForBody = waitForResponse !== false;
     if (!url || typeof url !== 'string') {
       sendResponse({ ok: false, error: 'Missing URL' });
       return true;
@@ -4931,6 +4933,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try {
             const res = await fetch(url, opts);
             clearTimeout(t);
+            if (!waitForBody) {
+              const hdrsEarly = responseHeadersObject(res);
+              if (!res.ok) {
+                sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, responseHeaders: hdrsEarly });
+                return;
+              }
+              try {
+                if (res.body && typeof res.body.cancel === 'function') await res.body.cancel();
+              } catch (_) {}
+              sendResponse({ ok: true, status: res.status, responseHeaders: hdrsEarly });
+              return;
+            }
             const bodyText = await res.text();
             let json;
             try {
@@ -4952,6 +4966,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         } else {
           const res = await fetch(url, opts);
+          if (!waitForBody) {
+            const hdrsEarly = responseHeadersObject(res);
+            if (!res.ok) {
+              sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, responseHeaders: hdrsEarly });
+              return;
+            }
+            try {
+              if (res.body && typeof res.body.cancel === 'function') await res.body.cancel();
+            } catch (_) {}
+            sendResponse({ ok: true, status: res.status, responseHeaders: hdrsEarly });
+            return;
+          }
           const bodyText = await res.text();
           let json;
           try {
