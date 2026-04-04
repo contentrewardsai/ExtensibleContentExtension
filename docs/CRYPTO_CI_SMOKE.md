@@ -13,8 +13,8 @@ node scripts/crypto-rpc-smoke.mjs
 ```
 
 - If **neither** environment variable below is set, the script **exits 0** immediately and prints `skip`.
-- **Solana:** `POST` JSON-RPC **`getHealth`** — expects **`"ok"`** in `result`.
-- **BSC / EVM:** `POST` JSON-RPC **`eth_chainId`** — expects a hex string in `result`.
+- **Solana:** **`getHealth`** (`"ok"`) and **`getSlot`** (numeric slot).
+- **BSC / EVM:** **`eth_chainId`** and **`eth_blockNumber`** (hex strings).
 
 npm alias:
 
