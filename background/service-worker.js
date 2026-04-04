@@ -3007,12 +3007,12 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object' || msg.type !== 'STORE_TOKENS') return false;
   if (!cfsWhopIsTrustedAuthPageUrl(sender.url || '')) {
     sendResponse({ ok: false, error: 'Untrusted origin' });
-    return false;
+    return true;
   }
   const payloadCheck = validateMessagePayload('STORE_TOKENS', msg);
   if (!payloadCheck.valid) {
     sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
-    return false;
+    return true;
   }
   cfsWhopApplyStoreTokens(msg)
     .then(() => sendResponse({ ok: true }))
@@ -3024,21 +3024,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') {
     try { console.warn('[CFS] Invalid message: expected object'); } catch (_) {}
     sendResponse({ ok: false, error: 'Invalid message: expected object' });
-    return false;
+    return true;
   }
   const type = msg.type;
   if (typeof type !== 'string' || !type.trim()) {
     try { console.warn('[CFS] Invalid message: missing or invalid type'); } catch (_) {}
     sendResponse({ ok: false, error: 'Invalid message: missing or invalid type' });
-    return false;
+    return true;
   }
   if (type === 'WEBCAM_GRANT_RESULT') {
     sendResponse({ ok: true });
-    return false;
+    return true;
   }
   if (type === 'MIC_GRANT_RESULT') {
     sendResponse({ ok: true });
-    return false;
+    return true;
   }
   /** Replies from extension pages → dynamic waiters; do not treat as API requests. */
   if (type === 'SAVE_POST_TO_FOLDER_RESULT' || type === 'READ_POSTS_FROM_FOLDER_RESULT' ||
@@ -3050,7 +3050,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!payloadCheck.valid) {
     try { console.warn('[CFS] Payload validation failed:', type, payloadCheck.error); } catch (_) {}
     sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
-    return false;
+    return true;
   }
   if (type === 'CFS_SOLANA_EXECUTE_SWAP') {
     (async () => {
@@ -3949,7 +3949,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } catch (e) {
       sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
     }
-    return false;
+    return true;
   }
 
   if (type === 'CFS_JUPITER_PERPS_MARKETS') {
@@ -4163,7 +4163,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (type === 'PICK_ELEMENT_CANCELLED') {
     sendResponse({ ok: true });
-    return false;
+    return true;
   }
   if (type === 'SCHEDULE_ALARM') {
     scheduleAlarmForNextRun().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
@@ -4330,12 +4330,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const senderUrl = sender?.url || '';
     if (!senderUrl.startsWith('chrome-extension://')) {
       sendResponse({ ok: false, error: 'Only extension' });
-      return false;
+      return true;
     }
     const tabId = msg.tabId;
     if (tabId == null || typeof tabId !== 'number') {
       sendResponse({ ok: false, error: 'tabId required' });
-      return false;
+      return true;
     }
     const session = {
       tabId,
@@ -4358,7 +4358,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const tabId = sender.tab?.id;
     if (tabId == null) {
       sendResponse({ ok: false });
-      return false;
+      return true;
     }
     chrome.storage.session.get(CFS_RECORDING_SESSION_KEY, (data) => {
       const session = data[CFS_RECORDING_SESSION_KEY];
@@ -4386,12 +4386,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const senderUrl = sender?.url || '';
     if (!senderUrl.startsWith('chrome-extension://')) {
       sendResponse({ ok: false, error: 'Only extension' });
-      return false;
+      return true;
     }
     const tabId = msg.tabId;
     if (tabId == null || typeof tabId !== 'number') {
       sendResponse({ ok: false, error: 'tabId required' });
-      return false;
+      return true;
     }
     chrome.storage.session.get(CFS_RECORDING_SESSION_KEY, (data) => {
       const session = data[CFS_RECORDING_SESSION_KEY];
@@ -4412,7 +4412,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const isExtension = senderUrl.startsWith('chrome-extension://');
     if (!isExtension) {
       sendResponse({ ok: false, error: 'SET_PROJECT_STEP_HANDLERS only allowed from extension' });
-      return false;
+      return true;
     }
     projectStepHandlers = normalizeProjectStepHandlers({
       stepIds: msg.stepIds,
@@ -4423,20 +4423,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Quota or other error; in-memory copy still used until reload
     });
     sendResponse({ ok: true });
-    return false;
+    return true;
   }
 
   if (msg.type === 'SAVE_TEMPLATE_TO_PROJECT') {
     const senderUrl = sender?.url || '';
     if (!senderUrl.startsWith('chrome-extension://')) {
       sendResponse({ ok: false, error: 'Only from extension' });
-      return false;
+      return true;
     }
     const templateId = msg.templateId;
     const templateJson = msg.templateJson;
     if (!templateId || templateJson === undefined) {
       sendResponse({ ok: false, error: 'Missing templateId or templateJson' });
-      return false;
+      return true;
     }
     chrome.storage.local.set({
       cfs_pending_template_save: {
@@ -5033,7 +5033,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     }
     sendResponse({ ok: true });
-    return false;
+    return true;
   }
 
   if (msg.type === 'APIFY_RUN') {
@@ -5277,7 +5277,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const autoStart = msg.autoStart === true || msg.autoStart === 'all' ? 'all' : (msg.autoStart === 'current' ? 'current' : undefined);
     if (!workflowId) {
       sendResponse({ ok: false, error: 'Missing workflowId' });
-      return false;
+      return true;
     }
     chrome.storage.local.get(['workflows'], (data) => {
       const workflows = data?.workflows && typeof data.workflows === 'object' ? data.workflows : {};
@@ -6281,5 +6281,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Unhandled message type (e.g. from a future caller or typo). Respond so the sender doesn't hang.
   try { console.warn('[CFS] Unhandled message type:', type); } catch (_) {}
   sendResponse({ ok: false, error: 'Unknown message type' });
-  return false;
+  return true;
 });
