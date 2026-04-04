@@ -33,13 +33,14 @@ Add **optional** secrets in the repo (Settings → Secrets and variables → Act
 | **`SOLANA_RPC_SMOKE_URL`** | Full HTTPS JSON-RPC URL for Solana (devnet or mainnet read-only key URL). |
 | **`SOLANA_EXPECTED_GENESIS_HASH`** | Optional: force **`getGenesisHash`** assertion when the RPC hostname does not contain devnet/testnet/mainnet (same value as public cluster genesis). |
 | **`BSC_RPC_SMOKE_URL`** | Full HTTPS JSON-RPC URL for BNB Chain (Chapel `97` or mainnet `56`). |
+| **`CRYPTO_SOLANA_TX_SECRET_KEY`** | Optional: base58 or JSON `[64 bytes]` secret key for a **throwaway** funded account (use **devnet** + faucet). Job **`optional-crypto-rpc-smoke`** always invokes **`test:crypto-solana-tx-smoke`** after read-only smoke; the script **skips** (exit 0) if this secret is unset or balance is too low. One confirmed tx: **`SystemProgram.createAccount`** (rent-exempt 0-byte account). **`CRYPTO_SOLANA_TX_FORCE=1`** fails instead of skip. **`CRYPTO_SOLANA_TX_RPC_URL`** overrides the RPC for the tx step only. |
 | **`CRYPTO_EVM_FORK_RPC_URL`** | Optional: `http://host:8545` (Anvil fork) or HTTPS RPC — enables job **`optional-crypto-evm-fork-smoke`** (read-only checks + **`test:crypto-evm-fork-tx-smoke`**). The tx step uses Anvil’s default funded account and **skips** (exit 0) if that key has zero balance (e.g. plain public RPC). Set **`CRYPTO_EVM_FORK_TX_FORCE=1`** in the job env to fail instead of skip. Optional **`CRYPTO_EVM_FORK_TX_RPC_URL`** overrides the RPC URL for the tx step only. |
 
 **Do not** commit URLs or keys. Rotate provider keys if exposed.
 
 ## Workflow
 
-`.github/workflows/extension-checks.yml` includes a job **`optional-crypto-rpc-smoke`** that runs when **`SOLANA_RPC_SMOKE_URL`** and/or **`BSC_RPC_SMOKE_URL`** is set. Both secrets are passed through so you can run **Solana-only**, **BSC-only**, or both in one job.
+`.github/workflows/extension-checks.yml` includes a job **`optional-crypto-rpc-smoke`** that runs when **`SOLANA_RPC_SMOKE_URL`** and/or **`BSC_RPC_SMOKE_URL`** is set. Both secrets are passed through so you can run **Solana-only**, **BSC-only**, or both in one job. After read-only smoke it runs **`npm run test:crypto-solana-tx-smoke`** (skips cleanly if **`CRYPTO_SOLANA_TX_SECRET_KEY`** is unset or balance insufficient unless **`CRYPTO_SOLANA_TX_FORCE=1`**).
 
 ## Local use
 
@@ -50,3 +51,11 @@ npm run test:crypto-rpc-smoke
 ```
 
 Use throwaway provider keys only; this script performs outbound `fetch` from your machine.
+
+Optional Solana tx smoke (after funding a devnet key from a faucet):
+
+```bash
+export SOLANA_RPC_SMOKE_URL='https://api.devnet.solana.com'
+export CRYPTO_SOLANA_TX_SECRET_KEY='<base58 secret>'
+npm run test:crypto-solana-tx-smoke
+```
