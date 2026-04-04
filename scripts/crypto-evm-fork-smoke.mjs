@@ -8,7 +8,13 @@
  * chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const cryptoConsts = JSON.parse(readFileSync(join(__dirname, 'crypto-constants.json'), 'utf8'));
 
 const url = (process.env.CRYPTO_EVM_FORK_RPC_URL || 'http://127.0.0.1:8545').trim();
 
@@ -26,8 +32,10 @@ const INFI_BIN_POOL_MANAGER_CHAPEL = '0xe71d2e0230cE0765be53A8A1ee05bdACF30F296B
 /** ERC20 decimals() selector */
 const ERC20_DECIMALS_DATA = '0x313ce567';
 
-const GENESIS_HASH_BSC_56 = '0x0d21840abff46b96c84b2ac9e10e4f5cdaeb5693cb665db62a2f3b02d2d57b5b';
-const GENESIS_HASH_BSC_97 = '0x6d3c66c5357ec91d5c43af47e234a939b22557cbb552dc45bebbceeed90fbe34';
+const {
+  genesisBlockHashChain56: GENESIS_HASH_BSC_56,
+  genesisBlockHashChain97: GENESIS_HASH_BSC_97,
+} = cryptoConsts.bsc;
 
 async function rpc(method, params = []) {
   const res = await fetch(url, {
