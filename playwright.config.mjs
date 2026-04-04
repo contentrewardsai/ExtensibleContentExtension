@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isCi = process.env.CI === '1' || process.env.CI === 'true';
+const cryptoE2eOn = process.env.E2E_CRYPTO === '1' || process.env.E2E_CRYPTO === 'true';
 /** One Chromium + extension profile per worker; default 1 (set PW_WORKERS to parallelize spec files). */
 const defaultWorkers = 1;
 
@@ -12,6 +13,8 @@ export default defineConfig({
   globalSetup: path.join(__dirname, 'test/e2e/global-setup.mjs'),
   testDir: path.join(__dirname, 'test/e2e'),
   testMatch: '*.spec.mjs',
+  /** Live-network crypto extension tests: opt-in so default `npx playwright test` does not load Chromium for skips. */
+  testIgnore: cryptoE2eOn ? [] : ['**/crypto-e2e-playwright.spec.mjs'],
   /* Service worker runs heavy importScripts (Solana/Raydium/EVM bundles) before onMessage is ready. */
   timeout: 240_000,
   retries: 0,

@@ -11,6 +11,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` · optional signed tx: `npm run test:crypto-evm-fork-tx-smoke` (Anvil default key → 1 wei transfer; skips on zero balance) |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs · optional CI: **`test:crypto-solana-tx-smoke`** with **`CRYPTO_SOLANA_TX_SECRET_KEY`** (throwaway key + devnet RPC) |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
+| **E2E (opt-in)** | Real MV3 service worker + live network | **`E2E_CRYPTO=1 npm run test:e2e:crypto`** — Playwright loads the extension and exercises **`CFS_*`** messages (see **`test/e2e/crypto-e2e-playwright.spec.mjs`**) |
 
 ## Matrix
 

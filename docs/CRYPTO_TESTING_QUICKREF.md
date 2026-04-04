@@ -12,6 +12,7 @@
 | `CRYPTO_EVM_FORK_RPC_URL=… npm run test:crypto-evm-fork-tx-smoke` | Same URL; sends 1 wei from Anvil account #0 (skips if zero balance) |
 | `npm run report:crypto-env` | Print which optional env vars are set (masked; no network) |
 | `./scripts/run-anvil-bsc-fork.sh` | Start fork (`BSC_FORK_URL` required) |
+| `E2E_CRYPTO=1 npm run test:e2e:crypto` | Opt-in Playwright: real extension SW + **`CFS_*`** (set **`SOLANA_RPC_SMOKE_URL`** / **`BSC_RPC_SMOKE_URL`** or **`E2E_CRYPTO_*_RPC_URL`**) |
 
 **CI (default PR):** `verify:crypto-matrix`, `verify:crypto-smoke-addrs-sync`, `verify:bsc-pancake-docs-sync`, plus existing crypto wiring scripts.
 
