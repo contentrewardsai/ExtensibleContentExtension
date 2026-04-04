@@ -123,9 +123,27 @@ async function main() {
       throw new Error(`BSC: unexpected eth_chainId ${JSON.stringify(hex)}`);
     }
     console.log('[crypto-rpc-smoke] BSC eth_chainId:', hex);
+    const cidFromHex = parseInt(hex, 16);
+    if (!Number.isFinite(cidFromHex) || cidFromHex <= 0) {
+      throw new Error(`BSC: eth_chainId parse failed ${hex}`);
+    }
+    const nv = await postJson(
+      bscUrl,
+      { jsonrpc: '2.0', id: 2, method: 'net_version', params: [] },
+      'BSC net_version'
+    );
+    const nvr = nv.result;
+    const nid = parseInt(String(nvr != null ? nvr : ''), 10);
+    if (!Number.isFinite(nid) || nid <= 0) {
+      throw new Error(`BSC: net_version unexpected ${JSON.stringify(nvr)}`);
+    }
+    if (nid !== cidFromHex) {
+      throw new Error(`BSC: net_version ${nid} does not match eth_chainId ${cidFromHex} (${hex})`);
+    }
+    console.log('[crypto-rpc-smoke] BSC net_version:', String(nvr), '(matches chainId)');
     const bn = await postJson(
       bscUrl,
-      { jsonrpc: '2.0', id: 2, method: 'eth_blockNumber', params: [] },
+      { jsonrpc: '2.0', id: 3, method: 'eth_blockNumber', params: [] },
       'BSC eth_blockNumber'
     );
     const n = bn.result;
@@ -157,7 +175,7 @@ async function main() {
     }
     console.log('[crypto-rpc-smoke] BSC eth_syncing: false');
 
-    const cid = parseInt(hex, 16);
+    const cid = cidFromHex;
     /** ERC20 decimals() — same WBNB mainnet pin as bsc-evm.js (chain 56 only). */
     const WBNB_MAINNET = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
     const DECIMALS_SEL = '0x313ce567';
