@@ -2,6 +2,8 @@
 
 See also **[CRYPTO_TEST_STRATEGY.md](./CRYPTO_TEST_STRATEGY.md)** (full layered plan + matrix).
 
+Static guard **`npm run verify:crypto-bsc-genesis-sync`** (CI) keeps the canonical **BSC genesis block hashes** in `crypto-rpc-smoke.mjs` and `crypto-evm-fork-smoke.mjs` identical when you update one file.
+
 Default **Extension checks** do **not** call live RPCs or require secrets. This path is **opt-in** for maintainers who want a minimal **read-only** check that configured endpoints respond.
 
 ## Script
