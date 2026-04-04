@@ -34,6 +34,10 @@ jobs:
       - run: npm run test:cfs-always-on-wired
       - run: npm run test:crypto-rate-limit-wired
       - run: npm run test:crypto-workflow-step-types
+      - run: npm run verify:crypto-matrix
+      - run: npm run verify:crypto-smoke-addrs-sync
+      - run: npm run verify:crypto-bsc-genesis-sync
+      - run: npm run verify:bsc-pancake-docs-sync
       - run: npm run test:crypto-manifest-hosts
       - run: npm run test:crypto-observability-wired
       - run: npm run test:sellability-probe-wired
@@ -67,7 +71,7 @@ jobs:
 
   optional-crypto-rpc-smoke:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SOLANA_RPC_SMOKE_URL != '' }}
+    if: ${{ secrets.SOLANA_RPC_SMOKE_URL != '' || secrets.BSC_RPC_SMOKE_URL != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,8 +79,45 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: Read-only RPC smoke (optional secrets)
+      - name: Read-only RPC smoke + optional Solana tx (optional secrets)
         env:
           SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
           BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
-        run: npm run test:crypto-rpc-smoke
+          CRYPTO_SOLANA_TX_SECRET_KEY: ${{ secrets.CRYPTO_SOLANA_TX_SECRET_KEY }}
+        run: |
+          npm run test:crypto-rpc-smoke
+          npm run test:crypto-solana-tx-smoke
+
+  optional-crypto-http-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN != '' || secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: HTTP API smoke (Rugcheck, Aster, Jupiter quote, optional BscScan)
+        env:
+          CRYPTO_HTTP_SMOKE_RUN: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN }}
+          CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY }}
+          CRYPTO_HTTP_SMOKE_JUPITER_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_JUPITER_API_KEY }}
+        run: npm run test:crypto-http-smoke
+
+  optional-crypto-evm-fork-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: EVM JSON-RPC + optional tx smoke (Anvil fork URL or provider)
+        env:
+          CRYPTO_EVM_FORK_RPC_URL: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL }}
+        run: |
+          npm run test:crypto-evm-fork-smoke
+          npm run test:crypto-evm-fork-tx-smoke

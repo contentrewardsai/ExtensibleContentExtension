@@ -105,5 +105,27 @@
     { name: 'click step needs element (meta flag)', fn: function () {
       runner.assertTrue(true, 'click handler registered with needsElement: true');
     }},
+    { name: 'keyboardActivation Space/Enter dispatch shape', fn: function () {
+      var el = document.createElement('button');
+      el.type = 'button';
+      document.body.appendChild(el);
+      var down = [];
+      var up = [];
+      el.addEventListener('keydown', function (e) {
+        down.push(e.key + ':' + e.code);
+      });
+      el.addEventListener('keyup', function (e) {
+        up.push(e.key + ':' + e.code);
+      });
+      var initSpace = { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent('keydown', initSpace));
+      el.dispatchEvent(new KeyboardEvent('keyup', initSpace));
+      var initEnter = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent('keydown', initEnter));
+      el.dispatchEvent(new KeyboardEvent('keyup', initEnter));
+      document.body.removeChild(el);
+      runner.assertDeepEqual(down, [' :Space', 'Enter:Enter']);
+      runner.assertDeepEqual(up, [' :Space', 'Enter:Enter']);
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

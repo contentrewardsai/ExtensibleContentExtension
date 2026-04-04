@@ -105,6 +105,10 @@
   let lastPointerDownForLinkHref = null;
   /** Suppress click steps for the same link as last pointerdown until this time (see LINK_NAV_SKIP_CLICK_MS). */
   let skipClickAfterNavUntilTs = 0;
+  /** After keyboard Space records pushClickAction, ignore the browser's synthetic click on the same target briefly. */
+  let suppressSyntheticClickUntilTs = 0;
+  /** @type {Element|null} */
+  let suppressSyntheticClickTarget = null;
   /** @type {{ primary: unknown[], fallbacks?: unknown[], ts: number }|null} */
   let dragDropPendingSource = null;
   /** Global refcount so nested RECORDER_START / iframes restore history only when last stops. */
@@ -388,7 +392,7 @@
   }
 
   /**
-   * @param {'pointer'|'enter'} sourceTag
+   * @param {'pointer'|'enter'|'space'} sourceTag
    * @returns {boolean} true if a navigation step was recorded (caller may set skipClickAfterNavUntilTs)
    */
   function recordLinkActivationNavigation(linkEl, e, sourceTag) {
@@ -398,7 +402,9 @@
 
     const hashNav = sameDocumentHashNavigateUrl(href);
     if (hashNav) {
-      recordGoToUrl(hashNav, sourceTag === 'enter' ? 'link-enter' : 'link-hash');
+      const src =
+        sourceTag === 'space' ? 'link-space-hash' : sourceTag === 'enter' ? 'link-enter' : 'link-hash';
+      recordGoToUrl(hashNav, src);
       return true;
     }
 
@@ -416,7 +422,9 @@
     } else if (openNewTab) {
       recordOpenTab(href, false);
     } else {
-      recordGoToUrl(href, sourceTag === 'enter' ? 'link-enter' : 'link');
+      const src =
+        sourceTag === 'space' ? 'link-space' : sourceTag === 'enter' ? 'link-enter' : 'link';
+      recordGoToUrl(href, src);
     }
     return true;
   }
@@ -641,6 +649,53 @@
     '[onclick], [data-action], [data-testid], [data-cy], [data-test], [data-test-id], ' +
     'label[for], input[type="checkbox"], input[type="radio"]';
 
+  /** Space activates native controls; skip checkbox/radio (change step) and file/hidden. Links use recordLinkActivationNavigation. */
+  function isSpaceActivable(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'textarea') return false;
+    if (el.isContentEditable) return false;
+    const inpType = tag === 'input' ? String(el.type || 'text').toLowerCase() : '';
+    if (inpType === 'checkbox' || inpType === 'radio' || inpType === 'file' || inpType === 'hidden') return false;
+    if (tag === 'button') return true;
+    if (tag === 'input' && (inpType === 'submit' || inpType === 'button' || inpType === 'reset' || inpType === 'image')) {
+      return true;
+    }
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    if (role === 'button' || role === 'tab') return true;
+    if (role === 'link') return true;
+    if (role === 'checkbox' || role === 'radio' || role === 'switch') return false;
+    return false;
+  }
+
+  function findSpaceActivateTarget(fromEl) {
+    if (!fromEl || fromEl.nodeType !== 1) return null;
+    let n = fromEl;
+    for (let i = 0; n && i < 10; i++) {
+      if (isSpaceActivable(n)) return n;
+      n = n.parentElement;
+    }
+    return null;
+  }
+
+  /** First submit control in document order (for implicit Enter submit in forms). */
+  function findImplicitSubmitTarget(form) {
+    if (!form || form.nodeType !== 1 || String(form.tagName || '').toLowerCase() !== 'form') return null;
+    try {
+      const list = form.querySelectorAll(
+        'input[type="submit"], input[type="image"], button:not([type]), button[type="submit"]'
+      );
+      for (let i = 0; i < list.length; i++) {
+        const n = list[i];
+        if (n.disabled) continue;
+        if (n.closest('fieldset[disabled]')) continue;
+        return n;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function findClickableTarget(el) {
     if (!el || el.nodeType !== 1) return el;
     let clickable = el.closest(CLICKABLE_SELECTOR);
@@ -703,6 +758,8 @@
     dragDropPendingSource = null;
     skipClickAfterNavUntilTs = 0;
     lastPointerDownForLinkHref = null;
+    suppressSyntheticClickUntilTs = 0;
+    suppressSyntheticClickTarget = null;
     isRecording = false;
     if (typingTimeout) {
       clearTimeout(typingTimeout);
@@ -1184,7 +1241,7 @@
     } catch (_) {}
   }
 
-  function pushClickAction(el, isOption, captureEl) {
+  function pushClickAction(el, isOption, captureEl, extraFields) {
     if (!el) return;
     const target = captureEl || el;
     if (!isOption && shouldSkipNoisePointerTarget(target)) return;
@@ -1216,6 +1273,21 @@
     if (isDownload) {
       action.downloadUrl = el.href;
       action.variableKey = 'downloadTarget';
+    }
+    const tag = (target.tagName || '').toLowerCase();
+    const inpType = tag === 'input' ? String(target.type || 'text').toLowerCase() : '';
+    const btnType = tag === 'button' ? String(target.getAttribute('type') || 'submit').toLowerCase() : '';
+    if (
+      inpType === 'submit' ||
+      (tag === 'button' && (btnType === 'submit' || btnType === '')) ||
+      (tag === 'input' && inpType === 'image')
+    ) {
+      action.submitIntent = true;
+    }
+    if (extraFields && typeof extraFields === 'object') {
+      for (const k of Object.keys(extraFields)) {
+        if (extraFields[k] !== undefined) action[k] = extraFields[k];
+      }
     }
     attachPageStateToAction(action);
     attachRecordedResolutionMeta(action, target);
@@ -1287,6 +1359,19 @@
 
   function onClick(e) {
     if (!isRecording || !e.target) return;
+    if (Date.now() < suppressSyntheticClickUntilTs && suppressSyntheticClickTarget) {
+      let t = e.target;
+      if (t.nodeType !== 1) t = t.parentElement;
+      const st = suppressSyntheticClickTarget;
+      if (
+        t &&
+        st &&
+        document.documentElement.contains(st) &&
+        (t === st || (typeof st.contains === 'function' && st.contains(t)) || (typeof t.contains === 'function' && t.contains(st)))
+      ) {
+        return;
+      }
+    }
     if (Date.now() - lastPointerDownRecordedTime < 200) return;
     const skipFromDropdown = Date.now() - lastDropdownOptionMousedownTime < DROPDOWN_MOUSEDOWN_DEBOUNCE_MS;
     if (skipFromDropdown) {
@@ -1493,12 +1578,88 @@
         typingEnterFlushTimeoutId = null;
         flushTypingAction();
       }, 100);
+      const form = target.closest('form');
+      const tag = targetTag;
+      const isSingleLineText =
+        tag === 'input' &&
+        target &&
+        !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(
+          String(target.type || 'text').toLowerCase()
+        );
+      if (isSingleLineText && form && !e.repeat && !e.isComposing) {
+        const sub = findImplicitSubmitTarget(form);
+        if (sub && sub !== target) {
+          maybeInsertWait();
+          const cap = capturePrimaryAndFallbacks(sub);
+          const rawText = (sub.textContent || sub.innerText || sub.value || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 100);
+          const action = {
+            type: 'click',
+            selectors: cap.primary.length ? cap.primary : captureSelectors(sub),
+            tagName: sub.tagName?.toLowerCase(),
+            text: (sub.textContent || '').trim().slice(0, 100),
+            displayedValue: rawText || undefined,
+            submitIntent: true,
+            implicitSubmitFromEnter: true,
+            keyboardActivation: 'Enter',
+            isDropdownLike: isDropdownLike(sub),
+            isDropdownOption: false,
+            url: window.location.href,
+            timestamp: Date.now(),
+          };
+          const al = sub.getAttribute('aria-label');
+          if (al) action.ariaLabel = al.trim().slice(0, 120);
+          if (cap.fallbacks?.length) action.fallbackSelectors = cap.fallbacks;
+          const fb = buildFallbackTexts(rawText);
+          if (fb.length) action.fallbackTexts = fb;
+          attachPageStateToAction(action);
+          attachRecordedResolutionMeta(action, sub);
+          pushRecordedAction(action);
+          if (domChangeTimeoutId) clearTimeout(domChangeTimeoutId);
+          domChangeTimeoutId = setTimeout(attachDomChangesToLastAction, DOM_CHANGE_DELAY_MS);
+        }
+      }
     }
     if (e.key === 'Enter' && target && !e.repeat && !isEditableTarget) {
       const linkEl = target.closest && target.closest('a[href]');
       if (linkEl && recordLinkActivationNavigation(linkEl, e, 'enter')) {
         lastPointerDownForLinkHref = resolveAnchorHref(linkEl);
         skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
+        return;
+      }
+    }
+    const isSpaceKey = e.key === ' ' || e.code === 'Space';
+    if (isSpaceKey && target && !e.repeat && !isEditableTarget && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const linkEl = target.closest && target.closest('a[href]');
+      if (linkEl && recordLinkActivationNavigation(linkEl, e, 'space')) {
+        lastPointerDownForLinkHref = resolveAnchorHref(linkEl);
+        skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
+        suppressSyntheticClickTarget = linkEl;
+        suppressSyntheticClickUntilTs = Date.now() + 200;
+        lastPointerDownRecordedTime = Date.now();
+        setTimeout(() => {
+          if (suppressSyntheticClickTarget === linkEl) {
+            suppressSyntheticClickTarget = null;
+            suppressSyntheticClickUntilTs = 0;
+          }
+        }, 400);
+        return;
+      }
+      const sub = findSpaceActivateTarget(target);
+      if (sub && !isDropdownOptionClick(sub)) {
+        maybeInsertWait();
+        suppressSyntheticClickTarget = sub;
+        suppressSyntheticClickUntilTs = Date.now() + 200;
+        pushClickAction(sub, false, sub, { keyboardActivation: 'Space' });
+        lastPointerDownRecordedTime = Date.now();
+        setTimeout(() => {
+          if (suppressSyntheticClickTarget === sub) {
+            suppressSyntheticClickTarget = null;
+            suppressSyntheticClickUntilTs = 0;
+          }
+        }, 400);
         return;
       }
     }

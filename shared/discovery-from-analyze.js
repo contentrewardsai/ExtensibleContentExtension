@@ -14,6 +14,9 @@
     ensureSelect: true,
     scroll: true,
     dragDrop: true,
+    key: true,
+    goToUrl: true,
+    openTab: true,
   };
 
   function discoveryHostKeyFromUrlPattern(urlPattern) {
@@ -77,6 +80,18 @@
     add(action.sourceFallbackSelectors);
     add(action.targetSelectors);
     add(action.targetFallbackSelectors);
+    if (action.type === 'goToUrl' || action.type === 'openTab') {
+      var u = action.url && String(action.url).trim();
+      if (u) {
+        try {
+          var parsed = new URL(u);
+          if (parsed.pathname && parsed.pathname !== '/' && !seen[parsed.pathname]) {
+            seen[parsed.pathname] = true;
+            list.push(parsed.pathname);
+          }
+        } catch (_) {}
+      }
+    }
     return list;
   }
 
