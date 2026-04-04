@@ -1,5 +1,7 @@
 # Optional crypto RPC smoke tests (CI)
 
+See also **[CRYPTO_TEST_STRATEGY.md](./CRYPTO_TEST_STRATEGY.md)** (full layered plan + matrix).
+
 Default **Extension checks** do **not** call live RPCs or require secrets. This path is **opt-in** for maintainers who want a minimal **read-only** check that configured endpoints respond.
 
 ## Script
@@ -28,6 +30,7 @@ Add **optional** secrets in the repo (Settings → Secrets and variables → Act
 |--------|---------|
 | **`SOLANA_RPC_SMOKE_URL`** | Full HTTPS JSON-RPC URL for Solana (devnet or mainnet read-only key URL). |
 | **`BSC_RPC_SMOKE_URL`** | Full HTTPS JSON-RPC URL for BNB Chain (Chapel `97` or mainnet `56`). |
+| **`CRYPTO_EVM_FORK_RPC_URL`** | Optional: `http://host:8545` (Anvil) or HTTPS RPC — enables job **`optional-crypto-evm-fork-smoke`** (`eth_chainId` + latest block). |
 
 **Do not** commit URLs or keys. Rotate provider keys if exposed.
 

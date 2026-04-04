@@ -52,6 +52,9 @@
     "test:project-id-resolve": "node scripts/verify-project-id-resolve.cjs",
     "test:recorder-integration": "node scripts/run-recorder-integration-tests.mjs",
     "test:crypto-rpc-smoke": "node scripts/crypto-rpc-smoke.mjs",
+    "report:crypto-matrix": "node scripts/crypto-step-matrix.mjs --write",
+    "verify:crypto-matrix": "node scripts/crypto-step-matrix.mjs --check",
+    "test:crypto-evm-fork-smoke": "node scripts/crypto-evm-fork-smoke.mjs",
     "test:crypto-manifest-hosts": "node scripts/verify-crypto-manifest-hosts.cjs",
     "test:crypto-observability-wired": "node scripts/verify-crypto-observability-wired.cjs"
   },
