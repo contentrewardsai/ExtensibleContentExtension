@@ -3303,6 +3303,22 @@
     assertDeepEqual(m.cssStringsFromAction(action), ['button.menu', '.alt']);
   }
 
+  /** Recorder scroll (delta) and dragDrop contribute container / drag selectors to discovery. */
+  function testDiscoveryFromAnalyzeScrollDragExtract() {
+    var m = global.CFS_discoveryFromAnalyze;
+    var scrollAct = {
+      type: 'scroll',
+      containerSelectors: [{ type: 'cssPath', value: '.scrollpane' }],
+    };
+    assertDeepEqual(m.cssStringsFromAction(scrollAct), ['.scrollpane']);
+    var dragAct = {
+      type: 'dragDrop',
+      sourceSelectors: [{ type: 'id', value: '#src' }],
+      targetSelectors: [{ type: 'id', value: '#dst' }],
+    };
+    assertDeepEqual(m.cssStringsFromAction(dragAct), ['#src', '#dst']);
+  }
+
   function testDiscoveryMergeAppendOnly() {
     var m = global.CFS_discoveryFromAnalyze;
     var wf = {
@@ -4140,6 +4156,7 @@
     testDiscoveryFromAnalyzeHostKey,
     testDiscoveryFromAnalyzeCssExtract,
     testDiscoveryFromAnalyzeHoverExtract,
+    testDiscoveryFromAnalyzeScrollDragExtract,
     testDiscoveryMergeAppendOnly,
     testDiscoveryMergeUsesFallbackHostWhenNoOrigin,
     testDiscoveryOutputMergeAppendOnly,

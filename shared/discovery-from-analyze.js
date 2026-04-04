@@ -12,6 +12,8 @@
     select: true,
     upload: true,
     ensureSelect: true,
+    scroll: true,
+    dragDrop: true,
   };
 
   function discoveryHostKeyFromUrlPattern(urlPattern) {
@@ -69,6 +71,12 @@
     }
     add(action.selectors);
     add(action.fallbackSelectors);
+    add(action.containerSelectors);
+    add(action.containerFallbackSelectors);
+    add(action.sourceSelectors);
+    add(action.sourceFallbackSelectors);
+    add(action.targetSelectors);
+    add(action.targetFallbackSelectors);
     return list;
   }
 
