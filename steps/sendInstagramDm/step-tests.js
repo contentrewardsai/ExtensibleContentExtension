@@ -1,8 +1,21 @@
-(function() {
+(function (global) {
   'use strict';
-  if (typeof window.CFS_unitTestRunner === 'undefined') return;
-  var runner = window.CFS_unitTestRunner;
-  runner.registerSuite('sendInstagramDm', [
-    { name: 'handler registered', fn: function() { return typeof window.__CFS_stepHandlers === 'object' && typeof window.__CFS_stepHandlers.sendInstagramDm === 'function'; } },
+  var runner = global.CFS_unitTestRunner;
+  if (!runner || !runner.registerStepTests) return;
+
+  runner.registerStepTests('sendInstagramDm', [
+    { name: 'SEND_INSTAGRAM_DM message shape', fn: function () {
+      var m = {
+        type: 'SEND_INSTAGRAM_DM',
+        apiKey: 'k',
+        recipientId: 'igsid-9',
+        message: 'hello',
+      };
+      runner.assertEqual(m.type, 'SEND_INSTAGRAM_DM');
+      runner.assertEqual(m.recipientId, 'igsid-9');
+    }},
+    { name: 'handler registered', fn: function () {
+      runner.assertTrue(typeof global.__CFS_stepHandlers.sendInstagramDm === 'function');
+    }},
   ]);
-})();
+})(typeof window !== 'undefined' ? window : globalThis);
