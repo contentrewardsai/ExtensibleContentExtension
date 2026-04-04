@@ -42,6 +42,24 @@ Add **optional** secrets in the repo (Settings → Secrets and variables → Act
 
 `.github/workflows/extension-checks.yml` includes a job **`optional-crypto-rpc-smoke`** that runs when **`SOLANA_RPC_SMOKE_URL`** and/or **`BSC_RPC_SMOKE_URL`** is set. Both secrets are passed through so you can run **Solana-only**, **BSC-only**, or both in one job. After read-only smoke it runs **`npm run test:crypto-solana-tx-smoke`** (skips cleanly if **`CRYPTO_SOLANA_TX_SECRET_KEY`** is unset or balance insufficient unless **`CRYPTO_SOLANA_TX_FORCE=1`**).
 
+## HTTP smoke (Rugcheck, Aster, optional BscScan)
+
+Read-only **`GET`** checks aligned with **`following-automation-runner.js`** (Rugcheck) and **`aster-futures.js`** (public ping/time). Optional **BscScan** proxy **`eth_blockNumber`** when an API key secret is set (same pattern as **`bsc-watch.js`**).
+
+| Secret / env | Purpose |
+|--------------|---------|
+| **`CRYPTO_HTTP_SMOKE_RUN`** | Non-empty (e.g. `1`) — run Rugcheck + Aster public smoke. |
+| **`CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY`** | BscScan API key — also run proxy **`eth_blockNumber`** (mainnet API unless **`CRYPTO_HTTP_SMOKE_BSCSCAN_NETWORK=chapel`**). |
+| **`CRYPTO_HTTP_SMOKE_RUGCHECK_MINT`** | Optional mint for Rugcheck URL (default: wrapped SOL). |
+
+Local:
+
+```bash
+CRYPTO_HTTP_SMOKE=1 npm run test:crypto-http-smoke
+```
+
+Job **`optional-crypto-http-smoke`** runs when **`CRYPTO_HTTP_SMOKE_RUN`** and/or **`CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY`** is configured.
+
 ## Local use
 
 ```bash

@@ -88,6 +88,22 @@ jobs:
           npm run test:crypto-rpc-smoke
           npm run test:crypto-solana-tx-smoke
 
+  optional-crypto-http-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN != '' || secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: HTTP API smoke (Rugcheck, Aster public, optional BscScan)
+        env:
+          CRYPTO_HTTP_SMOKE_RUN: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN }}
+          CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY }}
+        run: npm run test:crypto-http-smoke
+
   optional-crypto-evm-fork-smoke:
     runs-on: ubuntu-latest
     if: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL != '' }}

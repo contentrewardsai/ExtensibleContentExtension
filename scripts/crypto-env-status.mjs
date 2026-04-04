@@ -6,6 +6,11 @@
 import process from 'node:process';
 
 const keys = [
+  'CRYPTO_HTTP_SMOKE_RUN',
+  'CRYPTO_HTTP_SMOKE',
+  'CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY',
+  'CRYPTO_HTTP_SMOKE_BSCSCAN_NETWORK',
+  'CRYPTO_HTTP_SMOKE_RUGCHECK_MINT',
   'SOLANA_RPC_SMOKE_URL',
   'SOLANA_EXPECTED_GENESIS_HASH',
   'CRYPTO_SOLANA_TX_RPC_URL',
@@ -32,10 +37,16 @@ for (const k of keys) {
   const v = process.env[k];
   const set = v != null && String(v).trim() !== '';
   const display =
-    k === 'CRYPTO_SOLANA_TX_SECRET_KEY' ? (set ? '(set — value hidden)' : '(not set)') : set ? mask(String(v)) : '(not set)';
+    k === 'CRYPTO_SOLANA_TX_SECRET_KEY' || k === 'CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY'
+      ? set
+        ? '(set — value hidden)'
+        : '(not set)'
+      : set
+        ? mask(String(v))
+        : '(not set)';
   console.log(`  ${k}: ${display}`);
 }
 console.log(
-  '\nCommands: npm run test:crypto-rpc-smoke | npm run test:crypto-solana-tx-smoke | npm run test:crypto-evm-fork-smoke | npm run test:crypto-evm-fork-tx-smoke'
+  '\nCommands: npm run test:crypto-http-smoke | npm run test:crypto-rpc-smoke | npm run test:crypto-solana-tx-smoke | npm run test:crypto-evm-fork-smoke | npm run test:crypto-evm-fork-tx-smoke'
 );
 console.log('Docs: docs/CRYPTO_TESTING_QUICKREF.md');

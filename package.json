@@ -51,6 +51,7 @@
     "test:apify": "npm run test:apify-dataset-parse && npm run test:apify-run-query-validation && npm run test:apify-extract-run-id",
     "test:project-id-resolve": "node scripts/verify-project-id-resolve.cjs",
     "test:recorder-integration": "node scripts/run-recorder-integration-tests.mjs",
+    "test:crypto-http-smoke": "node scripts/crypto-http-smoke.mjs",
     "test:crypto-rpc-smoke": "node scripts/crypto-rpc-smoke.mjs",
     "test:crypto-solana-tx-smoke": "node scripts/crypto-solana-tx-smoke.mjs",
     "report:crypto-matrix": "node scripts/crypto-step-matrix.mjs --write",
