@@ -4,6 +4,39 @@
 (function() {
   'use strict';
 
+  /**
+   * Replay Space/Enter activation (recorder sets action.keyboardActivation).
+   * Focus + keydown/keyup + native click() so native buttons/links still activate.
+   */
+  function performKeyboardActivation(el, keyName, sleep) {
+    const k = String(keyName || '').trim();
+    if (k !== 'Space' && k !== 'Enter') return Promise.resolve(false);
+    try {
+      if (typeof el.focus === 'function') el.focus();
+    } catch (_) {}
+    const key = k === 'Enter' ? 'Enter' : ' ';
+    const code = k === 'Enter' ? 'Enter' : 'Space';
+    const keyCode = k === 'Enter' ? 13 : 32;
+    const init = {
+      key: key,
+      code: code,
+      keyCode: keyCode,
+      which: keyCode,
+      bubbles: true,
+      cancelable: true,
+    };
+    el.dispatchEvent(new KeyboardEvent('keydown', init));
+    return sleep(50).then(function () {
+      el.dispatchEvent(new KeyboardEvent('keyup', init));
+      return sleep(40);
+    }).then(function () {
+      try {
+        if (typeof el.click === 'function') el.click();
+      } catch (_) {}
+      return true;
+    });
+  }
+
   function performPointerAction(el, action) {
     const btn = action.button != null ? action.button : 'left';
     const count = Math.min(2, Math.max(1, parseInt(action.clickCount, 10) || 1));
@@ -144,6 +177,11 @@
         if (!clickable && el.closest('[data-type="button-overlay"]')) clickable = el.closest('[data-type="button-overlay"]').closest('button');
         clickable = clickable || el;
         if (isExternalNavLink(clickable)) throw new Error('Would open external link (e.g. Discord), skipping');
+        var ka = action.keyboardActivation != null ? String(action.keyboardActivation).trim() : '';
+        if (ka === 'Space' || ka === 'Enter') {
+          await performKeyboardActivation(clickable, ka, sleep);
+          return;
+        }
         performPointerAction(clickable, action);
         return;
       } catch (err) {
