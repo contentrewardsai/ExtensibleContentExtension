@@ -1686,7 +1686,7 @@
     var L = getLib();
     if (!L) {
       sendResponse({ ok: false, error: 'Solana library not loaded' });
-      return false;
+      return true;
     }
 
     (async function () {
