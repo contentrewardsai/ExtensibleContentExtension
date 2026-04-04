@@ -121,3 +121,23 @@ jobs:
         run: |
           npm run test:crypto-evm-fork-smoke
           npm run test:crypto-evm-fork-tx-smoke
+
+  optional-e2e-crypto-playwright:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.E2E_CRYPTO_PLAYWRIGHT != '' && (secrets.SOLANA_RPC_SMOKE_URL != '' || secrets.BSC_RPC_SMOKE_URL != '') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium --with-deps
+      - name: Extension crypto E2E (Playwright + live CFS_* messages)
+        env:
+          CI: '1'
+          PW_WORKERS: '1'
+          E2E_CRYPTO: '1'
+          SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
+          BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
+        run: npm run test:e2e:crypto
