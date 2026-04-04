@@ -17,8 +17,8 @@ Load unpacked from `/workspace` at `chrome://extensions/` (Developer Mode enable
 
 - `npm run test:unit` — headless unit tests via Puppeteer (836 pass; 5 pre-existing failures related to `CFS_personalInfoSync` not being loaded).
 - `npm run test:recorder-integration` — recorder integration tests via Puppeteer (2 pass; 2 pre-existing flaky failures: `stable` and `enter` scenarios).
-- `npm run test:e2e` — Playwright E2E tests (requires `npm run build:step-tests` first, which is chained automatically). Needs Playwright browsers installed (`npx playwright install chromium`).
-- `npm run test:e2e:puppeteer` — Puppeteer-based E2E alternative.
+- `npm run test:e2e` — Playwright E2E tests (540 tests). Requires Playwright Chromium browser (`npx playwright install chromium`). Runs non-headless (Chrome extensions require `headless: false`), so an X display must be available (the Cloud VM has `:1`). Build step (`build:step-tests`) is chained automatically. ~490 pass; ~23 pre-existing failures mostly in playback/sidepanel-flow specs and a few generator assertions. Two sidepanel batch tests time out (~60s each).
+- `npm run test:e2e:puppeteer` — Puppeteer-based E2E alternative. Has a pre-existing issue where the extension target is not found on launch (timing race).
 
 ### Caveats
 
