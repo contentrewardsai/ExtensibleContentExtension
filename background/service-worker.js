@@ -193,7 +193,8 @@ function shouldRunRecurring(schedule, nowInZone) {
     const mins = Math.max(1, parseInt(schedule.intervalMinutes, 10) || 1);
     const intervalMs = mins * 60 * 1000;
     const last = schedule.lastRunAtMs != null ? Number(schedule.lastRunAtMs) : 0;
-    if (!last || last <= 0) return false;
+    // First tick after create/import: run once, then MERGE path / submit can backfill lastRunAtMs.
+    if (!last || last <= 0) return true;
     if ((Date.now() - last) < intervalMs) return false;
     return true;
   }
