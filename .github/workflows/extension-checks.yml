@@ -140,4 +140,6 @@ jobs:
           E2E_CRYPTO: '1'
           SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
           BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
+          E2E_CRYPTO_JUPITER_API_KEY: ${{ secrets.E2E_CRYPTO_JUPITER_API_KEY }}
+          CRYPTO_HTTP_SMOKE_JUPITER_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_JUPITER_API_KEY }}
         run: npm run test:e2e:crypto

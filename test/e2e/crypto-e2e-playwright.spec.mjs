@@ -17,12 +17,20 @@
  *
  * BSC: rpcInfo + isContract always run; erc20Metadata (WBNB) only when the RPC reports chainId 56.
  *       For Chapel (97), isContract uses Infinity Vault Chapel address.
+ *
+ * Optional: E2E_CRYPTO_JUPITER_API_KEY (or CRYPTO_HTTP_SMOKE_JUPITER_API_KEY) — Jupiter perps markets GET.
  */
 import { test, expect, sendExtensionMessage, writeStorage, clearStorageKeys } from './extension.fixture.mjs';
 
 const E2E_ON = process.env.E2E_CRYPTO === '1' || process.env.E2E_CRYPTO === 'true';
 const SOL_RPC = (process.env.E2E_CRYPTO_SOLANA_RPC_URL || process.env.SOLANA_RPC_SMOKE_URL || '').trim();
 const BSC_RPC = (process.env.E2E_CRYPTO_BSC_RPC_URL || process.env.BSC_RPC_SMOKE_URL || '').trim();
+/** Optional — same key as Settings → Solana → Jupiter; enables CFS_JUPITER_PERPS_MARKETS E2E. */
+const JUPITER_KEY_E2E = (
+  process.env.E2E_CRYPTO_JUPITER_API_KEY ||
+  process.env.CRYPTO_HTTP_SMOKE_JUPITER_API_KEY ||
+  ''
+).trim();
 
 /** Wrapped SOL — exists on mainnet-beta and devnet. */
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -122,6 +130,56 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
       expect(meta?.result?.symbol).toBeTruthy();
       expect(String(meta.result.decimals)).toBe('18');
     }
+
+    const blk = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_BSC_QUERY',
+      operation: 'blockByTag',
+      blockTag: 'latest',
+    });
+    expect(blk?.ok).toBe(true);
+    expect(blk?.result?.hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    expect(typeof blk?.result?.number === 'string' && blk.result.number.length > 0).toBe(true);
+  });
+
+  test('Pulse watch activity lists (storage-backed, no indexer)', async ({ extensionContext, extensionId }) => {
+    test.skip(!E2E_ON, 'Set E2E_CRYPTO=1');
+
+    const sol = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_SOLANA_WATCH_GET_ACTIVITY',
+      limit: 10,
+    });
+    expect(sol?.ok).toBe(true);
+    expect(Array.isArray(sol?.activity)).toBe(true);
+
+    const bsc = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_BSC_WATCH_GET_ACTIVITY',
+      limit: 10,
+    });
+    expect(bsc?.ok).toBe(true);
+    expect(Array.isArray(bsc?.activity)).toBe(true);
+  });
+
+  test('CFS_FOLLOWING_AUTOMATION_STATUS (evaluator + storage snapshot)', async ({
+    extensionContext,
+    extensionId,
+  }) => {
+    test.skip(!E2E_ON, 'Set E2E_CRYPTO=1');
+
+    const r = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_FOLLOWING_AUTOMATION_STATUS',
+    });
+    expect(r?.ok).toBe(true);
+    expect(r?.reason !== undefined).toBe(true);
+  });
+
+  test('CFS_PERPS_AUTOMATION_STATUS', async ({ extensionContext, extensionId }) => {
+    test.skip(!E2E_ON, 'Set E2E_CRYPTO=1');
+
+    const r = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_PERPS_AUTOMATION_STATUS',
+    });
+    expect(r?.ok).toBe(true);
+    expect(r?.jupiterPerps != null).toBe(true);
   });
 
   test('Aster CFS_ASTER_FUTURES market tickerPrice (public, no API keys)', async ({
@@ -157,6 +215,38 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
     expect(r?.result?.baseAsset && r?.result?.quoteAsset).toBeTruthy();
   });
 
+  test('Aster CFS_ASTER_FUTURES market exchangeInfo (public)', async ({ extensionContext, extensionId }) => {
+    test.skip(!E2E_ON, 'Set E2E_CRYPTO=1');
+
+    const r = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_ASTER_FUTURES',
+      asterCategory: 'market',
+      operation: 'exchangeInfo',
+    });
+
+    expect(r?.ok).toBe(true);
+    expect(r?.result && typeof r.result === 'object').toBeTruthy();
+    expect(Array.isArray(r.result.symbols)).toBe(true);
+    expect(r.result.symbols.length).toBeGreaterThan(0);
+  });
+
+  test('CFS_JUPITER_PERPS_MARKETS (read-only, needs Jupiter API key)', async ({
+    extensionContext,
+    extensionId,
+  }) => {
+    test.skip(!E2E_ON, 'Set E2E_CRYPTO=1');
+    test.skip(!JUPITER_KEY_E2E, 'Set E2E_CRYPTO_JUPITER_API_KEY or CRYPTO_HTTP_SMOKE_JUPITER_API_KEY');
+
+    await writeStorage(extensionContext, extensionId, { cfs_solana_jupiter_api_key: JUPITER_KEY_E2E });
+
+    const r = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_JUPITER_PERPS_MARKETS',
+    });
+
+    expect(r?.ok).toBe(true);
+    expect(typeof r?.marketsJson === 'string' && r.marketsJson.length > 2).toBe(true);
+  });
+
   test('CFS_RUGCHECK_TOKEN_REPORT (HTTP via following-automation path)', async ({
     extensionContext,
     extensionId,
@@ -176,6 +266,10 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
 test.describe('extension crypto E2E cleanup', () => {
   test('clear optional crypto-related storage keys', async ({ extensionContext, extensionId }) => {
     test.skip(!E2E_ON, 'Set E2E_CRYPTO=1');
-    await clearStorageKeys(extensionContext, extensionId, ['cfs_solana_rpc_url', 'cfs_bsc_global_settings']);
+    await clearStorageKeys(extensionContext, extensionId, [
+      'cfs_solana_rpc_url',
+      'cfs_bsc_global_settings',
+      'cfs_solana_jupiter_api_key',
+    ]);
   });
 });
