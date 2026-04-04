@@ -92,6 +92,24 @@ async function main() {
       throw new Error(`Solana: getVersion missing solana-core ${JSON.stringify(vr)}`);
     }
     console.log('[crypto-rpc-smoke] Solana getVersion solana-core:', core);
+    const ep = await postJson(
+      solUrl,
+      { jsonrpc: '2.0', id: 5, method: 'getEpochInfo' },
+      'Solana getEpochInfo'
+    );
+    const ei = ep.result;
+    if (!ei || typeof ei !== 'object') {
+      throw new Error(`Solana: getEpochInfo unexpected ${JSON.stringify(ep.result)}`);
+    }
+    const epoch = ei.epoch;
+    const slotIdx = ei.slotIndex;
+    if (
+      (typeof epoch !== 'number' && typeof epoch !== 'string') ||
+      (typeof slotIdx !== 'number' && typeof slotIdx !== 'string')
+    ) {
+      throw new Error(`Solana: getEpochInfo missing epoch/slotIndex ${JSON.stringify(ei)}`);
+    }
+    console.log('[crypto-rpc-smoke] Solana getEpochInfo epoch:', epoch, 'slotIndex:', slotIdx);
   }
 
   if (bscUrl) {
@@ -129,6 +147,15 @@ async function main() {
       throw new Error(`BSC: eth_gasPrice not positive ${gpx}`);
     }
     console.log('[crypto-rpc-smoke] BSC eth_gasPrice:', gpx);
+    const sync = await postJson(
+      bscUrl,
+      { jsonrpc: '2.0', id: 6, method: 'eth_syncing', params: [] },
+      'BSC eth_syncing'
+    );
+    if (sync.result !== false) {
+      throw new Error(`BSC: eth_syncing expected false, got ${JSON.stringify(sync.result)}`);
+    }
+    console.log('[crypto-rpc-smoke] BSC eth_syncing: false');
 
     const cid = parseInt(hex, 16);
     /** ERC20 decimals() — same WBNB mainnet pin as bsc-evm.js (chain 56 only). */
@@ -139,7 +166,7 @@ async function main() {
         bscUrl,
         {
           jsonrpc: '2.0',
-          id: 5,
+          id: 7,
           method: 'eth_call',
           params: [{ to: WBNB_MAINNET, data: DECIMALS_SEL }, 'latest'],
         },

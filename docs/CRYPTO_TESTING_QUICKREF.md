@@ -5,7 +5,7 @@
 | `npm run test:crypto` | Local: all **static** crypto guards (matrix, addr sync, Pancake doc pins, wiring) |
 | `npm run test:unit` | Full browser unit suite + `step-tests.js` |
 | `npm run report:crypto-matrix` | After editing `shared/crypto-workflow-step-ids.js` — then commit `docs/CRYPTO_TEST_MATRIX.md` |
-| `npm run test:crypto-rpc-smoke` | Optional URLs — Solana `getVersion`; BSC: `eth_gasPrice`; BSC 56: `eth_call` WBNB `decimals` |
+| `npm run test:crypto-rpc-smoke` | Optional URLs — Solana `getEpochInfo`; BSC `eth_syncing` + `eth_gasPrice`; BSC 56: WBNB `decimals` `eth_call` |
 | `CRYPTO_EVM_FORK_RPC_URL=… npm run test:crypto-evm-fork-smoke` | Anvil fork or public BSC/Chapel RPC |
 | `npm run report:crypto-env` | Print which optional env vars are set (masked; no network) |
 | `./scripts/run-anvil-bsc-fork.sh` | Start fork (`BSC_FORK_URL` required) |
