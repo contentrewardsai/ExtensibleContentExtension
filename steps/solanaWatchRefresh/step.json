@@ -1,0 +1,17 @@
+{
+  "id": "solanaWatchRefresh",
+  "label": "Solana watch refresh",
+  "category": "data",
+  "description": "Runs one Pulse Solana Following watch poll in the service worker (HTTP and/or WebSocket path). Optionally saves the tick result JSON to a row variable. Pair with **solanaWatchReadActivity** and filter/swap steps. See docs/SOLANA_AUTOMATION.md.",
+  "defaultAction": {
+    "type": "solanaWatchRefresh",
+    "runIf": "",
+    "skipJitter": false,
+    "saveResultVariable": "solanaWatchRefreshResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "skipJitter", "label": "Skip startup jitter (immediate poll)", "inputType": "checkbox" },
+    { "key": "saveResultVariable", "label": "Save tick JSON to variable (optional)", "inputType": "text", "placeholder": "e.g. solanaWatchRefreshResult" }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "id": "raydiumClmmQuoteBaseIn",
+  "label": "Raydium CLMM quote (fixed in)",
+  "category": "data",
+  "description": "Read-only **quote** for a CLMM swap with fixed input (`CFS_RAYDIUM_CLMM_QUOTE_BASE_IN`). No transaction. Writes optional row variables for min/expected out and tick-account count; use with **raydiumClmmSwap** in the same row (e.g. pass quoted min out). Wallet must be unlocked for RPC. Rebuild: npm run build:raydium.",
+  "defaultAction": {
+    "type": "raydiumClmmQuoteBaseIn",
+    "runIf": "",
+    "poolId": "",
+    "inputMint": "",
+    "outputMint": "",
+    "amountInRaw": "",
+    "slippageBps": 50,
+    "amountOutMinRaw": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "saveAmountOutMinVariable": "clmmQuoteMinOutRaw",
+    "saveAmountOutExpectedVariable": "clmmQuoteExpectedOutRaw",
+    "saveRemainingAccountsCountVariable": "",
+    "saveAllTradeVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "poolId", "label": "CLMM pool id (base58)", "inputType": "text" },
+    { "key": "inputMint", "label": "Input mint", "inputType": "text" },
+    { "key": "outputMint", "label": "Output mint", "inputType": "text" },
+    { "key": "amountInRaw", "label": "Amount in (raw)", "inputType": "text" },
+    { "key": "slippageBps", "label": "Slippage (basis points)", "inputType": "number" },
+    { "key": "amountOutMinRaw", "label": "Min out raw (optional, quote hint)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "saveAmountOutMinVariable", "label": "Save min out raw (row key)", "inputType": "text" },
+    { "key": "saveAmountOutExpectedVariable", "label": "Save expected out raw (row key)", "inputType": "text" },
+    { "key": "saveRemainingAccountsCountVariable", "label": "Save remaining accounts count (optional)", "inputType": "text" },
+    { "key": "saveAllTradeVariable", "label": "Save allTrade true/false (optional)", "inputType": "text" }
+  ]
+}

@@ -58,4 +58,4 @@ The `build` section instructs the testing environment what the step needs. Futur
 **What we can do:**
 1. **With project folder set**: The E2E runner uses a persistent profile (`test/.e2e-user-data`). If you select a project folder once (Library tab → Set project folder), it is stored in IndexedDB and reused on future runs. Tests with `prereqs: ["projectFolder"]` then run normally (workflow queues the save; the smoke assertion verifies completion).
 2. **Without project folder**: If no folder has been selected, tests with `projectFolder` in prereqs are skipped with "project folder not set; select one in Library tab to enable".
-3. **Manual**: For full verification, run workflow, click "Save pending generations", then verify files in the folder manually.
+3. **Manual**: For full verification, run workflow, click **Save pending generations**, then confirm files under **`uploads/{projectId}/generations/`** (or your step **folder** name) in the project directory.

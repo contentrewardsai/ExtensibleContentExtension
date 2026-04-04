@@ -7,6 +7,7 @@ This document defines the **consistent contract** all step plugins follow so tha
 - **Folder:** `steps/{id}/` (e.g. `steps/click/`, `steps/watchVideoProgress/`).
 - **Id** must be the same everywhere: folder name, `step.json` → `"id"`, `handler.js` → `__CFS_registerStepHandler(id, ...)`, `sidepanel.js` → `__CFS_registerStepSidepanel(id, ...)`, and `action.type` in workflow JSON.
 - **Files (minimum):** `handler.js` (required). Recommended: `step.json`, `sidepanel.js`. Add the id to `steps/manifest.json` (or use Reload Extension to auto-discover).
+- **Solana automation steps** (step ids under `solana*` or `raydium*`, or any handler that calls Solana / Pump.fun / Raydium service-worker messages): add **`steps/{id}/README.md`** (configuration, row variables, background message names) and register it in **steps/README.md** § Step-specific documentation. Cross-cutting wallet storage, risk, and bundle rebuilds belong in **docs/SOLANA_AUTOMATION.md**—link or summarize that doc from the step README so contributors know where the global rules live.
 
 ## 2. Handler (content script) contract
 
@@ -27,6 +28,8 @@ This document defines the **consistent contract** all step plugins follow so tha
 | `resolveAllElements(selectors, doc)` | Resolve all matching elements. |
 | `resolveAllCandidates(selectors, doc)` | Resolve and return candidates (e.g. `[{ element, selector }]`). |
 | `resolveElementForAction(action, doc)` | **Recommended for new steps.** Merges `action.selectors` and `action.fallbackSelectors`, returns first matching element. Keeps error correction consistent. |
+| `resolveElementForActionInDocument(action, doc)` | Same merge as above, but always resolves under the given `doc`. Use after `resolveDocumentForAction` when the target lives inside an iframe or shadow root. |
+| `resolveDocumentForAction(action, baseDoc)` | Returns a document or `ShadowRoot` for resolving subsequent selectors: optional `iframeSelectors` (+ `iframeFallbackSelectors`) → `iframe.contentDocument`, then optional `shadowHostSelectors` (+ `shadowHostFallbackSelectors`) → host `shadowRoot`. Throws if cross-origin iframe, missing iframe, or no open shadow root. Order: iframe first, then shadow. |
 | `resolveAllElementsForAction(action, doc)` | Same merge, returns all matching elements. |
 | `resolveAllCandidatesForAction(action, doc)` | Same merge, returns candidates `[{ element, selector }]`. |
 | `sleep(ms)` | Promise that resolves after `ms` milliseconds. |
@@ -37,7 +40,8 @@ This document defines the **consistent contract** all step plugins follow so tha
 | `document` | Page document. |
 | `actionIndex` | Index of this action in the workflow. |
 | `nextAction`, `prevAction` | Adjacent actions (set by player). |
-| `waitForElement(selectors, timeoutMs, stepInfo)` | Wait until element(s) visible. |
+| `waitForElement(selectors, timeoutMs, stepInfo)` | Wait until element(s) visible. Optional `stepInfo.rootDoc`: document or `ShadowRoot` (use `resolveDocumentForAction` / `scopeDocForAction(action)`) for iframe or shadow-scoped polling. |
+| `scopeDocForAction(action)` | Returns `document` or scoped root for waits; matches player pre-wait when `iframeSelectors` / `shadowHostSelectors` are set. |
 | `waitForGenerationComplete(cfg, timeoutMs, stepInfo)` | Wait for generation UI to complete. |
 | `runExtractData({ listSelector, itemSelector, fields, maxItems })` | Run extract-data logic; returns `{ ok, rows?, error }`. |
 | `executeEnsureSelect(action)` | Run ensure-select step. |
@@ -47,8 +51,10 @@ This document defines the **consistent contract** all step plugins follow so tha
 **Note:** `looksLikeUploadTrigger` is a keyword heuristic only; no built-in step handler uses it—the player exposes it for custom upload-related logic if you need it.
 
 - **Errors:** Throw an `Error` to fail the step (and optionally stop the run). The player will surface the message and report `actionIndex` so the sidepanel can scroll to the step and show the Validate/Compare hint.
+- **runIf (player vs handler):** The player skips steps when `action.runIf` is empty/falsy or when a comparison / path expression evaluates false (see **shared/run-if-condition.js**). If your handler also reads `action.runIf` before doing work, call **`CFS_runIfCondition.skipWhenRunIf(action, row, ctx.getRowValue)`** and `return` when it is `true` so behavior matches the player.
 - **Batch behavior (Run All Rows):** The step object can include **onFailure**: `'stop'` (stop the batch), `'skipRow'` (mark row failed, continue to next), or `'retry'` (retry the row up to the workflow’s max retries). The sidepanel exposes this in the step editor; when the step fails during Run All Rows, the batch uses this value. If unset, batch stops.
 - **Selectors and fallbacks:** Prefer `ctx.resolveElementForAction(action, doc)` (or `resolveAllCandidatesForAction`) so the player merges `action.selectors` and `action.fallbackSelectors` for you. Alternatively merge manually and pass to `ctx.resolveElement`. Steps that use `proceedWhen: 'element'` can set `action.proceedWhenFallbackSelectors`; the player merges them when waiting.
+- **Iframe / open shadow DOM:** Optional fields on the action (same selector-entry JSON shape as `selectors`): `iframeSelectors`, `iframeFallbackSelectors`, `shadowHostSelectors`, `shadowHostFallbackSelectors`. In handlers, use `const doc = ctx.resolveDocumentForAction(action, ctx.document);` then `ctx.resolveElementForActionInDocument(action, doc)` or `ctx.resolveAllCandidatesForAction(action, doc)`. Does not support cross-origin iframes or closed shadow roots. **Built-in steps that resolve under scope:** `click`, `type`, `hover`, `select`, `upload`, `download`, `scroll`, `waitForElement`, `dragDrop`, **`wait`** (element + generation-complete), **`extractData`** (`runExtractData` `rootDoc` or iframe/shadow fields in config), **`key`** (keyboard target document), and player **`ensureSelect`** (`executeEnsureSelect`).
 - **No globals:** Do not assume `resolveElement`, `sleep`, or `document` exist as globals; they are only on `opts.ctx`.
 
 ## 3. Step definition (step.json) contract

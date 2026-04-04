@@ -1,0 +1,166 @@
+{
+  "id": "rowMath",
+  "label": "Row math",
+  "category": "data",
+  "description": "Read numeric values from the current row (optional **JSON path** under a variable for nested API payloads), run arithmetic, min/max, abs/negate, percent change, or comparisons; save numbers/booleans for later steps. **Percent change** default: left = old/base, right = new. **runIf** on other steps supports comparisons like `{{a}} > {{b}}` (see README).",
+  "defaultAction": {
+    "type": "rowMath",
+    "runIf": "",
+    "operation": "percentChange",
+    "leftVariable": "entryPrice",
+    "rightVariable": "lastPrice",
+    "leftJsonPath": "",
+    "rightJsonPath": "",
+    "percentChangeBase": "oldNew",
+    "saveResultVariable": "priceChangePercent",
+    "saveBooleanVariable": "",
+    "roundDecimals": 4,
+    "treatEmptyAs": "error",
+    "failWhenCompareFalse": false
+  },
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text",
+      "placeholder": "variable name or {{key}}"
+    },
+    {
+      "key": "operation",
+      "label": "Operation",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "add",
+          "label": "Add (left + right)"
+        },
+        {
+          "value": "subtract",
+          "label": "Subtract (left \u2212 right)"
+        },
+        {
+          "value": "multiply",
+          "label": "Multiply (left \u00d7 right)"
+        },
+        {
+          "value": "divide",
+          "label": "Divide (left / right)"
+        },
+        {
+          "value": "percentChange",
+          "label": "Percent change ((right\u2212left)/left\u00d7100 unless base inverted)"
+        },
+        {
+          "value": "min",
+          "label": "Min (two operands)"
+        },
+        {
+          "value": "max",
+          "label": "Max (two operands)"
+        },
+        {
+          "value": "abs",
+          "label": "Abs (left only)"
+        },
+        {
+          "value": "negate",
+          "label": "Negate (left only)"
+        },
+        {
+          "value": "gt",
+          "label": "Compare: left > right"
+        },
+        {
+          "value": "gte",
+          "label": "Compare: left \u2265 right"
+        },
+        {
+          "value": "lt",
+          "label": "Compare: left < right"
+        },
+        {
+          "value": "lte",
+          "label": "Compare: left \u2264 right"
+        },
+        {
+          "value": "eq",
+          "label": "Compare: left \u2248 right"
+        }
+      ]
+    },
+    {
+      "key": "leftVariable",
+      "label": "Left / first variable (row key)",
+      "inputType": "text"
+    },
+    {
+      "key": "rightVariable",
+      "label": "Right / second variable (row key)",
+      "inputType": "text"
+    },
+    {
+      "key": "leftJsonPath",
+      "label": "Left JSON path under variable (optional)",
+      "inputType": "text",
+      "placeholder": "e.g. stats.views or items[0].count"
+    },
+    {
+      "key": "rightJsonPath",
+      "label": "Right JSON path under variable (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "percentChangeBase",
+      "label": "Percent base (percentChange only)",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "oldNew",
+          "label": "oldNew: base = left, delta from left\u2192right"
+        },
+        {
+          "value": "newOld",
+          "label": "newOld: base = right, delta from right\u2192left"
+        }
+      ]
+    },
+    {
+      "key": "saveResultVariable",
+      "label": "Save numeric result to variable",
+      "inputType": "text",
+      "placeholder": "required for arithmetic / percent"
+    },
+    {
+      "key": "saveBooleanVariable",
+      "label": "Save boolean result to variable",
+      "inputType": "text",
+      "placeholder": "required for compare ops"
+    },
+    {
+      "key": "roundDecimals",
+      "label": "Round result (decimals, empty = no rounding)",
+      "inputType": "number",
+      "min": 0
+    },
+    {
+      "key": "treatEmptyAs",
+      "label": "Treat empty operand as",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "error",
+          "label": "Error (fail step)"
+        },
+        {
+          "value": "zero",
+          "label": "Zero"
+        }
+      ]
+    },
+    {
+      "key": "failWhenCompareFalse",
+      "label": "Fail step when comparison is false",
+      "inputType": "checkbox"
+    }
+  ]
+}

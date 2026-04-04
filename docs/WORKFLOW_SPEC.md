@@ -46,6 +46,7 @@ These can be implemented as **steps** (e.g. “Watch video progress”, “Check
   - **Manually / in sidebar:** Paste CSV or JSON, or use “Import CSV”. Users can see rows (Prev/Next), edit or inspect data, then “Run current row” or “Run all rows”. Run all rows runs from the current row through the last (resume or subset).
   - **Programmatically:** Pass CSV/JSON via the messaging API (SET_IMPORTED_ROWS, RUN_WORKFLOW). RUN_WORKFLOW can include **startIndex** so the batch runs from that row to the end. See **PROGRAMMATIC_API.md**.
 - **Column mapping:** `csvColumnAliases` (and optional `csvColumnMapping`) in the workflow JSON map incoming column names to variable keys so different CSV formats (e.g. “prompt” vs “Veo Prompt”) work with the same workflow.
+- **Row / list shaping (data steps):** **`rowSetFields`**, **`rowListFilter`**, **`rowListJoin`**, **`rowListConcat`**, **`rowListDedupe`**, **`rowMath`**. See **steps/README.md** (§ Step-specific documentation) and **docs/STEP_PLUGINS.md**.
 
 ---
 
@@ -86,6 +87,8 @@ Everything that defines a workflow is stored on the workflow object and exported
 - `csvColumns`, `csvColumnAliases`, `csvColumnMapping`
 - `dataImportMessage` (optional legacy; side panel uses a fixed paste-box placeholder and does not read this field)
 - `runs` – optional recorded runs (can be omitted in shared exports to keep size down)
+- **`alwaysOn` (optional)** – Per-workflow opt-in for **Pulse Following** automation in the service worker (not tab playback). When present, **`alwaysOn.enabled`** toggles background participation; **`alwaysOn.scopes`** selects Solana/BSC watch and/or Following automation per chain; **`alwaysOn.conditions`** can require a non-empty Following bundle or a BscScan API key for BSC. If **no** workflow in Library sets **`alwaysOn.enabled`**, the extension uses **legacy** gating: any non-empty Library is enough to allow Following. If **any** workflow enables **`alwaysOn`**, only merged scopes enable polling and automation. Configure in the side panel under **Library → Background automation (Following)**. See **`shared/cfs-always-on-automation.js`**, **`docs/SOLANA_AUTOMATION.md`** (Pulse), and **`docs/PLUGIN_ARCHITECTURE.md`**.
+- **`followingAutomation` (optional)** – When Following automation scopes are enabled, **`workflow.followingAutomation`** holds sizing and execution flags (sizing mode, quote mint, slippage, paper mode, Jupiter wrap/unwrap for Solana, auto-exec). Pulse **Following** rows are address-book + watch only; the **selectFollowingAccount** step binds a workflow to a specific profile + wallet address for headless pipeline + execution. See **`docs/FOLLOWING_AUTOMATION_PIPELINE.md`**.
 
 Import/export uses this same shape so workflows are portable and can be shared, versioned, and updated by users.
 
@@ -187,10 +190,14 @@ This section clarifies the difference between **workflows as data for generator 
 **When you schedule a run:** the sidepanel stores the **current row** so all fields (including data passed to generator templates via inputMap) are available when the run executes.
 
 - **One-time:** `id`, `workflowId`, `workflowName`, `runAt` (timestamp), optional `timezone` (display), `row`.
-- **Recurring:** `id`, `workflowId`, `workflowName`, `type: 'recurring'`, `timezone`, `time` (HH:mm), `pattern` (daily|weekly|monthly|yearly), optional `dayOfWeek` / `dayOfMonth` / `monthDay`, `row`.
+- **Recurring:** `id`, `workflowId`, `workflowName`, `type: 'recurring'`, `timezone`, `time` (HH:mm), `pattern` (daily|weekly|monthly|yearly|**interval**), optional `dayOfWeek` / `dayOfMonth` / `monthDay`, optional **`intervalMinutes`** and **`lastRunAtMs`** (for **interval**; see [INTEGRATIONS.md](INTEGRATIONS.md)), `row`.
 - `row` is set from: the selected execution row (if you have imported rows and one is selected), or the Row data textarea parsed as JSON. If there are no rows and no valid JSON, `row` is undefined and the run gets `{}`.
 
 **When the run executes:** the background sends **`row: entry.row || {}`** to the player. Variable substitution and generator inputMap (e.g. `{{prompt}}`, `{{title}}`) use those values.
+
+**Playback time limit:** scheduled/recurring executions (background alarm and overdue sidepanel catch-up) use **60 minutes** when the workflow contains an **Apify** step, otherwise **5 minutes** for the whole workflow (tab open + all steps). Sidepanel **Run workflow** / **Run from step**, **Run all rows** (per row, including navigations within the row), **Process** runs (per workflow segment), and **remote** tab playback follow the same **60 vs 5 minute** rule (see **steps/apifyActorRun/README.md**). Long external operations (e.g. Apify async polling) must fit within that budget together with the rest of the workflow.
+
+**Stopping during Apify:** **Stop** sends **`APIFY_RUN_CANCEL`** (tab id from the side panel and/or content script), which aborts in-flight Apify client work (**`APIFY_RUN`**, **`APIFY_RUN_START`**, **`APIFY_RUN_WAIT`**, **`APIFY_DATASET_ITEMS`**) and, for runs with a known run id in the tab’s async map, requests **`POST /v2/actor-runs/{id}/abort`** on Apify’s API. Sync **`APIFY_RUN`** modes stop with the HTTP client only.
 
 ### Schedule from CSV/JSON (multiple rows)
 
@@ -203,7 +210,8 @@ You can paste **CSV** (header row + data rows) or **JSON** (array of objects). E
 | `timezone` | IANA timezone (e.g. `America/New_York`). For recurring, required for when to run. |
 | `schedule_type` | Set to `recurring` for a recurring schedule; otherwise one-time and must have `run_at`. |
 | `time` | **Recurring:** Time of day in that timezone, e.g. `09:00` (HH:mm). |
-| `pattern` | **Recurring:** `daily`, `weekly`, `monthly`, or `yearly`. |
+| `pattern` | **Recurring:** `daily`, `weekly`, `monthly`, `yearly`, or `interval`. |
+| `interval_minutes` | **Recurring interval:** Minutes between runs (≥ 1). Effective granularity ~1 minute because the service worker uses a 1-minute alarm. |
 | `day_of_week` | **Recurring weekly:** Comma-separated days (0=Sun … 6=Sat), e.g. `1,2,3,4,5` for weekdays. |
 | `day_of_month` | **Recurring monthly:** Day of month 1–31. **Recurring yearly:** Day of month when used with `month`. |
 | `month_day` | **Recurring yearly:** Month/day each year, e.g. `3/15` for March 15. |

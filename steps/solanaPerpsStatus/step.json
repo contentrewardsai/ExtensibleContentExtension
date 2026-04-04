@@ -1,0 +1,29 @@
+{
+  "id": "solanaPerpsStatus",
+  "label": "Solana perps automation status",
+  "category": "data",
+  "description": "Read-only: queries the extension for Raydium/Jupiter **perpetuals** automation support (execute remains not_implemented). Optional: fetch Jupiter **perps markets** JSON via CFS_JUPITER_PERPS_MARKETS using Settings → Solana → Jupiter API key (or override field). See docs/PERPS_SPIKES.md.",
+  "defaultAction": {
+    "type": "solanaPerpsStatus",
+    "runIf": "",
+    "saveRaydiumPerpsVariable": "raydiumPerpsAutomation",
+    "saveJupiterPerpsVariable": "jupiterPerpsAutomation",
+    "savePerpsDocVariable": "perpsDocPath",
+    "savePerpsNoteVariable": "perpsNote",
+    "fetchJupiterPerpMarkets": false,
+    "jupiterApiKeyOverride": "",
+    "saveJupiterPerpMarketsJsonVariable": "",
+    "saveJupiterPerpMarketsErrorVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "saveRaydiumPerpsVariable", "label": "Row var: Raydium perps status", "inputType": "text" },
+    { "key": "saveJupiterPerpsVariable", "label": "Row var: Jupiter perps status", "inputType": "text" },
+    { "key": "savePerpsDocVariable", "label": "Row var: doc path", "inputType": "text" },
+    { "key": "savePerpsNoteVariable", "label": "Row var: note (optional)", "inputType": "text" },
+    { "key": "fetchJupiterPerpMarkets", "label": "Also fetch Jupiter perps markets JSON (needs API key)", "inputType": "checkbox" },
+    { "key": "jupiterApiKeyOverride", "label": "Jupiter API key override (optional; else Settings)", "inputType": "text", "placeholder": "Leave empty to use saved key" },
+    { "key": "saveJupiterPerpMarketsJsonVariable", "label": "Row var: markets JSON (when fetch enabled)", "inputType": "text" },
+    { "key": "saveJupiterPerpMarketsErrorVariable", "label": "Row var: markets error (optional; avoids failing step)", "inputType": "text" }
+  ]
+}

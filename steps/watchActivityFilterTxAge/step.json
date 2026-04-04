@@ -1,0 +1,21 @@
+{
+  "id": "watchActivityFilterTxAge",
+  "label": "Watch activity filter (tx age)",
+  "category": "data",
+  "description": "Reads `{ activity, latest, count }` JSON from a row variable (e.g. from bscWatchReadActivity or solanaWatchReadActivity). Keeps rows whose on-chain time is within **maxAgeSec** seconds of now. Solana uses **targetBlockTimeUnix**; BSC uses **timeStamp** (Unix seconds from BscScan). Rows with no block time are **dropped** unless **Pass rows without block time** is checked. Writes the same JSON shape to **saveResultVariable**.",
+  "defaultAction": {
+    "type": "watchActivityFilterTxAge",
+    "runIf": "",
+    "inputVariable": "bscWatchActivity",
+    "maxAgeSec": "120",
+    "passRowsWithoutBlockTime": false,
+    "saveResultVariable": "bscWatchActivity"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "inputVariable", "label": "Input variable (JSON)", "inputType": "text", "placeholder": "e.g. bscWatchActivity" },
+    { "key": "maxAgeSec", "label": "Max age (seconds)", "inputType": "text", "placeholder": "120" },
+    { "key": "passRowsWithoutBlockTime", "label": "Pass rows without block time", "inputType": "checkbox" },
+    { "key": "saveResultVariable", "label": "Save filtered JSON to variable", "inputType": "text", "placeholder": "bscWatchActivity" }
+  ]
+}

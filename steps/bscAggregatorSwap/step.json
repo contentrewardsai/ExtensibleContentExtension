@@ -1,0 +1,34 @@
+{
+  "id": "bscAggregatorSwap",
+  "label": "BSC aggregator swap (ParaSwap)",
+  "category": "data",
+  "description": "Routed swap on BSC mainnet via ParaSwap price + transaction API (not Pancake-only). SELL: amount is srcToken smallest units. BUY: amount is destToken smallest units. srcToken/destToken: 0x… or native for BNB. Slippage is ParaSwap basis points (default 150 ≈ 1.5%). Chain 56 only. Requires network; third-party API may rate-limit.",
+  "defaultAction": {
+    "type": "bscAggregatorSwap",
+    "runIf": "",
+    "srcToken": "native",
+    "destToken": "",
+    "side": "SELL",
+    "amount": "",
+    "slippage": "150",
+    "waitConfirmations": 1,
+    "gasLimit": "",
+    "saveTxHashVariable": "bscTxHash",
+    "saveExplorerUrlVariable": "bscExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "srcToken", "label": "Source token (native / 0x…)", "inputType": "text", "placeholder": "native or WBNB / ERC20" },
+    { "key": "destToken", "label": "Destination token (0x…)", "inputType": "text" },
+    { "key": "side", "label": "Side", "inputType": "select", "options": [
+      { "value": "SELL", "label": "SELL (exact in)" },
+      { "value": "BUY", "label": "BUY (exact out)" }
+    ] },
+    { "key": "amount", "label": "Amount (smallest units)", "inputType": "text" },
+    { "key": "slippage", "label": "Slippage (ParaSwap units; default 150)", "inputType": "text" },
+    { "key": "waitConfirmations", "label": "Wait confirmations", "inputType": "number", "placeholder": "1" },
+    { "key": "gasLimit", "label": "gasLimit (optional)", "inputType": "text" },
+    { "key": "saveTxHashVariable", "label": "Save tx hash to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

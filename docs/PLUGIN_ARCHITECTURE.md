@@ -59,6 +59,13 @@ See **docs/GENERATOR_ARCHITECTURE.md**.
 1. Create a folder under `workflows/<id>/` with `workflow.json` (and optional discovery config). For versioned workflows, use `workflow-<id>-<version>.json` files plus a `workflow.json` index; see **workflows/README.md**.
 2. Add the folder id to `workflows/manifest.json`.
 
+### Always-on (background) workflows and Pulse Following
+
+- **Per-workflow:** Optional fields on each saved workflow in **`chrome.storage.local.workflows`**: **`alwaysOn.enabled`**, **`alwaysOn.scopes`** (e.g. Solana/BSC Following watch, Following automation per chain), **`alwaysOn.conditions`** (e.g. non-empty Following bundle, BscScan key for BSC). The sidepanel **Library** exposes this under **Background automation (Following)** when a workflow is selected.
+- **Does not replace** manual Run or scheduled runs (those still open a tab and use **`PLAYER_START`**).
+- **Service worker:** **`shared/cfs-always-on-automation.js`** (loaded before **`background/solana-watch.js`** / **`background/bsc-watch.js`**) implements **`__CFS_evaluateFollowingAutomation`**. If the Library has workflows but **none** use **`alwaysOn.enabled`**, the extension keeps **legacy** behavior: Following is allowed when any workflow exists. If **any** workflow enables **`alwaysOn`**, only merged scopes enable **`cfs_solana_watch_poll`** / **`cfs_bsc_watch_poll`** behavior for that chain.
+- **Security:** Following automation still respects **`cfsFollowingAutomationGlobal`** (pause, paper mode, denylists) and per-wallet Pulse settings; always-on metadata does not embed executable code.
+
 ---
 
 ## Design principles
@@ -105,6 +112,9 @@ await handler(action, { ...opts, ctx });
 | **resolveAllElements(selectors, doc)** | Resolve to all matching elements (e.g. for containers). |
 | **resolveAllCandidates(selectors, doc)** | Return candidate elements with metadata for scoring. |
 | **resolveElementForAction(action, doc)** | Merges `action.selectors` and `action.fallbackSelectors`, returns first matching element. **Recommended for new steps.** |
+| **resolveElementForActionInDocument(action, doc)** | Same merge as above, but always under `doc` after you have already called `resolveDocumentForAction` (does not read iframe/shadow fields on `action`). |
+| **resolveDocumentForAction(action, baseDoc)** | Same-origin iframe and/or open shadow root from optional `iframeSelectors` / `shadowHostSelectors` (plus fallback lists); returns `Document` or `ShadowRoot`. |
+| **scopeDocForAction(action)** | Convenience: top `document` or scoped root when the action sets iframe/shadow fields. |
 | **resolveAllElementsForAction(action, doc)** | Same merge, returns all matching elements. |
 | **resolveAllCandidatesForAction(action, doc)** | Same merge, returns candidates `[{ element, selector }]`. |
 | **isElementVisible(el)** | Whether the element is visible (offsetParent, dimensions). |

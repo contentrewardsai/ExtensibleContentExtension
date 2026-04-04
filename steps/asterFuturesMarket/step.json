@@ -1,0 +1,52 @@
+{
+  "id": "asterFuturesMarket",
+  "label": "Aster futures (public)",
+  "category": "data",
+  "description": "Public Aster USDT futures REST (ping, time, exchangeInfo, symbolMeta from cached exchangeInfo, depth, trades, klines, tickers, funding, premium index). No API key. Saves JSON to a row variable.",
+  "defaultAction": {
+    "type": "asterFuturesMarket",
+    "runIf": "",
+    "operation": "ping",
+    "symbol": "",
+    "pair": "",
+    "limit": "",
+    "interval": "1h",
+    "fromId": "",
+    "startTime": "",
+    "endTime": "",
+    "saveResultVariable": "asterMarketResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    {
+      "key": "operation",
+      "label": "Operation",
+      "inputType": "select",
+      "options": [
+        { "value": "ping", "label": "ping" },
+        { "value": "time", "label": "time (server ms)" },
+        { "value": "exchangeInfo", "label": "exchangeInfo (all symbols)" },
+        { "value": "symbolMeta", "label": "symbolMeta (symbol → filters, cached exchangeInfo)" },
+        { "value": "depth", "label": "depth (symbol + optional limit)" },
+        { "value": "trades", "label": "trades (symbol + optional limit)" },
+        { "value": "aggTrades", "label": "aggTrades (symbol)" },
+        { "value": "klines", "label": "klines (symbol + interval)" },
+        { "value": "markPriceKlines", "label": "markPriceKlines (symbol + interval)" },
+        { "value": "indexPriceKlines", "label": "indexPriceKlines (pair + interval)" },
+        { "value": "premiumIndex", "label": "premiumIndex (optional symbol)" },
+        { "value": "fundingRate", "label": "fundingRate (optional symbol)" },
+        { "value": "ticker24hr", "label": "ticker24hr (symbol required)" },
+        { "value": "tickerPrice", "label": "tickerPrice (optional symbol)" },
+        { "value": "bookTicker", "label": "bookTicker (optional symbol)" }
+      ]
+    },
+    { "key": "symbol", "label": "symbol (e.g. BTCUSDT)", "inputType": "text" },
+    { "key": "pair", "label": "pair (indexPriceKlines)", "inputType": "text" },
+    { "key": "limit", "label": "limit", "inputType": "text" },
+    { "key": "interval", "label": "interval (klines: 1m,1h,1d,…)", "inputType": "text" },
+    { "key": "fromId", "label": "fromId (trades / aggTrades)", "inputType": "text" },
+    { "key": "startTime", "label": "startTime (ms)", "inputType": "text" },
+    { "key": "endTime", "label": "endTime (ms)", "inputType": "text" },
+    { "key": "saveResultVariable", "label": "Save JSON result to variable", "inputType": "text" }
+  ]
+}

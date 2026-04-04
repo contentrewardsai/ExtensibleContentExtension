@@ -2,7 +2,7 @@
   "id": "select",
   "label": "Select",
   "category": "interaction",
-  "description": "Select an option in a dropdown. Value comes from the current row variable.",
+  "description": "Select an option in a native <select>. Value comes from the current row variable. Optional iframe/shadow scope (iframeSelectors / shadowHostSelectors).",
   "defaultAction": {
     "type": "select",
     "selectors": [],

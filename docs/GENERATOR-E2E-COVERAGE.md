@@ -100,7 +100,7 @@ So **generator-specific E2E coverage** is entirely in **`test/e2e/generator.spec
 | Feature | Description | Currently tested? | Notes |
 |---------|-------------|-------------------|--------|
 | **Run generator step** | Side panel: add Run generator step, set plugin + inputMap + saveAsVariable; run workflow; get image/video/text | ❌ No | Manual E2E checklist only (run-generator, run-generator-video). Not in generator.spec.mjs or playback workflows. |
-| **Save generation to project** | Step saves output to project folder | ✅ In playback config | e2e-test-saveGenerationToProject in e2e-step-config.json (prereqs: fixture, projectFolder); run by `playback.spec.mjs` (Playwright) or `test:e2e:puppeteer` when project folder is set. Not in generator.spec.mjs. |
+| **Save generation to project** | Step queues output; **Save pending generations** writes under **`uploads/{projectId}/generations/`** | ✅ In playback config | e2e-test-saveGenerationToProject in e2e-step-config.json (prereqs: fixture, projectFolder); run by `playback.spec.mjs` (Playwright) or `test:e2e:puppeteer` when project folder is set. Not in generator.spec.mjs. |
 
 ---
 

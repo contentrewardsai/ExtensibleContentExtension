@@ -1,0 +1,39 @@
+{
+  "id": "bscSellabilityProbe",
+  "label": "BSC sellability probe (buy + sell)",
+  "category": "data",
+  "description": "BSC mainnet only: spends a small WBNB amount (wei or ~USD via CoinGecko BNB price), buys the token via ParaSwap, approves ParaSwap Augustus only when allowance is insufficient, then sells the received balance back. Fails if the sell path does not work. See steps/bscSellabilityProbe/README.md and docs/BSC_AUTOMATION.md.",
+  "defaultAction": {
+    "type": "bscSellabilityProbe",
+    "runIf": "",
+    "token": "",
+    "spendBnbWei": "",
+    "spendUsdApprox": 1,
+    "slippage": "150",
+    "waitConfirmations": 1,
+    "gasLimit": "",
+    "balancePollIntervalMs": 500,
+    "balancePollMaxMs": 60000,
+    "forceApprove": false,
+    "saveSellabilityOkVariable": "bscSellabilityOk",
+    "saveVenueVariable": "bscSellabilityVenue",
+    "saveSpendBnbWeiVariable": "bscSellabilitySpendWei",
+    "saveBuyTxHashVariable": "bscSellabilityBuyTxHash",
+    "saveBuyExplorerUrlVariable": "bscSellabilityBuyExplorerUrl",
+    "saveSellTxHashVariable": "bscSellabilitySellTxHash",
+    "saveSellExplorerUrlVariable": "bscSellabilitySellExplorerUrl",
+    "saveTokenReceivedRawVariable": "bscSellabilityTokenReceivedRaw",
+    "saveTokenBalanceAfterBuyVariable": "bscSellabilityTokenBalanceAfterBuy"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "token", "label": "Token (BEP-20) address", "inputType": "text" },
+    { "key": "spendBnbWei", "label": "Spend (wei; if set, overrides USD)", "inputType": "text" },
+    { "key": "spendUsdApprox", "label": "Approx USD spend (if wei empty)", "inputType": "number" },
+    { "key": "slippage", "label": "ParaSwap slippage (default 150)", "inputType": "text" },
+    { "key": "waitConfirmations", "label": "Wait confirmations", "inputType": "number" },
+    { "key": "gasLimit", "label": "gasLimit (optional)", "inputType": "text" },
+    { "key": "forceApprove", "label": "Always send approve (skip allowance check)", "inputType": "checkbox" },
+    { "key": "saveSellabilityOkVariable", "label": "Row var: ok (true/false)", "inputType": "text" }
+  ]
+}

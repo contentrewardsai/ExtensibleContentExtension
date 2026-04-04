@@ -1,0 +1,23 @@
+{
+  "id": "bscWatchReadActivity",
+  "label": "BSC watch read activity",
+  "category": "data",
+  "description": "Loads recent BSC Following watch events from storage (populated by the service worker via BscScan). Saves JSON to a row variable: { activity, latest, count }. Optional filters: watched address (0x… or substring) and sinceTimestampMs — turn off **Apply client filters** to save the full list and filter in **rowMath** / **llm** / **runIf** later. Use bscWatchRefresh first if you need a fresh poll. See docs/BSC_AUTOMATION.md.",
+  "defaultAction": {
+    "type": "bscWatchReadActivity",
+    "runIf": "",
+    "limit": "40",
+    "applyClientFilters": true,
+    "filterAddress": "",
+    "sinceTimestampMs": "",
+    "saveResultVariable": "bscWatchActivity"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "limit", "label": "Max rows (1–100)", "inputType": "text", "placeholder": "40" },
+    { "key": "applyClientFilters", "label": "Apply address / timestamp filters in this step", "inputType": "checkbox" },
+    { "key": "filterAddress", "label": "Filter by watched address (optional)", "inputType": "text", "placeholder": "0x… or partial" },
+    { "key": "sinceTimestampMs", "label": "Only rows with ts ≥ this (ms, optional)", "inputType": "text", "placeholder": "e.g. 1700000000000" },
+    { "key": "saveResultVariable", "label": "Save JSON result to variable", "inputType": "text", "placeholder": "bscWatchActivity" }
+  ]
+}

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Validate all steps/{id}/step.json files against the step definition contract.
+ * Also requires steps/{id}/handler.js and sidepanel.js (see steps/CONTRACT.md).
  * Run: node scripts/validate-step-definitions.cjs
  * Exit code: 0 if all valid, 1 if any invalid.
  */
@@ -74,6 +75,18 @@ function main() {
     const result = validateStepDefinition(data, id);
     if (!result.valid) {
       console.error('steps/' + id + '/step.json:', result.errors.join('; '));
+      hasErrors = true;
+      continue;
+    }
+
+    const handlerPath = path.join(STEPS_DIR, id, 'handler.js');
+    if (!fs.existsSync(handlerPath)) {
+      console.error('steps/' + id + '/handler.js: file not found (required for playback)');
+      hasErrors = true;
+    }
+    const sidepanelPath = path.join(STEPS_DIR, id, 'sidepanel.js');
+    if (!fs.existsSync(sidepanelPath)) {
+      console.error('steps/' + id + '/sidepanel.js: file not found (required for side panel UI)');
       hasErrors = true;
     }
   }

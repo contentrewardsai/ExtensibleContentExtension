@@ -2,10 +2,35 @@
   'use strict';
 
   const STORAGE_KEY = 'uploadPostApiKey';
+  const APIFY_TOKEN_KEY = 'apifyApiToken';
+  const APIFY_TOKEN_MAX_LEN = 2048;
+  const CFS_ASTER_FUTURES_API_KEY = 'cfsAsterFuturesApiKey';
+  const CFS_ASTER_FUTURES_API_SECRET = 'cfsAsterFuturesApiSecret';
+  const CFS_ASTER_FUTURES_TRADING_ENABLED = 'cfsAsterFuturesTradingEnabled';
+  const CFS_ASTER_FUTURES_MAX_NOTIONAL = 'cfsAsterFuturesMaxNotionalUsd';
+  const CFS_ASTER_SPOT_TRADING_ENABLED = 'cfsAsterSpotTradingEnabled';
+  const ASTER_FUTURES_KEY_MAX_LEN = 256;
   const JWT_TOKENS_KEY = 'uploadPostJwtTokens';
   const JWT_REFRESH_TIME_KEY = 'uploadPostJwtRefreshTime';
   const SS_STAGING_KEY = 'shotstackApiKeyStaging';
   const SS_PRODUCTION_KEY = 'shotstackApiKeyProduction';
+
+  const CFS_LLM_OPENAI_KEY = 'cfsLlmOpenaiKey';
+  const CFS_LLM_ANTHROPIC_KEY = 'cfsLlmAnthropicKey';
+  const CFS_LLM_GEMINI_KEY = 'cfsLlmGeminiKey';
+  const CFS_LLM_GROK_KEY = 'cfsLlmGrokKey';
+  const CFS_LLM_WORKFLOW_PROVIDER = 'cfsLlmWorkflowProvider';
+  const CFS_LLM_WORKFLOW_OPENAI_MODEL = 'cfsLlmWorkflowOpenaiModel';
+  const CFS_LLM_WORKFLOW_MODEL_OVERRIDE = 'cfsLlmWorkflowModelOverride';
+  const CFS_LLM_CHAT_PROVIDER = 'cfsLlmChatProvider';
+  const CFS_LLM_CHAT_OPENAI_MODEL = 'cfsLlmChatOpenaiModel';
+  const CFS_LLM_CHAT_MODEL_OVERRIDE = 'cfsLlmChatModelOverride';
+  const CFS_LLM_KEY_MAX_LEN = 4096;
+  /** Must match background/remote-llm.js CFS_LLM_MODEL_ID_MAX_CHARS. */
+  const CFS_LLM_MODEL_ID_MAX_LEN = 256;
+
+  /** Pulse Following automation defaults (Solana + BSC); same key as sidepanel / service worker. */
+  const CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY = 'cfsFollowingAutomationGlobal';
 
   const CFS_PROJECT_FOLDER_DB = 'cfs_project_folder';
   const CFS_PROJECT_FOLDER_KEY = 'projectRoot';
@@ -109,6 +134,650 @@
       document.getElementById('profilesList').innerHTML = '';
     }
     setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  async function loadApifyToken() {
+    const input = document.getElementById('apifyApiTokenInput');
+    if (!input) return;
+    const data = await chrome.storage.local.get(APIFY_TOKEN_KEY);
+    const key = data[APIFY_TOKEN_KEY];
+    if (key && typeof key === 'string' && key.trim()) {
+      const t = key.trim();
+      if (t.length > APIFY_TOKEN_MAX_LEN) {
+        await chrome.storage.local.remove(APIFY_TOKEN_KEY);
+        input.value = '';
+        const statusEl = document.getElementById('apifyTokenStatus');
+        if (statusEl) {
+          setStatus(statusEl, 'Removed stored Apify token (exceeded ' + APIFY_TOKEN_MAX_LEN + ' characters).', 'error');
+          setTimeout(() => setStatus(statusEl, '', ''), 8000);
+        }
+        return;
+      }
+      input.value = t;
+    }
+  }
+
+  async function saveApifyToken() {
+    const input = document.getElementById('apifyApiTokenInput');
+    const statusEl = document.getElementById('apifyTokenStatus');
+    if (!input) return;
+    const key = input.value.trim();
+    if (key.length > APIFY_TOKEN_MAX_LEN) {
+      setStatus(statusEl, 'Token is too long (max ' + APIFY_TOKEN_MAX_LEN + ' characters).', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    await chrome.storage.local.set({ [APIFY_TOKEN_KEY]: key });
+    setStatus(statusEl, key ? 'Apify token saved.' : 'Apify token cleared.', key ? 'success' : '');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  async function loadAsterFuturesSettings() {
+    const keyIn = document.getElementById('asterFuturesApiKeyInput');
+    const secIn = document.getElementById('asterFuturesApiSecretInput');
+    const tradeCb = document.getElementById('asterFuturesTradingEnabled');
+    const spotTradeCb = document.getElementById('asterSpotTradingEnabled');
+    const maxIn = document.getElementById('asterFuturesMaxNotionalInput');
+    const data = await chrome.storage.local.get([
+      CFS_ASTER_FUTURES_API_KEY,
+      CFS_ASTER_FUTURES_API_SECRET,
+      CFS_ASTER_FUTURES_TRADING_ENABLED,
+      CFS_ASTER_SPOT_TRADING_ENABLED,
+      CFS_ASTER_FUTURES_MAX_NOTIONAL,
+    ]);
+    if (keyIn && data[CFS_ASTER_FUTURES_API_KEY] && typeof data[CFS_ASTER_FUTURES_API_KEY] === 'string') {
+      keyIn.value = data[CFS_ASTER_FUTURES_API_KEY].trim().slice(0, ASTER_FUTURES_KEY_MAX_LEN);
+    }
+    if (secIn && data[CFS_ASTER_FUTURES_API_SECRET] && typeof data[CFS_ASTER_FUTURES_API_SECRET] === 'string') {
+      secIn.value = data[CFS_ASTER_FUTURES_API_SECRET].trim().slice(0, ASTER_FUTURES_KEY_MAX_LEN);
+    }
+    if (tradeCb) tradeCb.checked = data[CFS_ASTER_FUTURES_TRADING_ENABLED] === true;
+    if (spotTradeCb) spotTradeCb.checked = data[CFS_ASTER_SPOT_TRADING_ENABLED] === true;
+    if (maxIn && data[CFS_ASTER_FUTURES_MAX_NOTIONAL] != null && data[CFS_ASTER_FUTURES_MAX_NOTIONAL] !== '') {
+      maxIn.value = String(data[CFS_ASTER_FUTURES_MAX_NOTIONAL]);
+    }
+  }
+
+  async function saveAsterFuturesKeys() {
+    const keyIn = document.getElementById('asterFuturesApiKeyInput');
+    const secIn = document.getElementById('asterFuturesApiSecretInput');
+    const statusEl = document.getElementById('asterFuturesKeysStatus');
+    if (!keyIn || !secIn) return;
+    let k = String(keyIn.value || '').trim();
+    let s = String(secIn.value || '').trim();
+    if (k.length > ASTER_FUTURES_KEY_MAX_LEN || s.length > ASTER_FUTURES_KEY_MAX_LEN) {
+      setStatus(statusEl, 'Key or secret too long (max ' + ASTER_FUTURES_KEY_MAX_LEN + ').', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    await chrome.storage.local.set({
+      [CFS_ASTER_FUTURES_API_KEY]: k,
+      [CFS_ASTER_FUTURES_API_SECRET]: s,
+    });
+    setStatus(statusEl, k || s ? 'Aster keys saved.' : 'Aster keys cleared.', k || s ? 'success' : '');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  async function saveAsterFuturesRisk() {
+    const tradeCb = document.getElementById('asterFuturesTradingEnabled');
+    const spotTradeCb = document.getElementById('asterSpotTradingEnabled');
+    const maxIn = document.getElementById('asterFuturesMaxNotionalInput');
+    const statusEl = document.getElementById('asterFuturesRiskStatus');
+    const enabled = tradeCb && tradeCb.checked === true;
+    const spotEnabled = spotTradeCb && spotTradeCb.checked === true;
+    const raw = maxIn ? String(maxIn.value || '').trim() : '';
+    let maxN = 0;
+    if (raw !== '') {
+      maxN = parseFloat(raw);
+      if (!Number.isFinite(maxN) || maxN < 0) {
+        setStatus(statusEl, 'Max notional must be a non-negative number or empty.', 'error');
+        setTimeout(() => setStatus(statusEl, '', ''), 5000);
+        return;
+      }
+    }
+    await chrome.storage.local.set({
+      [CFS_ASTER_FUTURES_TRADING_ENABLED]: enabled,
+      [CFS_ASTER_SPOT_TRADING_ENABLED]: spotEnabled,
+      [CFS_ASTER_FUTURES_MAX_NOTIONAL]: maxN > 0 ? maxN : '',
+    });
+    setStatus(statusEl, 'Aster risk settings saved.', 'success');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  function setupAsterFuturesToggles() {
+    const b1 = document.getElementById('toggleAsterFuturesKeyVisibility');
+    const i1 = document.getElementById('asterFuturesApiKeyInput');
+    if (b1 && i1) {
+      b1.addEventListener('click', () => {
+        if (i1.type === 'password') {
+          i1.type = 'text';
+          b1.textContent = 'Hide';
+        } else {
+          i1.type = 'password';
+          b1.textContent = 'Show';
+        }
+      });
+    }
+    const b2 = document.getElementById('toggleAsterFuturesSecretVisibility');
+    const i2 = document.getElementById('asterFuturesApiSecretInput');
+    if (b2 && i2) {
+      b2.addEventListener('click', () => {
+        if (i2.type === 'password') {
+          i2.type = 'text';
+          b2.textContent = 'Hide';
+        } else {
+          i2.type = 'password';
+          b2.textContent = 'Show';
+        }
+      });
+    }
+  }
+
+  async function testApifyToken() {
+    const input = document.getElementById('apifyApiTokenInput');
+    const statusEl = document.getElementById('apifyTokenTestStatus');
+    if (!input) return;
+    const fromField = input.value.trim();
+    if (fromField.length > APIFY_TOKEN_MAX_LEN) {
+      setStatus(statusEl, 'Token is too long (max ' + APIFY_TOKEN_MAX_LEN + ' characters).', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    setStatus(statusEl, 'Testing…', '');
+    try {
+      const payload = fromField ? { type: 'APIFY_TEST_TOKEN', token: fromField } : { type: 'APIFY_TEST_TOKEN' };
+      const res = await chrome.runtime.sendMessage(payload);
+      if (res && res.ok === true) {
+        const who = [res.username, res.userId].filter(Boolean).join(' · ');
+        setStatus(statusEl, who ? 'Apify OK: ' + who : 'Apify OK.', 'success');
+      } else {
+        setStatus(statusEl, (res && res.error) || 'Request failed', 'error');
+      }
+    } catch (e) {
+      setStatus(statusEl, (e && e.message) || 'Test failed', 'error');
+    }
+  }
+
+  function setupApifyToggleVisibility() {
+    const btn = document.getElementById('toggleApifyKeyVisibility');
+    const input = document.getElementById('apifyApiTokenInput');
+    if (!btn || !input) return;
+    btn.addEventListener('click', () => {
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        input.type = 'password';
+        btn.textContent = 'Show';
+      }
+    });
+  }
+
+  function setupLlmKeyToggle(btnId, inputId) {
+    const btn = document.getElementById(btnId);
+    const input = document.getElementById(inputId);
+    if (!btn || !input) return;
+    btn.addEventListener('click', () => {
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        input.type = 'password';
+        btn.textContent = 'Show';
+      }
+    });
+  }
+
+  async function saveCfsLlmKey(storageKey, inputId, statusElId) {
+    const input = document.getElementById(inputId);
+    const statusEl = document.getElementById(statusElId);
+    if (!input) return;
+    let key = String(input.value || '').trim();
+    if (key.length > CFS_LLM_KEY_MAX_LEN) {
+      setStatus(statusEl, 'Key is too long (max ' + CFS_LLM_KEY_MAX_LEN + ').', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    await chrome.storage.local.set({ [storageKey]: key });
+    setStatus(statusEl, key ? 'Saved.' : 'Cleared.', key ? 'success' : '');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  async function loadCfsLlmKey(storageKey, inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const data = await chrome.storage.local.get(storageKey);
+    const key = data[storageKey];
+    if (key && typeof key === 'string' && key.trim()) {
+      if (key.length > CFS_LLM_KEY_MAX_LEN) {
+        await chrome.storage.local.remove(storageKey);
+        input.value = '';
+        return;
+      }
+      input.value = key.trim();
+    }
+  }
+
+  function cfsLlmOpenaiModelUiSync(prefix) {
+    const selectId = prefix === 'workflow' ? 'cfsLlmWorkflowOpenaiModelSelect' : 'cfsLlmChatOpenaiModelSelect';
+    const customId = prefix === 'workflow' ? 'cfsLlmWorkflowOpenaiModelCustom' : 'cfsLlmChatOpenaiModelCustom';
+    const sel = document.getElementById(selectId);
+    const custom = document.getElementById(customId);
+    if (!sel || !custom) return;
+    const isCustom = sel.value === '__custom__';
+    custom.style.display = isCustom ? '' : 'none';
+  }
+
+  function cfsLlmReadOpenaiModelFromUi(prefix) {
+    const selectId = prefix === 'workflow' ? 'cfsLlmWorkflowOpenaiModelSelect' : 'cfsLlmChatOpenaiModelSelect';
+    const customId = prefix === 'workflow' ? 'cfsLlmWorkflowOpenaiModelCustom' : 'cfsLlmChatOpenaiModelCustom';
+    const sel = document.getElementById(selectId);
+    const custom = document.getElementById(customId);
+    if (!sel) return 'gpt-4o-mini';
+    if (sel.value === '__custom__') {
+      const t = (custom && custom.value ? String(custom.value).trim() : '') || 'gpt-4o-mini';
+      return t;
+    }
+    return sel.value || 'gpt-4o-mini';
+  }
+
+  function cfsLlmApplyOpenaiModelToUi(prefix, stored) {
+    const selectId = prefix === 'workflow' ? 'cfsLlmWorkflowOpenaiModelSelect' : 'cfsLlmChatOpenaiModelSelect';
+    const customId = prefix === 'workflow' ? 'cfsLlmWorkflowOpenaiModelCustom' : 'cfsLlmChatOpenaiModelCustom';
+    const sel = document.getElementById(selectId);
+    const custom = document.getElementById(customId);
+    if (!sel || !custom) return;
+    const s = (stored && String(stored).trim()) || 'gpt-4o-mini';
+    const opts = Array.from(sel.options).map((o) => o.value);
+    if (opts.includes(s) && s !== '__custom__') {
+      sel.value = s;
+      custom.value = '';
+    } else {
+      sel.value = '__custom__';
+      custom.value = s;
+    }
+    cfsLlmOpenaiModelUiSync(prefix);
+  }
+
+  /** Claude / Gemini / Grok model dropdown choices (ids must match vendor APIs). */
+  function cfsLlmGetOverrideModelChoices(provider) {
+    const p = String(provider || '').toLowerCase();
+    if (p === 'claude') {
+      return {
+        label: 'Claude model',
+        options: [
+          { value: '', label: 'Extension default (Sonnet 4)' },
+          { value: 'claude-sonnet-4-20250514', label: 'claude-sonnet-4-20250514' },
+          { value: 'claude-opus-4-20250514', label: 'claude-opus-4-20250514' },
+          { value: 'claude-3-5-sonnet-20241022', label: 'claude-3-5-sonnet-20241022' },
+          { value: 'claude-3-5-haiku-20241022', label: 'claude-3-5-haiku-20241022' },
+          { value: 'claude-3-haiku-20240307', label: 'claude-3-haiku-20240307' },
+          { value: '__custom__', label: 'Custom…' },
+        ],
+      };
+    }
+    if (p === 'gemini') {
+      return {
+        label: 'Gemini model',
+        options: [
+          { value: '', label: 'Extension default (2.0 Flash)' },
+          { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+          { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
+          { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
+          { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
+          { value: 'gemini-1.5-pro', label: 'gemini-1.5-pro' },
+          { value: '__custom__', label: 'Custom…' },
+        ],
+      };
+    }
+    if (p === 'grok') {
+      return {
+        label: 'Grok model',
+        options: [
+          { value: '', label: 'Extension default (grok-2-latest)' },
+          { value: 'grok-2-latest', label: 'grok-2-latest' },
+          { value: 'grok-2-vision-latest', label: 'grok-2-vision-latest' },
+          { value: '__custom__', label: 'Custom…' },
+        ],
+      };
+    }
+    return { label: 'Model', options: [{ value: '', label: 'Extension default' }, { value: '__custom__', label: 'Custom…' }] };
+  }
+
+  function cfsLlmOverrideSelectIds(prefix) {
+    if (prefix === 'workflow') {
+      return {
+        selectId: 'cfsLlmWorkflowOverrideModelSelect',
+        labelId: 'cfsLlmWorkflowOverrideLabel',
+        customId: 'cfsLlmWorkflowOverrideModelCustom',
+      };
+    }
+    return {
+      selectId: 'cfsLlmChatOverrideModelSelect',
+      labelId: 'cfsLlmChatOverrideLabel',
+      customId: 'cfsLlmChatOverrideModelCustom',
+    };
+  }
+
+  function cfsLlmPopulateOverrideSelect(prefix, provider) {
+    const ids = cfsLlmOverrideSelectIds(prefix);
+    const sel = document.getElementById(ids.selectId);
+    const lab = document.getElementById(ids.labelId);
+    if (!sel) return;
+    const { label, options } = cfsLlmGetOverrideModelChoices(provider);
+    if (lab) lab.textContent = label;
+    sel.innerHTML = '';
+    for (let i = 0; i < options.length; i++) {
+      const o = options[i];
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      sel.appendChild(opt);
+    }
+  }
+
+  function cfsLlmOverrideModelUiSync(prefix) {
+    const ids = cfsLlmOverrideSelectIds(prefix);
+    const sel = document.getElementById(ids.selectId);
+    const custom = document.getElementById(ids.customId);
+    if (!sel || !custom) return;
+    custom.style.display = sel.value === '__custom__' ? '' : 'none';
+  }
+
+  function cfsLlmApplyOverrideModelToUi(prefix, stored, provider) {
+    const ids = cfsLlmOverrideSelectIds(prefix);
+    const sel = document.getElementById(ids.selectId);
+    const custom = document.getElementById(ids.customId);
+    if (!sel || !custom) return;
+    const p = String(provider || '').toLowerCase();
+    cfsLlmPopulateOverrideSelect(prefix, p);
+    const s = stored != null ? String(stored).trim() : '';
+    const optVals = Array.from(sel.options).map((o) => o.value);
+    if (optVals.includes(s) && s !== '__custom__') {
+      sel.value = s;
+      custom.value = '';
+    } else if (s) {
+      sel.value = '__custom__';
+      custom.value = s;
+    } else {
+      sel.value = '';
+      custom.value = '';
+    }
+    cfsLlmOverrideModelUiSync(prefix);
+  }
+
+  function cfsLlmReadOverrideModelFromUi(prefix, provider) {
+    const p = String(provider || '').toLowerCase();
+    if (p !== 'claude' && p !== 'gemini' && p !== 'grok') return '';
+    const ids = cfsLlmOverrideSelectIds(prefix);
+    const sel = document.getElementById(ids.selectId);
+    const custom = document.getElementById(ids.customId);
+    if (!sel) return '';
+    if (sel.value === '__custom__') {
+      return (custom && custom.value ? String(custom.value).trim() : '') || '';
+    }
+    return sel.value || '';
+  }
+
+  function cfsLlmUpdateProviderDependentRows(prefix) {
+    const provSelId = prefix === 'workflow' ? 'cfsLlmWorkflowProviderSelect' : 'cfsLlmChatProviderSelect';
+    const provEl = document.getElementById(provSelId);
+    const p = (provEl && provEl.value) || 'lamini';
+    const openaiRow = document.querySelector(prefix === 'workflow' ? '.cfs-llm-workflow-openai-model-row' : '.cfs-llm-chat-openai-model-row');
+    const overrideRow = document.querySelector(prefix === 'workflow' ? '.cfs-llm-workflow-override-row' : '.cfs-llm-chat-override-row');
+    if (openaiRow) openaiRow.style.display = p === 'openai' ? '' : 'none';
+    if (overrideRow) {
+      const showOv = p === 'claude' || p === 'gemini' || p === 'grok';
+      overrideRow.style.display = showOv ? '' : 'none';
+      if (showOv) cfsLlmPopulateOverrideSelect(prefix, p);
+    }
+  }
+
+  async function loadCfsLlmDefaults() {
+    const keys = [
+      CFS_LLM_WORKFLOW_PROVIDER,
+      CFS_LLM_WORKFLOW_OPENAI_MODEL,
+      CFS_LLM_WORKFLOW_MODEL_OVERRIDE,
+      CFS_LLM_CHAT_PROVIDER,
+      CFS_LLM_CHAT_OPENAI_MODEL,
+      CFS_LLM_CHAT_MODEL_OVERRIDE,
+    ];
+    const data = await chrome.storage.local.get(keys);
+    const fixes = {};
+    let wOpenaiStored = data[CFS_LLM_WORKFLOW_OPENAI_MODEL];
+    if (wOpenaiStored != null && String(wOpenaiStored).trim().length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      fixes[CFS_LLM_WORKFLOW_OPENAI_MODEL] = 'gpt-4o-mini';
+      wOpenaiStored = 'gpt-4o-mini';
+    }
+    let cOpenaiStored = data[CFS_LLM_CHAT_OPENAI_MODEL];
+    if (cOpenaiStored != null && String(cOpenaiStored).trim().length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      fixes[CFS_LLM_CHAT_OPENAI_MODEL] = 'gpt-4o-mini';
+      cOpenaiStored = 'gpt-4o-mini';
+    }
+    let wOvStored = data[CFS_LLM_WORKFLOW_MODEL_OVERRIDE];
+    if (wOvStored != null && String(wOvStored).length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      fixes[CFS_LLM_WORKFLOW_MODEL_OVERRIDE] = '';
+      wOvStored = '';
+    }
+    let cOvStored = data[CFS_LLM_CHAT_MODEL_OVERRIDE];
+    if (cOvStored != null && String(cOvStored).length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      fixes[CFS_LLM_CHAT_MODEL_OVERRIDE] = '';
+      cOvStored = '';
+    }
+    if (Object.keys(fixes).length) {
+      await chrome.storage.local.set(fixes);
+    }
+    const wProv = document.getElementById('cfsLlmWorkflowProviderSelect');
+    const cProv = document.getElementById('cfsLlmChatProviderSelect');
+    if (wProv) {
+      wProv.value = ['lamini', 'openai', 'claude', 'gemini', 'grok'].includes(data[CFS_LLM_WORKFLOW_PROVIDER])
+        ? data[CFS_LLM_WORKFLOW_PROVIDER]
+        : 'lamini';
+    }
+    if (cProv) {
+      cProv.value = ['lamini', 'openai', 'claude', 'gemini', 'grok'].includes(data[CFS_LLM_CHAT_PROVIDER])
+        ? data[CFS_LLM_CHAT_PROVIDER]
+        : 'lamini';
+    }
+    cfsLlmApplyOpenaiModelToUi('workflow', wOpenaiStored);
+    cfsLlmApplyOpenaiModelToUi('chat', cOpenaiStored);
+    cfsLlmUpdateProviderDependentRows('workflow');
+    cfsLlmUpdateProviderDependentRows('chat');
+    const wPv = (wProv && wProv.value) || 'lamini';
+    if (wPv === 'claude' || wPv === 'gemini' || wPv === 'grok') {
+      cfsLlmApplyOverrideModelToUi('workflow', wOvStored, wPv);
+    }
+    const cPv = (cProv && cProv.value) || 'lamini';
+    if (cPv === 'claude' || cPv === 'gemini' || cPv === 'grok') {
+      cfsLlmApplyOverrideModelToUi('chat', cOvStored, cPv);
+    }
+    const wProvEl = document.getElementById('cfsLlmWorkflowProviderSelect');
+    const cProvEl = document.getElementById('cfsLlmChatProviderSelect');
+    if (wProvEl) wProvEl.dataset.cfsLlmPrevProvider = wProvEl.value || 'lamini';
+    if (cProvEl) cProvEl.dataset.cfsLlmPrevProvider = cProvEl.value || 'lamini';
+  }
+
+  async function saveCfsLlmWorkflowDefaults() {
+    const statusEl = document.getElementById('cfsLlmWorkflowDefaultsStatus');
+    const wProv = document.getElementById('cfsLlmWorkflowProviderSelect');
+    const p = (wProv && wProv.value) || 'lamini';
+    const openaiModel = cfsLlmReadOpenaiModelFromUi('workflow');
+    const override =
+      p === 'claude' || p === 'gemini' || p === 'grok' ? cfsLlmReadOverrideModelFromUi('workflow', p) : '';
+    if (openaiModel.length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      setStatus(
+        statusEl,
+        'OpenAI model id is too long (max ' + CFS_LLM_MODEL_ID_MAX_LEN + ' characters).',
+        'error'
+      );
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    if (override.length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      setStatus(
+        statusEl,
+        (p === 'claude' ? 'Claude' : p === 'gemini' ? 'Gemini' : 'Grok') +
+          ' model id is too long (max ' +
+          CFS_LLM_MODEL_ID_MAX_LEN +
+          ' characters).',
+        'error'
+      );
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    const payload = {
+      [CFS_LLM_WORKFLOW_PROVIDER]: p,
+      [CFS_LLM_WORKFLOW_OPENAI_MODEL]: openaiModel,
+      [CFS_LLM_WORKFLOW_MODEL_OVERRIDE]: override,
+    };
+    await chrome.storage.local.set(payload);
+    setStatus(statusEl, 'Workflow defaults saved.', 'success');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  async function saveCfsLlmChatDefaults() {
+    const statusEl = document.getElementById('cfsLlmChatDefaultsStatus');
+    const cProv = document.getElementById('cfsLlmChatProviderSelect');
+    const p = (cProv && cProv.value) || 'lamini';
+    const openaiModel = cfsLlmReadOpenaiModelFromUi('chat');
+    const override =
+      p === 'claude' || p === 'gemini' || p === 'grok' ? cfsLlmReadOverrideModelFromUi('chat', p) : '';
+    if (openaiModel.length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      setStatus(
+        statusEl,
+        'OpenAI model id is too long (max ' + CFS_LLM_MODEL_ID_MAX_LEN + ' characters).',
+        'error'
+      );
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    if (override.length > CFS_LLM_MODEL_ID_MAX_LEN) {
+      setStatus(
+        statusEl,
+        (p === 'claude' ? 'Claude' : p === 'gemini' ? 'Gemini' : 'Grok') +
+          ' model id is too long (max ' +
+          CFS_LLM_MODEL_ID_MAX_LEN +
+          ' characters).',
+        'error'
+      );
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    const payload = {
+      [CFS_LLM_CHAT_PROVIDER]: p,
+      [CFS_LLM_CHAT_OPENAI_MODEL]: openaiModel,
+      [CFS_LLM_CHAT_MODEL_OVERRIDE]: override,
+    };
+    await chrome.storage.local.set(payload);
+    setStatus(statusEl, 'Chat defaults saved.', 'success');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  async function testCfsLlmProvider(provider, inputId, statusElId) {
+    const input = document.getElementById(inputId);
+    const statusEl = document.getElementById(statusElId);
+    const token = input ? String(input.value || '').trim() : '';
+    if (token.length > CFS_LLM_KEY_MAX_LEN) {
+      setStatus(statusEl, 'Key is too long (max ' + CFS_LLM_KEY_MAX_LEN + ').', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    setStatus(statusEl, 'Testing…', '');
+    try {
+      const payload =
+        token.length > 0
+          ? { type: 'CFS_LLM_TEST_PROVIDER', provider, token }
+          : { type: 'CFS_LLM_TEST_PROVIDER', provider };
+      const res = await new Promise(function (resolve, reject) {
+        try {
+          chrome.runtime.sendMessage(payload, function (r) {
+            const le = chrome.runtime.lastError;
+            if (le) reject(new Error(le.message || 'sendMessage failed'));
+            else resolve(r);
+          });
+        } catch (e) {
+          reject(e);
+        }
+      });
+      if (res && res.ok === true) {
+        const m = res.model ? String(res.model) : provider;
+        setStatus(statusEl, 'OK — model ' + m + '.', 'success');
+      } else {
+        setStatus(statusEl, (res && res.error) || 'Test failed', 'error');
+      }
+    } catch (e) {
+      setStatus(statusEl, (e && e.message) || 'Test failed', 'error');
+    }
+    setTimeout(() => setStatus(statusEl, '', ''), 8000);
+  }
+
+  function setupCfsLlmSection() {
+    setupLlmKeyToggle('toggleCfsLlmOpenaiKey', 'cfsLlmOpenaiKeyInput');
+    setupLlmKeyToggle('toggleCfsLlmAnthropicKey', 'cfsLlmAnthropicKeyInput');
+    setupLlmKeyToggle('toggleCfsLlmGeminiKey', 'cfsLlmGeminiKeyInput');
+    setupLlmKeyToggle('toggleCfsLlmGrokKey', 'cfsLlmGrokKeyInput');
+
+    document.getElementById('testCfsLlmOpenaiBtn')?.addEventListener('click', () =>
+      testCfsLlmProvider('openai', 'cfsLlmOpenaiKeyInput', 'cfsLlmOpenaiTestStatus'));
+    document.getElementById('testCfsLlmAnthropicBtn')?.addEventListener('click', () =>
+      testCfsLlmProvider('claude', 'cfsLlmAnthropicKeyInput', 'cfsLlmAnthropicTestStatus'));
+    document.getElementById('testCfsLlmGeminiBtn')?.addEventListener('click', () =>
+      testCfsLlmProvider('gemini', 'cfsLlmGeminiKeyInput', 'cfsLlmGeminiTestStatus'));
+    document.getElementById('testCfsLlmGrokBtn')?.addEventListener('click', () =>
+      testCfsLlmProvider('grok', 'cfsLlmGrokKeyInput', 'cfsLlmGrokTestStatus'));
+
+    document.getElementById('saveCfsLlmOpenaiKeyBtn')?.addEventListener('click', () =>
+      saveCfsLlmKey(CFS_LLM_OPENAI_KEY, 'cfsLlmOpenaiKeyInput', 'cfsLlmOpenaiKeyStatus'));
+    document.getElementById('saveCfsLlmAnthropicKeyBtn')?.addEventListener('click', () =>
+      saveCfsLlmKey(CFS_LLM_ANTHROPIC_KEY, 'cfsLlmAnthropicKeyInput', 'cfsLlmAnthropicKeyStatus'));
+    document.getElementById('saveCfsLlmGeminiKeyBtn')?.addEventListener('click', () =>
+      saveCfsLlmKey(CFS_LLM_GEMINI_KEY, 'cfsLlmGeminiKeyInput', 'cfsLlmGeminiKeyStatus'));
+    document.getElementById('saveCfsLlmGrokKeyBtn')?.addEventListener('click', () =>
+      saveCfsLlmKey(CFS_LLM_GROK_KEY, 'cfsLlmGrokKeyInput', 'cfsLlmGrokKeyStatus'));
+
+    document.getElementById('cfsLlmWorkflowProviderSelect')?.addEventListener('change', function () {
+      const el = document.getElementById('cfsLlmWorkflowProviderSelect');
+      if (!el) return;
+      const prev = el.dataset.cfsLlmPrevProvider != null ? el.dataset.cfsLlmPrevProvider : 'lamini';
+      const cur = el.value || 'lamini';
+      const preserved =
+        prev === 'claude' || prev === 'gemini' || prev === 'grok'
+          ? cfsLlmReadOverrideModelFromUi('workflow', prev)
+          : '';
+      el.dataset.cfsLlmPrevProvider = cur;
+      cfsLlmUpdateProviderDependentRows('workflow');
+      if (cur === 'claude' || cur === 'gemini' || cur === 'grok') {
+        cfsLlmApplyOverrideModelToUi('workflow', preserved, cur);
+      }
+      cfsLlmOverrideModelUiSync('workflow');
+    });
+    document.getElementById('cfsLlmChatProviderSelect')?.addEventListener('change', function () {
+      const el = document.getElementById('cfsLlmChatProviderSelect');
+      if (!el) return;
+      const prev = el.dataset.cfsLlmPrevProvider != null ? el.dataset.cfsLlmPrevProvider : 'lamini';
+      const cur = el.value || 'lamini';
+      const preserved =
+        prev === 'claude' || prev === 'gemini' || prev === 'grok'
+          ? cfsLlmReadOverrideModelFromUi('chat', prev)
+          : '';
+      el.dataset.cfsLlmPrevProvider = cur;
+      cfsLlmUpdateProviderDependentRows('chat');
+      if (cur === 'claude' || cur === 'gemini' || cur === 'grok') {
+        cfsLlmApplyOverrideModelToUi('chat', preserved, cur);
+      }
+      cfsLlmOverrideModelUiSync('chat');
+    });
+    document.getElementById('cfsLlmWorkflowOverrideModelSelect')?.addEventListener('change', () =>
+      cfsLlmOverrideModelUiSync('workflow')
+    );
+    document.getElementById('cfsLlmChatOverrideModelSelect')?.addEventListener('change', () =>
+      cfsLlmOverrideModelUiSync('chat')
+    );
+    document.getElementById('cfsLlmWorkflowOpenaiModelSelect')?.addEventListener('change', () => cfsLlmOpenaiModelUiSync('workflow'));
+    document.getElementById('cfsLlmChatOpenaiModelSelect')?.addEventListener('change', () => cfsLlmOpenaiModelUiSync('chat'));
+
+    document.getElementById('saveCfsLlmWorkflowDefaultsBtn')?.addEventListener('click', saveCfsLlmWorkflowDefaults);
+    document.getElementById('saveCfsLlmChatDefaultsBtn')?.addEventListener('click', saveCfsLlmChatDefaults);
   }
 
   // --- Profiles ---
@@ -741,10 +1410,8 @@
   }
 
   async function loadSettingsWorkflows() {
-    const data = await chrome.storage.local.get(['workflows', 'workflowPresetUrl']);
+    const data = await chrome.storage.local.get(['workflows']);
     settingsWorkflows = data?.workflows || {};
-    const presetEl = document.getElementById('settingsPresetUrl');
-    if (presetEl && data?.workflowPresetUrl) presetEl.value = data.workflowPresetUrl;
     if (await isWhopLoggedIn() && typeof ExtensionApi !== 'undefined') {
       try {
         const list = await ExtensionApi.getWorkflows();
@@ -795,16 +1462,16 @@
           '<button type="button" class="btn btn-small" data-wf-select="' + escapeHtml(id) + '">Select</button>' +
           '<button type="button" class="btn btn-small" data-wf-rename="' + escapeHtml(id) + '">Rename</button>' +
           '<button type="button" class="btn btn-small" data-wf-duplicate="' + escapeHtml(id) + '">Copy</button>' +
-          '<button type="button" class="btn btn-small" data-wf-export="' + escapeHtml(id) + '" title="Export as JSON">Export</button>' +
+          '<button type="button" class="btn btn-small" data-wf-export="' + escapeHtml(id) + '" title="Export this workflow as JSON">Export workflow (JSON)</button>' +
+          '<button type="button" class="btn btn-small" data-wf-export-walkthrough="' + escapeHtml(id) + '" title="Export as walkthrough config + embeddable JS">Export walkthrough</button>' +
           '<button type="button" class="btn btn-small" data-wf-delete="' + escapeHtml(id) + '" style="color:var(--error);">Delete</button>' +
         '</div>';
       listEl.appendChild(div);
     }
-    listEl.addEventListener('click', handleWorkflowListClick);
   }
 
   async function handleWorkflowListClick(e) {
-    const btn = e.target.closest('[data-wf-select],[data-wf-rename],[data-wf-duplicate],[data-wf-export],[data-wf-delete]');
+    const btn = e.target.closest('[data-wf-select],[data-wf-rename],[data-wf-duplicate],[data-wf-export],[data-wf-export-walkthrough],[data-wf-delete]');
     if (!btn) return;
 
     if (btn.dataset.wfSelect) {
@@ -861,6 +1528,31 @@
       a.click();
       URL.revokeObjectURL(a.href);
       setWfStatus('Workflow exported.', 'success');
+      return;
+    }
+
+    if (btn.dataset.wfExportWalkthrough) {
+      const wfId = btn.dataset.wfExportWalkthrough;
+      const wf = settingsWorkflows[wfId];
+      if (!wf) return;
+      if (!wf.analyzed?.actions?.length) { setWfStatus('Workflow has no steps.', 'error'); return; }
+      if (typeof window.CFS_walkthroughExport === 'undefined') { setWfStatus('Walkthrough export not loaded.', 'error'); return; }
+      const config = window.CFS_walkthroughExport.buildWalkthroughConfig(wf, { includeCommentParts: true, includeQuiz: false });
+      const runnerScript = window.CFS_walkthroughExport.buildWalkthroughRunnerScript(config);
+      const baseName = (wf.name || wfId).replace(/\W+/g, '-');
+      var jsonBlob = new Blob([JSON.stringify({ config: config, runnerScript: runnerScript }, null, 2)], { type: 'application/json' });
+      var jsonA = document.createElement('a');
+      jsonA.href = URL.createObjectURL(jsonBlob);
+      jsonA.download = baseName + '-walkthrough.json';
+      jsonA.click();
+      URL.revokeObjectURL(jsonA.href);
+      var jsBlob = new Blob([runnerScript], { type: 'application/javascript' });
+      var jsA = document.createElement('a');
+      jsA.href = URL.createObjectURL(jsBlob);
+      jsA.download = baseName + '-walkthrough-runner.js';
+      jsA.click();
+      URL.revokeObjectURL(jsA.href);
+      setWfStatus('Walkthrough exported.', 'success');
       return;
     }
 
@@ -979,7 +1671,801 @@
     return {};
   }
 
+  function setupSolanaSection() {
+    const msgEl = document.getElementById('solanaMsg');
+    const statusLine = document.getElementById('solanaStatusLine');
+
+    function solanaSetMsg(text, type) {
+      setStatus(msgEl, text, type);
+    }
+
+    function sendSolana(type, payload) {
+      return new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage(Object.assign({ type }, payload || {}), (r) => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            resolve(r || { ok: false, error: 'No response' });
+          });
+        } catch (e) {
+          resolve({ ok: false, error: e && e.message });
+        }
+      });
+    }
+
+    function solanaEncryptPayload() {
+      const enc = document.getElementById('solanaEncryptOnImport')?.checked === true;
+      const pw = document.getElementById('solanaUnlockPassword')?.value || '';
+      const setAsPrimary = document.getElementById('solanaSetAsPrimary')?.checked === true;
+      return { encryptWithPassword: enc, walletPassword: pw, setAsPrimary };
+    }
+
+    function renderSolanaWalletList(r) {
+      const wrap = document.getElementById('solanaWalletListWrap');
+      const listEl = document.getElementById('solanaWalletList');
+      if (!wrap || !listEl) return;
+      if (!r || !r.configured || !Array.isArray(r.wallets) || r.wallets.length === 0) {
+        wrap.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+      }
+      wrap.style.display = '';
+      listEl.innerHTML = r.wallets.map(function (w) {
+        const primaryBadge = w.isPrimary ? ' <span class="hint">(Primary)</span>' : '';
+        const encLabel = w.encrypted ? 'Password-protected on disk' : 'Plaintext on disk';
+        const btns = (w.isPrimary ? '' : '<button type="button" class="btn btn-small solana-set-primary-btn" data-wallet-id="' + escapeHtml(w.id) + '">Set Primary</button>') +
+          '<button type="button" class="btn btn-small solana-remove-wallet-btn" data-wallet-id="' + escapeHtml(w.id) + '">Remove</button>' +
+          '<button type="button" class="btn btn-small solana-export-wallet-btn" data-wallet-id="' + escapeHtml(w.id) + '">Export…</button>';
+        return '<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px;font-size:0.85rem;">' +
+          '<div><code style="word-break:break-all;">' + escapeHtml(w.publicKey || '') + '</code>' + primaryBadge + '</div>' +
+          '<div class="hint" style="margin-top:4px;">' + escapeHtml(encLabel) + '</div>' +
+          '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + btns + '</div></div>';
+      }).join('');
+    }
+
+    async function refreshSolanaStatus() {
+      const r = await sendSolana('CFS_SOLANA_WALLET_STATUS');
+      if (!statusLine) return;
+      if (!r || !r.ok) {
+        statusLine.textContent = 'Could not read wallet status.';
+        renderSolanaWalletList({ configured: false, wallets: [] });
+        return;
+      }
+      if (!r.configured) {
+        statusLine.textContent = 'No automation key configured. Import a key or generate one.';
+        renderSolanaWalletList({ configured: false, wallets: [] });
+        return;
+      }
+      if (r.corrupt) {
+        statusLine.textContent = 'Stored key appears invalid: ' + (r.error || 'corrupt');
+        renderSolanaWalletList({ configured: false, wallets: [] });
+        return;
+      }
+      var parts = ['Primary — Wallet Address: ' + (r.publicKey || '')];
+      if (r.wallets && r.wallets.length > 1) {
+        parts.push(String(r.wallets.length) + ' wallets saved; automation uses Primary only.');
+      }
+      if (r.encrypted) {
+        parts.push(r.unlocked ? 'Unlocked for this session — automated swaps can run.' : 'Locked — click Unlock before running Solana workflow steps.');
+      } else {
+        parts.push('No disk encryption password — key is stored as plaintext in extension local storage.');
+      }
+      parts.push('Keep an offline backup.');
+      statusLine.textContent = parts.join(' ');
+      renderSolanaWalletList(r);
+      const cl = document.getElementById('solanaClusterSelect');
+      const rpc = document.getElementById('solanaRpcUrl');
+      const jup = document.getElementById('solanaJupKey');
+      if (cl && r.cluster) cl.value = r.cluster;
+      if (rpc && r.rpcUrl != null) rpc.value = r.rpcUrl;
+      const stored = await chrome.storage.local.get([
+        'cfs_solana_jupiter_api_key',
+        'cfs_solana_watch_rpc_url',
+        'cfs_solana_watch_helius_api_key',
+        'cfs_solana_watch_ws_url',
+        'cfs_quicknode_solana_http_url',
+        'cfs_solana_watch_high_reliability',
+      ]);
+      if (jup && stored.cfs_solana_jupiter_api_key) jup.value = stored.cfs_solana_jupiter_api_key;
+      const wrpc = document.getElementById('solanaWatchRpcUrl');
+      const wh = document.getElementById('solanaWatchHeliusKey');
+      const wws = document.getElementById('solanaWatchWsUrl');
+      const qn = document.getElementById('solanaQuicknodeWatchHttp');
+      const hr = document.getElementById('solanaWatchHighReliability');
+      if (wrpc && stored.cfs_solana_watch_rpc_url != null) wrpc.value = stored.cfs_solana_watch_rpc_url;
+      if (wh && stored.cfs_solana_watch_helius_api_key != null) wh.value = stored.cfs_solana_watch_helius_api_key;
+      if (wws && stored.cfs_solana_watch_ws_url != null) wws.value = stored.cfs_solana_watch_ws_url;
+      if (qn && stored.cfs_quicknode_solana_http_url != null) qn.value = stored.cfs_quicknode_solana_http_url;
+      if (hr) hr.checked = stored.cfs_solana_watch_high_reliability === true;
+    }
+
+    document.getElementById('solanaWalletList')?.addEventListener('click', async function (ev) {
+      const t = ev.target;
+      if (!t || !t.getAttribute) return;
+      const wid = t.getAttribute('data-wallet-id');
+      if (!wid) return;
+      if (t.classList.contains('solana-set-primary-btn')) {
+        const r = await sendSolana('CFS_SOLANA_WALLET_SET_PRIMARY', { walletId: wid });
+        solanaSetMsg(r.ok ? 'Primary wallet updated. Automation will use this address.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+        await refreshSolanaStatus();
+        return;
+      }
+      if (t.classList.contains('solana-remove-wallet-btn')) {
+        if (!window.confirm('Remove this wallet from the extension? Ensure you have a backup of the secret or funds may be lost.')) return;
+        const r = await sendSolana('CFS_SOLANA_WALLET_REMOVE', { walletId: wid });
+        solanaSetMsg(r.ok ? 'Wallet removed.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+        await refreshSolanaStatus();
+        return;
+      }
+      if (t.classList.contains('solana-export-wallet-btn')) {
+        window.__cfsSolanaExportWalletId = wid;
+        const p = document.getElementById('solanaExportPanel');
+        if (p) p.style.display = '';
+        solanaSetMsg('Enter the confirmation phrase below to export this wallet’s secret.', 'success');
+      }
+    });
+
+    document.getElementById('solanaDocLink')?.addEventListener('click', function (e) {
+      e.preventDefault();
+      const u = chrome.runtime.getURL('docs/SOLANA_AUTOMATION.md');
+      chrome.tabs.create({ url: u });
+    });
+
+    document.getElementById('solanaToggleSk')?.addEventListener('click', function () {
+      const el = document.getElementById('solanaSecretB58');
+      if (!el) return;
+      el.type = el.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('solanaToggleJup')?.addEventListener('click', function () {
+      const el = document.getElementById('solanaJupKey');
+      if (!el) return;
+      el.type = el.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('solanaToggleWatchHelius')?.addEventListener('click', function () {
+      const el = document.getElementById('solanaWatchHeliusKey');
+      if (!el) return;
+      el.type = el.type === 'password' ? 'text' : 'password';
+    });
+
+    document.getElementById('solanaSaveWatchBtn')?.addEventListener('click', async function () {
+      const rpc = document.getElementById('solanaWatchRpcUrl')?.value?.trim() || '';
+      const hk = document.getElementById('solanaWatchHeliusKey')?.value?.trim() || '';
+      const ws = document.getElementById('solanaWatchWsUrl')?.value?.trim() || '';
+      const qnHttp = document.getElementById('solanaQuicknodeWatchHttp')?.value?.trim() || '';
+      const highRel = document.getElementById('solanaWatchHighReliability')?.checked === true;
+      if (hk.length > 512) {
+        solanaSetMsg('Helius watch key is too long.', 'error');
+        return;
+      }
+      if (qnHttp.length > 2048) {
+        solanaSetMsg('QuickNode URL is too long.', 'error');
+        return;
+      }
+      await chrome.storage.local.set({
+        cfs_solana_watch_rpc_url: rpc,
+        cfs_solana_watch_helius_api_key: hk,
+        cfs_solana_watch_ws_url: ws,
+        cfs_quicknode_solana_http_url: qnHttp,
+        cfs_solana_watch_high_reliability: highRel,
+      });
+      solanaSetMsg('Pulse watch settings saved.', 'success');
+    });
+
+    document.getElementById('solanaSaveSettingsBtn')?.addEventListener('click', async function () {
+      const cluster = document.getElementById('solanaClusterSelect')?.value || 'mainnet-beta';
+      const rpcUrl = document.getElementById('solanaRpcUrl')?.value?.trim() || '';
+      const jupiterApiKey = document.getElementById('solanaJupKey')?.value?.trim() || '';
+      const r = await sendSolana('CFS_SOLANA_WALLET_SAVE_SETTINGS', { cluster, rpcUrl, jupiterApiKey });
+      solanaSetMsg(r.ok ? 'Solana settings saved.' : (r.error || 'Save failed'), r.ok ? 'success' : 'error');
+    });
+
+    document.getElementById('solanaUnlockBtn')?.addEventListener('click', async function () {
+      const pw = document.getElementById('solanaUnlockPassword')?.value || '';
+      if (!pw) { solanaSetMsg('Enter your wallet password.', 'error'); return; }
+      const r = await sendSolana('CFS_SOLANA_WALLET_UNLOCK', { password: pw });
+      solanaSetMsg(r.ok ? 'Wallet unlocked for this browser session.' : (r.error || 'Unlock failed'), r.ok ? 'success' : 'error');
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaLockBtn')?.addEventListener('click', async function () {
+      const r = await sendSolana('CFS_SOLANA_WALLET_LOCK');
+      solanaSetMsg(r.ok ? 'Session cleared. Encrypted wallet stays on disk; unlock again to run swaps.' : (r.error || 'Lock failed'), r.ok ? 'success' : 'error');
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaRewrapBtn')?.addEventListener('click', async function () {
+      const pw = document.getElementById('solanaUnlockPassword')?.value || '';
+      if (pw.length < 8) { solanaSetMsg('Set a password of at least 8 characters first.', 'error'); return; }
+      if (!window.confirm('Encrypt the wallet on disk and remove the plaintext key? You will need this password to unlock each session.')) return;
+      const r = await sendSolana('CFS_SOLANA_WALLET_REWRAP_PLAIN', { walletPassword: pw });
+      solanaSetMsg(r.ok ? 'Wallet encrypted. Unlock before running workflows.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaMnemonicBackedUp')?.addEventListener('change', function () {
+      const btn = document.getElementById('solanaCreateMnemonicWalletBtn');
+      if (btn) btn.disabled = !document.getElementById('solanaMnemonicBackedUp')?.checked;
+    });
+
+    document.getElementById('solanaImportB58Btn')?.addEventListener('click', async function () {
+      const v = document.getElementById('solanaSecretB58')?.value?.trim() || '';
+      if (!v) { solanaSetMsg('Paste a base58 private key first.', 'error'); return; }
+      const ex = solanaEncryptPayload();
+      if (ex.encryptWithPassword && (!ex.walletPassword || ex.walletPassword.length < 8)) {
+        solanaSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendSolana('CFS_SOLANA_WALLET_IMPORT_B58', Object.assign({ secretB58: v }, ex));
+      if (r.ok) {
+        document.getElementById('solanaSecretB58').value = '';
+        solanaSetMsg('Imported. Wallet Address: ' + r.publicKey, 'success');
+      } else {
+        solanaSetMsg(r.error || 'Import failed', 'error');
+      }
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaImportMnemonicBtn')?.addEventListener('click', async function () {
+      const v = document.getElementById('solanaMnemonic')?.value?.trim() || '';
+      if (!v) { solanaSetMsg('Enter mnemonic phrase.', 'error'); return; }
+      const ex = solanaEncryptPayload();
+      if (ex.encryptWithPassword && (!ex.walletPassword || ex.walletPassword.length < 8)) {
+        solanaSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendSolana('CFS_SOLANA_WALLET_IMPORT_MNEMONIC', Object.assign({ mnemonic: v }, ex));
+      if (r.ok) {
+        document.getElementById('solanaMnemonic').value = '';
+        solanaSetMsg('Imported from mnemonic. Wallet Address: ' + r.publicKey, 'success');
+      } else {
+        solanaSetMsg(r.error || 'Import failed', 'error');
+      }
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaGenerateKeypairBtn')?.addEventListener('click', async function () {
+      const ex = solanaEncryptPayload();
+      if (ex.encryptWithPassword && (!ex.walletPassword || ex.walletPassword.length < 8)) {
+        solanaSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendSolana('CFS_SOLANA_WALLET_GENERATE', ex);
+      if (r.ok) {
+        solanaSetMsg('New random keypair saved. Wallet Address: ' + r.publicKey + ' — export or fund as needed.', 'success');
+      } else {
+        solanaSetMsg(r.error || 'Failed', 'error');
+      }
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaCreateMnemonicWalletBtn')?.addEventListener('click', async function () {
+      if (!document.getElementById('solanaMnemonicBackedUp')?.checked) {
+        solanaSetMsg('Confirm you will back up the phrase.', 'error');
+        return;
+      }
+      const ex = solanaEncryptPayload();
+      if (ex.encryptWithPassword && (!ex.walletPassword || ex.walletPassword.length < 8)) {
+        solanaSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendSolana('CFS_SOLANA_WALLET_CREATE_WITH_MNEMONIC', ex);
+      const reveal = document.getElementById('solanaMnemonicReveal');
+      const ta = document.getElementById('solanaMnemonicRevealText');
+      if (r.ok && r.mnemonic) {
+        if (ta) ta.value = r.mnemonic;
+        if (reveal) reveal.style.display = '';
+        solanaSetMsg('Wallet created. Write down the phrase shown below. Wallet Address: ' + r.publicKey, 'success');
+      } else {
+        solanaSetMsg(r.error || 'Failed', 'error');
+      }
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaClearBtn')?.addEventListener('click', async function () {
+      if (!window.confirm('Remove the automation private key from this browser? You need a backup to use this wallet again.')) return;
+      const r = await sendSolana('CFS_SOLANA_WALLET_CLEAR');
+      solanaSetMsg(r.ok ? 'Key removed from extension storage.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+      const solEp = document.getElementById('solanaExportPanel');
+      const solEo = document.getElementById('solanaExportOut');
+      if (solEp) solEp.style.display = 'none';
+      if (solEo) solEo.style.display = 'none';
+      await refreshSolanaStatus();
+    });
+
+    document.getElementById('solanaExportBtn')?.addEventListener('click', function () {
+      window.__cfsSolanaExportWalletId = '';
+      const p = document.getElementById('solanaExportPanel');
+      if (p) p.style.display = p.style.display === 'none' ? '' : 'none';
+    });
+
+    document.getElementById('solanaExportDoBtn')?.addEventListener('click', async function () {
+      const phrase = document.getElementById('solanaExportConfirm')?.value || '';
+      const exportWid = window.__cfsSolanaExportWalletId ? String(window.__cfsSolanaExportWalletId) : '';
+      const payload = { confirmPhrase: phrase };
+      if (exportWid) payload.walletId = exportWid;
+      const r = await sendSolana('CFS_SOLANA_WALLET_EXPORT_B58', payload);
+      const out = document.getElementById('solanaExportOut');
+      if (r.ok && r.secretB58) {
+        if (out) {
+          out.value = r.secretB58;
+          out.style.display = '';
+        }
+        solanaSetMsg('Key shown below. Clear this field after copying.', 'success');
+      } else {
+        solanaSetMsg(r.error || 'Export failed', 'error');
+      }
+    });
+
+    void refreshSolanaStatus();
+  }
+
+  async function initFollowingAutomationGlobalSection() {
+    const statusEl = document.getElementById('settingsFollowingAutomationGlobalStatus');
+    async function loadFollowingAutomationGlobalForm() {
+      try {
+        const data = await chrome.storage.local.get(CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY);
+        const g = data[CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY] || {};
+        const pause = document.getElementById('settingsAutomationPaused');
+        const watchPause = document.getElementById('settingsWatchPaused');
+        if (pause) pause.checked = !!g.automationPaused;
+        if (watchPause) watchPause.checked = !!g.watchPaused;
+        const solTa = document.getElementById('settingsGlobalBlocklistSolana');
+        const evmTa = document.getElementById('settingsGlobalBlocklistEvm');
+        const lib = window.__CFS_GLOBAL_TOKEN_BLOCKLIST;
+        if (lib && typeof lib.blocklistArraysFromGlobal === 'function') {
+          const merged = lib.blocklistArraysFromGlobal(g);
+          if (solTa) solTa.value = merged.solanaLines.join('\n');
+          if (evmTa) evmTa.value = merged.evmLines.join('\n');
+        } else {
+          const gtb = g.globalTokenBlocklist && typeof g.globalTokenBlocklist === 'object' ? g.globalTokenBlocklist : {};
+          if (solTa) {
+            const arr = Array.isArray(gtb.solana) ? gtb.solana : [];
+            solTa.value = arr.join('\n');
+          }
+          if (evmTa) {
+            const arrE = Array.isArray(gtb.evm) ? gtb.evm : [];
+            evmTa.value = arrE.join('\n');
+          }
+        }
+      } catch (_) {}
+    }
+
+    document.getElementById('settingsFollowingAutomationGlobalSaveBtn')?.addEventListener('click', async () => {
+      let prev = {};
+      try {
+        const prevData = await chrome.storage.local.get(CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY);
+        prev = prevData[CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY] && typeof prevData[CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY] === 'object'
+          ? { ...prevData[CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY] }
+          : {};
+      } catch (_) {}
+      const obj = {
+        ...prev,
+        automationPaused: document.getElementById('settingsAutomationPaused')?.checked === true,
+        watchPaused: document.getElementById('settingsWatchPaused')?.checked === true,
+      };
+      delete obj.priceDriftMaxPercent;
+      delete obj.cooldownMs;
+      delete obj.copyMaxTargetAgeSec;
+      delete obj.copyPaused;
+      delete obj.paperMode;
+      delete obj.jupiterWrapAndUnwrapSol;
+      delete obj.copyPaperMode;
+      delete obj.copyJupiterWrapAndUnwrapSol;
+      delete obj.copyDenyMints;
+      delete obj.copyDenyEvmTokens;
+      const solRaw = String(document.getElementById('settingsGlobalBlocklistSolana')?.value || '');
+      const evmRaw = String(document.getElementById('settingsGlobalBlocklistEvm')?.value || '');
+      const solLines = solRaw.split(/\r?\n/).map((s) => String(s || '').trim()).filter(Boolean);
+      const evmLines = evmRaw.split(/\r?\n/).map((s) => String(s || '').trim()).filter(Boolean);
+      const lib = window.__CFS_GLOBAL_TOKEN_BLOCKLIST;
+      let sanitized = { solana: solLines, evm: evmLines, rejectedSolana: [], rejectedEvm: [] };
+      if (lib && typeof lib.sanitizeBlocklistForSave === 'function') {
+        sanitized = lib.sanitizeBlocklistForSave(solLines, evmLines);
+      }
+      obj.globalTokenBlocklist = { solana: sanitized.solana, evm: sanitized.evm };
+      const rejEl = document.getElementById('settingsBlocklistRejectedHint');
+      const parts = [];
+      if (sanitized.rejectedSolana && sanitized.rejectedSolana.length) {
+        parts.push('Ignored canonical Solana mints: ' + sanitized.rejectedSolana.join(', '));
+      }
+      if (sanitized.rejectedEvm && sanitized.rejectedEvm.length) {
+        parts.push('Ignored canonical EVM addresses: ' + sanitized.rejectedEvm.join(', '));
+      }
+      if (rejEl) {
+        if (parts.length) {
+          rejEl.textContent = parts.join(' · ');
+          rejEl.style.display = '';
+        } else {
+          rejEl.textContent = '';
+          rejEl.style.display = 'none';
+        }
+      }
+      try {
+        await chrome.storage.local.set({ [CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY]: obj });
+        setStatus(statusEl, 'Saved.', 'success');
+        setTimeout(() => setStatus(statusEl, '', ''), 3000);
+      } catch (e) {
+        setStatus(statusEl, e?.message || 'Could not save defaults.', 'error');
+      }
+    });
+
+    await loadFollowingAutomationGlobalForm();
+  }
+
+  function setupBscSection() {
+    const msgEl = document.getElementById('bscMsg');
+    const statusLine = document.getElementById('bscStatusLine');
+
+    var DEFAULT_BSC_MAINNET_RPC_URL = 'https://bsc-dataseed.binance.org';
+
+    function resolveBscRpcUrlForWallet() {
+      const raw = document.getElementById('bscRpcUrl')?.value?.trim() || '';
+      if (raw) return raw;
+      const chainId = parseInt(document.getElementById('bscChainId')?.value || '56', 10) || 56;
+      if (chainId === 56) return DEFAULT_BSC_MAINNET_RPC_URL;
+      return '';
+    }
+
+    function bscSetMsg(text, type) {
+      setStatus(msgEl, text, type);
+    }
+
+    function sendBsc(type, payload) {
+      return new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage(Object.assign({ type }, payload || {}), (r) => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            resolve(r || { ok: false, error: 'No response' });
+          });
+        } catch (e) {
+          resolve({ ok: false, error: e && e.message });
+        }
+      });
+    }
+
+    function requireBackupAck() {
+      const ok = document.getElementById('bscBackupAck')?.checked === true;
+      if (!ok) {
+        bscSetMsg('Check the backup acknowledgment before importing or saving a generated wallet.', 'error');
+        return false;
+      }
+      return true;
+    }
+
+    function bscEncryptPayload() {
+      const enc = document.getElementById('bscEncryptOnImport')?.checked === true;
+      const pw = document.getElementById('bscUnlockPassword')?.value || '';
+      const setAsPrimary = document.getElementById('bscSetAsPrimary')?.checked === true;
+      return { encryptWithPassword: enc, walletPassword: pw, setAsPrimary };
+    }
+
+    function renderBscWalletList(r) {
+      const wrap = document.getElementById('bscWalletListWrap');
+      const listEl = document.getElementById('bscWalletList');
+      if (!wrap || !listEl) return;
+      if (!r || !r.configured || !Array.isArray(r.wallets) || r.wallets.length === 0) {
+        wrap.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+      }
+      wrap.style.display = '';
+      listEl.innerHTML = r.wallets.map(function (w) {
+        const primaryBadge = w.isPrimary ? ' <span class="hint">(Primary)</span>' : '';
+        const encLabel = w.encrypted ? 'Password-protected on disk' : 'Plaintext on disk';
+        const btns = (w.isPrimary ? '' : '<button type="button" class="btn btn-small bsc-set-primary-btn" data-wallet-id="' + escapeHtml(w.id) + '">Set Primary</button>') +
+          '<button type="button" class="btn btn-small bsc-remove-wallet-btn" data-wallet-id="' + escapeHtml(w.id) + '">Remove</button>' +
+          '<button type="button" class="btn btn-small bsc-export-wallet-btn" data-wallet-id="' + escapeHtml(w.id) + '">Export…</button>';
+        return '<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px;font-size:0.85rem;">' +
+          '<div><code style="word-break:break-all;">' + escapeHtml(w.address || '') + '</code>' + primaryBadge + '</div>' +
+          '<div class="hint" style="margin-top:4px;">' + escapeHtml(encLabel) + '</div>' +
+          '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + btns + '</div></div>';
+      }).join('');
+    }
+
+    async function refreshBscStatus() {
+      const r = await sendBsc('CFS_BSC_WALLET_STATUS');
+      if (!statusLine) return;
+      if (!r || !r.ok) {
+        statusLine.textContent = 'Could not read BSC wallet status.';
+        renderBscWalletList({ configured: false, wallets: [] });
+        return;
+      }
+      if (!r.configured) {
+        renderBscWalletList({ configured: false, wallets: [] });
+        const rpcSeedEl = document.getElementById('bscRpcUrl');
+        const chainSeed = parseInt(document.getElementById('bscChainId')?.value || '56', 10) || 56;
+        if (rpcSeedEl && !(rpcSeedEl.value || '').trim() && chainSeed === 56) {
+          rpcSeedEl.value = DEFAULT_BSC_MAINNET_RPC_URL;
+        }
+        statusLine.textContent = 'No automation wallet configured. Import a key or generate a mnemonic.';
+        const scanHint0 = document.getElementById('bscBscscanKeyHint');
+        if (scanHint0) {
+          scanHint0.textContent = r.bscscanApiKeySet
+            ? 'BscScan API key is saved (for Pulse Following watch).'
+            : 'No BscScan API key saved.';
+        }
+        const scanInput0 = document.getElementById('bscBscscanApiKey');
+        if (scanInput0) scanInput0.value = '';
+        return;
+      }
+      if (r.corrupt) {
+        statusLine.textContent = 'Stored secret appears invalid: ' + (r.error || 'corrupt');
+        renderBscWalletList({ configured: false, wallets: [] });
+        return;
+      }
+      const parts = ['Primary — Address: ' + (r.address || '')];
+      if (r.wallets && r.wallets.length > 1) {
+        parts.push(String(r.wallets.length) + ' wallets saved; automation uses Primary only.');
+      }
+      if (r.encrypted) {
+        parts.push(r.unlocked ? 'Unlocked for this session — BSC workflow steps can sign.' : 'Locked — click Unlock before running BSC steps.');
+      } else {
+        parts.push('No disk encryption — secret is stored as plaintext in extension local storage.');
+      }
+      if (!r.backupConfirmed) parts.push('Backup flag missing — re-import with acknowledgment.');
+      parts.push('Funds are at risk if this profile is compromised.');
+      statusLine.textContent = parts.join(' ');
+      const rpcEl = document.getElementById('bscRpcUrl');
+      const chainEl = document.getElementById('bscChainId');
+      if (rpcEl && r.rpcUrl != null) rpcEl.value = r.rpcUrl;
+      if (chainEl && r.chainId != null) chainEl.value = String(r.chainId);
+      const scanHint = document.getElementById('bscBscscanKeyHint');
+      if (scanHint) {
+        scanHint.textContent = r.bscscanApiKeySet
+          ? 'BscScan API key is saved (value not shown). Paste a new key and save to replace, or clear the field and save to remove.'
+          : 'No BscScan API key saved — Pulse BSC watch stays idle until you add one.';
+      }
+      const scanInput = document.getElementById('bscBscscanApiKey');
+      if (scanInput) scanInput.value = '';
+      renderBscWalletList(r);
+    }
+
+    document.getElementById('bscWalletList')?.addEventListener('click', async function (ev) {
+      const t = ev.target;
+      if (!t || !t.getAttribute) return;
+      const wid = t.getAttribute('data-wallet-id');
+      if (!wid) return;
+      if (t.classList.contains('bsc-set-primary-btn')) {
+        const r = await sendBsc('CFS_BSC_WALLET_SET_PRIMARY', { walletId: wid });
+        bscSetMsg(r.ok ? 'Primary wallet updated.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+        await refreshBscStatus();
+        return;
+      }
+      if (t.classList.contains('bsc-remove-wallet-btn')) {
+        if (!window.confirm('Remove this wallet from the extension? Back up the secret first; funds may be lost without it.')) return;
+        const r = await sendBsc('CFS_BSC_WALLET_REMOVE', { walletId: wid });
+        bscSetMsg(r.ok ? 'Wallet removed.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+        await refreshBscStatus();
+        return;
+      }
+      if (t.classList.contains('bsc-export-wallet-btn')) {
+        window.__cfsBscExportWalletId = wid;
+        const p = document.getElementById('bscExportPanel');
+        if (p) p.style.display = '';
+        bscSetMsg('Enter the confirmation phrase to export this wallet’s secret.', 'success');
+      }
+    });
+
+    document.getElementById('bscDocLink')?.addEventListener('click', function (e) {
+      e.preventDefault();
+      chrome.tabs.create({ url: chrome.runtime.getURL('docs/BSC_WALLET_STORAGE.md') });
+    });
+    document.getElementById('bscAutomationDocLink')?.addEventListener('click', function (e) {
+      e.preventDefault();
+      chrome.tabs.create({ url: chrome.runtime.getURL('docs/BSC_AUTOMATION.md') });
+    });
+
+    document.getElementById('bscTogglePk')?.addEventListener('click', function () {
+      const el = document.getElementById('bscPrivateKey');
+      if (!el) return;
+      el.type = el.type === 'password' ? 'text' : 'password';
+    });
+
+    document.getElementById('bscSaveRpcBtn')?.addEventListener('click', async function () {
+      let rpcUrl = document.getElementById('bscRpcUrl')?.value?.trim() || '';
+      const chainId = parseInt(document.getElementById('bscChainId')?.value || '56', 10) || 56;
+      if (!rpcUrl && chainId === 56) {
+        rpcUrl = DEFAULT_BSC_MAINNET_RPC_URL;
+        const rpcIn = document.getElementById('bscRpcUrl');
+        if (rpcIn) rpcIn.value = rpcUrl;
+      }
+      const bscscanRaw = document.getElementById('bscBscscanApiKey')?.value;
+      const payload = { rpcUrl, chainId };
+      if (bscscanRaw !== undefined && bscscanRaw !== null) {
+        payload.bscscanApiKey = String(bscscanRaw).trim();
+      }
+      const r = await sendBsc('CFS_BSC_WALLET_SAVE_SETTINGS', payload);
+      bscSetMsg(
+        r.ok ? 'RPC, chain, and BscScan settings saved.' : (r.error || 'Save failed'),
+        r.ok ? 'success' : 'error',
+      );
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscUnlockBtn')?.addEventListener('click', async function () {
+      const pw = document.getElementById('bscUnlockPassword')?.value || '';
+      if (!pw) { bscSetMsg('Enter your wallet password.', 'error'); return; }
+      const r = await sendBsc('CFS_BSC_WALLET_UNLOCK', { password: pw });
+      bscSetMsg(r.ok ? 'Wallet unlocked for this browser session.' : (r.error || 'Unlock failed'), r.ok ? 'success' : 'error');
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscLockBtn')?.addEventListener('click', async function () {
+      const r = await sendBsc('CFS_BSC_WALLET_LOCK');
+      bscSetMsg(r.ok ? 'Session cleared. Encrypted wallet stays on disk; unlock again to run BSC steps.' : (r.error || 'Lock failed'), r.ok ? 'success' : 'error');
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscRewrapBtn')?.addEventListener('click', async function () {
+      const pw = document.getElementById('bscUnlockPassword')?.value || '';
+      if (pw.length < 8) { bscSetMsg('Set a password of at least 8 characters first.', 'error'); return; }
+      if (!window.confirm('Encrypt the wallet on disk and remove the plaintext secret? You will need this password to unlock each session.')) return;
+      const r = await sendBsc('CFS_BSC_WALLET_REWRAP_PLAIN', { walletPassword: pw });
+      bscSetMsg(r.ok ? 'Wallet encrypted. Unlock before running workflows.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscImportPkBtn')?.addEventListener('click', async function () {
+      if (!requireBackupAck()) return;
+      const pk = document.getElementById('bscPrivateKey')?.value?.trim() || '';
+      if (!pk) {
+        bscSetMsg('Paste a private key first.', 'error');
+        return;
+      }
+      const rpcUrl = resolveBscRpcUrlForWallet();
+      if (!rpcUrl) {
+        bscSetMsg('Set RPC URL first (required for non-mainnet chain IDs).', 'error');
+        return;
+      }
+      const chainId = parseInt(document.getElementById('bscChainId')?.value || '56', 10) || 56;
+      const ex = bscEncryptPayload();
+      if (ex.encryptWithPassword && (!ex.walletPassword || ex.walletPassword.length < 8)) {
+        bscSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendBsc('CFS_BSC_WALLET_IMPORT', Object.assign({
+        privateKey: pk,
+        rpcUrl,
+        chainId,
+        backupConfirmed: true,
+      }, ex));
+      if (r.ok) {
+        document.getElementById('bscPrivateKey').value = '';
+        bscSetMsg('Imported. Address saved in status line.', 'success');
+      } else {
+        bscSetMsg(r.error || 'Import failed', 'error');
+      }
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscImportMnemonicBtn')?.addEventListener('click', async function () {
+      if (!requireBackupAck()) return;
+      const mn = document.getElementById('bscMnemonic')?.value?.trim() || '';
+      if (!mn) {
+        bscSetMsg('Enter mnemonic.', 'error');
+        return;
+      }
+      const rpcUrl = resolveBscRpcUrlForWallet();
+      if (!rpcUrl) {
+        bscSetMsg('Set RPC URL first (required for non-mainnet chain IDs).', 'error');
+        return;
+      }
+      const chainId = parseInt(document.getElementById('bscChainId')?.value || '56', 10) || 56;
+      const exMn = bscEncryptPayload();
+      if (exMn.encryptWithPassword && (!exMn.walletPassword || exMn.walletPassword.length < 8)) {
+        bscSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendBsc('CFS_BSC_WALLET_IMPORT', Object.assign({
+        mnemonic: mn,
+        rpcUrl,
+        chainId,
+        backupConfirmed: true,
+      }, exMn));
+      if (r.ok) {
+        document.getElementById('bscMnemonic').value = '';
+        bscSetMsg('Imported from mnemonic.', 'success');
+      } else {
+        bscSetMsg(r.error || 'Import failed', 'error');
+      }
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscGenerateMnemonicBtn')?.addEventListener('click', async function () {
+      if (!requireBackupAck()) return;
+      const r = await sendBsc('CFS_BSC_WALLET_GENERATE_MNEMONIC');
+      const reveal = document.getElementById('bscMnemonicReveal');
+      const ta = document.getElementById('bscMnemonicRevealText');
+      if (r.ok && r.mnemonic) {
+        if (ta) ta.value = r.mnemonic;
+        if (reveal) reveal.style.display = '';
+        bscSetMsg('Write down the phrase. Then click “Save generated wallet”. Address: ' + (r.address || ''), 'success');
+      } else {
+        bscSetMsg(r.error || 'Generate failed', 'error');
+      }
+    });
+
+    document.getElementById('bscSaveGeneratedBtn')?.addEventListener('click', async function () {
+      if (!requireBackupAck()) return;
+      const phrase = document.getElementById('bscMnemonicRevealText')?.value?.trim() || '';
+      if (!phrase) {
+        bscSetMsg('Generate a mnemonic first.', 'error');
+        return;
+      }
+      const rpcUrl = resolveBscRpcUrlForWallet();
+      if (!rpcUrl) {
+        bscSetMsg('Set RPC URL first (required for non-mainnet chain IDs).', 'error');
+        return;
+      }
+      const chainId = parseInt(document.getElementById('bscChainId')?.value || '56', 10) || 56;
+      const exGen = bscEncryptPayload();
+      if (exGen.encryptWithPassword && (!exGen.walletPassword || exGen.walletPassword.length < 8)) {
+        bscSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
+        return;
+      }
+      const r = await sendBsc('CFS_BSC_WALLET_IMPORT', Object.assign({
+        mnemonic: phrase,
+        rpcUrl,
+        chainId,
+        backupConfirmed: true,
+      }, exGen));
+      if (r.ok) {
+        bscSetMsg('Wallet saved in this browser.', 'success');
+      } else {
+        bscSetMsg(r.error || 'Save failed', 'error');
+      }
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscClearBtn')?.addEventListener('click', async function () {
+      if (!window.confirm('Remove the BSC automation wallet from this browser? You need a backup to recover funds.')) return;
+      const r = await sendBsc('CFS_BSC_WALLET_CLEAR');
+      bscSetMsg(r.ok ? 'Wallet removed from extension storage.' : (r.error || 'Failed'), r.ok ? 'success' : 'error');
+      const ep = document.getElementById('bscExportPanel');
+      const eo = document.getElementById('bscExportOut');
+      if (ep) ep.style.display = 'none';
+      if (eo) {
+        eo.style.display = 'none';
+        eo.value = '';
+      }
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscExportBtn')?.addEventListener('click', function () {
+      window.__cfsBscExportWalletId = '';
+      const p = document.getElementById('bscExportPanel');
+      if (p) p.style.display = p.style.display === 'none' ? '' : 'none';
+    });
+
+    document.getElementById('bscExportDoBtn')?.addEventListener('click', async function () {
+      const phrase = document.getElementById('bscExportConfirm')?.value || '';
+      const exportWid = window.__cfsBscExportWalletId ? String(window.__cfsBscExportWalletId) : '';
+      const payload = { confirmPhrase: phrase };
+      if (exportWid) payload.walletId = exportWid;
+      const r = await sendBsc('CFS_BSC_WALLET_EXPORT', payload);
+      const out = document.getElementById('bscExportOut');
+      if (r.ok && r.secret) {
+        if (out) {
+          out.value = (r.secretType === 'mnemonic' ? 'mnemonic:\n' : 'privateKey:\n') + r.secret;
+          out.style.display = '';
+        }
+        bscSetMsg('Secret shown below. Clear after copying.', 'success');
+      } else {
+        bscSetMsg(r.error || 'Export failed', 'error');
+      }
+    });
+
+    void refreshBscStatus();
+  }
+
   function setupWorkflowSection() {
+    document.getElementById('settingsWorkflowList')?.addEventListener('click', handleWorkflowListClick);
+
     document.getElementById('settingsCreateWorkflow')?.addEventListener('click', async function () {
       const input = document.getElementById('settingsNewWorkflowName');
       const name = input?.value?.trim();
@@ -1115,14 +2601,6 @@
       }
     });
 
-    document.getElementById('settingsFetchPreset')?.addEventListener('click', async function () {
-      const url = document.getElementById('settingsPresetUrl')?.value?.trim();
-      if (!url) { setWfStatus('Enter a preset URL first.', 'error'); return; }
-      await chrome.storage.local.set({ workflowPresetUrl: url });
-      await loadSettingsWorkflows();
-      setWfStatus('Preset URL saved. Will fetch on next load.', 'success');
-    });
-
     document.getElementById('settingsSyncAll')?.addEventListener('click', async function () {
       if (!(await isWhopLoggedIn())) { setWfStatus('Sign in with Whop to sync.', 'error'); return; }
       const ids = Object.keys(settingsWorkflows);
@@ -1134,50 +2612,6 @@
         if (res?.ok) ok++; else fail++;
       }
       setWfStatus(fail ? 'Synced: ' + ok + ' ok, ' + fail + ' failed.' : 'All ' + ok + ' workflows synced.', fail ? 'error' : 'success');
-    });
-
-    document.getElementById('settingsExportJson')?.addEventListener('click', function () {
-      const wfId = settingsSelectedWfId || Object.keys(settingsWorkflows)[0];
-      if (!wfId || !settingsWorkflows[wfId]) { setWfStatus('Select a workflow to export.', 'error'); return; }
-      const wf = settingsWorkflows[wfId];
-      const payload = { version: '1', description: 'Exported: ' + (wf.name || wfId), workflows: { [wfId]: wf } };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = (wf.name || wfId).replace(/\W+/g, '-') + '.json';
-      a.click();
-      URL.revokeObjectURL(a.href);
-      setWfStatus('Workflow exported.', 'success');
-    });
-
-    document.getElementById('settingsExportWalkthrough')?.addEventListener('click', function () {
-      const wfId = settingsSelectedWfId || Object.keys(settingsWorkflows)[0];
-      if (!wfId || !settingsWorkflows[wfId]) { setWfStatus('Select a workflow to export.', 'error'); return; }
-      const wf = settingsWorkflows[wfId];
-      if (!wf.analyzed?.actions?.length) { setWfStatus('Workflow has no steps.', 'error'); return; }
-      if (typeof window.CFS_walkthroughExport === 'undefined') { setWfStatus('Walkthrough export not loaded.', 'error'); return; }
-      const includeQuiz = document.getElementById('settingsWalkthroughQuiz')?.checked === true;
-      const reportUrl = document.getElementById('settingsWalkthroughReportUrl')?.value?.trim();
-      const config = window.CFS_walkthroughExport.buildWalkthroughConfig(wf, { includeCommentParts: true, includeQuiz: includeQuiz });
-      if (reportUrl) {
-        config.reportUrl = reportUrl;
-        config.reportEvents = ['step_completed', 'walkthrough_completed', 'walkthrough_closed', 'step_viewed'];
-      }
-      const runnerScript = window.CFS_walkthroughExport.buildWalkthroughRunnerScript(config);
-      const baseName = (wf.name || wfId).replace(/\W+/g, '-');
-      var jsonBlob = new Blob([JSON.stringify({ config: config, runnerScript: runnerScript }, null, 2)], { type: 'application/json' });
-      var jsonA = document.createElement('a');
-      jsonA.href = URL.createObjectURL(jsonBlob);
-      jsonA.download = baseName + '-walkthrough.json';
-      jsonA.click();
-      URL.revokeObjectURL(jsonA.href);
-      var jsBlob = new Blob([runnerScript], { type: 'application/javascript' });
-      var jsA = document.createElement('a');
-      jsA.href = URL.createObjectURL(jsBlob);
-      jsA.download = baseName + '-walkthrough-runner.js';
-      jsA.click();
-      URL.revokeObjectURL(jsA.href);
-      setWfStatus('Walkthrough exported.', 'success');
     });
 
     // Run controls: send messages to background/sidepanel
@@ -1227,10 +2661,23 @@
 
   // --- Init ---
 
+  async function loadCfsLlmKeys() {
+    await loadCfsLlmKey(CFS_LLM_OPENAI_KEY, 'cfsLlmOpenaiKeyInput');
+    await loadCfsLlmKey(CFS_LLM_ANTHROPIC_KEY, 'cfsLlmAnthropicKeyInput');
+    await loadCfsLlmKey(CFS_LLM_GEMINI_KEY, 'cfsLlmGeminiKeyInput');
+    await loadCfsLlmKey(CFS_LLM_GROK_KEY, 'cfsLlmGrokKeyInput');
+  }
+
   async function init() {
     setupToggleVisibility();
     setupShotstackToggle();
     await loadApiKey();
+    await loadApifyToken();
+    await loadAsterFuturesSettings();
+    setupAsterFuturesToggles();
+    await loadCfsLlmKeys();
+    await loadCfsLlmDefaults();
+    setupCfsLlmSection();
     await loadShotstackKeys();
     await loadJwtTime();
     await loadPlatformDefaults();
@@ -1238,16 +2685,36 @@
     loadJwtLastRefresh();
     loadProfiles();
 
+    setupSolanaSection();
+    await initFollowingAutomationGlobalSection();
+    setupBscSection();
+
     // Workflows
     setupWorkflowSection();
     await loadSettingsWorkflows();
 
     document.getElementById('saveApiKeyBtn')?.addEventListener('click', saveApiKey);
+    document.getElementById('saveApifyTokenBtn')?.addEventListener('click', saveApifyToken);
+    document.getElementById('testApifyTokenBtn')?.addEventListener('click', testApifyToken);
+    document.getElementById('saveAsterFuturesKeysBtn')?.addEventListener('click', saveAsterFuturesKeys);
+    document.getElementById('saveAsterFuturesRiskBtn')?.addEventListener('click', saveAsterFuturesRisk);
     document.getElementById('refreshProfilesBtn')?.addEventListener('click', loadProfiles);
     document.getElementById('saveJwtTimeBtn')?.addEventListener('click', saveJwtTime);
     document.getElementById('refreshJwtNowBtn')?.addEventListener('click', refreshJwtNow);
     document.getElementById('saveSsStagingKeyBtn')?.addEventListener('click', () => saveShotstackKey(SS_STAGING_KEY, 'shotstackStagingKeyInput'));
     document.getElementById('saveSsProductionKeyBtn')?.addEventListener('click', () => saveShotstackKey(SS_PRODUCTION_KEY, 'shotstackProductionKeyInput'));
+
+    (function scrollToCfsLlmHashIfPresent() {
+      try {
+        const h = (window.location.hash || '').replace(/^#/, '');
+        if (h !== 'cfs-llm-providers' && h !== 'cfs-llm-chat-default' && h !== 'following-automation-global') return;
+        const el = document.getElementById(h);
+        if (!el) return;
+        requestAnimationFrame(function () {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      } catch (_) {}
+    })();
 
     // Run unit tests and E2E checklist
     if (window.CFS_unitTestRunner) {

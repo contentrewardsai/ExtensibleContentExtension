@@ -12,7 +12,7 @@ Trims a video at the beginning, end, or both based on time. Reuses the existing 
 | **endTime** | Trim to this second; omit for rest of video. |
 | **duration** | Alternative to endTime: length in seconds from startTime. |
 | **saveAsVariable** | Row variable for output (default `trimmedVideo`). |
-| **saveToProject** | Optional: folder name (e.g. `generations`) to queue save. User clicks "Save pending" in sidepanel to write to project folder. |
+| **saveToProject** | Optional: folder name (e.g. `generations`) to queue save. User clicks **Save pending generations** in the Library panel; files go under **uploads/{projectId}/{folder}/**. |
 | **saveFilename** | Optional: filename when saving. Use literal (e.g. `my-trimmed-video`) or `{{title}}` for row value. `.webm` is added if no extension. |
 | **projectIdVariable** | When saveToProject is set: project ID (e.g. `{{projectId}}`). |
 

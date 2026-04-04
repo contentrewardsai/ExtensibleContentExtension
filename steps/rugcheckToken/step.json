@@ -1,0 +1,21 @@
+{
+  "id": "rugcheckToken",
+  "label": "Rugcheck token (Solana)",
+  "category": "data",
+  "description": "Headless Following automation pipeline: fetches api.rugcheck.xyz v1 report for a mint. If **max score normalised** is set, automation is blocked when score_normalised exceeds it (higher = riskier on Rugcheck). Tab runs perform the same fetch for testing.",
+  "defaultAction": {
+    "type": "rugcheckToken",
+    "runIf": "",
+    "mint": "",
+    "maxScoreNormalised": "",
+    "failOnError": false,
+    "saveResultVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "mint", "label": "Mint (base58)", "inputType": "text", "placeholder": "Leave empty to use swap base mint in SW" },
+    { "key": "maxScoreNormalised", "label": "Max score_normalised (optional)", "inputType": "text", "placeholder": "e.g. 0.7 — block if report exceeds" },
+    { "key": "failOnError", "label": "Fail on HTTP error", "inputType": "checkbox" },
+    { "key": "saveResultVariable", "label": "Save JSON to variable (playback)", "inputType": "text", "placeholder": "optional" }
+  ]
+}

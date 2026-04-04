@@ -713,6 +713,7 @@
                     var mediaObj = { video: null, photos: [], audio: null, caption_file: null };
                     if (format === 'mp4' || format === 'gif') mediaObj.video = pollResp.url;
                     else mediaObj.audio = pollResp.url;
+                    var ssGenPid = (global.__CFS_generatorProjectId || '').trim();
                     global.__CFS_writePostToFolder({
                       user: 'shotstack', platform: ['shotstack'],
                       title: 'ShotStack render ' + renderId,
@@ -720,6 +721,7 @@
                       media: mediaObj, options: { format: format, environment: environment },
                       status: 'posted', posted_at: new Date().toISOString(),
                       request_id: renderId, source: 'shotstack',
+                      cfs_project_id: ssGenPid || undefined,
                     }, null);
                   }
                 } catch (_) {}

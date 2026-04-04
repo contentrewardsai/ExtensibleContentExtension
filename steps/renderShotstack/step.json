@@ -2,7 +2,7 @@
   "id": "renderShotstack",
   "label": "Render with ShotStack",
   "category": "data",
-  "description": "Render video or audio via the ShotStack cloud API. Uses the current generator template JSON or a ShotStack JSON from a workflow variable. Polls for completion and saves the result URL.",
+  "description": "Render video or audio via the ShotStack cloud API. Uses the current generator template JSON or a ShotStack JSON from a workflow variable. Polls for completion and saves the result URL. Optional: queue the render URL for Library → Save pending generations when projectId (and/or defaultProjectId) is set; empty both = do not queue.",
   "defaultAction": {
     "type": "renderShotstack",
     "runIf": "",
@@ -13,14 +13,16 @@
     "saveAsVariable": "shotstackResult",
     "saveRenderIdVariable": "",
     "timeoutMs": 300000,
-    "projectId": ""
+    "projectId": "",
+    "defaultProjectId": ""
   },
   "inputs": [
     { "key": "shotstackJsonVariableKey", "description": "Row variable containing ShotStack JSON. Leave empty to use the current generator template." },
     { "key": "environment", "description": "ShotStack API environment: stage (sandbox, watermarked) or v1 (production)." },
     { "key": "outputFormat", "description": "Output format: mp4, gif, mp3, wav." },
     { "key": "resolutionScale", "description": "Resolution scaling: auto (cap at 1080p equivalent), or a specific scale like 0.5, 1." },
-    { "key": "projectId", "description": "Project ID for saving the generation to the project folder. Leave empty to skip." }
+    { "key": "projectId", "description": "Project ID for queuing the render URL (pending generations). Empty = resolve from row / Library default / defaultProjectId." },
+    { "key": "defaultProjectId", "description": "Fallback project id when projectId is empty." }
   ],
   "outputs": [
     { "key": "saveAsVariable", "description": "Row variable to store the rendered file URL." },
@@ -35,6 +37,7 @@
     { "key": "saveAsVariable", "label": "Save result URL to variable", "inputType": "text", "placeholder": "shotstackResult" },
     { "key": "saveRenderIdVariable", "label": "Save render ID to variable", "inputType": "text", "placeholder": "" },
     { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "placeholder": "300000", "min": 30000, "hint": "Max wait for render completion. Default 5 minutes." },
-    { "key": "projectId", "label": "Project ID (for generation history)", "inputType": "text", "placeholder": "{{projectId}}", "hint": "Set to save this render to the project's generation history. Supports template variables." }
+    { "key": "projectId", "label": "Project ID (for generation queue)", "inputType": "text", "placeholder": "{{projectId}}", "hint": "Saves render URL to pending generations when set. Template vars; if empty, uses Library uploads default or defaultProjectId below." },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "default", "hint": "When projectId field is empty after templates." }
   ]
 }

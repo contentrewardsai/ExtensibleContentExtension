@@ -5,11 +5,120 @@
  * ShotStack), Whop auth, and MV3 sidepanel bridging.
  */
 importScripts('../shared/content-script-tab-bundle.js');
+importScripts('../shared/apify-dataset-response.js');
+importScripts('../shared/apify-run-query-validation.js');
+importScripts('../shared/apify-extract-run-id.js');
+importScripts('../shared/infi-bin-path-json-shape.js');
+importScripts('fetch-resilient.js');
+importScripts('crypto-observability.js');
+importScripts('../shared/solana-jsonrpc-mint-batch.js');
+importScripts('../shared/crypto-workflow-step-ids.js');
+importScripts('solana-lib.bundle.js');
+importScripts('pump-sdk.bundle.js');
+importScripts('raydium-sdk.bundle.js');
+importScripts('meteora-dlmm.bundle.js');
+importScripts('meteora-cpamm.bundle.js');
+importScripts('solana-swap.js');
+importScripts('../shared/cfs-always-on-automation.js');
+importScripts('../shared/cfs-global-token-blocklist.js');
+importScripts('evm-lib.bundle.js');
+importScripts('infinity-sdk.bundle.js');
+importScripts('bsc-evm.js');
+importScripts('bsc-sellability-probe.js');
+importScripts('watch-activity-price-filter.js');
+importScripts('following-automation-runner.js');
+importScripts('solana-watch.js');
+importScripts('pumpfun-swap.js');
+importScripts('pump-market-probe.js');
+importScripts('solana-sellability-probe.js');
+importScripts('perps-status.js');
+importScripts('raydium-liquidity.js');
+importScripts('raydium-standard-swap.js');
+importScripts('raydium-cpmm-liquidity.js');
+importScripts('raydium-clmm-liquidity.js');
+importScripts('raydium-clmm-swap.js');
+importScripts('meteora-dlmm.js');
+importScripts('meteora-cpamm.js');
+importScripts('bsc-watch.js');
+importScripts('aster-futures.js');
+importScripts('remote-llm.js');
+
+/** Strip extra fields from side panel chat history (model, qaMatches, …) for vendor APIs. */
+function cfsSanitizeLlmChatMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  const out = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!m || typeof m !== 'object') continue;
+    let role = String(m.role || 'user').toLowerCase();
+    if (role === 'assistant') role = 'assistant';
+    else if (role === 'system') role = 'system';
+    else role = 'user';
+    let content = m.content;
+    if (content != null && typeof content !== 'string') {
+      try {
+        content = JSON.stringify(content);
+      } catch (_) {
+        content = String(content);
+      }
+    } else {
+      content = content != null ? String(content) : '';
+    }
+    out.push({ role, content });
+  }
+  return out;
+}
+
+const CFS_LLM_CHAT_MAX_MESSAGES = 128;
+const CFS_LLM_CHAT_MAX_CONTENT_CHARS = 400000;
+const CFS_CALL_LLM_MAX_PROMPT_CHARS = 500000;
+/** Same cap as Settings save / CFS_LLM_TEST_PROVIDER; enforced on cloud CALL_LLM and CALL_REMOTE_LLM_CHAT too. */
+const CFS_LLM_API_KEY_MAX_CHARS = 4096;
+
+function cfsValidateRemoteChatInput(rawMessages) {
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+    return { ok: false, error: 'messages must be a non-empty array' };
+  }
+  if (rawMessages.length > CFS_LLM_CHAT_MAX_MESSAGES) {
+    return { ok: false, error: 'Too many messages (max ' + CFS_LLM_CHAT_MAX_MESSAGES + ')' };
+  }
+  const sanitized = cfsSanitizeLlmChatMessages(rawMessages);
+  if (!sanitized.length) {
+    return { ok: false, error: 'No valid messages (need role and content)' };
+  }
+  let total = 0;
+  for (let i = 0; i < sanitized.length; i++) {
+    total += (sanitized[i].content && sanitized[i].content.length) || 0;
+  }
+  if (total > CFS_LLM_CHAT_MAX_CONTENT_CHARS) {
+    return {
+      ok: false,
+      error: 'Total message content too large (max ' + CFS_LLM_CHAT_MAX_CONTENT_CHARS + ' characters)',
+    };
+  }
+  return { ok: true, messages: sanitized };
+}
+
+/** Reject absurd model ids before HTTP; cap must match CFS_remoteLlm.CFS_LLM_MODEL_ID_MAX_CHARS. */
+function cfsAssertResolvedLlmModelLength(model) {
+  const m = String(model || '');
+  const max =
+    typeof CFS_remoteLlm !== 'undefined' && typeof CFS_remoteLlm.CFS_LLM_MODEL_ID_MAX_CHARS === 'number'
+      ? CFS_remoteLlm.CFS_LLM_MODEL_ID_MAX_CHARS
+      : 256;
+  if (m.length > max) {
+    return { ok: false, error: 'Model id too long (max ' + max + ' characters)' };
+  }
+  return { ok: true };
+}
 
 const SCHEDULED_ALARM_NAME = 'cfs_scheduled_run';
 const RECURRING_ALARM_NAME = 'cfs_recurring_run';
 const UPLOAD_POST_JWT_ALARM = 'cfs_upload_post_jwt_refresh';
 const MAX_RUN_HISTORY = 100;
+/** Scheduled/recurring tab playback (PLAYER_START loop). Long cap when workflow includes Apify. */
+const CFS_SCHEDULED_PLAYBACK_SHORT_MS = 300000; // 5 min
+const CFS_SCHEDULED_PLAYBACK_LONG_MS = 3600000; // 60 min
 
 /** Ephemeral cross-navigation recording: survives full page loads in the same tab (chrome.storage.session). */
 const CFS_RECORDING_SESSION_KEY = 'cfsRecordingSession';
@@ -79,10 +188,19 @@ function getNowInTimezone(tz) {
 
 /** Check if a recurring schedule should run at this moment (in its timezone). */
 function shouldRunRecurring(schedule, nowInZone) {
+  const pattern = (schedule.pattern || 'daily').toLowerCase();
+  if (pattern === 'interval') {
+    const mins = Math.max(1, parseInt(schedule.intervalMinutes, 10) || 1);
+    const intervalMs = mins * 60 * 1000;
+    const last = schedule.lastRunAtMs != null ? Number(schedule.lastRunAtMs) : 0;
+    if (!last || last <= 0) return false;
+    if ((Date.now() - last) < intervalMs) return false;
+    return true;
+  }
+
   const time = (schedule.time || '00:00').trim();
   const [schedHour, schedMin] = time.split(':').map((n) => parseInt(n, 10) || 0);
   if (nowInZone.hour !== schedHour || nowInZone.minute !== schedMin) return false;
-  const pattern = (schedule.pattern || 'daily').toLowerCase();
   const lastRun = schedule.lastRunAt || '';
   if (lastRun === nowInZone.dateStr) return false;
 
@@ -133,6 +251,43 @@ function resolveNestedWorkflowsInBackground(workflow, allWorkflows, seen = new S
     }
   }
   return resolved;
+}
+
+/** Same rules as sidepanel `workflowContainsStepType` (nested runWorkflow + loop steps). */
+function cfsWorkflowContainsStepType(node, stepType) {
+  if (!node || typeof node !== 'object') return false;
+  const actions = node.actions || (node.analyzed && node.analyzed.actions);
+  if (!Array.isArray(actions)) return false;
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    if (!a || typeof a !== 'object') continue;
+    if (a.type === stepType) return true;
+    if (a.type === 'runWorkflow' && a.nestedWorkflow && cfsWorkflowContainsStepType(a.nestedWorkflow, stepType)) return true;
+    if (a.type === 'loop' && Array.isArray(a.steps)) {
+      for (let j = 0; j < a.steps.length; j++) {
+        const s = a.steps[j];
+        if (!s || typeof s !== 'object') continue;
+        if (s.type === stepType) return true;
+        if (s.type === 'runWorkflow' && s.nestedWorkflow && cfsWorkflowContainsStepType(s.nestedWorkflow, stepType)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+const CFS_PROJECT_WRITE_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Reject path traversal; path is relative to project root only. */
+function cfsValidateProjectRelativePath(p) {
+  if (typeof p !== 'string' || !p.trim()) return { ok: false, error: 'Path required' };
+  const norm = p.replace(/^\/+|\/+$/g, '');
+  if (!norm) return { ok: false, error: 'Path required' };
+  if (norm.length > 512) return { ok: false, error: 'Path too long' };
+  const parts = norm.split('/');
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === '..' || parts[i] === '') return { ok: false, error: 'Invalid path segment' };
+  }
+  return { ok: true, path: norm };
 }
 
 async function scheduleAlarmForNextRun() {
@@ -256,6 +411,932 @@ function responseHeadersObject(res) {
   return out;
 }
 
+// --- Apify API (https://api.apify.com/v2) ---
+const APIFY_API_BASE = 'https://api.apify.com/v2';
+const APIFY_TERMINAL_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'TIMED-OUT', 'ABORTED']);
+
+/** tabId → AbortController for in-flight `APIFY_RUN` from that tab (workflow Stop). */
+const apifyRunAbortByTabId = new Map();
+/** tabId → { runId, token } for in-flight **async** Apify runs (server abort on Stop). */
+const apifyAsyncRunByTabId = new Map();
+
+function cfsSleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function cfsAbortableSleep(ms, signal) {
+  if (!signal) return cfsSleep(ms);
+  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(tid);
+      signal.removeEventListener('abort', onAbort);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const tid = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort);
+  });
+}
+
+/** Sync Apify HTTP: abort when `syncTimeoutMs` elapses or `userRunAc` is aborted (Stop). */
+function apifyMergeSyncAbortSignals(syncTimeoutMs, userRunAc) {
+  const combined = new AbortController();
+  const t = setTimeout(() => combined.abort(), syncTimeoutMs);
+  const userSig = userRunAc && userRunAc.signal;
+  const onUser = () => {
+    clearTimeout(t);
+    combined.abort();
+  };
+  if (userSig) userSig.addEventListener('abort', onUser);
+  return {
+    signal: combined.signal,
+    dispose() {
+      clearTimeout(t);
+      if (userSig) userSig.removeEventListener('abort', onUser);
+    },
+  };
+}
+
+function apifyUserCancelledRunError() {
+  return new Error(
+    'Apify run cancelled (workflow stopped). A server abort was requested when a run id was known; sync runs stop client-side only.',
+  );
+}
+
+/** Best-effort POST /v2/actor-runs/{id}/abort (ignored if already terminal). */
+async function apifyPostAbortRun(token, runId) {
+  if (!token || !runId) return;
+  const url = `${APIFY_API_BASE}/actor-runs/${encodeURIComponent(runId)}/abort`;
+  try {
+    await apifyFetch(url, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+  } catch (_) {}
+}
+
+const APIFY_RETRY_AFTER_MAX_MS = 120000;
+/** Max length for `fields` / `omit` query params (comma-separated dataset API). */
+const APIFY_DATASET_FIELDS_OMIT_MAX_LEN = 2048;
+/** Max UTF-8 size of JSON-serialized run `input` (body to Apify). */
+const APIFY_INPUT_JSON_MAX_BYTES = 2 * 1024 * 1024;
+/** Max length for key-value OUTPUT record key (URL path segment). */
+const APIFY_OUTPUT_RECORD_KEY_MAX_LEN = 256;
+/** Max length for actor id or task id (trimmed). */
+const APIFY_RESOURCE_ID_MAX_LEN = 512;
+/** Max length for Apify run id and dataset id (trimmed path segments). */
+const APIFY_RUN_OR_DATASET_ID_MAX_LEN = 512;
+/** Max length for API token (message or storage). */
+const APIFY_TOKEN_MAX_LEN = 2048;
+/** Max length for Docker `build` query param (after trim). */
+const APIFY_BUILD_MAX_LEN = 256;
+/** Safety cap: async dataset paging loops (avoids unbounded requests if totals are missing). */
+const APIFY_DATASET_MAX_PAGES = 100000;
+/** Max client abort for sync run endpoints (~Apify server limit + margin). */
+const APIFY_SYNC_TIMEOUT_MS_MAX = 600000;
+/** Max wall-clock wait while polling an async run. */
+const APIFY_ASYNC_MAX_WAIT_MS_MAX = 2 * 3600 * 1000;
+/** Max ms between actor-run polls (after waitForFinish windows). */
+const APIFY_POLL_INTERVAL_MS_MAX = 300000;
+/** Max items to collect from default dataset (memory / fairness). */
+const APIFY_DATASET_MAX_ITEMS_CAP = 50000000;
+
+/**
+ * Parse Retry-After: delay-seconds (RFC 7231) or HTTP-date.
+ * Returns ms to wait, capped; 0 if missing or unparsable.
+ */
+function apifyParseRetryAfterMs(res) {
+  try {
+    const ra = res.headers.get('Retry-After');
+    if (ra == null || ra === '') return 0;
+    const s = String(ra).trim();
+    if (/^\d+$/.test(s)) {
+      const sec = parseInt(s, 10);
+      if (sec > 0) return Math.min(sec * 1000, APIFY_RETRY_AFTER_MAX_MS);
+      return 0;
+    }
+    const when = Date.parse(s);
+    if (Number.isFinite(when)) {
+      const delta = when - Date.now();
+      if (delta > 0) return Math.min(delta, APIFY_RETRY_AFTER_MAX_MS);
+    }
+  } catch (_) {}
+  return 0;
+}
+
+/** Trimmed fields/omit for dataset APIs; throws if over length limit. */
+function apifyGetDatasetFieldParams(msg) {
+  const fld = msg.apifySyncDatasetFields != null ? String(msg.apifySyncDatasetFields).trim() : '';
+  const omit = msg.apifySyncDatasetOmit != null ? String(msg.apifySyncDatasetOmit).trim() : '';
+  if (fld.length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN || omit.length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+    throw new Error(
+      `Apify: dataset fields and omit must be at most ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters each (after trim).`,
+    );
+  }
+  return { fields: fld, omit };
+}
+
+/** Fetch with 429 exponential backoff; honors Retry-After when present (capped). */
+async function apifyFetch(url, init, max429Retries = 12) {
+  let delay = 500;
+  for (let attempt = 0; attempt <= max429Retries; attempt++) {
+    if (init?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const res = await fetch(url, init);
+    if (res.status !== 429) return res;
+    if (attempt === max429Retries) return res;
+    const jittered = delay + Math.random() * delay;
+    const fromHeader = apifyParseRetryAfterMs(res);
+    const wait = Math.min(Math.max(jittered, fromHeader), APIFY_RETRY_AFTER_MAX_MS);
+    await cfsAbortableSleep(wait, init?.signal);
+    delay = Math.min(delay * 2, 60000);
+  }
+  if (init?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  return fetch(url, init);
+}
+
+async function apifyReadResponse(res) {
+  const text = await res.text();
+  let json;
+  try {
+    if (text && text.trim()) json = JSON.parse(text);
+  } catch (_) {}
+  return { text, json };
+}
+
+/** Truncate Apify `error.details` (string or JSON) for exception messages. */
+function apifyFormatErrorDetails(details, maxLen = 600) {
+  if (details == null) return '';
+  let s;
+  if (typeof details === 'string') s = details;
+  else {
+    try {
+      s = JSON.stringify(details);
+    } catch (_) {
+      s = String(details);
+    }
+  }
+  if (s.length > maxLen) return `${s.slice(0, maxLen)}…`;
+  return s;
+}
+
+/** Link to a run in Apify Console (best-effort; same path for actor/task runs). */
+function apifyConsoleRunUrl(runId) {
+  const id = runId != null && String(runId).trim() ? encodeURIComponent(String(runId).trim()) : '';
+  if (!id) return '';
+  return `https://console.apify.com/actors/runs/${id}`;
+}
+
+/** Apify error body: { error: { type, message, details? } }. Optional `runId` appends Console URL. */
+function apifyHttpError(label, res, json, text, runId) {
+  const err = json && json.error && typeof json.error === 'object' ? json.error : null;
+  const typ = err && err.type ? String(err.type) : '';
+  const msg = (err && err.message) || (text && text.slice(0, 320)) || res.statusText;
+  let out = `Apify ${label}${typ ? ` [${typ}]` : ''}: ${msg} (HTTP ${res.status})`;
+  const det = err && err.details != null ? apifyFormatErrorDetails(err.details) : '';
+  if (det) out += ` — details: ${det}`;
+  const consoleUrl = runId != null ? apifyConsoleRunUrl(runId) : '';
+  if (consoleUrl) out += ` — ${consoleUrl}`;
+  if (res.status === 401) {
+    out += ' — check Settings → Apify API token in the extension';
+  }
+  return out;
+}
+
+/**
+ * GET after apifyFetch: retry on 429 (Retry-After / fallback) and transient 5xx.
+ * Use for safe idempotent reads (poll, dataset items, KV record, users/me).
+ */
+async function apifyFetchGetResilient(url, init, errorLabel, runIdForHint) {
+  let serverStreak = 0;
+  for (;;) {
+    if (init?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const res = await apifyFetch(url, init);
+    const { text, json } = await apifyReadResponse(res);
+    if (res.ok) return { res, text, json };
+    if (res.status === 429) {
+      serverStreak = 0;
+      const raMs = apifyParseRetryAfterMs(res);
+      await cfsSleep(raMs > 0 ? raMs : 2000);
+      continue;
+    }
+    if (res.status >= 500 && res.status <= 599 && serverStreak < 10) {
+      serverStreak++;
+      const base = Math.min(32000, 2000 * Math.pow(2, serverStreak - 1));
+      await cfsSleep(base + Math.random() * 1000);
+      continue;
+    }
+    throw new Error(apifyHttpError(errorLabel, res, json, text, runIdForHint));
+  }
+}
+
+/** Optional query params for Actor/Task runs (see Apify API run-actor parameters). */
+function apifyMergeRunOptions(searchParams, msg) {
+  const t = msg.apifyRunTimeoutSecs;
+  if (t != null && Number(t) > 0) searchParams.set('timeout', String(Math.floor(Number(t))));
+  const m = msg.apifyRunMemoryMbytes;
+  if (m != null && Number(m) > 0) searchParams.set('memory', String(Math.floor(Number(m))));
+  const mx = msg.apifyRunMaxItems;
+  if (mx != null && Number(mx) > 0) searchParams.set('maxItems', String(Math.floor(Number(mx))));
+  const usd = msg.apifyMaxTotalChargeUsd;
+  if (usd != null && Number(usd) > 0) searchParams.set('maxTotalChargeUsd', String(Number(usd)));
+  if (msg.apifyRestartOnError === true) searchParams.set('restartOnError', 'true');
+  const b = msg.apifyBuild != null ? String(msg.apifyBuild).trim() : '';
+  if (b.length > APIFY_BUILD_MAX_LEN) {
+    throw new Error(`Apify build tag must be at most ${APIFY_BUILD_MAX_LEN} characters (after trim).`);
+  }
+  if (b) searchParams.set('build', b);
+}
+
+/** GET-dataset-style params for POST .../run-sync-get-dataset-items only. */
+function apifyMergeSyncDatasetItemParams(searchParams, msg) {
+  const lim = msg.apifySyncDatasetLimit;
+  if (lim != null && Number(lim) > 0) searchParams.set('limit', String(Math.floor(Number(lim))));
+  const off = msg.apifySyncDatasetOffset;
+  if (off != null && off !== '' && Number.isFinite(Number(off)) && Number(off) >= 0) {
+    searchParams.set('offset', String(Math.floor(Number(off))));
+  }
+  const { fields: fld, omit } = apifyGetDatasetFieldParams(msg);
+  if (fld) searchParams.set('fields', fld);
+  if (omit) searchParams.set('omit', omit);
+}
+
+/** Comma-separated dataset `fields` / `omit` for GET .../datasets/.../items (async paging). */
+function apifyDatasetItemQueryFromMsg(msg) {
+  const { fields: fld, omit } = apifyGetDatasetFieldParams(msg);
+  const out = {};
+  if (fld) out.fields = fld;
+  if (omit) out.omit = omit;
+  return Object.keys(out).length ? out : null;
+}
+
+/** Optional server-side wait on POST .../runs before first poll (max 60s per Apify). */
+function apifyMergeAsyncStartWait(searchParams, msg) {
+  const w = msg.apifyStartWaitForFinishSecs;
+  if (w == null || !Number.isFinite(Number(w)) || Number(w) <= 0) return;
+  const n = Math.min(60, Math.max(1, Math.floor(Number(w))));
+  searchParams.set('waitForFinish', String(n));
+}
+
+async function apifyResolveToken(msg) {
+  let token = msg?.token != null ? String(msg.token).trim() : '';
+  if (!token) {
+    const stored = await chrome.storage.local.get(['apifyApiToken']);
+    token = stored.apifyApiToken != null ? String(stored.apifyApiToken).trim() : '';
+  }
+  if (token.length > APIFY_TOKEN_MAX_LEN) {
+    throw new Error(`Apify API token is too long (max ${APIFY_TOKEN_MAX_LEN} characters).`);
+  }
+  return token;
+}
+
+function apifyActorOrTaskBaseUrl(targetType, resourceId) {
+  const id = encodeURIComponent(String(resourceId).trim());
+  if (targetType === 'task') return `${APIFY_API_BASE}/actor-tasks/${id}`;
+  return `${APIFY_API_BASE}/acts/${id}`;
+}
+
+async function apifyFetchDatasetPage(token, datasetId, offset, limit, itemQuery = null, signal = null) {
+  const q = new URLSearchParams({
+    format: 'json',
+    clean: 'true',
+    offset: String(offset),
+    limit: String(limit),
+  });
+  const iq = itemQuery && typeof itemQuery === 'object' ? itemQuery : {};
+  const fields = iq.fields != null ? String(iq.fields).trim() : '';
+  if (fields) q.set('fields', fields);
+  const omit = iq.omit != null ? String(iq.omit).trim() : '';
+  if (omit) q.set('omit', omit);
+  const url = `${APIFY_API_BASE}/datasets/${encodeURIComponent(datasetId)}/items?${q}`;
+  const init = {
+    method: 'GET',
+    mode: 'cors',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  };
+  if (signal) init.signal = signal;
+  const { json, res } = await apifyFetchGetResilient(url, init, 'dataset items', null);
+  return CFS_apifyParseDatasetItemsResponse(json, res);
+}
+
+async function cfsApifyTestToken(msg) {
+  let token = msg?.token != null ? String(msg.token).trim() : '';
+  if (!token) {
+    const stored = await chrome.storage.local.get(['apifyApiToken']);
+    token = stored.apifyApiToken != null ? String(stored.apifyApiToken).trim() : '';
+  }
+  if (!token) {
+    throw new Error('No Apify token — enter one in the field or save it under Settings → Apify API token.');
+  }
+  if (token.length > APIFY_TOKEN_MAX_LEN) {
+    throw new Error(`Apify API token is too long (max ${APIFY_TOKEN_MAX_LEN} characters).`);
+  }
+  const url = `${APIFY_API_BASE}/users/me`;
+  const { json } = await apifyFetchGetResilient(url, {
+    method: 'GET',
+    mode: 'cors',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  }, 'users/me', null);
+  const wrap = json && json.data;
+  const user = wrap && typeof wrap === 'object' ? wrap : json;
+  const username = user && user.username != null ? String(user.username) : '';
+  const userId = user && user.id != null ? String(user.id) : '';
+  return { ok: true, username, userId };
+}
+
+async function apifyCollectDatasetItems(token, datasetId, maxItems, itemQuery = null, signal = null) {
+  const pageLimit = 1000;
+  const cap = maxItems > 0 ? maxItems : Number.MAX_SAFE_INTEGER;
+  let offset = 0;
+  const all = [];
+  let pages = 0;
+  for (;;) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    pages += 1;
+    if (pages > APIFY_DATASET_MAX_PAGES) {
+      throw new Error(`Apify: dataset paging stopped after ${APIFY_DATASET_MAX_PAGES} pages (safety cap).`);
+    }
+    const remaining = cap - all.length;
+    if (remaining <= 0) break;
+    const limit = Math.min(pageLimit, remaining);
+    const { items, total, count } = await apifyFetchDatasetPage(token, datasetId, offset, limit, itemQuery, signal);
+    for (let i = 0; i < items.length && all.length < cap; i++) all.push(items[i]);
+    if (all.length >= cap) break;
+    if (items.length === 0 || count <= 0) break;
+    offset += count;
+    if (total != null && offset >= total) break;
+  }
+  return all;
+}
+
+/** Read a JSON record from the run's default key-value store (e.g. OUTPUT). */
+async function apifyFetchKvRecordJson(token, storeId, recordKey, runIdForHint, signal = null) {
+  if (!storeId || typeof storeId !== 'string') {
+    throw new Error('Apify: run has no defaultKeyValueStoreId; cannot load OUTPUT');
+  }
+  const k = recordKey != null && String(recordKey).trim() ? String(recordKey).trim() : 'OUTPUT';
+  const url = `${APIFY_API_BASE}/key-value-stores/${encodeURIComponent(storeId)}/records/${encodeURIComponent(k)}`;
+  const init = {
+    method: 'GET',
+    mode: 'cors',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  };
+  if (signal) init.signal = signal;
+  const { text, json } = await apifyFetchGetResilient(url, init, 'OUTPUT "' + k + '"', runIdForHint);
+  if (json != null && typeof json === 'object') return json;
+  if (text && text.trim()) {
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      return { _raw: text };
+    }
+  }
+  return {};
+}
+
+async function cfsExecuteApifyRun(msg, tabId) {
+  const targetType = msg.targetType;
+  const resourceId = msg.resourceId != null ? String(msg.resourceId).trim() : '';
+  if (!resourceId) throw new Error('Apify: resourceId required');
+  if (resourceId.length > APIFY_RESOURCE_ID_MAX_LEN) {
+    throw new Error(`Apify actor or task id must be at most ${APIFY_RESOURCE_ID_MAX_LEN} characters.`);
+  }
+  const qeRun = typeof CFS_apifyRunQueryParamsValidationError === 'function'
+    ? CFS_apifyRunQueryParamsValidationError(msg)
+    : null;
+  if (qeRun) throw new Error(`Apify: ${qeRun}`);
+  const mode = msg.mode;
+  const input = msg.input != null && typeof msg.input === 'object' && !Array.isArray(msg.input) ? msg.input : {};
+  const token = await apifyResolveToken(msg);
+  if (!token) throw new Error('Missing Apify API token. Save it in Settings → Apify API token, or use a row token variable.');
+
+  let runUserAc = null;
+  const tId = tabId != null && Number.isInteger(tabId) && tabId >= 0 ? tabId : null;
+  if (tId != null) {
+    const prev = apifyRunAbortByTabId.get(tId);
+    if (prev) try { prev.abort(); } catch (_) {}
+    runUserAc = new AbortController();
+    apifyRunAbortByTabId.set(tId, runUserAc);
+  }
+
+  const base = apifyActorOrTaskBaseUrl(targetType, resourceId);
+  const authHeaders = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+  };
+  const bodyStr = JSON.stringify(input);
+  const bodyBytes = new TextEncoder().encode(bodyStr).length;
+  if (bodyBytes > APIFY_INPUT_JSON_MAX_BYTES) {
+    throw new Error(
+      `Apify run input JSON is too large (${bodyBytes} bytes UTF-8; max ${APIFY_INPUT_JSON_MAX_BYTES}).`,
+    );
+  }
+  const postJsonInit = {
+    method: 'POST',
+    mode: 'cors',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: bodyStr,
+  };
+
+  let syncTimeoutMs = msg.syncTimeoutMs > 0 ? Number(msg.syncTimeoutMs) : 310000;
+  if (!Number.isFinite(syncTimeoutMs) || syncTimeoutMs < 1000) syncTimeoutMs = 310000;
+  if (syncTimeoutMs > APIFY_SYNC_TIMEOUT_MS_MAX) {
+    throw new Error(`Apify sync HTTP timeout must be at most ${APIFY_SYNC_TIMEOUT_MS_MAX} ms`);
+  }
+  let asyncMaxWaitMs = msg.asyncMaxWaitMs > 0 ? Number(msg.asyncMaxWaitMs) : 600000;
+  if (!Number.isFinite(asyncMaxWaitMs) || asyncMaxWaitMs < 1000) asyncMaxWaitMs = 600000;
+  if (asyncMaxWaitMs > APIFY_ASYNC_MAX_WAIT_MS_MAX) {
+    throw new Error(`Apify async max wait must be at most ${APIFY_ASYNC_MAX_WAIT_MS_MAX} ms`);
+  }
+  let pollIntervalMs = 500;
+  if (msg.pollIntervalMs != null && msg.pollIntervalMs !== '') {
+    const p = Number(msg.pollIntervalMs);
+    if (Number.isFinite(p) && p >= 0) pollIntervalMs = p;
+  }
+  if (pollIntervalMs > APIFY_POLL_INTERVAL_MS_MAX) {
+    throw new Error(`Apify poll interval must be at most ${APIFY_POLL_INTERVAL_MS_MAX} ms`);
+  }
+  let datasetMaxItems = msg.datasetMaxItems > 0 ? Number(msg.datasetMaxItems) : 0;
+  if (!Number.isFinite(datasetMaxItems) || datasetMaxItems < 0) datasetMaxItems = 0;
+  if (datasetMaxItems > APIFY_DATASET_MAX_ITEMS_CAP) {
+    throw new Error(`Apify datasetMaxItems must be at most ${APIFY_DATASET_MAX_ITEMS_CAP}`);
+  }
+  const outputRecordKey = msg.outputRecordKey != null && String(msg.outputRecordKey).trim()
+    ? String(msg.outputRecordKey).trim()
+    : null;
+  if (outputRecordKey && outputRecordKey.length > APIFY_OUTPUT_RECORD_KEY_MAX_LEN) {
+    throw new Error(
+      `Apify OUTPUT record key must be at most ${APIFY_OUTPUT_RECORD_KEY_MAX_LEN} characters (after trim).`,
+    );
+  }
+  const asyncResultType = msg.asyncResultType === 'output' ? 'output' : 'dataset';
+
+  try {
+  if (mode === 'syncDataset') {
+    const uDs = new URL(`${base}/run-sync-get-dataset-items`);
+    apifyMergeRunOptions(uDs.searchParams, msg);
+    apifyMergeSyncDatasetItemParams(uDs.searchParams, msg);
+    const url = uDs.toString();
+    const merged = apifyMergeSyncAbortSignals(syncTimeoutMs, runUserAc);
+    try {
+      const res = await apifyFetch(url, { ...postJsonInit, signal: merged.signal });
+      const { text, json } = await apifyReadResponse(res);
+      merged.dispose();
+      if (!res.ok) {
+        throw new Error(apifyHttpError(
+          'sync dataset',
+          res,
+          json,
+          text,
+          CFS_apifyExtractRunIdForErrorHint(json),
+        ));
+      }
+      const items = Array.isArray(json) ? json : [];
+      return { ok: true, items, run: null };
+    } catch (e) {
+      merged.dispose();
+      if (e && e.name === 'AbortError') {
+        if (runUserAc && runUserAc.signal.aborted) throw apifyUserCancelledRunError();
+        throw new Error(`Apify sync dataset timed out after ${syncTimeoutMs} ms`);
+      }
+      throw e;
+    }
+  }
+
+  if (mode === 'syncOutput') {
+    const uOut = new URL(`${base}/run-sync`);
+    if (outputRecordKey) uOut.searchParams.set('outputRecordKey', outputRecordKey);
+    apifyMergeRunOptions(uOut.searchParams, msg);
+    const url = uOut.toString();
+    const merged = apifyMergeSyncAbortSignals(syncTimeoutMs, runUserAc);
+    try {
+      const res = await apifyFetch(url, { ...postJsonInit, signal: merged.signal });
+      const { text, json } = await apifyReadResponse(res);
+      merged.dispose();
+      if (!res.ok) {
+        throw new Error(apifyHttpError(
+          'sync output',
+          res,
+          json,
+          text,
+          CFS_apifyExtractRunIdForErrorHint(json),
+        ));
+      }
+      return { ok: true, output: json != null ? json : {}, run: null };
+    } catch (e) {
+      merged.dispose();
+      if (e && e.name === 'AbortError') {
+        if (runUserAc && runUserAc.signal.aborted) throw apifyUserCancelledRunError();
+        throw new Error(`Apify sync output timed out after ${syncTimeoutMs} ms`);
+      }
+      throw e;
+    }
+  }
+
+  if (mode !== 'asyncPoll') throw new Error(`Unknown Apify mode: ${mode}`);
+
+  const uRun = new URL(`${base}/runs`);
+  apifyMergeRunOptions(uRun.searchParams, msg);
+  apifyMergeAsyncStartWait(uRun.searchParams, msg);
+  const startUrl = uRun.toString();
+  const startInit = runUserAc ? { ...postJsonInit, signal: runUserAc.signal } : postJsonInit;
+  const startRes = await apifyFetch(startUrl, startInit);
+  const startParsed = await apifyReadResponse(startRes);
+  if (!startRes.ok) {
+    throw new Error(apifyHttpError(
+      'start run',
+      startRes,
+      startParsed.json,
+      startParsed.text,
+      CFS_apifyExtractRunIdForErrorHint(startParsed.json),
+    ));
+  }
+  const runData = startParsed.json && startParsed.json.data;
+  const runId = runData && runData.id;
+  if (!runId) throw new Error('Apify: start run response missing data.id');
+  if (tId != null) {
+    apifyAsyncRunByTabId.set(tId, { runId, token });
+  }
+  let status = runData.status;
+  const defaultDatasetId = runData.defaultDatasetId;
+  const defaultKeyValueStoreId = runData.defaultKeyValueStoreId;
+  const runMeta = {
+    id: runId,
+    status,
+    defaultDatasetId,
+    defaultKeyValueStoreId,
+    consoleUrl: apifyConsoleRunUrl(runId),
+  };
+
+  const deadline = Date.now() + asyncMaxWaitMs;
+  const pollInitBase = { method: 'GET', mode: 'cors', headers: authHeaders };
+  if (runUserAc) pollInitBase.signal = runUserAc.signal;
+  while (!APIFY_TERMINAL_STATUSES.has(status)) {
+    if (Date.now() >= deadline) {
+      const u = apifyConsoleRunUrl(runId);
+      throw new Error(
+        `Apify run ${runId} still ${status} after ${asyncMaxWaitMs} ms${u ? ` — ${u}` : ''}`,
+      );
+    }
+    const pollUrl = `${APIFY_API_BASE}/actor-runs/${encodeURIComponent(runId)}?waitForFinish=60`;
+    const { json: pollJson } = await apifyFetchGetResilient(
+      pollUrl,
+      pollInitBase,
+      'poll run',
+      runId,
+    );
+    const d = pollJson && pollJson.data;
+    if (d && d.status) status = d.status;
+    runMeta.status = status;
+    if (d && d.defaultDatasetId) runMeta.defaultDatasetId = d.defaultDatasetId;
+    if (d && d.defaultKeyValueStoreId) runMeta.defaultKeyValueStoreId = d.defaultKeyValueStoreId;
+    if (!APIFY_TERMINAL_STATUSES.has(status) && pollIntervalMs > 0) {
+      await cfsAbortableSleep(pollIntervalMs, runUserAc ? runUserAc.signal : null);
+    }
+  }
+
+  if (status !== 'SUCCEEDED') {
+    const u = apifyConsoleRunUrl(runId);
+    throw new Error(
+      `Apify run ${runId} finished with status ${status}.${u ? ` Inspect: ${u}` : ''}`,
+    );
+  }
+
+  if (asyncResultType === 'output') {
+    const outKey = outputRecordKey || 'OUTPUT';
+    const output = await apifyFetchKvRecordJson(
+      token,
+      runMeta.defaultKeyValueStoreId,
+      outKey,
+      runId,
+      runUserAc ? runUserAc.signal : null,
+    );
+    return { ok: true, output, items: [], run: runMeta };
+  }
+
+  const dsId = runMeta.defaultDatasetId;
+  if (!dsId) {
+    const u = apifyConsoleRunUrl(runId);
+    throw new Error(
+      `Apify run ${runId} succeeded but no default dataset id was returned. If this actor only writes OUTPUT, choose “Load OUTPUT from key-value store” for After run (async).${u ? ` ${u}` : ''}`,
+    );
+  }
+  const itemQuery = apifyDatasetItemQueryFromMsg(msg);
+  const items = await apifyCollectDatasetItems(
+    token,
+    dsId,
+    datasetMaxItems,
+    itemQuery,
+    runUserAc ? runUserAc.signal : null,
+  );
+  return { ok: true, items, run: runMeta };
+  } catch (e) {
+    if (e && e.name === 'AbortError' && runUserAc && runUserAc.signal.aborted) {
+      throw apifyUserCancelledRunError();
+    }
+    throw e;
+  } finally {
+    if (runUserAc && tId != null && apifyRunAbortByTabId.get(tId) === runUserAc) {
+      apifyRunAbortByTabId.delete(tId);
+    }
+    if (tId != null) {
+      apifyAsyncRunByTabId.delete(tId);
+    }
+  }
+}
+
+/**
+ * POST .../runs only — returns run metadata without polling (pair with APIFY_RUN_WAIT or APIFY_DATASET_ITEMS).
+ */
+async function cfsApifyRunStart(msg, tabId) {
+  const targetType = msg.targetType;
+  const resourceId = msg.resourceId != null ? String(msg.resourceId).trim() : '';
+  if (!resourceId) throw new Error('Apify: resourceId required');
+  if (resourceId.length > APIFY_RESOURCE_ID_MAX_LEN) {
+    throw new Error(`Apify actor or task id must be at most ${APIFY_RESOURCE_ID_MAX_LEN} characters.`);
+  }
+  const qeRun = typeof CFS_apifyRunQueryParamsValidationError === 'function'
+    ? CFS_apifyRunQueryParamsValidationError(msg)
+    : null;
+  if (qeRun) throw new Error(`Apify: ${qeRun}`);
+  const input = msg.input != null && typeof msg.input === 'object' && !Array.isArray(msg.input) ? msg.input : {};
+  const token = await apifyResolveToken(msg);
+  if (!token) throw new Error('Missing Apify API token. Save it in Settings → Apify API token, or use a row token variable.');
+
+  let runUserAc = null;
+  const tId = tabId != null && Number.isInteger(tabId) && tabId >= 0 ? tabId : null;
+  if (tId != null) {
+    const prev = apifyRunAbortByTabId.get(tId);
+    if (prev) try { prev.abort(); } catch (_) {}
+    runUserAc = new AbortController();
+    apifyRunAbortByTabId.set(tId, runUserAc);
+  }
+
+  const base = apifyActorOrTaskBaseUrl(targetType, resourceId);
+  const authHeaders = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+  };
+  const bodyStr = JSON.stringify(input);
+  const bodyBytes = new TextEncoder().encode(bodyStr).length;
+  if (bodyBytes > APIFY_INPUT_JSON_MAX_BYTES) {
+    throw new Error(
+      `Apify run input JSON is too large (${bodyBytes} bytes UTF-8; max ${APIFY_INPUT_JSON_MAX_BYTES}).`,
+    );
+  }
+  const postJsonInit = {
+    method: 'POST',
+    mode: 'cors',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: bodyStr,
+  };
+
+  try {
+    const uRun = new URL(`${base}/runs`);
+    apifyMergeRunOptions(uRun.searchParams, msg);
+    apifyMergeAsyncStartWait(uRun.searchParams, msg);
+    const startUrl = uRun.toString();
+    const startInit = runUserAc ? { ...postJsonInit, signal: runUserAc.signal } : postJsonInit;
+    const startRes = await apifyFetch(startUrl, startInit);
+    const startParsed = await apifyReadResponse(startRes);
+    if (!startRes.ok) {
+      throw new Error(apifyHttpError(
+        'start run',
+        startRes,
+        startParsed.json,
+        startParsed.text,
+        CFS_apifyExtractRunIdForErrorHint(startParsed.json),
+      ));
+    }
+    const runData = startParsed.json && startParsed.json.data;
+    const runId = runData && runData.id;
+    if (!runId) throw new Error('Apify: start run response missing data.id');
+    const status = runData.status;
+    const defaultDatasetId = runData.defaultDatasetId;
+    const defaultKeyValueStoreId = runData.defaultKeyValueStoreId;
+    const runMeta = {
+      id: runId,
+      status,
+      defaultDatasetId,
+      defaultKeyValueStoreId,
+      consoleUrl: apifyConsoleRunUrl(runId),
+    };
+    if (tId != null) {
+      apifyAsyncRunByTabId.set(tId, { runId, token });
+    }
+    return { ok: true, run: runMeta };
+  } catch (e) {
+    if (e && e.name === 'AbortError' && runUserAc && runUserAc.signal.aborted) {
+      throw apifyUserCancelledRunError();
+    }
+    throw e;
+  } finally {
+    if (runUserAc && tId != null && apifyRunAbortByTabId.get(tId) === runUserAc) {
+      apifyRunAbortByTabId.delete(tId);
+    }
+  }
+}
+
+/**
+ * Poll an existing run until terminal; optionally load dataset items or OUTPUT (APIFY_RUN_START → this → APIFY_DATASET_ITEMS).
+ */
+async function cfsApifyRunWait(msg, tabId) {
+  const runId = msg.runId != null ? String(msg.runId).trim() : '';
+  if (!runId) throw new Error('Apify: runId required');
+  if (runId.length > APIFY_RUN_OR_DATASET_ID_MAX_LEN) {
+    throw new Error(`Apify: runId must be at most ${APIFY_RUN_OR_DATASET_ID_MAX_LEN} characters.`);
+  }
+  const qeRun = typeof CFS_apifyRunQueryParamsValidationError === 'function'
+    ? CFS_apifyRunQueryParamsValidationError(msg)
+    : null;
+  if (qeRun) throw new Error(`Apify: ${qeRun}`);
+  const token = await apifyResolveToken(msg);
+  if (!token) throw new Error('Missing Apify API token. Save it in Settings → Apify API token, or use a row token variable.');
+
+  let asyncMaxWaitMs = msg.asyncMaxWaitMs > 0 ? Number(msg.asyncMaxWaitMs) : 600000;
+  if (!Number.isFinite(asyncMaxWaitMs) || asyncMaxWaitMs < 1000) asyncMaxWaitMs = 600000;
+  if (asyncMaxWaitMs > APIFY_ASYNC_MAX_WAIT_MS_MAX) {
+    throw new Error(`Apify async max wait must be at most ${APIFY_ASYNC_MAX_WAIT_MS_MAX} ms`);
+  }
+  let pollIntervalMs = 500;
+  if (msg.pollIntervalMs != null && msg.pollIntervalMs !== '') {
+    const p = Number(msg.pollIntervalMs);
+    if (Number.isFinite(p) && p >= 0) pollIntervalMs = p;
+  }
+  if (pollIntervalMs > APIFY_POLL_INTERVAL_MS_MAX) {
+    throw new Error(`Apify poll interval must be at most ${APIFY_POLL_INTERVAL_MS_MAX} ms`);
+  }
+  let datasetMaxItems = msg.datasetMaxItems > 0 ? Number(msg.datasetMaxItems) : 0;
+  if (!Number.isFinite(datasetMaxItems) || datasetMaxItems < 0) datasetMaxItems = 0;
+  if (datasetMaxItems > APIFY_DATASET_MAX_ITEMS_CAP) {
+    throw new Error(`Apify datasetMaxItems must be at most ${APIFY_DATASET_MAX_ITEMS_CAP}`);
+  }
+  const fetchAfter = msg.fetchAfter === 'dataset' ? 'dataset'
+    : (msg.fetchAfter === 'output' ? 'output' : 'none');
+  const outputRecordKey = msg.outputRecordKey != null && String(msg.outputRecordKey).trim()
+    ? String(msg.outputRecordKey).trim()
+    : null;
+  if (outputRecordKey && outputRecordKey.length > APIFY_OUTPUT_RECORD_KEY_MAX_LEN) {
+    throw new Error(
+      `Apify OUTPUT record key must be at most ${APIFY_OUTPUT_RECORD_KEY_MAX_LEN} characters (after trim).`,
+    );
+  }
+
+  let runUserAc = null;
+  const tId = tabId != null && Number.isInteger(tabId) && tabId >= 0 ? tabId : null;
+  if (tId != null) {
+    const prev = apifyRunAbortByTabId.get(tId);
+    if (prev) try { prev.abort(); } catch (_) {}
+    runUserAc = new AbortController();
+    apifyRunAbortByTabId.set(tId, runUserAc);
+    apifyAsyncRunByTabId.set(tId, { runId, token });
+  }
+
+  const authHeaders = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+  };
+  const pollInitBase = { method: 'GET', mode: 'cors', headers: authHeaders };
+  if (runUserAc) pollInitBase.signal = runUserAc.signal;
+
+  let status = 'READY';
+  const runMeta = {
+    id: runId,
+    status,
+    defaultDatasetId: null,
+    defaultKeyValueStoreId: null,
+    consoleUrl: apifyConsoleRunUrl(runId),
+  };
+
+  try {
+    const deadline = Date.now() + asyncMaxWaitMs;
+    while (!APIFY_TERMINAL_STATUSES.has(status)) {
+      if (Date.now() >= deadline) {
+        const u = apifyConsoleRunUrl(runId);
+        throw new Error(
+          `Apify run ${runId} still ${status} after ${asyncMaxWaitMs} ms${u ? ` — ${u}` : ''}`,
+        );
+      }
+      const pollUrl = `${APIFY_API_BASE}/actor-runs/${encodeURIComponent(runId)}?waitForFinish=60`;
+      const { json: pollJson } = await apifyFetchGetResilient(
+        pollUrl,
+        pollInitBase,
+        'poll run',
+        runId,
+      );
+      const d = pollJson && pollJson.data;
+      if (d && d.status) status = d.status;
+      runMeta.status = status;
+      if (d && d.defaultDatasetId) runMeta.defaultDatasetId = d.defaultDatasetId;
+      if (d && d.defaultKeyValueStoreId) runMeta.defaultKeyValueStoreId = d.defaultKeyValueStoreId;
+      if (!APIFY_TERMINAL_STATUSES.has(status) && pollIntervalMs > 0) {
+        await cfsAbortableSleep(pollIntervalMs, runUserAc ? runUserAc.signal : null);
+      }
+    }
+
+    if (status !== 'SUCCEEDED') {
+      const u = apifyConsoleRunUrl(runId);
+      throw new Error(
+        `Apify run ${runId} finished with status ${status}.${u ? ` Inspect: ${u}` : ''}`,
+      );
+    }
+
+    if (fetchAfter === 'none') {
+      return { ok: true, items: [], run: runMeta };
+    }
+
+    if (fetchAfter === 'output') {
+      const outKey = outputRecordKey || 'OUTPUT';
+      const output = await apifyFetchKvRecordJson(
+        token,
+        runMeta.defaultKeyValueStoreId,
+        outKey,
+        runId,
+        runUserAc ? runUserAc.signal : null,
+      );
+      return { ok: true, output, items: [], run: runMeta };
+    }
+
+    const dsId = runMeta.defaultDatasetId;
+    if (!dsId) {
+      const u = apifyConsoleRunUrl(runId);
+      throw new Error(
+        `Apify run ${runId} succeeded but no default dataset id was returned. Use fetchAfter "output" or APIFY_DATASET_ITEMS with a known dataset id.${u ? ` ${u}` : ''}`,
+      );
+    }
+    const itemQuery = apifyDatasetItemQueryFromMsg(msg);
+    const items = await apifyCollectDatasetItems(
+      token,
+      dsId,
+      datasetMaxItems,
+      itemQuery,
+      runUserAc ? runUserAc.signal : null,
+    );
+    return { ok: true, items, run: runMeta };
+  } catch (e) {
+    if (e && e.name === 'AbortError' && runUserAc && runUserAc.signal.aborted) {
+      throw apifyUserCancelledRunError();
+    }
+    throw e;
+  } finally {
+    if (runUserAc && tId != null && apifyRunAbortByTabId.get(tId) === runUserAc) {
+      apifyRunAbortByTabId.delete(tId);
+    }
+    if (tId != null) {
+      apifyAsyncRunByTabId.delete(tId);
+    }
+  }
+}
+
+/** Page default dataset items by id (no actor run). */
+async function cfsApifyDatasetItems(msg, tabId) {
+  const datasetId = msg.datasetId != null ? String(msg.datasetId).trim() : '';
+  if (!datasetId) throw new Error('Apify: datasetId required');
+  if (datasetId.length > APIFY_RUN_OR_DATASET_ID_MAX_LEN) {
+    throw new Error(`Apify: datasetId must be at most ${APIFY_RUN_OR_DATASET_ID_MAX_LEN} characters.`);
+  }
+  let datasetMaxItems = msg.datasetMaxItems > 0 ? Number(msg.datasetMaxItems) : 0;
+  if (!Number.isFinite(datasetMaxItems) || datasetMaxItems < 0) datasetMaxItems = 0;
+  if (datasetMaxItems > APIFY_DATASET_MAX_ITEMS_CAP) {
+    throw new Error(`Apify datasetMaxItems must be at most ${APIFY_DATASET_MAX_ITEMS_CAP}`);
+  }
+  const token = await apifyResolveToken(msg);
+  if (!token) throw new Error('Missing Apify API token. Save it in Settings → Apify API token, or use a row token variable.');
+
+  let runUserAc = null;
+  const tId = tabId != null && Number.isInteger(tabId) && tabId >= 0 ? tabId : null;
+  if (tId != null) {
+    const prev = apifyRunAbortByTabId.get(tId);
+    if (prev) try { prev.abort(); } catch (_) {}
+    runUserAc = new AbortController();
+    apifyRunAbortByTabId.set(tId, runUserAc);
+  }
+
+  try {
+    const itemQuery = apifyDatasetItemQueryFromMsg(msg);
+    const items = await apifyCollectDatasetItems(
+      token,
+      datasetId,
+      datasetMaxItems,
+      itemQuery,
+      runUserAc ? runUserAc.signal : null,
+    );
+    return { ok: true, items };
+  } catch (e) {
+    if (e && e.name === 'AbortError' && runUserAc && runUserAc.signal.aborted) {
+      throw apifyUserCancelledRunError();
+    }
+    throw e;
+  } finally {
+    if (runUserAc && tId != null && apifyRunAbortByTabId.get(tId) === runUserAc) {
+      apifyRunAbortByTabId.delete(tId);
+    }
+  }
+}
+
 function waitForTabComplete(tabId, timeoutMs = 45000) {
   return new Promise((resolve) => {
     const listener = (id, info) => {
@@ -282,6 +1363,9 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
   if (!startUrl.startsWith('http')) startUrl = 'https://' + startUrl;
   const resolved = resolveNestedWorkflowsInBackground(analyzed, workflows);
   if (!resolved) return mkHistoryEntry(entry, 'failed', 'Nested workflow resolution failed');
+  const scheduledPlaybackMs = cfsWorkflowContainsStepType(resolved, 'apifyActorRun')
+    ? CFS_SCHEDULED_PLAYBACK_LONG_MS
+    : CFS_SCHEDULED_PLAYBACK_SHORT_MS;
   const runStartedAt = Date.now();
   const tabsOpened = [];
   const windowsOpened = [];
@@ -304,7 +1388,10 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
             else resolve(resp || {});
           });
         }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Playback timed out')), 300000)),
+        new Promise((_, rej) => setTimeout(
+          () => rej(new Error(`Playback timed out after ${scheduledPlaybackMs / 60000} minutes`)),
+          scheduledPlaybackMs,
+        )),
       ]).catch((e) => ({ ok: false, error: e?.message || 'timeout' }));
       if (res?.navigate && res.url != null) {
         await chrome.tabs.update(tabId, { url: res.url });
@@ -380,7 +1467,11 @@ async function runRecurringScheduledRuns() {
     const nowInZone = getNowInTimezone(tz);
     if (!shouldRunRecurring(entry, nowInZone)) continue;
     newHistoryEntries.push(await executeScheduledWorkflowEntry(entry, workflows));
-    entry.lastRunAt = nowInZone.dateStr;
+    if ((entry.pattern || 'daily').toLowerCase() === 'interval') {
+      entry.lastRunAtMs = Date.now();
+    } else {
+      entry.lastRunAt = nowInZone.dateStr;
+    }
     listUpdated = true;
   }
   if (listUpdated) await chrome.storage.local.set({ scheduledWorkflowRuns: list });
@@ -396,17 +1487,36 @@ chrome.runtime.onInstalled.addListener(() => {
     .catch((err) => console.error(err));
   scheduleAlarmForNextRun();
   setupUploadPostJwtAlarm();
+  try {
+    if (typeof globalThis.__CFS_solanaWatch_setupAlarm === 'function') globalThis.__CFS_solanaWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_bscWatch_setupAlarm === 'function') globalThis.__CFS_bscWatch_setupAlarm();
+  } catch (_) {}
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SCHEDULED_ALARM_NAME) runScheduledRuns();
   else if (alarm.name === RECURRING_ALARM_NAME) runRecurringScheduledRuns();
   else if (alarm.name === UPLOAD_POST_JWT_ALARM) refreshUploadPostJwts();
+  else if (alarm.name === 'cfs_solana_watch_poll') {
+    const tick = globalThis.__CFS_solanaWatch_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
+  } else if (alarm.name === 'cfs_bsc_watch_poll') {
+    const tick = globalThis.__CFS_bscWatch_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   scheduleAlarmForNextRun();
   setupUploadPostJwtAlarm();
+  try {
+    if (typeof globalThis.__CFS_solanaWatch_setupAlarm === 'function') globalThis.__CFS_solanaWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_bscWatch_setupAlarm === 'function') globalThis.__CFS_bscWatch_setupAlarm();
+  } catch (_) {}
 });
 
 const OFFSCREEN_CONFIG = {
@@ -419,6 +1529,18 @@ const OFFSCREEN_CONFIG = {
     reasons: ['DISPLAY_MEDIA', 'USER_MEDIA'],
     match: 'screen-recorder',
     justification: 'Screen/tab/mic/webcam recording via getDisplayMedia, getUserMedia, and MediaRecorder',
+  },
+  projectFolderIo: {
+    url: 'offscreen/project-folder-io.html',
+    reasons: ['DOM_SCRAPING'],
+    match: 'project-folder-io',
+    justification: 'Read/write project folder files for workflow JSON steps (File System Access via stored handle)',
+  },
+  asterUserStream: {
+    url: 'offscreen/aster-user-stream.html',
+    reasons: ['DOM_SCRAPING'],
+    match: 'aster-user-stream',
+    justification: 'Aster futures/spot user-data WebSocket: wait for a matching event',
   },
 };
 
@@ -485,6 +1607,41 @@ async function acquireOffscreen(type) {
   return release;
 }
 
+function isAllowedAsterUserStreamWsUrl(url) {
+  try {
+    const u = new URL(String(url || '').trim());
+    if (u.protocol !== 'wss:') return false;
+    const h = u.hostname.toLowerCase();
+    if (h !== 'fstream.asterdex.com' && h !== 'sstream.asterdex.com') return false;
+    const p = u.pathname || '';
+    if (!/^\/ws\/.+/i.test(p)) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function inferAsterListenKeyMarketFromWsUrl(wsUrl) {
+  try {
+    const h = new URL(String(wsUrl || '').trim()).hostname.toLowerCase();
+    if (h === 'fstream.asterdex.com') return 'futures';
+    if (h === 'sstream.asterdex.com') return 'spot';
+  } catch (_) {
+    return '';
+  }
+  return '';
+}
+
+function extractAsterUserStreamListenKeyFromPathname(pathname) {
+  try {
+    const m = String(pathname || '').match(/^\/ws\/(.+)/i);
+    if (!m) return '';
+    return decodeURIComponent(m[1].split('/')[0] || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
 // Project-folder step handlers (synced from sidepanel). Persisted to storage so they survive extension reload.
 const CFS_PROJECT_STEP_HANDLERS_KEY = 'cfs_project_step_handlers';
 let projectStepHandlers = { stepIds: [], codeById: {} };
@@ -510,8 +1667,68 @@ function loadProjectStepHandlersFromStorage(callback) {
   });
 }
 
+/** Web pages allowed to call STORE_TOKENS via chrome.runtime.sendMessage(extensionId, …). */
+function cfsWhopIsTrustedAuthPageUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  try {
+    const u = new URL(urlStr);
+    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return true;
+    if (u.protocol === 'https:' && (u.hostname === 'extensiblecontent.com' || u.hostname.endsWith('.extensiblecontent.com'))) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * Persist Whop tokens from STORE_TOKENS (nested tokens.data, camelCase, or flat access_token on msg).
+ * @returns {Promise<void>}
+ */
+function cfsWhopApplyStoreTokens(msg) {
+  if (!msg || typeof msg !== 'object') return Promise.reject(new Error('Invalid message'));
+  let rawTokens = msg.tokens;
+  if (rawTokens && typeof rawTokens === 'object' && rawTokens.data && typeof rawTokens.data === 'object') {
+    rawTokens = rawTokens.data;
+  }
+  if (!rawTokens || typeof rawTokens !== 'object') {
+    if (msg.access_token || msg.accessToken) {
+      rawTokens = {
+        access_token: msg.access_token || msg.accessToken,
+        refresh_token: msg.refresh_token || msg.refreshToken,
+        expires_in: msg.expires_in ?? msg.expiresIn,
+      };
+    }
+  }
+  const t = rawTokens && typeof rawTokens === 'object' ? rawTokens : {};
+  const access_token = String(t.access_token || t.accessToken || '').trim();
+  if (!access_token) return Promise.reject(new Error('No access token in payload'));
+  const refresh_token = t.refresh_token || t.refreshToken || '';
+  let expires_in = t.expires_in ?? t.expiresIn;
+  if (typeof expires_in !== 'number' || !Number.isFinite(expires_in) || expires_in < 0) expires_in = 3600;
+  const u = msg.user && typeof msg.user === 'object' ? msg.user : {};
+  const stored = {
+    access_token,
+    refresh_token,
+    expires_in,
+    obtained_at: Date.now(),
+    user: { id: u.id ?? '', email: u.email ?? '' },
+  };
+  return chrome.storage.local.set({ whop_auth: stored });
+}
+
 /** Per-handler payload validation. Returns { valid, error } for optional use before processing. */
 function validateMessagePayload(type, msg) {
+  function validateInfiBinPathJsonField(pathJsonStr, currencyInField) {
+    const parseShapeFn = globalThis.CFS_parseInfiBinPathJsonShape;
+    const chainErrFn = globalThis.CFS_infiBinPathCurrencyChainError;
+    if (typeof parseShapeFn !== 'function' || typeof chainErrFn !== 'function') {
+      return 'Infinity path validators missing';
+    }
+    const shaped = parseShapeFn(String(pathJsonStr).trim());
+    if (!shaped.ok) return shaped.error;
+    const cErr = chainErrFn(currencyInField, shaped.hops);
+    return cErr || null;
+  }
   switch (type) {
     case 'INJECT_STEP_HANDLERS':
       if (msg.files != null && !Array.isArray(msg.files)) return { valid: false, error: 'files must be array' };
@@ -527,6 +1744,1136 @@ function validateMessagePayload(type, msg) {
       break;
     case 'SEND_TO_ENDPOINT':
       if (!msg.url || typeof msg.url !== 'string') return { valid: false, error: 'url required' };
+      break;
+    case 'APIFY_TEST_TOKEN':
+      if (msg.token != null && String(msg.token).trim().length > APIFY_TOKEN_MAX_LEN) {
+        return { valid: false, error: `token exceeds ${APIFY_TOKEN_MAX_LEN} characters` };
+      }
+      break;
+    case 'APIFY_RUN_CANCEL':
+      if (msg.tabId != null && msg.tabId !== '') {
+        const x = Number(msg.tabId);
+        if (!Number.isInteger(x) || x < 0) {
+          return { valid: false, error: 'tabId must be a non-negative integer when provided' };
+        }
+      }
+      break;
+    case 'APIFY_RUN':
+      if (msg.targetType !== 'actor' && msg.targetType !== 'task') {
+        return { valid: false, error: 'targetType must be actor or task' };
+      }
+      if (!msg.resourceId || typeof msg.resourceId !== 'string' || !String(msg.resourceId).trim()) {
+        return { valid: false, error: 'resourceId required' };
+      }
+      if (String(msg.resourceId).trim().length > APIFY_RESOURCE_ID_MAX_LEN) {
+        return { valid: false, error: `resourceId exceeds ${APIFY_RESOURCE_ID_MAX_LEN} characters` };
+      }
+      if (msg.token != null && String(msg.token).trim().length > APIFY_TOKEN_MAX_LEN) {
+        return { valid: false, error: `token exceeds ${APIFY_TOKEN_MAX_LEN} characters` };
+      }
+      if (msg.mode !== 'syncDataset' && msg.mode !== 'syncOutput' && msg.mode !== 'asyncPoll') {
+        return { valid: false, error: 'mode must be syncDataset, syncOutput, or asyncPoll' };
+      }
+      if (msg.asyncResultType != null && String(msg.asyncResultType) !== ''
+        && msg.asyncResultType !== 'dataset' && msg.asyncResultType !== 'output') {
+        return { valid: false, error: 'asyncResultType must be dataset or output' };
+      }
+      if (msg.apifySyncDatasetFields != null && String(msg.apifySyncDatasetFields).length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+        return { valid: false, error: `apifySyncDatasetFields exceeds ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters` };
+      }
+      if (msg.apifySyncDatasetOmit != null && String(msg.apifySyncDatasetOmit).length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+        return { valid: false, error: `apifySyncDatasetOmit exceeds ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters` };
+      }
+      if (msg.input != null) {
+        if (typeof msg.input !== 'object' || Array.isArray(msg.input)) {
+          return { valid: false, error: 'input must be a plain object when provided' };
+        }
+        let inputStr;
+        try {
+          inputStr = JSON.stringify(msg.input);
+        } catch (_) {
+          return { valid: false, error: 'input must be JSON-serializable' };
+        }
+        const inputBytes = new TextEncoder().encode(inputStr).length;
+        if (inputBytes > APIFY_INPUT_JSON_MAX_BYTES) {
+          return { valid: false, error: `Apify input JSON exceeds ${APIFY_INPUT_JSON_MAX_BYTES} bytes (UTF-8)` };
+        }
+      }
+      if (msg.outputRecordKey != null && String(msg.outputRecordKey).length > APIFY_OUTPUT_RECORD_KEY_MAX_LEN) {
+        return { valid: false, error: `outputRecordKey exceeds ${APIFY_OUTPUT_RECORD_KEY_MAX_LEN} characters` };
+      }
+      if (msg.apifyBuild != null && String(msg.apifyBuild).trim().length > APIFY_BUILD_MAX_LEN) {
+        return { valid: false, error: `apifyBuild exceeds ${APIFY_BUILD_MAX_LEN} characters (after trim)` };
+      }
+      if (msg.syncTimeoutMs != null && msg.syncTimeoutMs !== '') {
+        const st = Number(msg.syncTimeoutMs);
+        if (Number.isFinite(st) && st < 1000) {
+          return { valid: false, error: 'syncTimeoutMs must be at least 1000 ms when set' };
+        }
+        if (Number.isFinite(st) && st > APIFY_SYNC_TIMEOUT_MS_MAX) {
+          return { valid: false, error: `syncTimeoutMs exceeds ${APIFY_SYNC_TIMEOUT_MS_MAX} ms` };
+        }
+      }
+      if (msg.asyncMaxWaitMs != null && msg.asyncMaxWaitMs !== '') {
+        const am = Number(msg.asyncMaxWaitMs);
+        if (Number.isFinite(am) && am < 1000) {
+          return { valid: false, error: 'asyncMaxWaitMs must be at least 1000 ms when set' };
+        }
+        if (Number.isFinite(am) && am > APIFY_ASYNC_MAX_WAIT_MS_MAX) {
+          return { valid: false, error: `asyncMaxWaitMs exceeds ${APIFY_ASYNC_MAX_WAIT_MS_MAX} ms` };
+        }
+      }
+      if (msg.pollIntervalMs != null && msg.pollIntervalMs !== '') {
+        const pi = Number(msg.pollIntervalMs);
+        if (Number.isFinite(pi) && pi < 0) {
+          return { valid: false, error: 'pollIntervalMs must be non-negative' };
+        }
+        if (Number.isFinite(pi) && pi > APIFY_POLL_INTERVAL_MS_MAX) {
+          return { valid: false, error: `pollIntervalMs exceeds ${APIFY_POLL_INTERVAL_MS_MAX} ms` };
+        }
+      }
+      if (msg.datasetMaxItems != null && msg.datasetMaxItems !== '') {
+        const dm = Number(msg.datasetMaxItems);
+        if (Number.isFinite(dm) && dm < 0) {
+          return { valid: false, error: 'datasetMaxItems must be non-negative' };
+        }
+        if (Number.isFinite(dm) && dm > APIFY_DATASET_MAX_ITEMS_CAP) {
+          return { valid: false, error: `datasetMaxItems exceeds ${APIFY_DATASET_MAX_ITEMS_CAP}` };
+        }
+      }
+      {
+        const qe = typeof CFS_apifyRunQueryParamsValidationError === 'function'
+          ? CFS_apifyRunQueryParamsValidationError(msg)
+          : null;
+        if (qe) return { valid: false, error: qe };
+      }
+      break;
+    case 'APIFY_RUN_START':
+      if (msg.targetType !== 'actor' && msg.targetType !== 'task') {
+        return { valid: false, error: 'targetType must be actor or task' };
+      }
+      if (!msg.resourceId || typeof msg.resourceId !== 'string' || !String(msg.resourceId).trim()) {
+        return { valid: false, error: 'resourceId required' };
+      }
+      if (String(msg.resourceId).trim().length > APIFY_RESOURCE_ID_MAX_LEN) {
+        return { valid: false, error: `resourceId exceeds ${APIFY_RESOURCE_ID_MAX_LEN} characters` };
+      }
+      if (msg.token != null && String(msg.token).trim().length > APIFY_TOKEN_MAX_LEN) {
+        return { valid: false, error: `token exceeds ${APIFY_TOKEN_MAX_LEN} characters` };
+      }
+      if (msg.input != null) {
+        if (typeof msg.input !== 'object' || Array.isArray(msg.input)) {
+          return { valid: false, error: 'input must be a plain object when provided' };
+        }
+        let inputStr;
+        try {
+          inputStr = JSON.stringify(msg.input);
+        } catch (_) {
+          return { valid: false, error: 'input must be JSON-serializable' };
+        }
+        const inputBytes = new TextEncoder().encode(inputStr).length;
+        if (inputBytes > APIFY_INPUT_JSON_MAX_BYTES) {
+          return { valid: false, error: `Apify input JSON exceeds ${APIFY_INPUT_JSON_MAX_BYTES} bytes (UTF-8)` };
+        }
+      }
+      if (msg.apifyBuild != null && String(msg.apifyBuild).trim().length > APIFY_BUILD_MAX_LEN) {
+        return { valid: false, error: `apifyBuild exceeds ${APIFY_BUILD_MAX_LEN} characters (after trim)` };
+      }
+      {
+        const qe = typeof CFS_apifyRunQueryParamsValidationError === 'function'
+          ? CFS_apifyRunQueryParamsValidationError(msg)
+          : null;
+        if (qe) return { valid: false, error: qe };
+      }
+      break;
+    case 'APIFY_RUN_WAIT':
+      if (!msg.runId || typeof msg.runId !== 'string' || !String(msg.runId).trim()) {
+        return { valid: false, error: 'runId required' };
+      }
+      if (String(msg.runId).trim().length > APIFY_RUN_OR_DATASET_ID_MAX_LEN) {
+        return { valid: false, error: `runId exceeds ${APIFY_RUN_OR_DATASET_ID_MAX_LEN} characters` };
+      }
+      if (msg.token != null && String(msg.token).trim().length > APIFY_TOKEN_MAX_LEN) {
+        return { valid: false, error: `token exceeds ${APIFY_TOKEN_MAX_LEN} characters` };
+      }
+      if (msg.fetchAfter != null && String(msg.fetchAfter) !== ''
+        && msg.fetchAfter !== 'none' && msg.fetchAfter !== 'dataset' && msg.fetchAfter !== 'output') {
+        return { valid: false, error: 'fetchAfter must be none, dataset, or output' };
+      }
+      if (msg.apifySyncDatasetFields != null && String(msg.apifySyncDatasetFields).length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+        return { valid: false, error: `apifySyncDatasetFields exceeds ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters` };
+      }
+      if (msg.apifySyncDatasetOmit != null && String(msg.apifySyncDatasetOmit).length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+        return { valid: false, error: `apifySyncDatasetOmit exceeds ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters` };
+      }
+      if (msg.outputRecordKey != null && String(msg.outputRecordKey).length > APIFY_OUTPUT_RECORD_KEY_MAX_LEN) {
+        return { valid: false, error: `outputRecordKey exceeds ${APIFY_OUTPUT_RECORD_KEY_MAX_LEN} characters` };
+      }
+      if (msg.asyncMaxWaitMs != null && msg.asyncMaxWaitMs !== '') {
+        const am = Number(msg.asyncMaxWaitMs);
+        if (Number.isFinite(am) && am < 1000) {
+          return { valid: false, error: 'asyncMaxWaitMs must be at least 1000 ms when set' };
+        }
+        if (Number.isFinite(am) && am > APIFY_ASYNC_MAX_WAIT_MS_MAX) {
+          return { valid: false, error: `asyncMaxWaitMs exceeds ${APIFY_ASYNC_MAX_WAIT_MS_MAX} ms` };
+        }
+      }
+      if (msg.pollIntervalMs != null && msg.pollIntervalMs !== '') {
+        const pi = Number(msg.pollIntervalMs);
+        if (Number.isFinite(pi) && pi < 0) {
+          return { valid: false, error: 'pollIntervalMs must be non-negative' };
+        }
+        if (Number.isFinite(pi) && pi > APIFY_POLL_INTERVAL_MS_MAX) {
+          return { valid: false, error: `pollIntervalMs exceeds ${APIFY_POLL_INTERVAL_MS_MAX} ms` };
+        }
+      }
+      if (msg.datasetMaxItems != null && msg.datasetMaxItems !== '') {
+        const dm = Number(msg.datasetMaxItems);
+        if (Number.isFinite(dm) && dm < 0) {
+          return { valid: false, error: 'datasetMaxItems must be non-negative' };
+        }
+        if (Number.isFinite(dm) && dm > APIFY_DATASET_MAX_ITEMS_CAP) {
+          return { valid: false, error: `datasetMaxItems exceeds ${APIFY_DATASET_MAX_ITEMS_CAP}` };
+        }
+      }
+      {
+        const qe = typeof CFS_apifyRunQueryParamsValidationError === 'function'
+          ? CFS_apifyRunQueryParamsValidationError(msg)
+          : null;
+        if (qe) return { valid: false, error: qe };
+      }
+      break;
+    case 'APIFY_DATASET_ITEMS':
+      if (!msg.datasetId || typeof msg.datasetId !== 'string' || !String(msg.datasetId).trim()) {
+        return { valid: false, error: 'datasetId required' };
+      }
+      if (String(msg.datasetId).trim().length > APIFY_RUN_OR_DATASET_ID_MAX_LEN) {
+        return { valid: false, error: `datasetId exceeds ${APIFY_RUN_OR_DATASET_ID_MAX_LEN} characters` };
+      }
+      if (msg.token != null && String(msg.token).trim().length > APIFY_TOKEN_MAX_LEN) {
+        return { valid: false, error: `token exceeds ${APIFY_TOKEN_MAX_LEN} characters` };
+      }
+      if (msg.apifySyncDatasetFields != null && String(msg.apifySyncDatasetFields).length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+        return { valid: false, error: `apifySyncDatasetFields exceeds ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters` };
+      }
+      if (msg.apifySyncDatasetOmit != null && String(msg.apifySyncDatasetOmit).length > APIFY_DATASET_FIELDS_OMIT_MAX_LEN) {
+        return { valid: false, error: `apifySyncDatasetOmit exceeds ${APIFY_DATASET_FIELDS_OMIT_MAX_LEN} characters` };
+      }
+      if (msg.datasetMaxItems != null && msg.datasetMaxItems !== '') {
+        const dm = Number(msg.datasetMaxItems);
+        if (Number.isFinite(dm) && dm < 0) {
+          return { valid: false, error: 'datasetMaxItems must be non-negative' };
+        }
+        if (Number.isFinite(dm) && dm > APIFY_DATASET_MAX_ITEMS_CAP) {
+          return { valid: false, error: `datasetMaxItems exceeds ${APIFY_DATASET_MAX_ITEMS_CAP}` };
+        }
+      }
+      break;
+    case 'CFS_SOLANA_EXECUTE_SWAP':
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountRaw == null || String(msg.amountRaw).trim() === '') return { valid: false, error: 'amountRaw required' };
+      if (msg.jupiterCrossCheckMaxDeviationBps != null && msg.jupiterCrossCheckMaxDeviationBps !== '') {
+        const cb = Number(msg.jupiterCrossCheckMaxDeviationBps);
+        if (!Number.isFinite(cb) || cb < 0 || cb > 10000) {
+          return { valid: false, error: 'jupiterCrossCheckMaxDeviationBps must be 0–10000' };
+        }
+      }
+      break;
+    case 'CFS_SOLANA_TRANSFER_SOL':
+      if (!msg.toPubkey || typeof msg.toPubkey !== 'string') return { valid: false, error: 'toPubkey required' };
+      if (msg.lamports == null || String(msg.lamports).trim() === '') return { valid: false, error: 'lamports required' };
+      break;
+    case 'CFS_SOLANA_TRANSFER_SPL': {
+      const toDest =
+        (msg.toOwner != null && String(msg.toOwner).trim()) || (msg.toPubkey != null && String(msg.toPubkey).trim());
+      if (!msg.mint || typeof msg.mint !== 'string') return { valid: false, error: 'mint required' };
+      if (!toDest) return { valid: false, error: 'toOwner required (destination wallet pubkey)' };
+      if (msg.amountRaw == null || String(msg.amountRaw).trim() === '') return { valid: false, error: 'amountRaw required' };
+      break;
+    }
+    case 'CFS_SOLANA_ENSURE_TOKEN_ACCOUNT':
+      if (!msg.mint || typeof msg.mint !== 'string' || !String(msg.mint).trim()) {
+        return { valid: false, error: 'mint required' };
+      }
+      break;
+    case 'CFS_SOLANA_WRAP_SOL':
+      if (msg.lamports == null || String(msg.lamports).trim() === '') {
+        return { valid: false, error: 'lamports required' };
+      }
+      break;
+    case 'CFS_SOLANA_UNWRAP_WSOL':
+      break;
+    case 'CFS_SOLANA_RPC_READ': {
+      const rk = msg.readKind != null ? String(msg.readKind).trim() : '';
+      if (
+        rk !== 'nativeBalance' &&
+        rk !== 'tokenBalance' &&
+        rk !== 'mintInfo' &&
+        rk !== 'metaplexMetadata'
+      ) {
+        return {
+          valid: false,
+          error: 'readKind must be nativeBalance, tokenBalance, mintInfo, or metaplexMetadata',
+        };
+      }
+      if (
+        (rk === 'tokenBalance' || rk === 'mintInfo' || rk === 'metaplexMetadata') &&
+        (!msg.mint || typeof msg.mint !== 'string' || !String(msg.mint).trim())
+      ) {
+        return { valid: false, error: 'mint required for tokenBalance, mintInfo, and metaplexMetadata' };
+      }
+      if (
+        rk === 'mintInfo' &&
+        msg.fetchMetaplexUriBody === true &&
+        msg.includeMetaplexMetadata !== true
+      ) {
+        return {
+          valid: false,
+          error: 'includeMetaplexMetadata required when fetchMetaplexUriBody is set on mintInfo',
+        };
+      }
+      break;
+    }
+    case 'CFS_PUMPFUN_BUY':
+      if (!msg.mint || typeof msg.mint !== 'string') return { valid: false, error: 'mint required' };
+      if (msg.solLamports == null || String(msg.solLamports).trim() === '') return { valid: false, error: 'solLamports required' };
+      break;
+    case 'CFS_PUMPFUN_SELL':
+      if (!msg.mint || typeof msg.mint !== 'string') return { valid: false, error: 'mint required' };
+      if (msg.tokenAmountRaw == null || String(msg.tokenAmountRaw).trim() === '') return { valid: false, error: 'tokenAmountRaw required' };
+      break;
+    case 'CFS_PUMPFUN_MARKET_PROBE':
+      if (!msg.mint || typeof msg.mint !== 'string') return { valid: false, error: 'mint required' };
+      break;
+    case 'CFS_SOLANA_SELLABILITY_PROBE':
+      if (!msg.mint || typeof msg.mint !== 'string' || !String(msg.mint).trim()) {
+        return { valid: false, error: 'mint required' };
+      }
+      if (msg.spendUsdApprox != null && String(msg.spendUsdApprox).trim() !== '') {
+        const n = Number(msg.spendUsdApprox);
+        if (!Number.isFinite(n) || n <= 0) return { valid: false, error: 'spendUsdApprox must be a positive number' };
+      }
+      if (msg.jupiterCrossCheckMaxDeviationBps != null && msg.jupiterCrossCheckMaxDeviationBps !== '') {
+        const cb = Number(msg.jupiterCrossCheckMaxDeviationBps);
+        if (!Number.isFinite(cb) || cb < 0 || cb > 10000) {
+          return { valid: false, error: 'jupiterCrossCheckMaxDeviationBps must be 0–10000' };
+        }
+      }
+      break;
+    case 'CFS_METEORA_DLMM_ADD_LIQUIDITY':
+      if (!msg.lbPair || typeof msg.lbPair !== 'string') return { valid: false, error: 'lbPair required' };
+      break;
+    case 'CFS_METEORA_DLMM_REMOVE_LIQUIDITY':
+    case 'CFS_METEORA_DLMM_CLAIM_REWARDS':
+      if (!msg.lbPair || typeof msg.lbPair !== 'string') return { valid: false, error: 'lbPair required' };
+      if (!msg.position || typeof msg.position !== 'string') return { valid: false, error: 'position required' };
+      break;
+    case 'CFS_METEORA_CPAMM_ADD_LIQUIDITY': {
+      const hasPool = msg.pool && typeof msg.pool === 'string' && String(msg.pool).trim() !== '';
+      const hasPos = msg.position && typeof msg.position === 'string' && String(msg.position).trim() !== '';
+      if (!hasPool && !hasPos) return { valid: false, error: 'pool (new position) or position (increase) required' };
+      break;
+    }
+    case 'CFS_METEORA_CPAMM_REMOVE_LIQUIDITY':
+    case 'CFS_METEORA_CPAMM_CLAIM_FEES':
+    case 'CFS_METEORA_CPAMM_CLAIM_REWARD':
+      if (!msg.position || typeof msg.position !== 'string') return { valid: false, error: 'position required' };
+      break;
+    case 'CFS_METEORA_CPAMM_DECREASE_LIQUIDITY':
+      if (!msg.position || typeof msg.position !== 'string') return { valid: false, error: 'position required' };
+      if (msg.removeLiquidityBps == null || String(msg.removeLiquidityBps).trim() === '') {
+        return { valid: false, error: 'removeLiquidityBps required' };
+      }
+      break;
+    case 'CFS_METEORA_CPAMM_SWAP':
+    case 'CFS_METEORA_CPAMM_QUOTE_SWAP':
+      if (!msg.pool || typeof msg.pool !== 'string') return { valid: false, error: 'pool required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') {
+        return { valid: false, error: 'amountInRaw required' };
+      }
+      break;
+    case 'CFS_METEORA_CPAMM_SWAP_EXACT_OUT':
+    case 'CFS_METEORA_CPAMM_QUOTE_SWAP_EXACT_OUT':
+      if (!msg.pool || typeof msg.pool !== 'string') return { valid: false, error: 'pool required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountOutRaw == null || String(msg.amountOutRaw).trim() === '') {
+        return { valid: false, error: 'amountOutRaw required' };
+      }
+      break;
+    case 'CFS_RAYDIUM_ADD_LIQUIDITY':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') return { valid: false, error: 'amountInRaw required' };
+      break;
+    case 'CFS_RAYDIUM_REMOVE_LIQUIDITY':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (msg.lpAmountRaw == null || String(msg.lpAmountRaw).trim() === '') return { valid: false, error: 'lpAmountRaw required' };
+      break;
+    case 'CFS_RAYDIUM_SWAP_STANDARD':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') return { valid: false, error: 'amountInRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_SWAP_BASE_IN':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') return { valid: false, error: 'amountInRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_SWAP_BASE_OUT':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountOutRaw == null || String(msg.amountOutRaw).trim() === '') return { valid: false, error: 'amountOutRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_QUOTE_BASE_IN':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') return { valid: false, error: 'amountInRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_QUOTE_BASE_OUT':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (msg.amountOutRaw == null || String(msg.amountOutRaw).trim() === '') return { valid: false, error: 'amountOutRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CPMM_ADD_LIQUIDITY':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') return { valid: false, error: 'amountInRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CPMM_REMOVE_LIQUIDITY':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (msg.lpAmountRaw == null || String(msg.lpAmountRaw).trim() === '') return { valid: false, error: 'lpAmountRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_OPEN_POSITION':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (msg.tickLower == null || msg.tickUpper == null) return { valid: false, error: 'tickLower and tickUpper required' };
+      if (msg.baseAmountRaw == null || String(msg.baseAmountRaw).trim() === '') return { valid: false, error: 'baseAmountRaw required' };
+      if (msg.otherAmountMaxRaw == null || String(msg.otherAmountMaxRaw).trim() === '') return { valid: false, error: 'otherAmountMaxRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_OPEN_POSITION_FROM_LIQUIDITY':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (msg.tickLower == null || msg.tickUpper == null) return { valid: false, error: 'tickLower and tickUpper required' };
+      if (msg.liquidityRaw == null || String(msg.liquidityRaw).trim() === '') return { valid: false, error: 'liquidityRaw required' };
+      if (msg.amountMaxARaw == null || String(msg.amountMaxARaw).trim() === '') return { valid: false, error: 'amountMaxARaw required' };
+      if (msg.amountMaxBRaw == null || String(msg.amountMaxBRaw).trim() === '') return { valid: false, error: 'amountMaxBRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_COLLECT_REWARD':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.rewardMint || typeof msg.rewardMint !== 'string') return { valid: false, error: 'rewardMint required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_COLLECT_REWARDS':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.rewardMints || String(msg.rewardMints).trim() === '') return { valid: false, error: 'rewardMints required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_HARVEST_LOCK_POSITION':
+      if (!msg.lockNftMint || typeof msg.lockNftMint !== 'string') return { valid: false, error: 'lockNftMint required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_LOCK_POSITION':
+    case 'CFS_RAYDIUM_CLMM_CLOSE_POSITION':
+      if (!msg.positionNftMint || typeof msg.positionNftMint !== 'string') return { valid: false, error: 'positionNftMint required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_BASE':
+      if (!msg.positionNftMint || typeof msg.positionNftMint !== 'string') return { valid: false, error: 'positionNftMint required' };
+      if (msg.baseAmountRaw == null || String(msg.baseAmountRaw).trim() === '') return { valid: false, error: 'baseAmountRaw required' };
+      if (msg.otherAmountMaxRaw == null || String(msg.otherAmountMaxRaw).trim() === '') return { valid: false, error: 'otherAmountMaxRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_LIQUIDITY':
+      if (!msg.positionNftMint || typeof msg.positionNftMint !== 'string') return { valid: false, error: 'positionNftMint required' };
+      if (msg.liquidityRaw == null || String(msg.liquidityRaw).trim() === '') return { valid: false, error: 'liquidityRaw required' };
+      if (msg.amountMaxARaw == null || String(msg.amountMaxARaw).trim() === '') return { valid: false, error: 'amountMaxARaw required' };
+      if (msg.amountMaxBRaw == null || String(msg.amountMaxBRaw).trim() === '') return { valid: false, error: 'amountMaxBRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_DECREASE_LIQUIDITY':
+      if (!msg.positionNftMint || typeof msg.positionNftMint !== 'string') return { valid: false, error: 'positionNftMint required' };
+      if (msg.amountMinARaw == null || String(msg.amountMinARaw).trim() === '') return { valid: false, error: 'amountMinARaw required' };
+      if (msg.amountMinBRaw == null || String(msg.amountMinBRaw).trim() === '') return { valid: false, error: 'amountMinBRaw required' };
+      break;
+    case 'CFS_PERPS_AUTOMATION_STATUS':
+      break;
+    case 'CFS_JUPITER_PERPS_MARKETS': {
+      if (msg.jupiterApiKey != null && String(msg.jupiterApiKey).trim() !== '') {
+        const k = String(msg.jupiterApiKey).trim();
+        if (k.length > 2048) return { valid: false, error: 'jupiterApiKey exceeds 2048 characters' };
+      }
+      break;
+    }
+    case 'CFS_BSC_POOL_EXECUTE': {
+      const op = msg.operation != null ? String(msg.operation).trim() : '';
+      if (!op) return { valid: false, error: 'operation required' };
+      if (msg.gasLimit != null && String(msg.gasLimit).trim() !== '') {
+        const glStr = String(msg.gasLimit).trim();
+        if (!/^\d+$/.test(glStr)) return { valid: false, error: 'gasLimit must be a decimal integer string' };
+        try {
+          const gl = BigInt(glStr);
+          if (gl < 21000n) return { valid: false, error: 'gasLimit must be at least 21000' };
+          if (gl > 1800000n) return { valid: false, error: 'gasLimit cannot exceed 1800000' };
+        } catch (_) {
+          return { valid: false, error: 'gasLimit invalid' };
+        }
+      }
+      if (op === 'approve') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        if (msg.amount == null || String(msg.amount).trim() === '') return { valid: false, error: 'amount required' };
+      } else if (op === 'transferNative') {
+        if (!msg.to || typeof msg.to !== 'string') return { valid: false, error: 'to required' };
+        if (msg.ethWei == null || String(msg.ethWei).trim() === '') return { valid: false, error: 'ethWei required' };
+      } else if (op === 'transferErc20') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        if (!msg.to || typeof msg.to !== 'string') return { valid: false, error: 'to required' };
+        if (msg.amount == null || String(msg.amount).trim() === '') return { valid: false, error: 'amount required' };
+      } else if (op === 'wrapBnb') {
+        if (msg.ethWei == null || String(msg.ethWei).trim() === '') return { valid: false, error: 'ethWei required' };
+      } else if (op === 'unwrapWbnb') {
+        if (msg.amount == null || String(msg.amount).trim() === '') return { valid: false, error: 'amount required' };
+      } else if (op === 'swapExactTokensForTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+      } else if (op === 'swapTokensForExactTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        if (msg.amountInMax == null || String(msg.amountInMax).trim() === '') return { valid: false, error: 'amountInMax required' };
+      } else if (op === 'swapExactTokensForETH') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+      } else if (op === 'swapTokensForExactETH') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        if (msg.amountInMax == null || String(msg.amountInMax).trim() === '') return { valid: false, error: 'amountInMax required' };
+      } else if (op === 'swapExactETHForTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+        if (msg.ethWei == null || String(msg.ethWei).trim() === '') return { valid: false, error: 'ethWei required' };
+      } else if (op === 'swapETHForExactTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        if (msg.ethWei == null || String(msg.ethWei).trim() === '') return { valid: false, error: 'ethWei required' };
+      } else if (op === 'swapExactTokensForTokensSupportingFeeOnTransferTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+      } else if (op === 'swapExactETHForTokensSupportingFeeOnTransferTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+        if (msg.ethWei == null || String(msg.ethWei).trim() === '') return { valid: false, error: 'ethWei required' };
+      } else if (op === 'swapExactTokensForETHSupportingFeeOnTransferTokens') {
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+      } else if (op === 'addLiquidity') {
+        if (!msg.tokenA || !msg.tokenB) return { valid: false, error: 'tokenA and tokenB required' };
+        if (msg.amountADesired == null || String(msg.amountADesired).trim() === '') return { valid: false, error: 'amountADesired required' };
+        if (msg.amountBDesired == null || String(msg.amountBDesired).trim() === '') return { valid: false, error: 'amountBDesired required' };
+        if (msg.amountAMin == null || String(msg.amountAMin).trim() === '') return { valid: false, error: 'amountAMin required' };
+        if (msg.amountBMin == null || String(msg.amountBMin).trim() === '') return { valid: false, error: 'amountBMin required' };
+      } else if (op === 'addLiquidityETH') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        if (msg.amountADesired == null || String(msg.amountADesired).trim() === '') return { valid: false, error: 'amountADesired required' };
+        if (msg.amountAMin == null || String(msg.amountAMin).trim() === '') return { valid: false, error: 'amountAMin required' };
+        if (msg.amountBMin == null || String(msg.amountBMin).trim() === '') return { valid: false, error: 'amountBMin required' };
+        if (msg.ethWei == null || String(msg.ethWei).trim() === '') return { valid: false, error: 'ethWei required' };
+      } else if (op === 'removeLiquidity') {
+        if (!msg.tokenA || !msg.tokenB) return { valid: false, error: 'tokenA and tokenB required' };
+        if (msg.liquidity == null || String(msg.liquidity).trim() === '') return { valid: false, error: 'liquidity required' };
+        if (msg.amountAMin == null || String(msg.amountAMin).trim() === '') return { valid: false, error: 'amountAMin required' };
+        if (msg.amountBMin == null || String(msg.amountBMin).trim() === '') return { valid: false, error: 'amountBMin required' };
+      } else if (op === 'removeLiquidityETH') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        if (msg.liquidity == null || String(msg.liquidity).trim() === '') return { valid: false, error: 'liquidity required' };
+        if (msg.amountAMin == null || String(msg.amountAMin).trim() === '') return { valid: false, error: 'amountAMin required' };
+        if (msg.amountBMin == null || String(msg.amountBMin).trim() === '') return { valid: false, error: 'amountBMin required' };
+      } else if (op === 'farmDeposit' || op === 'farmWithdraw' || op === 'farmHarvest') {
+        if (msg.pid == null || String(msg.pid).trim() === '') return { valid: false, error: 'pid required' };
+        if (op !== 'farmHarvest' && (msg.amount == null || String(msg.amount).trim() === '')) {
+          return { valid: false, error: 'amount required' };
+        }
+      } else if (op === 'farmEnterStaking' || op === 'farmLeaveStaking') {
+        if (msg.amount == null || String(msg.amount).trim() === '') return { valid: false, error: 'amount required' };
+      } else if (op === 'v3SwapExactInputSingle') {
+        if (!msg.tokenIn || typeof msg.tokenIn !== 'string') return { valid: false, error: 'tokenIn required' };
+        if (!msg.tokenOut || typeof msg.tokenOut !== 'string') return { valid: false, error: 'tokenOut required' };
+        if (msg.v3Fee == null || String(msg.v3Fee).trim() === '') return { valid: false, error: 'v3Fee required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+      } else if (op === 'v3SwapExactOutputSingle') {
+        if (!msg.tokenIn || typeof msg.tokenIn !== 'string') return { valid: false, error: 'tokenIn required' };
+        if (!msg.tokenOut || typeof msg.tokenOut !== 'string') return { valid: false, error: 'tokenOut required' };
+        if (msg.v3Fee == null || String(msg.v3Fee).trim() === '') return { valid: false, error: 'v3Fee required' };
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        if (msg.amountInMax == null || String(msg.amountInMax).trim() === '') return { valid: false, error: 'amountInMax required' };
+      } else if (op === 'v3SwapExactInput') {
+        if (!msg.v3Path || typeof msg.v3Path !== 'string') return { valid: false, error: 'v3Path required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (msg.amountOutMin == null || String(msg.amountOutMin).trim() === '') return { valid: false, error: 'amountOutMin required' };
+      } else if (op === 'v3SwapExactOutput') {
+        if (!msg.v3Path || typeof msg.v3Path !== 'string') return { valid: false, error: 'v3Path required' };
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        if (msg.amountInMax == null || String(msg.amountInMax).trim() === '') return { valid: false, error: 'amountInMax required' };
+      } else if (op === 'v3PositionMint') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.v3Fee == null || String(msg.v3Fee).trim() === '') return { valid: false, error: 'v3Fee required' };
+        if (msg.tickLower == null || String(msg.tickLower).trim() === '') return { valid: false, error: 'tickLower required' };
+        if (msg.tickUpper == null || String(msg.tickUpper).trim() === '') return { valid: false, error: 'tickUpper required' };
+        if (msg.amountADesired == null || String(msg.amountADesired).trim() === '') return { valid: false, error: 'amountADesired required' };
+        if (msg.amountBDesired == null || String(msg.amountBDesired).trim() === '') return { valid: false, error: 'amountBDesired required' };
+        if (msg.amountAMin == null || String(msg.amountAMin).trim() === '') return { valid: false, error: 'amountAMin required' };
+        if (msg.amountBMin == null || String(msg.amountBMin).trim() === '') return { valid: false, error: 'amountBMin required' };
+      } else if (op === 'v3PositionIncreaseLiquidity') {
+        if (msg.v3PositionTokenId == null || String(msg.v3PositionTokenId).trim() === '') return { valid: false, error: 'v3PositionTokenId required' };
+        if (msg.v3Amount0Desired == null || String(msg.v3Amount0Desired).trim() === '') return { valid: false, error: 'v3Amount0Desired required' };
+        if (msg.v3Amount1Desired == null || String(msg.v3Amount1Desired).trim() === '') return { valid: false, error: 'v3Amount1Desired required' };
+        if (msg.v3Amount0Min == null || String(msg.v3Amount0Min).trim() === '') return { valid: false, error: 'v3Amount0Min required' };
+        if (msg.v3Amount1Min == null || String(msg.v3Amount1Min).trim() === '') return { valid: false, error: 'v3Amount1Min required' };
+      } else if (op === 'v3PositionDecreaseLiquidity') {
+        if (msg.v3PositionTokenId == null || String(msg.v3PositionTokenId).trim() === '') return { valid: false, error: 'v3PositionTokenId required' };
+        if (msg.v3Liquidity == null || String(msg.v3Liquidity).trim() === '') return { valid: false, error: 'v3Liquidity required' };
+        if (msg.v3Amount0Min == null || String(msg.v3Amount0Min).trim() === '') return { valid: false, error: 'v3Amount0Min required' };
+        if (msg.v3Amount1Min == null || String(msg.v3Amount1Min).trim() === '') return { valid: false, error: 'v3Amount1Min required' };
+      } else if (op === 'v3PositionCollect') {
+        if (msg.v3PositionTokenId == null || String(msg.v3PositionTokenId).trim() === '') return { valid: false, error: 'v3PositionTokenId required' };
+      } else if (op === 'v3PositionBurn') {
+        if (msg.v3PositionTokenId == null || String(msg.v3PositionTokenId).trim() === '') return { valid: false, error: 'v3PositionTokenId required' };
+      } else if (op === 'permit2Approve') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        if (!msg.permit2Spender || typeof msg.permit2Spender !== 'string') return { valid: false, error: 'permit2Spender required' };
+        if (msg.permit2Amount == null || String(msg.permit2Amount).trim() === '') return { valid: false, error: 'permit2Amount required' };
+        if (msg.permit2Expiration == null || String(msg.permit2Expiration).trim() === '') return { valid: false, error: 'permit2Expiration required' };
+      } else if (op === 'infiBinModifyLiquidities') {
+        if (!msg.infiPayload || typeof msg.infiPayload !== 'string' || !String(msg.infiPayload).trim()) {
+          return { valid: false, error: 'infiPayload required' };
+        }
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiBinAddLiquidity') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.infinityFee == null || String(msg.infinityFee).trim() === '') return { valid: false, error: 'infinityFee required' };
+        if (msg.binStep == null || String(msg.binStep).trim() === '') return { valid: false, error: 'binStep required' };
+        if (msg.infiActiveIdDesired == null || String(msg.infiActiveIdDesired).trim() === '') {
+          return { valid: false, error: 'infiActiveIdDesired required' };
+        }
+        if (msg.infiIdSlippage == null || String(msg.infiIdSlippage).trim() === '') return { valid: false, error: 'infiIdSlippage required' };
+        if (msg.infiLowerBinId == null || String(msg.infiLowerBinId).trim() === '') return { valid: false, error: 'infiLowerBinId required' };
+        if (msg.infiUpperBinId == null || String(msg.infiUpperBinId).trim() === '') return { valid: false, error: 'infiUpperBinId required' };
+        if (msg.infiAmount0 == null || String(msg.infiAmount0).trim() === '') return { valid: false, error: 'infiAmount0 required' };
+        if (msg.infiAmount1 == null || String(msg.infiAmount1).trim() === '') return { valid: false, error: 'infiAmount1 required' };
+        if (msg.infiAmount0Max == null || String(msg.infiAmount0Max).trim() === '') return { valid: false, error: 'infiAmount0Max required' };
+        if (msg.infiAmount1Max == null || String(msg.infiAmount1Max).trim() === '') return { valid: false, error: 'infiAmount1Max required' };
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiBinRemoveLiquidity') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.infinityFee == null || String(msg.infinityFee).trim() === '') return { valid: false, error: 'infinityFee required' };
+        if (msg.binStep == null || String(msg.binStep).trim() === '') return { valid: false, error: 'binStep required' };
+        if (msg.infiAmount0Min == null || String(msg.infiAmount0Min).trim() === '') return { valid: false, error: 'infiAmount0Min required' };
+        if (msg.infiAmount1Min == null || String(msg.infiAmount1Min).trim() === '') return { valid: false, error: 'infiAmount1Min required' };
+        if (!msg.infiRemoveBinIds || typeof msg.infiRemoveBinIds !== 'string' || !String(msg.infiRemoveBinIds).trim()) {
+          return { valid: false, error: 'infiRemoveBinIds required' };
+        }
+        if (!msg.infiRemoveShares || typeof msg.infiRemoveShares !== 'string' || !String(msg.infiRemoveShares).trim()) {
+          return { valid: false, error: 'infiRemoveShares required' };
+        }
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiBinSwapExactInSingle') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.infinityFee == null || String(msg.infinityFee).trim() === '') return { valid: false, error: 'infinityFee required' };
+        if (msg.binStep == null || String(msg.binStep).trim() === '') return { valid: false, error: 'binStep required' };
+        if (msg.infiSwapAmountIn == null || String(msg.infiSwapAmountIn).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountIn required' };
+        }
+        if (msg.infiSwapAmountOutMin == null || String(msg.infiSwapAmountOutMin).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountOutMin required' };
+        }
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiBinSwapExactOutSingle') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.infinityFee == null || String(msg.infinityFee).trim() === '') return { valid: false, error: 'infinityFee required' };
+        if (msg.binStep == null || String(msg.binStep).trim() === '') return { valid: false, error: 'binStep required' };
+        if (msg.infiSwapAmountOut == null || String(msg.infiSwapAmountOut).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountOut required' };
+        }
+        if (msg.infiSwapAmountInMax == null || String(msg.infiSwapAmountInMax).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountInMax required' };
+        }
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiBinSwapExactIn') {
+        if (!msg.infiSwapCurrencyIn || typeof msg.infiSwapCurrencyIn !== 'string') {
+          return { valid: false, error: 'infiSwapCurrencyIn required' };
+        }
+        if (!msg.infiBinPathJson || typeof msg.infiBinPathJson !== 'string' || !String(msg.infiBinPathJson).trim()) {
+          return { valid: false, error: 'infiBinPathJson required' };
+        }
+        {
+          const pathValErr = validateInfiBinPathJsonField(msg.infiBinPathJson, msg.infiSwapCurrencyIn);
+          if (pathValErr) return { valid: false, error: pathValErr };
+        }
+        if (msg.infiSwapAmountIn == null || String(msg.infiSwapAmountIn).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountIn required' };
+        }
+        if (msg.infiSwapAmountOutMin == null || String(msg.infiSwapAmountOutMin).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountOutMin required' };
+        }
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiBinSwapExactOut') {
+        if (!msg.infiSwapCurrencyIn || typeof msg.infiSwapCurrencyIn !== 'string') {
+          return { valid: false, error: 'infiSwapCurrencyIn required' };
+        }
+        if (!msg.infiBinPathJson || typeof msg.infiBinPathJson !== 'string' || !String(msg.infiBinPathJson).trim()) {
+          return { valid: false, error: 'infiBinPathJson required' };
+        }
+        {
+          const pathValErr = validateInfiBinPathJsonField(msg.infiBinPathJson, msg.infiSwapCurrencyIn);
+          if (pathValErr) return { valid: false, error: pathValErr };
+        }
+        if (msg.infiSwapAmountOut == null || String(msg.infiSwapAmountOut).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountOut required' };
+        }
+        if (msg.infiSwapAmountInMax == null || String(msg.infiSwapAmountInMax).trim() === '') {
+          return { valid: false, error: 'infiSwapAmountInMax required' };
+        }
+        if (msg.infiDeadline == null || String(msg.infiDeadline).trim() === '') return { valid: false, error: 'infiDeadline required' };
+      } else if (op === 'infiFarmClaim') {
+        // Optional infiFarmClaimTs; wallet address implied at execution
+      } else if (op === 'paraswapSwap') {
+        if (msg.amount == null || String(msg.amount).trim() === '') return { valid: false, error: 'amount required' };
+        if (!msg.destToken || typeof msg.destToken !== 'string') return { valid: false, error: 'destToken required' };
+        if (!msg.srcToken || typeof msg.srcToken !== 'string') return { valid: false, error: 'srcToken required' };
+      } else {
+        return { valid: false, error: 'Unknown operation' };
+      }
+      break;
+    }
+    case 'CFS_BSC_SELLABILITY_PROBE':
+      if (!msg.token || typeof msg.token !== 'string' || !String(msg.token).trim()) {
+        return { valid: false, error: 'token required' };
+      }
+      if (msg.spendUsdApprox != null && String(msg.spendUsdApprox).trim() !== '') {
+        const n = Number(msg.spendUsdApprox);
+        if (!Number.isFinite(n) || n <= 0) return { valid: false, error: 'spendUsdApprox must be a positive number' };
+      }
+      if (msg.forceApprove != null && typeof msg.forceApprove !== 'boolean') {
+        return { valid: false, error: 'forceApprove must be boolean' };
+      }
+      break;
+    case 'CFS_BSC_QUERY': {
+      const qop = msg.operation != null ? String(msg.operation).trim() : '';
+      if (!qop) return { valid: false, error: 'operation required' };
+      if (qop === 'automationWalletAddress') break;
+      if (qop === 'nativeBalance') break;
+      if (qop === 'erc20Balance') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        break;
+      }
+      if (qop === 'allowance') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        if (!msg.spender || typeof msg.spender !== 'string') return { valid: false, error: 'spender required' };
+        break;
+      }
+      if (qop === 'pairReserves') {
+        if (!msg.pair || typeof msg.pair !== 'string') return { valid: false, error: 'pair required' };
+        break;
+      }
+      if (qop === 'routerAmountsOut') {
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        break;
+      }
+      if (qop === 'routerAmountsIn') {
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        if (!msg.path || typeof msg.path !== 'string') return { valid: false, error: 'path required' };
+        break;
+      }
+      if (qop === 'erc20Metadata') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        break;
+      }
+      if (qop === 'erc20TotalSupply') {
+        if (!msg.token || typeof msg.token !== 'string') return { valid: false, error: 'token required' };
+        break;
+      }
+      if (qop === 'blockByTag') break;
+      if (qop === 'rpcInfo') break;
+      if (qop === 'transactionCount') break;
+      if (qop === 'transactionReceipt') {
+        if (!msg.txHash || typeof msg.txHash !== 'string' || !String(msg.txHash).trim()) {
+          return { valid: false, error: 'txHash required' };
+        }
+        break;
+      }
+      if (qop === 'farmPendingCake' || qop === 'farmUserInfo' || qop === 'farmPoolInfo') {
+        if (msg.pid == null || String(msg.pid).trim() === '') return { valid: false, error: 'pid required' };
+        break;
+      }
+      if (qop === 'farmPoolLength') break;
+      if (qop === 'v2FactoryGetPair') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        break;
+      }
+      if (qop === 'isContract') {
+        if (!msg.address || typeof msg.address !== 'string') return { valid: false, error: 'address required' };
+        break;
+      }
+      if (qop === 'v3PoolState') {
+        if (!msg.v3Pool || typeof msg.v3Pool !== 'string') return { valid: false, error: 'v3Pool required' };
+        break;
+      }
+      if (qop === 'v3FactoryGetPool') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.v3Fee == null || String(msg.v3Fee).trim() === '') return { valid: false, error: 'v3Fee required' };
+        break;
+      }
+      if (qop === 'v3QuoterExactInputSingle') {
+        if (!msg.tokenIn || typeof msg.tokenIn !== 'string') return { valid: false, error: 'tokenIn required' };
+        if (!msg.tokenOut || typeof msg.tokenOut !== 'string') return { valid: false, error: 'tokenOut required' };
+        if (msg.v3Fee == null || String(msg.v3Fee).trim() === '') return { valid: false, error: 'v3Fee required' };
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        break;
+      }
+      if (qop === 'v3QuoterExactOutputSingle') {
+        if (!msg.tokenIn || typeof msg.tokenIn !== 'string') return { valid: false, error: 'tokenIn required' };
+        if (!msg.tokenOut || typeof msg.tokenOut !== 'string') return { valid: false, error: 'tokenOut required' };
+        if (msg.v3Fee == null || String(msg.v3Fee).trim() === '') return { valid: false, error: 'v3Fee required' };
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        break;
+      }
+      if (qop === 'v3QuoterExactInput') {
+        if (!msg.v3Path || typeof msg.v3Path !== 'string' || !String(msg.v3Path).trim()) {
+          return { valid: false, error: 'v3Path required' };
+        }
+        if (msg.amountIn == null || String(msg.amountIn).trim() === '') return { valid: false, error: 'amountIn required' };
+        break;
+      }
+      if (qop === 'v3QuoterExactOutput') {
+        if (!msg.v3Path || typeof msg.v3Path !== 'string' || !String(msg.v3Path).trim()) {
+          return { valid: false, error: 'v3Path required' };
+        }
+        if (msg.amountOut == null || String(msg.amountOut).trim() === '') return { valid: false, error: 'amountOut required' };
+        break;
+      }
+      if (qop === 'v3NpmPosition') {
+        if (msg.v3PositionTokenId == null || String(msg.v3PositionTokenId).trim() === '') {
+          return { valid: false, error: 'v3PositionTokenId required' };
+        }
+        break;
+      }
+      if (qop === 'infiBinPoolId') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.infinityFee == null || String(msg.infinityFee).trim() === '') return { valid: false, error: 'infinityFee required' };
+        if (msg.binStep == null || String(msg.binStep).trim() === '') return { valid: false, error: 'binStep required' };
+        break;
+      }
+      if (qop === 'infiDecodeBinParameters') {
+        if (!msg.parametersBytes32 || typeof msg.parametersBytes32 !== 'string' || !String(msg.parametersBytes32).trim()) {
+          return { valid: false, error: 'parametersBytes32 required' };
+        }
+        break;
+      }
+      if (qop === 'infiBinPoolKeyFromId' || qop === 'infiBinSlot0') {
+        if (!msg.poolId || typeof msg.poolId !== 'string' || !String(msg.poolId).trim()) {
+          return { valid: false, error: 'poolId required' };
+        }
+        break;
+      }
+      if (qop === 'infiBinGetBin' || qop === 'infiBinGetPosition' || qop === 'infiBinNextNonEmptyBin') {
+        if (!msg.poolId || typeof msg.poolId !== 'string' || !String(msg.poolId).trim()) {
+          return { valid: false, error: 'poolId required' };
+        }
+        if (msg.binId == null || String(msg.binId).trim() === '') return { valid: false, error: 'binId required' };
+        break;
+      }
+      if (qop === 'infiBinGetBinsRange') {
+        if (!msg.poolId || typeof msg.poolId !== 'string' || !String(msg.poolId).trim()) {
+          return { valid: false, error: 'poolId required' };
+        }
+        if (msg.binIdLower == null || String(msg.binIdLower).trim() === '') return { valid: false, error: 'binIdLower required' };
+        if (msg.binIdUpper == null || String(msg.binIdUpper).trim() === '') return { valid: false, error: 'binIdUpper required' };
+        break;
+      }
+      if (qop === 'infiBinNpmPosition') {
+        if (msg.infiPositionTokenId == null || String(msg.infiPositionTokenId).trim() === '') {
+          return { valid: false, error: 'infiPositionTokenId required' };
+        }
+        break;
+      }
+      if (qop === 'infiBinQuoteExactInputSingle' || qop === 'infiBinQuoteExactOutputSingle') {
+        if (!msg.tokenA || typeof msg.tokenA !== 'string') return { valid: false, error: 'tokenA required' };
+        if (!msg.tokenB || typeof msg.tokenB !== 'string') return { valid: false, error: 'tokenB required' };
+        if (msg.infinityFee == null || String(msg.infinityFee).trim() === '') return { valid: false, error: 'infinityFee required' };
+        if (msg.binStep == null || String(msg.binStep).trim() === '') return { valid: false, error: 'binStep required' };
+        if (msg.infiQuoteExactAmount == null || String(msg.infiQuoteExactAmount).trim() === '') {
+          return { valid: false, error: 'infiQuoteExactAmount required' };
+        }
+        break;
+      }
+      if (qop === 'infiBinQuoteExactInput') {
+        if (!msg.infiQuoteCurrencyIn || typeof msg.infiQuoteCurrencyIn !== 'string') {
+          return { valid: false, error: 'infiQuoteCurrencyIn required' };
+        }
+        if (!msg.infiBinPathJson || typeof msg.infiBinPathJson !== 'string' || !String(msg.infiBinPathJson).trim()) {
+          return { valid: false, error: 'infiBinPathJson required' };
+        }
+        {
+          const pathValErr = validateInfiBinPathJsonField(msg.infiBinPathJson, msg.infiQuoteCurrencyIn);
+          if (pathValErr) return { valid: false, error: pathValErr };
+        }
+        if (msg.infiQuoteExactAmount == null || String(msg.infiQuoteExactAmount).trim() === '') {
+          return { valid: false, error: 'infiQuoteExactAmount required' };
+        }
+        break;
+      }
+      if (qop === 'infiBinQuoteExactOutput') {
+        if (!msg.infiQuoteCurrencyIn || typeof msg.infiQuoteCurrencyIn !== 'string') {
+          return { valid: false, error: 'infiQuoteCurrencyIn required' };
+        }
+        if (!msg.infiBinPathJson || typeof msg.infiBinPathJson !== 'string' || !String(msg.infiBinPathJson).trim()) {
+          return { valid: false, error: 'infiBinPathJson required' };
+        }
+        {
+          const pathValErr = validateInfiBinPathJsonField(msg.infiBinPathJson, msg.infiQuoteCurrencyIn);
+          if (pathValErr) return { valid: false, error: pathValErr };
+        }
+        if (msg.infiQuoteExactAmount == null || String(msg.infiQuoteExactAmount).trim() === '') {
+          return { valid: false, error: 'infiQuoteExactAmount required' };
+        }
+        break;
+      }
+      if (qop === 'infiFarmCampaignLength') break;
+      if (qop === 'infiFarmCampaignInfo') {
+        if (msg.campaignId == null || String(msg.campaignId).trim() === '') return { valid: false, error: 'campaignId required' };
+        break;
+      }
+      return { valid: false, error: 'Unknown BSC query operation' };
+    }
+    case 'CFS_ASTER_FUTURES': {
+      const ac = msg.asterCategory != null ? String(msg.asterCategory).trim() : '';
+      const ao = msg.operation != null ? String(msg.operation).trim() : '';
+      if (!ac) return { valid: false, error: 'asterCategory required' };
+      if (!ao) return { valid: false, error: 'operation required' };
+      if (ac.length > 32) return { valid: false, error: 'asterCategory too long' };
+      if (ao.length > 80) return { valid: false, error: 'operation too long' };
+      if (!/^(market|spotMarket|spotAccount|spotTrade|account|analysis|trade)$/.test(ac)) {
+        return { valid: false, error: 'invalid asterCategory' };
+      }
+      if (msg.recvWindow != null && msg.recvWindow !== '') {
+        const rw = Number(msg.recvWindow);
+        if (!Number.isFinite(rw) || rw < 0 || rw > 60000) {
+          return { valid: false, error: 'recvWindow must be 0–60000 when set' };
+        }
+      }
+      if (msg.batchOrders != null && typeof msg.batchOrders === 'string' && msg.batchOrders.length > 32000) {
+        return { valid: false, error: 'batchOrders string too long' };
+      }
+      if (msg.orderIdList != null && typeof msg.orderIdList === 'string' && msg.orderIdList.length > 8000) {
+        return { valid: false, error: 'orderIdList string too long' };
+      }
+      if (
+        msg.origClientOrderIdList != null &&
+        typeof msg.origClientOrderIdList === 'string' &&
+        msg.origClientOrderIdList.length > 16000
+      ) {
+        return { valid: false, error: 'origClientOrderIdList string too long' };
+      }
+      if (msg.wsStreamBase != null && typeof msg.wsStreamBase === 'string' && msg.wsStreamBase.length > 256) {
+        return { valid: false, error: 'wsStreamBase string too long' };
+      }
+      if (msg.listenKey != null && typeof msg.listenKey === 'string' && msg.listenKey.length > 256) {
+        return { valid: false, error: 'listenKey string too long' };
+      }
+      if (
+        msg.transferAmount != null &&
+        typeof msg.transferAmount === 'string' &&
+        msg.transferAmount.length > 64
+      ) {
+        return { valid: false, error: 'transferAmount string too long' };
+      }
+      if (
+        msg.transferHistoryAsset != null &&
+        typeof msg.transferHistoryAsset === 'string' &&
+        msg.transferHistoryAsset.length > 32
+      ) {
+        return { valid: false, error: 'transferHistoryAsset string too long' };
+      }
+      if (
+        msg.transferHistoryPage != null &&
+        typeof msg.transferHistoryPage === 'string' &&
+        msg.transferHistoryPage.length > 16
+      ) {
+        return { valid: false, error: 'transferHistoryPage string too long' };
+      }
+      if (
+        msg.transferHistorySize != null &&
+        typeof msg.transferHistorySize === 'string' &&
+        msg.transferHistorySize.length > 16
+      ) {
+        return { valid: false, error: 'transferHistorySize string too long' };
+      }
+      break;
+    }
+    case 'CFS_ASTER_USER_STREAM_WAIT': {
+      if (!msg.wsUrl || typeof msg.wsUrl !== 'string' || !String(msg.wsUrl).trim()) {
+        return { valid: false, error: 'wsUrl required' };
+      }
+      const wsTrim = String(msg.wsUrl).trim();
+      if (wsTrim.length > 2048) {
+        return { valid: false, error: 'wsUrl too long' };
+      }
+      if (!isAllowedAsterUserStreamWsUrl(wsTrim)) {
+        return {
+          valid: false,
+          error: 'wsUrl must be wss://fstream|sstream.asterdex.com/ws/<listenKey> (non-empty path after /ws/)',
+        };
+      }
+      if (msg.recvWindow != null && msg.recvWindow !== '') {
+        const rw = Number(msg.recvWindow);
+        if (!Number.isFinite(rw) || rw < 0 || rw > 60000) {
+          return { valid: false, error: 'recvWindow must be 0–60000 when set' };
+        }
+      }
+      const hasKeepaliveIv =
+        msg.listenKeyKeepaliveIntervalMs != null && String(msg.listenKeyKeepaliveIntervalMs).trim() !== '';
+      if (msg.listenKey != null && typeof msg.listenKey !== 'string') {
+        return { valid: false, error: 'listenKey must be a string when set' };
+      }
+      if (msg.listenKeyMarket != null && typeof msg.listenKeyMarket !== 'string') {
+        return { valid: false, error: 'listenKeyMarket must be a string when set' };
+      }
+      const lkTrim = msg.listenKey != null ? String(msg.listenKey).trim() : '';
+      const mkTrim = msg.listenKeyMarket != null ? String(msg.listenKeyMarket).trim() : '';
+      if (!hasKeepaliveIv) {
+        if (lkTrim) {
+          return { valid: false, error: 'listenKey must be empty unless listenKeyKeepaliveIntervalMs is set' };
+        }
+        if (mkTrim) {
+          return { valid: false, error: 'listenKeyMarket must be empty unless listenKeyKeepaliveIntervalMs is set' };
+        }
+      }
+      if (msg.matchEvent != null && typeof msg.matchEvent === 'string' && msg.matchEvent.length > 64) {
+        return { valid: false, error: 'matchEvent too long' };
+      }
+      if (msg.matchSubstring != null && typeof msg.matchSubstring === 'string' && msg.matchSubstring.length > 512) {
+        return { valid: false, error: 'matchSubstring too long' };
+      }
+      if (
+        msg.skipEventTypes != null &&
+        typeof msg.skipEventTypes === 'string' &&
+        msg.skipEventTypes.length > 512
+      ) {
+        return { valid: false, error: 'skipEventTypes string too long' };
+      }
+      if (msg.listenKey != null && typeof msg.listenKey === 'string' && msg.listenKey.length > 256) {
+        return { valid: false, error: 'listenKey string too long' };
+      }
+      if (msg.listenKeyMarket != null && typeof msg.listenKeyMarket === 'string' && msg.listenKeyMarket.length > 16) {
+        return { valid: false, error: 'listenKeyMarket string too long' };
+      }
+      if (hasKeepaliveIv) {
+        const iv = Number(msg.listenKeyKeepaliveIntervalMs);
+        if (!Number.isFinite(iv) || iv < 60000 || iv > 3600000) {
+          return {
+            valid: false,
+            error: 'listenKeyKeepaliveIntervalMs must be 60000–3600000 when set (or omit to disable)',
+          };
+        }
+        const lk = lkTrim;
+        let mk = mkTrim.toLowerCase();
+        if (!lk) return { valid: false, error: 'listenKey required when listenKeyKeepaliveIntervalMs is set' };
+        let pathListenKey = '';
+        try {
+          pathListenKey = extractAsterUserStreamListenKeyFromPathname(new URL(wsTrim).pathname);
+        } catch (_) {
+          pathListenKey = '';
+        }
+        if (pathListenKey && lk !== pathListenKey) {
+          return {
+            valid: false,
+            error: 'listenKey must match the /ws/<listenKey> segment in wsUrl (after URL decode)',
+          };
+        }
+        if (mk && mk !== 'futures' && mk !== 'spot') {
+          return { valid: false, error: 'listenKeyMarket must be futures, spot, or empty (auto from wsUrl)' };
+        }
+        const inferredMk = inferAsterListenKeyMarketFromWsUrl(wsTrim);
+        if (mk && mk !== inferredMk) {
+          return {
+            valid: false,
+            error: 'listenKeyMarket does not match wsUrl host (fstream→futures, sstream→spot)',
+          };
+        }
+        if (!mk) mk = inferredMk;
+        if (mk !== 'futures' && mk !== 'spot') {
+          return { valid: false, error: 'listenKeyMarket missing and not inferable from wsUrl' };
+        }
+      }
+      if (msg.timeoutMs != null && msg.timeoutMs !== '') {
+        const t = Number(msg.timeoutMs);
+        if (!Number.isFinite(t) || t < 1000 || t > 600000) {
+          return { valid: false, error: 'timeoutMs must be 1000–600000 when set' };
+        }
+      }
+      if (msg.maxMessages != null && msg.maxMessages !== '') {
+        const m = Number(msg.maxMessages);
+        if (!Number.isInteger(m) || m < 1 || m > 10000) {
+          return { valid: false, error: 'maxMessages must be 1–10000 when set' };
+        }
+      }
+      break;
+    }
+    case 'CFS_BSC_WALLET_SAVE_SETTINGS':
+      break;
+    case 'CFS_BSC_WALLET_GENERATE_MNEMONIC':
+      break;
+    case 'CFS_BSC_WALLET_VALIDATE_PREVIEW':
+      if (!msg.privateKey && !msg.mnemonic) return { valid: false, error: 'privateKey or mnemonic required' };
+      break;
+    case 'CFS_BSC_WALLET_UNLOCK':
+      if (!msg.password || typeof msg.password !== 'string' || !String(msg.password).trim()) {
+        return { valid: false, error: 'password required' };
+      }
+      break;
+    case 'CFS_BSC_WALLET_LOCK':
+      break;
+    case 'CFS_BSC_WALLET_REWRAP_PLAIN':
+      if (!msg.walletPassword || typeof msg.walletPassword !== 'string' || msg.walletPassword.length < 8) {
+        return { valid: false, error: 'walletPassword required (min 8 characters)' };
+      }
+      break;
+    case 'CFS_BSC_WALLET_IMPORT':
+      if (msg.backupConfirmed !== true) return { valid: false, error: 'backupConfirmed required' };
+      if (!msg.rpcUrl || typeof msg.rpcUrl !== 'string') return { valid: false, error: 'rpcUrl required' };
+      if (!msg.privateKey && !msg.mnemonic) return { valid: false, error: 'privateKey or mnemonic required' };
+      if (msg.encryptWithPassword === true) {
+        if (!msg.walletPassword || typeof msg.walletPassword !== 'string' || msg.walletPassword.length < 8) {
+          return { valid: false, error: 'walletPassword required (min 8) when encryptWithPassword is true' };
+        }
+      }
+      break;
+    case 'CFS_BSC_WALLET_EXPORT':
+      if (msg.confirmPhrase == null || typeof msg.confirmPhrase !== 'string') return { valid: false, error: 'confirmPhrase required' };
+      break;
+    case 'CFS_BSC_WALLET_SET_PRIMARY':
+      if (!msg.walletId || typeof msg.walletId !== 'string' || !String(msg.walletId).trim()) {
+        return { valid: false, error: 'walletId required' };
+      }
+      break;
+    case 'CFS_BSC_WALLET_REMOVE':
+      if (!msg.walletId || typeof msg.walletId !== 'string' || !String(msg.walletId).trim()) {
+        return { valid: false, error: 'walletId required' };
+      }
+      break;
+    case 'CFS_BSC_WALLET_STATUS':
+    case 'CFS_BSC_WALLET_CLEAR':
       break;
     case 'UPLOAD_POST':
       if (!msg.apiKey || typeof msg.apiKey !== 'string') return { valid: false, error: 'apiKey required' };
@@ -544,19 +2891,133 @@ function validateMessagePayload(type, msg) {
     case 'TAB_CAPTURE_AUDIO':
       /* tabId optional when from content script (sender.tab.id used) */
       break;
-    case 'STORE_TOKENS':
-      if (!msg.tokens || typeof msg.tokens !== 'object') return { valid: false, error: 'tokens required' };
-      if (!msg.user || typeof msg.user !== 'object') return { valid: false, error: 'user required' };
-      break;
+    case 'STORE_TOKENS': {
+      if (msg.tokens && typeof msg.tokens === 'object') break;
+      if (msg.access_token || msg.accessToken) break;
+      return { valid: false, error: 'tokens object or access_token required' };
+    }
     case 'GET_TOKEN':
     case 'LOGOUT':
     case 'GET_TAB_INFO':
+      break;
+    case 'CFS_SOLANA_WATCH_GET_ACTIVITY': {
+      if (msg.limit != null && msg.limit !== '') {
+        const lim = Number(msg.limit);
+        if (!Number.isFinite(lim) || lim < 1 || lim > 100) {
+          return { valid: false, error: 'limit must be between 1 and 100 when set' };
+        }
+      }
+      break;
+    }
+    case 'CFS_SOLANA_WATCH_REFRESH_NOW':
+    case 'CFS_SOLANA_WATCH_CLEAR_ACTIVITY':
+      break;
+    case 'CFS_BSC_WATCH_GET_ACTIVITY': {
+      if (msg.limit != null && msg.limit !== '') {
+        const lim = Number(msg.limit);
+        if (!Number.isFinite(lim) || lim < 1 || lim > 100) {
+          return { valid: false, error: 'limit must be between 1 and 100 when set' };
+        }
+      }
+      break;
+    }
+    case 'CFS_BSC_WATCH_REFRESH_NOW':
+    case 'CFS_BSC_WATCH_CLEAR_ACTIVITY':
+      break;
+    case 'CFS_FOLLOWING_AUTOMATION_STATUS':
+      break;
+    case 'CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW':
+      break;
+    case 'CFS_RUGCHECK_TOKEN_REPORT': {
+      const mintR = String(msg.mint || '').trim();
+      if (!mintR) return { valid: false, error: 'mint required' };
+      if (mintR.length > 88) return { valid: false, error: 'mint too long' };
+      break;
+    }
+    case 'CFS_PROJECT_READ_FILE': {
+      const rp = cfsValidateProjectRelativePath(msg.relativePath);
+      if (!rp.ok) return { valid: false, error: rp.error };
+      if (msg.maxBytes != null && msg.maxBytes !== '') {
+        const n = Number(msg.maxBytes);
+        if (!Number.isFinite(n) || n < 1 || n > 100 * 1024 * 1024) {
+          return { valid: false, error: 'maxBytes must be between 1 and 104857600' };
+        }
+      }
+      break;
+    }
+    case 'CFS_PROJECT_ENSURE_DIRS': {
+      const rawPaths = Array.isArray(msg.paths) ? msg.paths : (msg.relativePath ? [msg.relativePath] : []);
+      if (rawPaths.length === 0) return { valid: false, error: 'paths or relativePath required' };
+      if (rawPaths.length > 80) return { valid: false, error: 'paths length must be at most 80' };
+      for (let i = 0; i < rawPaths.length; i++) {
+        const pc = cfsValidateProjectRelativePath(String(rawPaths[i] || '').trim());
+        if (!pc.ok) return { valid: false, error: pc.error || 'Invalid path' };
+      }
+      break;
+    }
+    case 'EXTRACT_AUDIO_FROM_VIDEO': {
+      if (!msg.base64 || typeof msg.base64 !== 'string' || !String(msg.base64).trim()) {
+        return { valid: false, error: 'base64 required' };
+      }
+      if (msg.base64.length > 250 * 1024 * 1024) {
+        return { valid: false, error: 'base64 payload too large' };
+      }
+      break;
+    }
+    case 'CFS_PROJECT_WRITE_FILE': {
+      const rw = cfsValidateProjectRelativePath(msg.relativePath);
+      if (!rw.ok) return { valid: false, error: rw.error };
+      if (msg.content == null) return { valid: false, error: 'content required' };
+      const str = typeof msg.content === 'string' ? msg.content : String(msg.content);
+      if (new TextEncoder().encode(str).length > CFS_PROJECT_WRITE_MAX_BYTES) {
+        return { valid: false, error: `content exceeds ${CFS_PROJECT_WRITE_MAX_BYTES} bytes (UTF-8)` };
+      }
+      break;
+    }
+    case 'MERGE_SCHEDULED_WORKFLOW_RUNS':
+      if (!Array.isArray(msg.entries)) return { valid: false, error: 'entries must be an array' };
+      if (msg.entries.length > 500) return { valid: false, error: 'entries length must be at most 500' };
+      break;
+    case 'GET_SCHEDULED_WORKFLOW_RUNS':
+      break;
+    case 'SET_PENDING_GENERATIONS':
+      if (!Array.isArray(msg.list)) return { valid: false, error: 'list must be an array' };
+      if (msg.list.length > 500) return { valid: false, error: 'list length must be at most 500' };
+      break;
+    case 'REMOVE_SCHEDULED_WORKFLOW_RUNS':
+      if (!Array.isArray(msg.ids)) return { valid: false, error: 'ids must be an array' };
+      if (msg.ids.length === 0) return { valid: false, error: 'ids must not be empty' };
+      if (msg.ids.length > 200) return { valid: false, error: 'ids length must be at most 200' };
+      for (let i = 0; i < msg.ids.length; i++) {
+        const id = msg.ids[i];
+        if (id == null || typeof id !== 'string' || !String(id).trim()) {
+          return { valid: false, error: 'each id must be a non-empty string' };
+        }
+        if (String(id).trim().length > 256) return { valid: false, error: 'id exceeds 256 characters' };
+      }
       break;
     default:
       break;
   }
   return { valid: true };
 }
+
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (!msg || typeof msg !== 'object' || msg.type !== 'STORE_TOKENS') return false;
+  if (!cfsWhopIsTrustedAuthPageUrl(sender.url || '')) {
+    sendResponse({ ok: false, error: 'Untrusted origin' });
+    return false;
+  }
+  const payloadCheck = validateMessagePayload('STORE_TOKENS', msg);
+  if (!payloadCheck.valid) {
+    sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
+    return false;
+  }
+  cfsWhopApplyStoreTokens(msg)
+    .then(() => sendResponse({ ok: true }))
+    .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }));
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') {
@@ -578,6 +3039,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
+  /** Replies from extension pages → dynamic waiters; do not treat as API requests. */
+  if (type === 'SAVE_POST_TO_FOLDER_RESULT' || type === 'READ_POSTS_FROM_FOLDER_RESULT' ||
+      type === 'GET_FOLLOWING_DATA_RESULT' || type === 'MUTATE_FOLLOWING_RESULT') {
+    return false;
+  }
 
   const payloadCheck = validateMessagePayload(type, msg);
   if (!payloadCheck.valid) {
@@ -585,6 +3051,1115 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
     return false;
   }
+  if (type === 'CFS_SOLANA_EXECUTE_SWAP') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_executeSwap;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana swap handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_WATCH_GET_ACTIVITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solanaWatch_getActivity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana watch not loaded' });
+          return;
+        }
+        const out = await fn(msg.limit);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_WATCH_REFRESH_NOW') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solanaWatch_tick;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana watch not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out && typeof out === 'object' ? out : { ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_WATCH_CLEAR_ACTIVITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solanaWatch_clearActivity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana watch not loaded' });
+          return;
+        }
+        const out = await fn();
+        sendResponse(out && typeof out === 'object' ? out : { ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_WATCH_GET_ACTIVITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bscWatch_getActivity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC watch not loaded' });
+          return;
+        }
+        const out = await fn(msg.limit);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_WATCH_REFRESH_NOW') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bscWatch_tick;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC watch not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out && typeof out === 'object' ? out : { ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_WATCH_CLEAR_ACTIVITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bscWatch_clearActivity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC watch not loaded' });
+          return;
+        }
+        const out = await fn();
+        sendResponse(out && typeof out === 'object' ? out : { ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_FOLLOWING_AUTOMATION_STATUS') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_evaluateFollowingAutomation;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Following automation evaluator not loaded' });
+          return;
+        }
+        const data = await chrome.storage.local.get([
+          'workflows',
+          'cfsPulseSolanaWatchBundle',
+          'cfsPulseBscWatchBundle',
+          'cfs_bscscan_api_key',
+        ]);
+        const auto = fn(data);
+        sendResponse(
+          Object.assign({ ok: true }, auto, {
+            reason: auto.reason != null ? auto.reason : null,
+          }),
+        );
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_watchActivityPriceDriftRow;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'watch activity price filter not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out && typeof out === 'object' ? out : { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RUGCHECK_TOKEN_REPORT') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_fetch_rugcheck_report;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Rugcheck helper not loaded' });
+          return;
+        }
+        const rep = await fn(msg.mint);
+        if (rep && rep._error) {
+          sendResponse({ ok: false, error: rep._error });
+          return;
+        }
+        sendResponse({ ok: true, report: rep });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_TRANSFER_SOL') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_transferSol;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana transfer handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_TRANSFER_SPL') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_transferSpl;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana SPL transfer handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_ENSURE_TOKEN_ACCOUNT') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_ensureTokenAccount;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana ensure ATA handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_WRAP_SOL') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_wrapSol;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana wrap SOL handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_UNWRAP_WSOL') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_unwrapWsol;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana unwrap WSOL handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_RPC_READ') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_rpcRead;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana RPC read handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_PUMPFUN_BUY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_pumpfun_buy;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Pump.fun buy handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_PUMPFUN_SELL') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_pumpfun_sell;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Pump.fun sell handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_PUMPFUN_MARKET_PROBE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_pumpfun_market_probe;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Pump market probe not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_SOLANA_SELLABILITY_PROBE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_solana_sellability_probe;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Solana sellability probe not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_DLMM_ADD_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_dlmm_add_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora DLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_DLMM_REMOVE_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_dlmm_remove_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora DLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_DLMM_CLAIM_REWARDS') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_dlmm_claim_rewards;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora DLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_ADD_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_add_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_REMOVE_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_remove_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_DECREASE_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_decrease_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_SWAP') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_swap;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_QUOTE_SWAP') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_quote_swap;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_QUOTE_SWAP_EXACT_OUT') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_quote_swap_exact_out;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_SWAP_EXACT_OUT') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_swap_exact_out;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_CLAIM_FEES') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_claim_fees;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_METEORA_CPAMM_CLAIM_REWARD') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_meteora_cpamm_claim_reward;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Meteora CP-AMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_ADD_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_add_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium liquidity handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_REMOVE_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_remove_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium liquidity handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_SWAP_STANDARD') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_standard_swap;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium swap handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_SWAP_BASE_IN') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_swap_base_in;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM swap handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_SWAP_BASE_OUT') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_swap_base_out;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM swap base-out handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_QUOTE_BASE_IN') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_quote_base_in;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM quote handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_QUOTE_BASE_OUT') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_quote_base_out;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM quote base-out handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CPMM_ADD_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_cpmm_add_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CPMM liquidity handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CPMM_REMOVE_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_cpmm_remove_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CPMM liquidity handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_OPEN_POSITION') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_open_position;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_OPEN_POSITION_FROM_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_open_position_from_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_COLLECT_REWARD') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_collect_reward;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_COLLECT_REWARDS') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_collect_rewards;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_HARVEST_LOCK_POSITION') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_harvest_lock_position;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_LOCK_POSITION') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_lock_position;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_CLOSE_POSITION') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_close_position;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_DECREASE_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_decrease_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_BASE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_increase_position_from_base;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_LIQUIDITY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_raydium_clmm_increase_position_from_liquidity;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Raydium CLMM handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_PERPS_AUTOMATION_STATUS') {
+    try {
+      const fn = globalThis.__CFS_perps_automation_status;
+      if (typeof fn !== 'function') {
+        sendResponse({
+          ok: true,
+          raydiumPerps: 'not_implemented',
+          jupiterPerps: 'not_implemented',
+          note: 'See docs/PERPS_SPIKES.md',
+        });
+      } else {
+        sendResponse(fn(msg) || { ok: false, error: 'No response' });
+      }
+    } catch (e) {
+      sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+    }
+    return false;
+  }
+
+  if (type === 'CFS_JUPITER_PERPS_MARKETS') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_perps_markets;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Jupiter perps markets handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_POOL_EXECUTE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_executePoolOp;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC pool handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_SELLABILITY_PROBE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_sellability_probe;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC sellability probe not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_QUERY') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_query;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC query handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_ASTER_FUTURES') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_aster_futures;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Aster futures handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out && typeof out === 'object' ? out : { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_ASTER_USER_STREAM_WAIT') {
+    (async () => {
+      let release;
+      let keepTimer = null;
+      try {
+        const wsUrl = msg.wsUrl != null ? String(msg.wsUrl).trim() : '';
+        if (!isAllowedAsterUserStreamWsUrl(wsUrl)) {
+          sendResponse({
+            ok: false,
+            error: 'wsUrl must be wss://fstream|sstream.asterdex.com/ws/<listenKey>',
+          });
+          return;
+        }
+        const ivRaw = msg.listenKeyKeepaliveIntervalMs;
+        const iv =
+          ivRaw != null && ivRaw !== '' ? Number(ivRaw) : 0;
+        const lkKeep = msg.listenKey != null ? String(msg.listenKey).trim() : '';
+        const inferredStreamMk = inferAsterListenKeyMarketFromWsUrl(wsUrl);
+        let mkRaw = msg.listenKeyMarket != null ? String(msg.listenKeyMarket).trim().toLowerCase() : '';
+        if (mkRaw !== 'futures' && mkRaw !== 'spot') {
+          mkRaw = inferredStreamMk;
+        } else if (inferredStreamMk && mkRaw !== inferredStreamMk) {
+          sendResponse({
+            ok: false,
+            error: 'listenKeyMarket does not match wsUrl host (fstream→futures, sstream→spot)',
+          });
+          return;
+        }
+        let pathKeyCheck = '';
+        try {
+          pathKeyCheck = extractAsterUserStreamListenKeyFromPathname(new URL(wsUrl).pathname);
+        } catch (_) {
+          pathKeyCheck = '';
+        }
+        if (
+          Number.isFinite(iv) &&
+          iv >= 60000 &&
+          lkKeep &&
+          pathKeyCheck &&
+          lkKeep !== pathKeyCheck
+        ) {
+          sendResponse({
+            ok: false,
+            error: 'listenKey must match the /ws/<listenKey> segment in wsUrl (after URL decode)',
+          });
+          return;
+        }
+        if (Number.isFinite(iv) && iv >= 60000 && lkKeep && (mkRaw === 'futures' || mkRaw === 'spot')) {
+          const asterFn = globalThis.__CFS_aster_futures;
+          let keepalivePokeBusy = false;
+          const pokeListenKey = async () => {
+            if (typeof asterFn !== 'function' || keepalivePokeBusy) return;
+            keepalivePokeBusy = true;
+            try {
+              const kr = await asterFn({
+                type: 'CFS_ASTER_FUTURES',
+                asterCategory: mkRaw === 'spot' ? 'spotAccount' : 'trade',
+                operation: 'listenKeyKeepalive',
+                listenKey: lkKeep,
+                recvWindow: msg.recvWindow,
+              });
+              if (kr && kr.ok === false && kr.error) {
+                try {
+                  console.warn('[CFS] Aster listenKey keepalive failed:', kr.error);
+                } catch (_) {}
+              }
+            } catch (e) {
+              try {
+                console.warn('[CFS] Aster listenKey keepalive error:', e && e.message ? e.message : String(e));
+              } catch (_) {}
+            } finally {
+              keepalivePokeBusy = false;
+            }
+          };
+          await pokeListenKey();
+          keepTimer = setInterval(pokeListenKey, iv);
+        }
+        release = await acquireOffscreen('asterUserStream');
+        await new Promise((r) => setTimeout(r, 350));
+        const payload = {
+          type: 'ASTER_USER_STREAM_WAIT_PAYLOAD',
+          wsUrl,
+          timeoutMs: msg.timeoutMs,
+          matchEvent: msg.matchEvent,
+          matchSubstring: msg.matchSubstring,
+          maxMessages: msg.maxMessages,
+          skipEventTypes: msg.skipEventTypes,
+        };
+        const out = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(payload, (res) => {
+            if (chrome.runtime.lastError) {
+              resolve({
+                ok: false,
+                error: chrome.runtime.lastError.message || 'aster user stream offscreen unavailable',
+              });
+            } else {
+              resolve(res || { ok: false, error: 'No response' });
+            }
+          });
+        });
+        sendResponse(out && typeof out === 'object' ? out : { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      } finally {
+        if (keepTimer != null) {
+          clearInterval(keepTimer);
+          keepTimer = null;
+        }
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (typeof globalThis.__CFS_bsc_walletRoute === 'function') {
+    const handled = globalThis.__CFS_bsc_walletRoute(msg, sender, sendResponse);
+    if (handled) return true;
+  }
+
+  if (typeof globalThis.__CFS_solana_walletRoute === 'function') {
+    const handled = globalThis.__CFS_solana_walletRoute(msg, sender, sendResponse);
+    if (handled) return true;
+  }
+
   if (type === 'PICK_ELEMENT_CANCELLED') {
     sendResponse({ ok: true });
     return false;
@@ -594,17 +4169,73 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (type === 'MERGE_SCHEDULED_WORKFLOW_RUNS') {
+    (async () => {
+      try {
+        const entries = Array.isArray(msg.entries) ? msg.entries : [];
+        const replaceAll = msg.replaceAll === true;
+        const data = await chrome.storage.local.get(['scheduledWorkflowRuns']);
+        const prev = Array.isArray(data.scheduledWorkflowRuns) ? data.scheduledWorkflowRuns : [];
+        const base = replaceAll ? [] : prev.slice();
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (!e || typeof e !== 'object') continue;
+          const wfId = e.workflowId != null ? String(e.workflowId).trim() : '';
+          if (!wfId) continue;
+          const id = e.id && String(e.id).trim()
+            ? String(e.id).trim()
+            : `sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const clone = { ...e, id, workflowId: wfId };
+          if ((clone.pattern || '').toLowerCase() === 'interval' && clone.lastRunAtMs == null) {
+            clone.lastRunAtMs = Date.now();
+          }
+          base.push(clone);
+        }
+        await chrome.storage.local.set({ scheduledWorkflowRuns: base });
+        await scheduleAlarmForNextRun();
+        sendResponse({ ok: true, total: base.length, merged: entries.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'GET_SCHEDULED_WORKFLOW_RUNS') {
+    (async () => {
+      try {
+        const data = await chrome.storage.local.get(['scheduledWorkflowRuns']);
+        const list = Array.isArray(data.scheduledWorkflowRuns) ? data.scheduledWorkflowRuns : [];
+        sendResponse({ ok: true, runs: list });
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'REMOVE_SCHEDULED_WORKFLOW_RUNS') {
+    (async () => {
+      try {
+        const idSet = new Set(msg.ids.map((x) => String(x).trim()));
+        const data = await chrome.storage.local.get(['scheduledWorkflowRuns']);
+        const prev = Array.isArray(data.scheduledWorkflowRuns) ? data.scheduledWorkflowRuns : [];
+        const next = prev.filter((r) => r && r.id && !idSet.has(String(r.id)));
+        const removed = prev.length - next.length;
+        await chrome.storage.local.set({ scheduledWorkflowRuns: next });
+        await scheduleAlarmForNextRun();
+        sendResponse({ ok: true, removed, total: next.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (type === 'STORE_TOKENS') {
-    const { tokens, user } = msg;
-    const { access_token, refresh_token, expires_in } = tokens;
-    const stored = {
-      access_token: access_token || '',
-      refresh_token: refresh_token || '',
-      expires_in: typeof expires_in === 'number' ? expires_in : 3600,
-      obtained_at: Date.now(),
-      user: { id: user?.id ?? '', email: user?.email ?? '' },
-    };
-    chrome.storage.local.set({ whop_auth: stored }).then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e?.message }));
+    cfsWhopApplyStoreTokens(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }));
     return true;
   }
 
@@ -648,6 +4279,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
         }
       } catch (e) {
+        try {
+          const data = await chrome.storage.local.get(['whop_auth']);
+          const auth = data.whop_auth;
+          if (auth && auth.access_token) {
+            sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
+            return;
+          }
+        } catch (_) {}
         sendResponse({ ok: false, error: e?.message || 'Failed to get token' });
       }
     })();
@@ -994,12 +4633,88 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'CALL_LLM') {
-    const { prompt, responseType } = msg || {};
+    const m = msg || {};
+    const { prompt, responseType, llmProvider: msgLlmProvider, llmOpenaiModel: msgOpenaiModel, llmModelOverride: msgModelOverride } = m;
     const type = (responseType || 'text').toLowerCase();
+    const promptTrim = String(prompt || '').trim();
+    if (promptTrim.length > CFS_CALL_LLM_MAX_PROMPT_CHARS) {
+      sendResponse({
+        ok: false,
+        error: 'Prompt too long (max ' + CFS_CALL_LLM_MAX_PROMPT_CHARS + ' characters)',
+      });
+      return true;
+    }
 
     (async () => {
       let release;
       try {
+        const llmStore = await chrome.storage.local.get([
+          'cfsLlmWorkflowProvider',
+          'cfsLlmWorkflowOpenaiModel',
+          'cfsLlmWorkflowModelOverride',
+          'cfsLlmOpenaiKey',
+          'cfsLlmAnthropicKey',
+          'cfsLlmGeminiKey',
+          'cfsLlmGrokKey',
+        ]);
+        let provider = (llmStore.cfsLlmWorkflowProvider || 'lamini').toLowerCase();
+        if (msgLlmProvider != null && String(msgLlmProvider).trim() !== '') {
+          const p = String(msgLlmProvider).trim().toLowerCase();
+          if (p === 'lamini' || p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok') {
+            provider = p;
+          }
+        }
+        const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
+        const useCloud = provider !== 'lamini' && cloudProviders[provider];
+
+        const stepOpenai =
+          msgOpenaiModel != null && String(msgOpenaiModel).trim() !== '' ? String(msgOpenaiModel).trim() : null;
+        const stepOverride =
+          msgModelOverride != null && String(msgModelOverride).trim() !== '' ? String(msgModelOverride).trim() : null;
+        const openaiModelPick = stepOpenai != null ? stepOpenai : llmStore.cfsLlmWorkflowOpenaiModel;
+        const modelOverridePick = stepOverride != null ? stepOverride : llmStore.cfsLlmWorkflowModelOverride;
+
+        if (useCloud && typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.callRemoteLlmStep) {
+          const keyField = cloudProviders[provider];
+          const apiKey = String(llmStore[keyField] || '').trim();
+          if (!apiKey) {
+            sendResponse({
+              ok: false,
+              error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
+            });
+            return;
+          }
+          if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+            sendResponse({
+              ok: false,
+              error:
+                'API key too long (max ' +
+                CFS_LLM_API_KEY_MAX_CHARS +
+                ' characters). Fix it under Settings → Local Keys → LLM providers.',
+            });
+            return;
+          }
+          const model = CFS_remoteLlm.resolveModel(provider, openaiModelPick, modelOverridePick);
+          const modelLenCheck = cfsAssertResolvedLlmModelLength(model);
+          if (!modelLenCheck.ok) {
+            sendResponse({ ok: false, error: modelLenCheck.error });
+            return;
+          }
+          const stepRes = await CFS_remoteLlm.callRemoteLlmStep({
+            provider,
+            apiKey,
+            model,
+            prompt: promptTrim,
+            responseType: type,
+          });
+          if (stepRes.ok) {
+            sendResponse({ ok: true, result: stepRes.result, feedback: stepRes.feedback });
+          } else {
+            sendResponse({ ok: false, error: stepRes.error || 'LLM call failed' });
+          }
+          return;
+        }
+
         release = await acquireOffscreen('qc');
         await new Promise((r) => setTimeout(r, 400));
         const response = await new Promise((resolve) => {
@@ -1026,6 +4741,126 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: (e && e.message) || 'LLM call failed' });
       } finally {
         if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'CALL_REMOTE_LLM_CHAT') {
+    const { messages, options } = msg || {};
+    const validatedChat = cfsValidateRemoteChatInput(messages);
+    if (!validatedChat.ok) {
+      sendResponse({ ok: false, error: validatedChat.error || 'Invalid chat payload' });
+      return true;
+    }
+    (async () => {
+      try {
+        const llmStore = await chrome.storage.local.get([
+          'cfsLlmChatProvider',
+          'cfsLlmChatOpenaiModel',
+          'cfsLlmChatModelOverride',
+          'cfsLlmOpenaiKey',
+          'cfsLlmAnthropicKey',
+          'cfsLlmGeminiKey',
+          'cfsLlmGrokKey',
+        ]);
+        const provider = (llmStore.cfsLlmChatProvider || 'lamini').toLowerCase();
+        const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
+        if (provider === 'lamini' || !cloudProviders[provider]) {
+          sendResponse({ ok: false, error: 'Chat provider is not a cloud model' });
+          return;
+        }
+        if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.callRemoteChat) {
+          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
+          return;
+        }
+        const keyField = cloudProviders[provider];
+        const apiKey = String(llmStore[keyField] || '').trim();
+        if (!apiKey) {
+          sendResponse({
+            ok: false,
+            error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
+          });
+          return;
+        }
+        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+          sendResponse({
+            ok: false,
+            error:
+              'API key too long (max ' +
+              CFS_LLM_API_KEY_MAX_CHARS +
+              ' characters). Fix it under Settings → Local Keys → LLM providers.',
+          });
+          return;
+        }
+        const model = CFS_remoteLlm.resolveModel(
+          provider,
+          llmStore.cfsLlmChatOpenaiModel,
+          llmStore.cfsLlmChatModelOverride
+        );
+        const chatModelLen = cfsAssertResolvedLlmModelLength(model);
+        if (!chatModelLen.ok) {
+          sendResponse({ ok: false, error: chatModelLen.error });
+          return;
+        }
+        const chatRes = await CFS_remoteLlm.callRemoteChat({
+          provider,
+          apiKey,
+          model,
+          messages: validatedChat.messages,
+          options: options || {},
+        });
+        if (chatRes.ok) {
+          sendResponse({ ok: true, result: { text: chatRes.text, model: chatRes.model } });
+        } else {
+          sendResponse({ ok: false, error: chatRes.error || 'Chat failed' });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Chat failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'CFS_LLM_TEST_PROVIDER') {
+    const { provider, token } = msg || {};
+    (async () => {
+      try {
+        const p = String(provider || '').trim().toLowerCase();
+        const keyMap = {
+          openai: 'cfsLlmOpenaiKey',
+          claude: 'cfsLlmAnthropicKey',
+          gemini: 'cfsLlmGeminiKey',
+          grok: 'cfsLlmGrokKey',
+        };
+        if (!keyMap[p]) {
+          sendResponse({ ok: false, error: 'Unknown provider' });
+          return;
+        }
+        let apiKey = token != null && String(token).trim() ? String(token).trim() : '';
+        if (!apiKey) {
+          const st = await chrome.storage.local.get(keyMap[p]);
+          apiKey = String(st[keyMap[p]] || '').trim();
+        }
+        if (!apiKey) {
+          sendResponse({ ok: false, error: 'No API key (type one in the field or save first)' });
+          return;
+        }
+        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+          sendResponse({
+            ok: false,
+            error: 'API key too long (max ' + CFS_LLM_API_KEY_MAX_CHARS + ' characters)',
+          });
+          return;
+        }
+        if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.pingProvider) {
+          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
+          return;
+        }
+        const pr = await CFS_remoteLlm.pingProvider(p, apiKey);
+        sendResponse(pr);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Test failed' });
       }
     })();
     return true;
@@ -1135,6 +4970,117 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'APIFY_TEST_TOKEN') {
+    const v = validateMessagePayload('APIFY_TEST_TOKEN', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_TEST_TOKEN payload' });
+      return true;
+    }
+    (async () => {
+      try {
+        const out = await cfsApifyTestToken(msg);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'APIFY_RUN_CANCEL') {
+    let tid = null;
+    if (msg.tabId != null && msg.tabId !== '') {
+      const n = Number(msg.tabId);
+      if (Number.isInteger(n) && n >= 0) tid = n;
+    }
+    if (tid == null && sender && sender.tab && Number.isInteger(sender.tab.id) && sender.tab.id >= 0) {
+      tid = sender.tab.id;
+    }
+    if (tid != null) {
+      const ac = apifyRunAbortByTabId.get(tid);
+      if (ac) try { ac.abort(); } catch (_) {}
+      const ar = apifyAsyncRunByTabId.get(tid);
+      if (ar && ar.runId && ar.token) {
+        apifyAsyncRunByTabId.delete(tid);
+        apifyPostAbortRun(ar.token, ar.runId);
+      }
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.type === 'APIFY_RUN') {
+    const v = validateMessagePayload('APIFY_RUN', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsExecuteApifyRun(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'APIFY_RUN_START') {
+    const v = validateMessagePayload('APIFY_RUN_START', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN_START payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsApifyRunStart(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'APIFY_RUN_WAIT') {
+    const v = validateMessagePayload('APIFY_RUN_WAIT', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN_WAIT payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsApifyRunWait(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'APIFY_DATASET_ITEMS') {
+    const v = validateMessagePayload('APIFY_DATASET_ITEMS', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_DATASET_ITEMS payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsApifyDatasetItems(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'UPLOAD_POST') {
     const { apiKey, formFields, timeoutMs } = msg || {};
     if (!apiKey || typeof apiKey !== 'string') {
@@ -1164,6 +5110,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else uploadEndpoint = 'https://api.upload-post.com/api/upload';
     (async () => {
       try {
+        async function cfsMediaBlobFromUrlString(s) {
+          if (s == null || typeof s !== 'string') return null;
+          var t = s.trim();
+          if (!t.startsWith('data:') && !t.startsWith('blob:')) return null;
+          try {
+            var res = await fetch(t);
+            if (!res.ok) return null;
+            return await res.blob();
+          } catch (_) {
+            return null;
+          }
+        }
         const fd = new FormData();
         fd.append('user', String(formFields.user));
         if (Array.isArray(formFields.platform)) {
@@ -1172,11 +5130,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           fd.append('platform[]', String(formFields.platform));
         }
         if (postType === 'video' && formFields.video) {
-          fd.append('video', String(formFields.video));
+          var vStr = formFields.video;
+          var vBlob = await cfsMediaBlobFromUrlString(vStr);
+          if (vBlob) {
+            var vName = 'video.webm';
+            if (vStr.indexOf('data:video/mp4') === 0 || (vBlob.type || '').indexOf('mp4') >= 0) vName = 'video.mp4';
+            fd.append('video', vBlob, vName);
+          } else {
+            fd.append('video', String(vStr));
+          }
         }
         if (postType === 'photo' && formFields.photos) {
           var photos = Array.isArray(formFields.photos) ? formFields.photos : [formFields.photos];
-          photos.forEach(function(p) { fd.append('photos[]', String(p)); });
+          for (var pi = 0; pi < photos.length; pi++) {
+            var pItem = photos[pi];
+            var pBlob = await cfsMediaBlobFromUrlString(pItem);
+            if (pBlob) {
+              var ext = 'jpg';
+              if ((pItem.indexOf('data:image/png') === 0) || ((pBlob.type || '').indexOf('png') >= 0)) ext = 'png';
+              fd.append('photos[]', pBlob, 'photo_' + pi + '.' + ext);
+            } else {
+              fd.append('photos[]', String(pItem));
+            }
+          }
         }
         if (postType === 'text' && formFields.link_url) {
           fd.append('link_url', String(formFields.link_url));
@@ -1352,6 +5328,80 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'CFS_PROJECT_READ_FILE' || msg.type === 'CFS_PROJECT_WRITE_FILE') {
+    (async () => {
+      let release;
+      try {
+        const pathCheck = cfsValidateProjectRelativePath(msg.relativePath);
+        if (!pathCheck.ok) {
+          sendResponse({ ok: false, error: pathCheck.error });
+          return;
+        }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const payload = {
+          type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD',
+          op: msg.type === 'CFS_PROJECT_READ_FILE' ? 'read' : 'write',
+          relativePath: pathCheck.path,
+          maxBytes: msg.maxBytes,
+          encoding: msg.type === 'CFS_PROJECT_READ_FILE' ? (msg.encoding || 'text') : undefined,
+          content: msg.type === 'CFS_PROJECT_WRITE_FILE' ? msg.content : undefined,
+        };
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(payload, (res) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+            else resolve(res || { ok: false, error: 'No response' });
+          });
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Project folder IO failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'CFS_PROJECT_ENSURE_DIRS') {
+    (async () => {
+      let release;
+      try {
+        const rawPaths = Array.isArray(msg.paths) ? msg.paths : (msg.relativePath ? [msg.relativePath] : []);
+        const normPaths = [];
+        for (let i = 0; i < rawPaths.length; i++) {
+          const pc = cfsValidateProjectRelativePath(String(rawPaths[i] || '').trim());
+          if (!pc.ok) {
+            sendResponse({ ok: false, error: pc.error || 'Invalid path' });
+            return;
+          }
+          normPaths.push(pc.path);
+        }
+        if (normPaths.length === 0) {
+          sendResponse({ ok: false, error: 'paths or relativePath required' });
+          return;
+        }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'ensureDirs', paths: normPaths },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Project folder ensure dirs failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'SIDEBAR_STATE_UPDATE') {
     const { windowId, sidebarName } = msg || {};
     if (windowId != null) {
@@ -1507,6 +5557,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.set({ [PENDING_GENERATIONS_KEY]: [] }, () => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === 'SET_PENDING_GENERATIONS') {
+    const list = Array.isArray(msg.list) ? msg.list : [];
+    if (list.length > 500) {
+      sendResponse({ ok: false, error: 'list too large' });
+      return true;
+    }
+    chrome.storage.local.set({ [PENDING_GENERATIONS_KEY]: list }, () => sendResponse({ ok: true }));
+    return true;
+  }
   if (msg.type === 'COMBINE_VIDEOS') {
     const urls = msg.urls || [];
     const segments = msg.segments || [];
@@ -1548,6 +5607,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       } catch (e) {
         sendResponse({ ok: false, error: (e && e.message) || 'Combiner failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'EXTRACT_AUDIO_FROM_VIDEO') {
+    const b64 = msg.base64;
+    if (!b64 || typeof b64 !== 'string' || !b64.trim()) {
+      sendResponse({ ok: false, error: 'base64 required' });
+      return true;
+    }
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('videoCombiner');
+        await new Promise((r) => setTimeout(r, 500));
+        const out = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'EXTRACT_AUDIO_FROM_VIDEO_PAYLOAD',
+              base64: b64.trim(),
+              mimeType: msg.mimeType || 'video/webm',
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Extract audio unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Extract audio failed' });
       } finally {
         if (release) release();
       }
@@ -2055,13 +6148,67 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (type === 'SAVE_POST_TO_FOLDER') {
+    const savePostMsgSender = sender;
     (async () => {
       try {
-        var tabs = await chrome.tabs.query({});
-        for (var tab of tabs) {
-          try { chrome.tabs.sendMessage(tab.id, msg); } catch (_) {}
+        const replyId = 'sp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
+        let result = null;
+        let done = false;
+        const onReply = (reply) => {
+          if (reply && reply.type === 'SAVE_POST_TO_FOLDER_RESULT' && reply._replyId === replyId) {
+            result = reply;
+            done = true;
+            try { chrome.runtime.onMessage.removeListener(onReply); } catch (_) {}
+          }
+        };
+        chrome.runtime.onMessage.addListener(onReply);
+        const payload = Object.assign({}, msg, { _replyId: replyId });
+        try {
+          chrome.runtime.sendMessage(payload, () => void chrome.runtime.lastError);
+        } catch (_) {}
+        const tabs = await chrome.tabs.query({});
+        for (const tab of tabs) {
+          try {
+            if (tab.id != null) chrome.tabs.sendMessage(tab.id, payload, () => void chrome.runtime.lastError);
+          } catch (_) {}
         }
-        sendResponse({ ok: true });
+        const start = Date.now();
+        let triedOpenSidePanel = false;
+        while (!done && Date.now() - start < 12000) {
+          const elapsed = Date.now() - start;
+          if (!done && !triedOpenSidePanel && elapsed >= 3000) {
+            triedOpenSidePanel = true;
+            let wid =
+              savePostMsgSender && savePostMsgSender.tab && savePostMsgSender.tab.windowId != null
+                ? savePostMsgSender.tab.windowId
+                : null;
+            if (wid == null) {
+              try {
+                const w = await chrome.windows.getLastFocused({ populate: false });
+                if (w && w.id != null) wid = w.id;
+              } catch (_) {}
+            }
+            if (wid != null && typeof chrome.sidePanel?.open === 'function') {
+              try {
+                await chrome.sidePanel.open({ windowId: wid });
+              } catch (_) {}
+            }
+          }
+          await new Promise((r) => setTimeout(r, 40));
+        }
+        try { chrome.runtime.onMessage.removeListener(onReply); } catch (_) {}
+        if (done && result) {
+          sendResponse({
+            ok: result.ok !== false,
+            error: result.error,
+            saveResult: result.result,
+          });
+        } else {
+          sendResponse({
+            ok: false,
+            error: 'Side panel did not save the post manifest. Open the extension side panel, set a project folder, and try again.',
+          });
+        }
       } catch (e) {
         sendResponse({ ok: false, error: e?.message || 'Failed' });
       }

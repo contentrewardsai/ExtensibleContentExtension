@@ -2,7 +2,7 @@
   "id": "key",
   "label": "Send key",
   "category": "interaction",
-  "description": "Dispatch a key (e.g. Escape) to close menus or trigger shortcuts. Does not require an element.",
+  "description": "Dispatch a key (e.g. Escape) to close menus or trigger shortcuts. Targets the tab document, or an iframe/shadow scope if set (keydown on that document).",
   "defaultAction": {
     "type": "key",
     "key": "Escape",

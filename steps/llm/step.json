@@ -2,7 +2,7 @@
   "id": "llm",
   "label": "Call LLM",
   "category": "data",
-  "description": "Send a prompt (with {{variables}} from the row) to the local LaMini model (Xenova/LaMini-Flan-T5-783M). Response types: true/false, plain text, or text with feedback. Save the result to a row variable. With a project folder set, LaMini is saved under models/Xenova/ automatically (~820MB) or via scripts/download-lamini-model.sh.",
+  "description": "Send a prompt (with {{variables}} from the row) to the LLM backend from Settings (default: local LaMini) or override per step (LaMini / OpenAI / Claude / Gemini / Grok). Optional per-step model fields. Response types: true/false, plain text, or text with feedback. LaMini uses your project folder (~820MB) or scripts/download-lamini-model.sh.",
   "defaultAction": {
     "type": "llm",
     "prompt": "Based on the following, answer the question.\n\nContent:\n{{content}}\n\nQuestion: Is this appropriate for our audience?",
@@ -12,6 +12,16 @@
   },
   "formSchema": [
     { "key": "runIf", "label": "Run only if (variable or {{key}}; skip when empty/falsy)", "inputType": "text", "placeholder": "optional" },
+    { "key": "llmProvider", "label": "Backend override (optional; empty = Settings workflow default)", "inputType": "select", "options": [
+      { "value": "", "label": "Use Settings default" },
+      { "value": "lamini", "label": "LaMini (local)" },
+      { "value": "openai", "label": "OpenAI" },
+      { "value": "claude", "label": "Claude (Anthropic)" },
+      { "value": "gemini", "label": "Gemini" },
+      { "value": "grok", "label": "Grok (xAI)" }
+    ]},
+    { "key": "llmOpenaiModel", "label": "OpenAI model (this step only; optional)", "inputType": "text", "placeholder": "e.g. gpt-4o-mini", "maxLength": 256 },
+    { "key": "llmModelOverride", "label": "Claude / Gemini / Grok model id (this step only; optional)", "inputType": "text", "maxLength": 256 },
     { "key": "prompt", "label": "Prompt (use {{variableName}} for row variables)", "inputType": "textarea", "rows": 4 },
     { "key": "responseType", "label": "Response type", "inputType": "select", "options": [
       { "value": "boolean", "label": "True / False" },

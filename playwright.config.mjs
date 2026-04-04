@@ -4,19 +4,25 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const cpuCount = (await import('os')).default.cpus().length;
-const defaultWorkers = Math.max(2, Math.min(cpuCount - 1, 4));
+const isCi = process.env.CI === '1' || process.env.CI === 'true';
+/** One Chromium + extension profile per worker; default 1 (set PW_WORKERS to parallelize spec files). */
+const defaultWorkers = 1;
 
 export default defineConfig({
+  globalSetup: path.join(__dirname, 'test/e2e/global-setup.mjs'),
   testDir: path.join(__dirname, 'test/e2e'),
   testMatch: '*.spec.mjs',
-  timeout: 60_000,
+  /* Service worker runs heavy importScripts (Solana/Raydium/EVM bundles) before onMessage is ready. */
+  timeout: 240_000,
   retries: 0,
-  workers: process.env.PW_WORKERS ? Number(process.env.PW_WORKERS) : defaultWorkers,
+  workers: process.env.PW_WORKERS != null && process.env.PW_WORKERS !== ''
+    ? Number(process.env.PW_WORKERS)
+    : defaultWorkers,
   fullyParallel: false,
-  reporter: process.env.CI ? 'dot' : 'list',
+  reporter: isCi ? 'dot' : 'list',
   use: {
-    headless: false,
+    /* launchPersistentContext in extension.fixture.mjs sets headless per-extension; this documents intent. */
+    headless: isCi || process.env.PW_HEADLESS === '1' || process.env.PW_HEADLESS === 'true',
   },
   projects: [
     {

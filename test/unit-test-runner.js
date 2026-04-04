@@ -30,6 +30,14 @@
 
   var stepTests = [];
 
+  /** Breadcrumb for chrome://extensions → Errors (which extension page emitted the log). */
+  function unitTestPageTag() {
+    try {
+      if (typeof location !== 'undefined' && location.pathname) return ' [' + location.pathname + ']';
+    } catch (e) {}
+    return '';
+  }
+
   function registerStepTests(stepId, tests) {
     if (!stepId || !Array.isArray(tests)) return;
     for (var i = 0; i < tests.length; i++) {
@@ -48,14 +56,14 @@
           if (global.console && global.console.log) global.console.log('[PASS]', name);
           return { name: name, ok: true };
         }).catch(function (err) {
-          if (global.console && global.console.error) global.console.error('[FAIL]', name, err);
+          if (global.console && global.console.error) global.console.error('[FAIL]', name + unitTestPageTag(), err);
           return { name: name, ok: false, error: err && err.message ? err.message : String(err) };
         });
       }
       if (global.console && global.console.log) global.console.log('[PASS]', name);
       return { name: name, ok: true };
     } catch (err) {
-      if (global.console && global.console.error) global.console.error('[FAIL]', name, err);
+      if (global.console && global.console.error) global.console.error('[FAIL]', name + unitTestPageTag(), err);
       return { name: name, ok: false, error: err && err.message ? err.message : String(err) };
     }
   }

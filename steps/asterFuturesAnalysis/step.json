@@ -1,0 +1,33 @@
+{
+  "id": "asterFuturesAnalysis",
+  "label": "Aster futures (analysis bundle)",
+  "category": "data",
+  "description": "Composite reads: decisionQuote, feesAndFunding, positionContext, rowSnapshot (premium + book + position + open orders). Keys in Settings.",
+  "defaultAction": {
+    "type": "asterFuturesAnalysis",
+    "runIf": "",
+    "operation": "decisionQuote",
+    "symbol": "",
+    "recvWindow": "",
+    "flattenToRow": false,
+    "saveResultVariable": "asterAnalysisResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    {
+      "key": "operation",
+      "label": "Operation",
+      "inputType": "select",
+      "options": [
+        { "value": "decisionQuote", "label": "decisionQuote (symbol)" },
+        { "value": "feesAndFunding", "label": "feesAndFunding (symbol)" },
+        { "value": "positionContext", "label": "positionContext (symbol)" },
+        { "value": "rowSnapshot", "label": "rowSnapshot (symbol: mark/book/position/orders)" }
+      ]
+    },
+    { "key": "symbol", "label": "symbol (required)", "inputType": "text" },
+    { "key": "recvWindow", "label": "recvWindow (optional)", "inputType": "text" },
+    { "key": "flattenToRow", "label": "Flatten key scalars to row (decisionQuote)", "inputType": "checkbox" },
+    { "key": "saveResultVariable", "label": "Save JSON result to variable", "inputType": "text" }
+  ]
+}

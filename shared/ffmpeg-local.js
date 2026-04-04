@@ -320,11 +320,54 @@
       });
   }
 
+  /**
+   * Strip video container to AAC/M4A audio (for transcription pipelines).
+   * @param {Blob} blob - video blob (webm, mp4, mov, etc.)
+   * @param {function} [onProgress]
+   * @returns {Promise<{ok:boolean, blob?:Blob, error?:string}>}
+   */
+  function extractAudioFromVideo(blob, onProgress) {
+    var report = typeof onProgress === 'function' ? onProgress : function () {};
+    return ensureLoaded(report)
+      .then(function (ff) {
+        return blob.arrayBuffer().then(function (buf) {
+          var bt = (blob.type || '').toLowerCase();
+          var bn = (typeof blob.name === 'string' ? blob.name : '').toLowerCase();
+          var inName = 'in_vid.webm';
+          if (bt.indexOf('mp4') >= 0 || bn.endsWith('.mp4') || bn.endsWith('.m4v')) inName = 'in_vid.mp4';
+          else if (bt.indexOf('quicktime') >= 0 || bn.endsWith('.mov')) inName = 'in_vid.mov';
+          else if (bt.indexOf('matroska') >= 0 || bn.endsWith('.mkv')) inName = 'in_vid.mkv';
+          var outName = 'out_aud.m4a';
+          report('Extracting audio...');
+          return ff
+            .writeFile(inName, new Uint8Array(buf))
+            .then(function () {
+              return ff.exec(['-i', inName, '-vn', '-c:a', 'aac', '-b:a', '128k', outName]);
+            })
+            .then(function () {
+              return ff.readFile(outName);
+            })
+            .then(function (data) {
+              var outBlob = new Blob([data], { type: 'audio/mp4' });
+              ff.deleteFile(inName).catch(function () {});
+              ff.deleteFile(outName).catch(function () {});
+              report('Audio extract done.');
+              return { ok: true, blob: outBlob };
+            });
+        });
+      })
+      .catch(function (err) {
+        var m = err && err.message ? err.message : String(err);
+        return { ok: false, error: m };
+      });
+  }
+
   global.FFmpegLocal = {
     convertToMp4: convertToMp4,
     convertToM4a: convertToM4a,
     probeDurationSeconds: probeDurationSeconds,
     extractSegment: extractSegment,
+    extractAudioFromVideo: extractAudioFromVideo,
     isLoaded: function () { return !!(ffmpegInstance && ffmpegInstance.loaded); },
   };
 })(typeof window !== 'undefined' ? window : self);

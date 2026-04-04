@@ -1,0 +1,36 @@
+{
+  "id": "solanaTransferSol",
+  "label": "Solana transfer SOL",
+  "category": "data",
+  "description": "Send native SOL (lamports) from the automation wallet via SystemProgram.transfer. Optional compute unit limit and micro-lamports-per-CU price prepend Solana compute-budget instructions. Does not use Jupiter. Amount is lamports (1 SOL = 1e9 lamports). Same wallet settings as other Solana steps.",
+  "defaultAction": {
+    "type": "solanaTransferSol",
+    "runIf": "",
+    "toPubkey": "",
+    "lamports": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "toPubkey", "label": "Destination address", "inputType": "text", "placeholder": "Base58 pubkey or {{recipient}}" },
+    { "key": "lamports", "label": "Lamports", "inputType": "text", "placeholder": "e.g. 1000000 or {{tipLamports}}" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight on send", "inputType": "checkbox" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 200000 — prepends SetComputeUnitLimit" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000 — prepends SetComputeUnitPrice" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

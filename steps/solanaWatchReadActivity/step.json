@@ -1,0 +1,23 @@
+{
+  "id": "solanaWatchReadActivity",
+  "label": "Solana watch read activity",
+  "category": "data",
+  "description": "Loads recent Solana Following watch events from storage (service worker). Saves JSON to a row variable: `{ activity, latest, count }`. Optional filters: watched address (substring match) and **sinceTimestampMs** (row `ts` in ms). Turn off **Apply client filters** to save the full list. Use **solanaWatchRefresh** first for a fresh poll. Pair with **watchActivityFilterTxAge**, **watchActivityFilterPriceDrift**, and swap steps. See docs/SOLANA_AUTOMATION.md.",
+  "defaultAction": {
+    "type": "solanaWatchReadActivity",
+    "runIf": "",
+    "limit": "40",
+    "applyClientFilters": true,
+    "filterAddress": "",
+    "sinceTimestampMs": "",
+    "saveResultVariable": "solanaWatchActivity"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "limit", "label": "Max rows (1–100)", "inputType": "text", "placeholder": "40" },
+    { "key": "applyClientFilters", "label": "Apply address / timestamp filters in this step", "inputType": "checkbox" },
+    { "key": "filterAddress", "label": "Filter by watched address (optional)", "inputType": "text", "placeholder": "base58 substring" },
+    { "key": "sinceTimestampMs", "label": "Only rows with ts ≥ this (ms, optional)", "inputType": "text", "placeholder": "e.g. 1700000000000" },
+    { "key": "saveResultVariable", "label": "Save JSON result to variable", "inputType": "text", "placeholder": "solanaWatchActivity" }
+  ]
+}

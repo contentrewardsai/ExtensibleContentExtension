@@ -2,7 +2,7 @@
   "id": "upload",
   "label": "Upload",
   "category": "interaction",
-  "description": "Upload a file. The file URL or path comes from the current row variable (e.g. fileUrl). The extension fetches the URL and assigns it to the file input.",
+  "description": "Upload a file. The file URL or path comes from the current row variable (e.g. fileUrl). The extension fetches the URL and assigns it to the file input. Optional iframe/shadow scope.",
   "defaultAction": {
     "type": "upload",
     "selectors": [],

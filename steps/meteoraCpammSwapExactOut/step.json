@@ -1,0 +1,50 @@
+{
+  "id": "meteoraCpammSwapExactOut",
+  "label": "Meteora CP-AMM swap (exact out)",
+  "category": "data",
+  "description": "Single-hop **exact-out** swap on a Meteora CP-AMM pool: fixed **amountOutRaw** (output token raw). Uses SDK **getQuote2** + **swap2** (swapMode 2). **slippagePercent** maps to max input. Optional **maximumAmountInRaw** caps on-chain max spend to **min**(quoted max, ceiling), e.g. after **meteoraCpammQuoteSwapExactOut**. Optional compute-budget fields like **meteoraCpammSwap**. Rebuild: `npm run build:meteora-cpamm`.",
+  "defaultAction": {
+    "type": "meteoraCpammSwapExactOut",
+    "runIf": "",
+    "pool": "",
+    "inputMint": "",
+    "outputMint": "",
+    "amountOutRaw": "",
+    "slippagePercent": 1,
+    "maximumAmountInRaw": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "saveAmountOutVariable": "",
+    "saveExpectedInVariable": "",
+    "saveMaxInVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "pool", "label": "CP-AMM pool address", "inputType": "text" },
+    { "key": "inputMint", "label": "Input token mint", "inputType": "text" },
+    { "key": "outputMint", "label": "Output token mint", "inputType": "text" },
+    { "key": "amountOutRaw", "label": "Exact amount out (raw)", "inputType": "text" },
+    { "key": "slippagePercent", "label": "Slippage (percent → max in)", "inputType": "number" },
+    { "key": "maximumAmountInRaw", "label": "Cap max input (raw, optional)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 400000" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" },
+    { "key": "saveAmountOutVariable", "label": "Save amount out (raw, optional)", "inputType": "text" },
+    { "key": "saveExpectedInVariable", "label": "Save expected in (raw, optional)", "inputType": "text" },
+    { "key": "saveMaxInVariable", "label": "Save max in used (raw, optional)", "inputType": "text" }
+  ]
+}

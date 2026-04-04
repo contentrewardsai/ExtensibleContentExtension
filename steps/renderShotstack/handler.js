@@ -28,18 +28,23 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var runIf = (action.runIf || '').trim();
-    if (runIf) {
-      var runIfVal = resolveTemplate(runIf, row, getRowValue, action);
-      if (!runIfVal || String(runIfVal).trim() === '') return;
-    }
+    if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     var environment = action.environment || 'stage';
     var outputFormat = action.outputFormat || 'mp4';
     var scaleMode = (action.resolutionScale || 'auto').toString().trim();
     var timeoutMs = action.timeoutMs > 0 ? Number(action.timeoutMs) : 300000;
-    var projectId = (action.projectId || '').trim();
-    if (projectId) projectId = resolveTemplate(projectId, row, getRowValue, action);
+    var rawProjectField = (action.projectId != null ? String(action.projectId) : '').trim();
+    var projectId = rawProjectField ? resolveTemplate(rawProjectField, row, getRowValue, action) : '';
+    projectId = (projectId || '').trim();
+    var defaultPid = action.defaultProjectId != null ? String(action.defaultProjectId).trim() : '';
+    var wantGenerationQueue = !!rawProjectField || !!defaultPid;
+    if (!projectId && wantGenerationQueue && typeof CFS_projectIdResolve !== 'undefined') {
+      var pidRes = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
+        defaultProjectId: action.defaultProjectId,
+      });
+      if (pidRes.ok) projectId = pidRes.projectId;
+    }
 
     var shotstackJson = null;
     var jsonVarKey = (action.shotstackJsonVariableKey || '').trim();

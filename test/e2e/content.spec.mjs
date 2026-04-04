@@ -397,6 +397,31 @@ test.describe('content↔background data flow', () => {
     expect(resp?.rows[1].name).toBe('Bob');
   });
 
+  test('EXTRACT_DATA with iframeSelectors reads list inside same-origin iframe', async ({ extensionContext, extensionId, fixtureServer }) => {
+    await fixturePage.goto(fixtureServer.fixtureUrl);
+    await fixturePage.waitForLoadState('domcontentloaded');
+    await fixturePage.frameLocator('[data-testid="extract-scope-iframe"]').getByTestId('iframe-item-list').waitFor({ state: 'attached', timeout: 15000 });
+
+    const resp = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+      type: 'EXTRACT_DATA',
+      config: {
+        iframeSelectors: [{ type: 'attr', attr: 'data-testid', value: '[data-testid="extract-scope-iframe"]', score: 9 }],
+        listSelector: '[data-testid="iframe-item-list"]',
+        itemSelector: '[data-testid="iframe-item"]',
+        fields: [
+          { key: 'name', selector: '.iframe-item-name' },
+          { key: 'email', selector: '.iframe-item-email' },
+        ],
+      },
+    });
+    expect(resp?.ok).toBe(true);
+    expect(resp?.rows).toHaveLength(2);
+    expect(resp?.rows[0].name).toBe('Carol');
+    expect(resp?.rows[0].email).toBe('carol@iframe.test');
+    expect(resp?.rows[1].name).toBe('Dave');
+    expect(resp?.rows[1].email).toBe('dave@iframe.test');
+  });
+
   test('player sendToEndpoint step sends data through background and gets response', async ({ extensionContext, extensionId, fixtureServer }) => {
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');

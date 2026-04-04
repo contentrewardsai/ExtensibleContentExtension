@@ -1,0 +1,27 @@
+{
+  "id": "bscTransferBnb",
+  "label": "BSC transfer BNB",
+  "category": "data",
+  "description": "Send native BNB from the BSC automation wallet (same as bscPancake → transferNative). ethWei is wei (1 BNB = 1e18), or max/balance after an internal gas reserve. Settings → BSC / PancakeSwap; unlock encrypted wallets once per session.",
+  "defaultAction": {
+    "type": "bscTransferBnb",
+    "runIf": "",
+    "to": "",
+    "ethWei": "",
+    "deadline": "",
+    "waitConfirmations": 1,
+    "gasLimit": "",
+    "saveTxHashVariable": "bscTxHash",
+    "saveExplorerUrlVariable": "bscExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "to", "label": "To address (0x…)", "inputType": "text", "placeholder": "Recipient or {{var}}" },
+    { "key": "ethWei", "label": "Amount (wei or max/balance)", "inputType": "text", "placeholder": "e.g. 1000000000000000" },
+    { "key": "deadline", "label": "Router deadline (optional; unused for native send)", "inputType": "text" },
+    { "key": "waitConfirmations", "label": "Wait confirmations", "inputType": "number", "placeholder": "1" },
+    { "key": "gasLimit", "label": "gasLimit (optional)", "inputType": "text" },
+    { "key": "saveTxHashVariable", "label": "Save tx hash to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

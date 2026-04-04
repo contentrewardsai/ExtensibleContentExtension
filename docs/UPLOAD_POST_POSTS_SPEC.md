@@ -1,28 +1,57 @@
 # Upload-Post posts folder spec (v2)
 
-This spec defines the **posts** folder structure under the project root (`{projectRoot}/posts/`), used to store post content and metadata for submission to [Upload-Post](https://docs.upload-post.com/llm.txt). Each post lives in its own folder with a JSON manifest and the media files (images, video, audio, text) to send.
+This spec defines how the extension stores **post manifests** (`post.json`) and optional media for [Upload-Post](https://docs.upload-post.com/llm.txt).
+
+**Canonical layout (current):** under the user’s **project folder**,
+
+`uploads/{projectId}/posts/…`
+
+**Legacy layout (still read by Library):** top-level
+
+`{projectRoot}/posts/{account_handle}/{post_id}/`
+
+New writes from the workflow **`uploadPost`** step and generator flows use the **canonical** path when a **project id** is resolved (row `projectId` / `_cfsProjectId` from **`loadProjectFile`**, Library uploads context, or step **`defaultProjectId`**). See **`cfs_project_id`** and **`cfs_placement`** on the manifest (§2.1).
 
 ---
 
 ## 1. Folder structure
+
+### 1.1 Canonical: `uploads/{projectId}/posts/`
+
+```
+{projectRoot}/
+└── uploads/
+    └── {projectId}/
+        └── posts/
+            ├── pending/
+            │   └── {post_id}/       # drafts before an account is known
+            │       ├── post.json
+            │       └── …
+            └── {account_handle}/    # slug from Connected profile username
+                └── {post_id}/
+                    ├── post.json
+                    ├── video.mp4      # (optional)
+                    ├── image1.jpg
+                    └── …
+```
+
+- **pending/** – Drafts (e.g. generator saves) where **`account_handle`** is not yet known.
+- **{account_handle}/** – One folder per **Connected** profile (safe slug). ShotStack renders may use `shotstack`.
+- **{post_id}/** – Typically `post_YYYY-MM-DDTHH-MM-SS` (ISO-style, filesystem-safe).
+
+### 1.2 Legacy: `{projectRoot}/posts/`
 
 ```
 {projectRoot}/
 └── posts/
     └── {account_handle}/
         └── {post_id}/
-            ├── post.json      # Manifest: payload, status, post URL(s)
-            ├── video.mp4      # (optional) video file
-            ├── image1.jpg     # (optional) images
-            ├── image2.png
-            ├── audio.wav      # (optional) audio file
-            ├── caption.txt    # (optional) plain text caption/title
-            └── ...            # other media as needed
+            ├── post.json
+            ├── video.mp4
+            └── …
 ```
 
-- **posts/** – Top-level root for all post drafts, scheduled, and posted items.
-- **{account_handle}/** – One folder per **Connected** profile (Pulse). Uses a filesystem-safe slug from the profile username (e.g. `blaketoves`, `johncooknyc_gmail_com`). For ShotStack renders, uses `shotstack`.
-- **{post_id}/** – One folder per post. Uses `post_YYYY-MM-DDTHH-MM-SS` format. Inside: `post.json` plus any media files.
+The Library **Posts** view **merges** legacy `posts/` trees with **`uploads/*/posts/`** so older projects keep appearing. Use **Library → Migrate root posts → uploads** to copy **`{projectRoot}/posts/{account}/{post_id}/`** into **`uploads/{projectId}/posts/…`** (project id = current Uploads project selection, or **`default`**). Existing destination **`post.json`** causes that post folder to be skipped; copied manifests get **`cfs_project_id`** / **`cfs_placement`** when missing.
 
 ---
 
@@ -49,6 +78,8 @@ Each post folder must contain a **post.json** file. When submitting, the extensi
 | **options** | object | No | Platform-specific fields sent with the upload (see §2.4). |
 | **defaults_used** | object | No | Records which defaults were active at post time (see §2.5). |
 | **source** | string | No | Origin of this post: `generator`, `workflow`, `shotstack`. |
+| **cfs_project_id** | string | No | Resolved uploads project id used for the folder path (`uploads/{id}/posts/…`). |
+| **cfs_placement** | string | No | `pending` or `posted` — whether the folder lived under **pending** vs **{account_handle}**. |
 | **created_at** | string | No | ISO 8601 when this post was created. |
 | **updated_at** | string | No | ISO 8601 when post.json was last updated. |
 
@@ -143,13 +174,16 @@ Records the default values that were active at the time of posting, for auditing
 
 ## 5. Auto-save behavior
 
-Posts are automatically saved to `posts/` when:
+Manifests are written under **`uploads/{projectId}/posts/…`** when:
 
-1. **Generator UI** – After a successful upload or schedule via the Upload Post sidebar section.
-2. **Workflow step** – After the `uploadPost` step successfully uploads (sends `SAVE_POST_TO_FOLDER` message to the sidepanel).
-3. **ShotStack render** – After a successful cloud render completes in the ShotStack generator UI.
+1. **Generator UI** – After a successful upload or schedule (Upload Post section in the generator), if a generator project id is set.
+2. **Workflow `uploadPost` step** – After a successful API response, the service worker sends **`SAVE_POST_TO_FOLDER`** to the **side panel** (must be open; project folder must be granted). Optional step flag **`savePostManifestToDisk`** (default on) disables disk write when unchecked.
+3. **ShotStack render** – After a successful cloud render in the ShotStack generator UI.
+4. **Workflow `savePostDraftToFolder` step** – Writes **`status: draft`** to **`posts/pending/`** only (no Upload Post API).
 
-Media files (images, video, audio) are saved alongside `post.json` when available from the generator context. For workflow and ShotStack renders that use URLs, the URL is stored in `media` rather than a local file.
+The service worker forwards **`SAVE_POST_TO_FOLDER`** with **`chrome.runtime.sendMessage`** so the side panel receives it (not only content scripts). If no response arrives within about **3 seconds**, the worker tries **`chrome.sidePanel.open`** for the tab’s window (or last focused window) so the panel can load its listener—then it keeps waiting for the remainder of the timeout. Workflow disk save failures do **not** fail the API upload; check the browser console for warnings.
+
+Media files (images, video, audio) are saved alongside `post.json` when available from the generator context. For workflow and ShotStack flows that only have URLs, the URL is stored in `media` rather than a local file.
 
 ---
 

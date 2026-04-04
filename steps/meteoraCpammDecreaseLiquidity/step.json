@@ -1,0 +1,40 @@
+{
+  "id": "meteoraCpammDecreaseLiquidity",
+  "label": "Meteora CP-AMM decrease liquidity",
+  "category": "data",
+  "description": "Remove **part** of the liquidity from a CP-AMM position (DAMM v2). **removeLiquidityBps** is basis points of the position’s total on-chain liquidity (1–10000; 100 = 1%, 10000 = 100%). Does **not** claim fees first or close the NFT position — use **meteoraCpammClaimFees** and **meteoraCpammRemoveLiquidity** for those. Rebuild: `npm run build:meteora-cpamm`.",
+  "defaultAction": {
+    "type": "meteoraCpammDecreaseLiquidity",
+    "runIf": "",
+    "pool": "",
+    "position": "",
+    "removeLiquidityBps": 2500,
+    "slippagePercent": 1,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "pool", "label": "Pool address (optional)", "inputType": "text" },
+    { "key": "position", "label": "Position account address", "inputType": "text" },
+    { "key": "removeLiquidityBps", "label": "Remove (basis points 1–10000)", "inputType": "number" },
+    { "key": "slippagePercent", "label": "Slippage (percent, min out)", "inputType": "number" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 400000" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" }
+  ]
+}

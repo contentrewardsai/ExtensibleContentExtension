@@ -1,0 +1,45 @@
+{
+  "id": "solanaTransferSpl",
+  "label": "Solana transfer SPL token",
+  "category": "data",
+  "description": "Transfer SPL tokens from the automation wallet's **associated token account** to another wallet's ATA using `TransferChecked`. Optionally creates the recipient ATA (idempotent). Supports classic **Token** and **Token-2022** mints. Amount is raw smallest units (respect mint decimals). Optional compute-budget fields match native SOL transfer. Does not use Jupiter. Rebuild Solana bundle after `@solana/spl-token` changes: `npm run build:solana`.",
+  "defaultAction": {
+    "type": "solanaTransferSpl",
+    "runIf": "",
+    "mint": "",
+    "toOwner": "",
+    "amountRaw": "",
+    "tokenProgram": "token",
+    "createDestinationAta": true,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "mint", "label": "Mint address", "inputType": "text" },
+    { "key": "toOwner", "label": "Destination wallet (owner)", "inputType": "text", "placeholder": "Base58 pubkey — not the token account" },
+    { "key": "amountRaw", "label": "Amount (raw)", "inputType": "text", "placeholder": "Integer string in smallest units" },
+    { "key": "tokenProgram", "label": "Token program", "inputType": "select", "options": [
+      { "value": "token", "label": "SPL Token (classic)" },
+      { "value": "token-2022", "label": "Token-2022" }
+    ] },
+    { "key": "createDestinationAta", "label": "Create recipient ATA if missing", "inputType": "checkbox" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight on send", "inputType": "checkbox" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 200000" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

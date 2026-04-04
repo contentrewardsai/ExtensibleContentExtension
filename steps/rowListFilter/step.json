@@ -1,0 +1,56 @@
+{
+  "id": "rowListFilter",
+  "label": "Filter / slice row list",
+  "category": "data",
+  "description": "Read an array from **sourceVariable** (or JSON string: **array** or single **object** wrapped as one element), optionally keep elements where **filterRunIf** is true (same DSL as step **runIf**; per element, row = parent row merged with the element, or **`_item`** for scalars). Set **invertFilter** to keep elements where the expression is **false** (e.g. exclude status done). Then optional **offset** / **limit**. Writes the result to **saveToVariable** (use before **Loop**).",
+  "defaultAction": {
+    "type": "rowListFilter",
+    "runIf": "",
+    "sourceVariable": "items",
+    "saveToVariable": "items",
+    "filterRunIf": "",
+    "invertFilter": false,
+    "offset": "",
+    "limit": ""
+  },
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "sourceVariable",
+      "label": "Source list (row variable)",
+      "inputType": "text"
+    },
+    {
+      "key": "saveToVariable",
+      "label": "Save filtered list to (row variable)",
+      "inputType": "text"
+    },
+    {
+      "key": "filterRunIf",
+      "label": "Keep element when (optional; same as runIf)",
+      "inputType": "text",
+      "placeholder": "e.g. {{status}} === done"
+    },
+    {
+      "key": "invertFilter",
+      "label": "Invert: keep when expression is false",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "offset",
+      "label": "Slice offset after filter (optional)",
+      "inputType": "number",
+      "min": 0
+    },
+    {
+      "key": "limit",
+      "label": "Slice max length after filter (optional)",
+      "inputType": "number",
+      "min": 0
+    }
+  ]
+}

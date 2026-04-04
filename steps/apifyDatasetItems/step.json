@@ -1,0 +1,16 @@
+{
+  "id": "apifyDatasetItems",
+  "label": "Apify — fetch dataset items",
+  "category": "data",
+  "description": "Page through **GET /v2/datasets/{id}/items** into a row variable. Use a **dataset id** from **apifyRunStart**, **apifyRunWait**, or **apifyActorRun** — no new actor run.",
+  "defaultAction": {
+    "type": "apifyDatasetItems",
+    "runIf": "",
+    "datasetId": "{{apifyDatasetId}}",
+    "tokenVariableKey": "",
+    "datasetMaxItems": 0,
+    "apifySyncDatasetFields": "",
+    "apifySyncDatasetOmit": "",
+    "saveAsVariable": "apifyDatasetItems"
+  }
+}

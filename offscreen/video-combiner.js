@@ -4,6 +4,41 @@
  * Payload: segments (or legacy urls), overlays?, audioTracks?, width, height, fps, mismatchStrategy.
  */
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'EXTRACT_AUDIO_FROM_VIDEO_PAYLOAD') {
+    (async () => {
+      try {
+        if (!msg.base64 || typeof msg.base64 !== 'string' || !msg.base64.trim()) {
+          sendResponse({ ok: false, error: 'base64 required' });
+          return;
+        }
+        const bin = atob(msg.base64.replace(/\s/g, ''));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: msg.mimeType || 'video/webm' });
+        const FL = typeof FFmpegLocal !== 'undefined' ? FFmpegLocal : self.FFmpegLocal;
+        if (!FL || typeof FL.extractAudioFromVideo !== 'function') {
+          sendResponse({ ok: false, error: 'FFmpegLocal.extractAudioFromVideo not available' });
+          return;
+        }
+        const r = await FL.extractAudioFromVideo(blob);
+        if (!r.ok) {
+          sendResponse(r);
+          return;
+        }
+        const abuf = await r.blob.arrayBuffer();
+        const u8 = new Uint8Array(abuf);
+        const CHUNK = 0x8000;
+        let binary = '';
+        for (let i = 0; i < u8.length; i += CHUNK) {
+          binary += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + CHUNK, u8.length)));
+        }
+        sendResponse({ ok: true, dataUrl: 'data:audio/mp4;base64,' + btoa(binary) });
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
   if (msg.type !== 'COMBINE_VIDEOS_PAYLOAD') return false;
   const urls = msg.urls || [];
   const rawSegments = msg.segments || [];

@@ -7,7 +7,10 @@
   window.__CFS_registerStepHandler('hover', async function(action, opts) {
     const ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (hover)');
-    const doc = ctx.document || document;
+    const base = ctx.document || document;
+    const doc = typeof ctx.resolveDocumentForAction === 'function'
+      ? ctx.resolveDocumentForAction(action, base)
+      : base;
     const resolveElementForAction = ctx.resolveElementForAction;
     const resolveElement = ctx.resolveElement;
     const sleep = ctx.sleep;
@@ -25,7 +28,8 @@
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await sleep(150);
     const rect = el.getBoundingClientRect();
-    const optsEv = { bubbles: true, cancelable: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, relatedTarget: null };
+    const view = el.ownerDocument && el.ownerDocument.defaultView ? el.ownerDocument.defaultView : window;
+    const optsEv = { bubbles: true, cancelable: true, view: view, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2, relatedTarget: null };
     el.dispatchEvent(new MouseEvent('mouseenter', optsEv));
     el.dispatchEvent(new MouseEvent('mouseover', optsEv));
     await sleep(200);

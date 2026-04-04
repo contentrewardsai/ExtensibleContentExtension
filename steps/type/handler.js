@@ -10,7 +10,10 @@
     var recentCropSave = prevAction && prevAction.type === 'click' && /crop|save|use this|insert|apply/i.test((prevAction.text || prevAction.displayedValue || '').trim());
     if (recentCropSave && ctx.sleep) await ctx.sleep(1000);
     const row = ctx.currentRow || {};
-    const doc = ctx.document || document;
+    const base = ctx.document || document;
+    const doc = typeof ctx.resolveDocumentForAction === 'function'
+      ? ctx.resolveDocumentForAction(action, base)
+      : base;
     const resolveAllCandidatesForAction = ctx.resolveAllCandidatesForAction;
     const resolveAllCandidates = ctx.resolveAllCandidates;
     const resolveElement = ctx.resolveElement;
@@ -95,7 +98,8 @@
         await sleep(80);
         if (el.isContentEditable) {
           el.textContent = '';
-          document.execCommand('insertText', false, value);
+          const ownerDoc = el.ownerDocument || document;
+          if (ownerDoc.execCommand) ownerDoc.execCommand('insertText', false, value);
           el.dispatchEvent(new Event('input', { bubbles: true }));
         } else {
           var mode = typingModeForElement(el, action);

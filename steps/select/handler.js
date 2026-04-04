@@ -7,7 +7,10 @@
     const ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (select)');
     const row = ctx.currentRow || {};
-    const doc = ctx.document || document;
+    const base = ctx.document || document;
+    const doc = typeof ctx.resolveDocumentForAction === 'function'
+      ? ctx.resolveDocumentForAction(action, base)
+      : base;
     const resolveAllCandidatesForAction = ctx.resolveAllCandidatesForAction;
     const resolveAllCandidates = ctx.resolveAllCandidates;
     const resolveElement = ctx.resolveElement;

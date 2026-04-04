@@ -1,0 +1,49 @@
+{
+  "id": "solanaEnsureTokenAccount",
+  "label": "Solana ensure token account (ATA)",
+  "category": "data",
+  "description": "Creates the associated token account for a mint if missing (idempotent). Payer is the automation wallet. Optional owner defaults to that wallet. If the ATA already exists, no transaction is sent (skipped). Optional additional mints (comma or newline separated) are processed in order in separate operations. Use before swaps/transfers that require your ATA to exist.",
+  "defaultAction": {
+    "type": "solanaEnsureTokenAccount",
+    "runIf": "",
+    "mint": "",
+    "additionalMints": "",
+    "owner": "",
+    "tokenProgram": "token",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "saveAtaAddressVariable": "solanaAtaAddress",
+    "saveSkippedVariable": "solanaEnsureAtaSkipped",
+    "saveEnsureResultsVariable": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "mint", "label": "Mint", "inputType": "text" },
+    { "key": "additionalMints", "label": "Additional mints (optional, comma or newline)", "inputType": "textarea" },
+    { "key": "owner", "label": "Owner wallet (optional)", "inputType": "text", "placeholder": "Default: automation wallet" },
+    { "key": "tokenProgram", "label": "Token program", "inputType": "select", "options": [
+      { "value": "token", "label": "SPL Token" },
+      { "value": "token-2022", "label": "Token-2022" }
+    ] },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text" },
+    { "key": "saveAtaAddressVariable", "label": "Save ATA address to variable (primary mint)", "inputType": "text" },
+    { "key": "saveSkippedVariable", "label": "Save skipped (true/false) for primary mint", "inputType": "text" },
+    { "key": "saveEnsureResultsVariable", "label": "Save JSON results for all mints (optional)", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature (when tx sent)", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL (when tx sent)", "inputType": "text" }
+  ]
+}

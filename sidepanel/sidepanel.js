@@ -6,6 +6,8 @@
   'use strict';
   const MIN_CHROME_VERSION = 116;
   const RESTRICTED_TABS = ['automations', 'library'];
+  /** Must match service worker CFS_LLM_API_KEY_MAX_CHARS (cloud keys). */
+  const CFS_LLM_API_KEY_MAX_CHARS = 4096;
 
   /** Parse Chrome version from navigator.userAgent. Returns 0 if unknown. */
   function getChromeVersion() {
@@ -37,6 +39,14 @@
   let skippedRowIndices = new Set();
   let playbackTabId = null;
   let playbackResolve = null;
+
+  /** Abort in-flight Apify run (service worker) for this tab; complements PLAYER_STOP on the page. */
+  function cfsCancelApifyRunForTab(tabId) {
+    if (tabId == null || typeof tabId !== 'number' || !Number.isInteger(tabId) || tabId < 0) return;
+    try {
+      chrome.runtime.sendMessage({ type: 'APIFY_RUN_CANCEL', tabId }, () => void chrome.runtime.lastError);
+    } catch (_) {}
+  }
   let stepHighlightInterval = null;
   let generationHistory = [];
   /** When Run All Rows or Process is in progress: { total, current, workflowId, workflowName }. Cleared when batch/process ends. */
@@ -404,6 +414,10 @@
       if (r.type === 'recurring') {
         const tz = r.timezone ? ` (${r.timezone})` : '';
         const pattern = (r.pattern || 'daily').toLowerCase();
+        if (pattern === 'interval') {
+          const mins = r.intervalMinutes != null ? Number(r.intervalMinutes) : 0;
+          return `Recurring: every ${mins || '?'} min (~1 min alarm ticks)`;
+        }
         let desc = pattern;
         if (pattern === 'weekly' && Array.isArray(r.dayOfWeek) && r.dayOfWeek.length) desc += ' ' + r.dayOfWeek.join(',');
         else if (pattern === 'monthly' && r.dayOfMonth != null) desc += ' day ' + r.dayOfMonth;
@@ -1109,10 +1123,14 @@
     }
   }
 
+  /** Hide fixture / automation workflows from normal pickers — not arbitrary user names like "Crypto Test". */
   function isTestWorkflow(w) {
     if (w && w._testOnly) return true;
-    const name = (w && w.name) ? w.name.toLowerCase() : '';
-    return /\btest\b/.test(name) || /\be2e\b/.test(name);
+    const name = (w && w.name) ? w.name.toLowerCase().trim() : '';
+    if (!name) return false;
+    if (/\be2e\b/.test(name)) return true;
+    if (name === 'test' || /^test(\s|$|:|_|\.|-)/.test(name)) return true;
+    return false;
   }
 
   function renderWorkflowList() {
@@ -1428,6 +1446,7 @@
     renderRecordingMode();
     renderWorkflowFormFields();
     renderWorkflowUrlPattern();
+    renderWorkflowAlwaysOnPanel();
     if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
     renderStepsList();
     renderQualityInputsList();
@@ -1624,6 +1643,39 @@
     return actions.some((a) => a.type === 'checkSuccessfulGenerations' || a.type === 'waitForVideos');
   }
 
+  /** Keep in sync with background/service-worker.js CFS_SCHEDULED_PLAYBACK_* (Apify → long). */
+  const CFS_LONG_WORKFLOW_PLAYBACK_MS = 3600000;
+  const CFS_DEFAULT_WORKFLOW_PLAYBACK_MS = 300000;
+
+  function workflowContainsStepType(node, stepType) {
+    const actions = node && (node.actions || (node.analyzed && node.analyzed.actions));
+    if (!Array.isArray(actions)) return false;
+    for (const a of actions) {
+      if (!a || typeof a !== 'object') continue;
+      if (a.type === stepType) return true;
+      if (a.type === 'runWorkflow' && a.nestedWorkflow && workflowContainsStepType(a.nestedWorkflow, stepType)) return true;
+      if (a.type === 'loop' && Array.isArray(a.steps)) {
+        for (const s of a.steps) {
+          if (!s || typeof s !== 'object') continue;
+          if (s.type === stepType) return true;
+          if (s.type === 'runWorkflow' && s.nestedWorkflow && workflowContainsStepType(s.nestedWorkflow, stepType)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Long cap when workflow includes Apify (async runs can exceed 5 minutes). */
+  function getWorkflowPlaybackTimeoutMs(resolvedWorkflow) {
+    return workflowContainsStepType(resolvedWorkflow, 'apifyActorRun')
+      ? CFS_LONG_WORKFLOW_PLAYBACK_MS
+      : CFS_DEFAULT_WORKFLOW_PLAYBACK_MS;
+  }
+
+  function playbackTimeoutErrorMessage(budgetMs) {
+    return 'Playback timed out after ' + (budgetMs / 60000) + ' minutes.';
+  }
+
   function renderGenerationSettings() {
     const wfId = playbackWorkflow?.value;
     const wf = workflows[wfId];
@@ -1812,6 +1864,151 @@
     if (!wf) return;
     const keyObjects = getWorkflowVariableKeys(wf);
     wf.csvColumns = keyObjects.map(k => k.rowKey || k.label).filter(Boolean);
+  }
+
+  function readWorkflowFollowingAutomationFromUI() {
+    const pct = (v) => {
+      const n = parseFloat(String(v || '').trim());
+      return Number.isFinite(n) ? n : 100;
+    };
+    const slip = Math.min(10000, Math.max(0, parseInt(String(document.getElementById('wfCtSlip')?.value || '50'), 10) || 50));
+    return {
+      automationEnabled: document.getElementById('wfCtAutomationEnabled')?.checked === true,
+      paperMode: document.getElementById('wfCtPaper')?.checked === true,
+      jupiterWrapAndUnwrapSol: document.getElementById('wfCtJupWrap')?.checked !== false,
+      autoExecuteSwaps: document.getElementById('wfCtAutoExec')?.checked === true,
+      sizeMode: (document.getElementById('wfCtMode')?.value || 'proportional').trim().toLowerCase(),
+      quoteMint: (document.getElementById('wfCtQuote')?.value || '').trim(),
+      fixedAmountRaw: (document.getElementById('wfCtFixedRaw')?.value || '').trim(),
+      usdAmount: (document.getElementById('wfCtUsd')?.value || '').trim(),
+      proportionalScalePercent: pct(document.getElementById('wfCtPropPct')?.value),
+      slippageBps: slip,
+    };
+  }
+
+  async function saveWorkflowAlwaysOnFromUI() {
+    const wfId = playbackWorkflow?.value;
+    if (!wfId || !workflows[wfId]) return;
+    const wf = workflows[wfId];
+    const en = document.getElementById('wfAlwaysOnEnabled');
+    wf.alwaysOn = {
+      enabled: en && en.checked === true,
+      scopes: {
+        followingSolanaWatch: document.getElementById('wfScopeSolWatch')?.checked === true,
+        followingBscWatch: document.getElementById('wfScopeBscWatch')?.checked === true,
+        followingAutomationSolana: document.getElementById('wfScopeFollowingAutoSol')?.checked === true,
+        followingAutomationBsc: document.getElementById('wfScopeFollowingAutoBsc')?.checked === true,
+      },
+      conditions: {
+        requireNonEmptyFollowingBundle: document.getElementById('wfCondNonEmpty')?.checked === true,
+        requireBscScanKeyForBsc: document.getElementById('wfCondBscKey')?.checked === true,
+      },
+    };
+    const sc = wf.alwaysOn.scopes || {};
+    if (sc.followingAutomationSolana || sc.followingAutomationBsc) {
+      wf.followingAutomation = readWorkflowFollowingAutomationFromUI();
+    } else if (wf.followingAutomation) {
+      delete wf.followingAutomation;
+    }
+    try {
+      await chrome.storage.local.set({ workflows });
+    } catch (_) {}
+  }
+
+  function renderWorkflowAlwaysOnPanel() {
+    const details = document.getElementById('workflowAlwaysOnDetails');
+    const panel = document.getElementById('workflowAlwaysOnPanel');
+    if (!details || !panel) return;
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    if (!wf) {
+      details.style.display = 'none';
+      return;
+    }
+    details.style.display = '';
+    const ao = wf.alwaysOn && typeof wf.alwaysOn === 'object' ? wf.alwaysOn : {};
+    const en = ao.enabled === true;
+    const sc = ao.scopes || {};
+    const c = ao.conditions || {};
+    const ct = wf.followingAutomation && typeof wf.followingAutomation === 'object' ? wf.followingAutomation : {};
+    const cm = String(ct.sizeMode || 'proportional').toLowerCase();
+    panel.innerHTML = `
+      <p style="margin:0 0 6px 0;">Opt-in per workflow. Manual run and Schedule are unchanged. When enabled, scopes control Pulse Following polling and Following automation in the service worker.</p>
+      <label class="pd-checkbox-label" style="display:block;margin-bottom:6px;"><input type="checkbox" id="wfAlwaysOnEnabled" ${en ? 'checked' : ''}> Always on (background)</label>
+      <div id="wfAlwaysOnScopes" style="margin-left:8px;margin-bottom:6px;">
+        <span class="hint" style="display:block;margin-bottom:4px;">Scopes</span>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeSolWatch" ${sc.followingSolanaWatch ? 'checked' : ''}> Solana Following watch</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeBscWatch" ${sc.followingBscWatch ? 'checked' : ''}> BSC Following watch</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoSol" ${sc.followingAutomationSolana ? 'checked' : ''}> Following automation (Solana)</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoBsc" ${sc.followingAutomationBsc ? 'checked' : ''}> Following automation (BSC)</label>
+      </div>
+      <div id="wfAlwaysOnCond" style="margin-left:8px;margin-bottom:8px;">
+        <span class="hint" style="display:block;margin-bottom:4px;">Conditions (optional)</span>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondNonEmpty" ${c.requireNonEmptyFollowingBundle ? 'checked' : ''}> Require non-empty Following bundle for selected chains</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondBscKey" ${c.requireBscScanKeyForBsc ? 'checked' : ''}> Require BscScan API key for BSC</label>
+      </div>
+      <div id="wfFollowingAutomationBox" style="margin-left:8px;padding-top:6px;border-top:1px solid var(--border);display:${sc.followingAutomationSolana || sc.followingAutomationBsc ? 'block' : 'none'};">
+        <span class="hint" style="display:block;margin-bottom:4px;">Automation policy (requires <code>selectFollowingAccount</code> step matching a Pulse wallet)</span>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtAutomationEnabled" ${ct.automationEnabled !== false ? 'checked' : ''}> Enable automation for bound wallets</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtPaper" ${ct.paperMode === true ? 'checked' : ''}> Paper mode (size only, no sign)</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtJupWrap" ${ct.jupiterWrapAndUnwrapSol !== false ? 'checked' : ''}> Solana: Jupiter wrap/unwrap SOL</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtAutoExec" ${ct.autoExecuteSwaps === true ? 'checked' : ''}> Auto-execute swaps</label>
+        <div class="form-row" style="margin-top:6px;flex-wrap:wrap;align-items:center;">
+          <label for="wfCtMode" style="min-width:90px;">Mode</label>
+          <select id="wfCtMode" style="flex:1;min-width:140px;padding:4px 8px;">
+            <option value="off" ${cm === 'off' ? 'selected' : ''}>Off</option>
+            <option value="proportional" ${cm === 'proportional' ? 'selected' : ''}>Proportional</option>
+            <option value="fixed_token" ${cm === 'fixed_token' ? 'selected' : ''}>Fixed token (raw)</option>
+            <option value="fixed_usd" ${cm === 'fixed_usd' ? 'selected' : ''}>Fixed USD</option>
+          </select>
+        </div>
+        <div class="form-row" style="margin-top:4px;"><label for="wfCtQuote" style="min-width:90px;">Quote mint / 0x</label><input type="text" id="wfCtQuote" value="${escapeHtml(ct.quoteMint || '')}" placeholder="WSOL / WBNB default if empty" style="flex:1;min-width:0;"></div>
+        <div class="form-row" style="margin-top:4px;"><label for="wfCtPropPct" style="min-width:90px;">Scale %</label><input type="text" id="wfCtPropPct" value="${escapeHtml(String(ct.proportionalScalePercent != null ? ct.proportionalScalePercent : 100))}" placeholder="100" style="flex:1;max-width:100px;"></div>
+        <div class="form-row" style="margin-top:4px;"><label for="wfCtFixedRaw" style="min-width:90px;">Fixed raw</label><input type="text" id="wfCtFixedRaw" value="${escapeHtml(ct.fixedAmountRaw || '')}" style="flex:1;min-width:0;"></div>
+        <div class="form-row" style="margin-top:4px;"><label for="wfCtUsd" style="min-width:90px;">USD</label><input type="text" id="wfCtUsd" value="${escapeHtml(ct.usdAmount || '')}" style="flex:1;min-width:0;"></div>
+        <div class="form-row" style="margin-top:4px;"><label for="wfCtSlip" style="min-width:90px;">Slippage bps</label><input type="text" id="wfCtSlip" value="${escapeHtml(String(ct.slippageBps != null ? ct.slippageBps : 50))}" style="flex:1;max-width:100px;"></div>
+      </div>
+    `;
+    const toggleFollowingAutomationBox = () => {
+      const sol = document.getElementById('wfScopeFollowingAutoSol')?.checked === true;
+      const bsc = document.getElementById('wfScopeFollowingAutoBsc')?.checked === true;
+      const box = document.getElementById('wfFollowingAutomationBox');
+      if (box) box.style.display = sol || bsc ? 'block' : 'none';
+    };
+    [
+      'wfAlwaysOnEnabled',
+      'wfScopeSolWatch',
+      'wfScopeBscWatch',
+      'wfScopeFollowingAutoSol',
+      'wfScopeFollowingAutoBsc',
+      'wfCondNonEmpty',
+      'wfCondBscKey',
+    ].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        if (id === 'wfScopeFollowingAutoSol' || id === 'wfScopeFollowingAutoBsc') toggleFollowingAutomationBox();
+        void saveWorkflowAlwaysOnFromUI();
+      });
+    });
+    toggleFollowingAutomationBox();
+    [
+      'wfCtAutomationEnabled',
+      'wfCtPaper',
+      'wfCtJupWrap',
+      'wfCtAutoExec',
+      'wfCtMode',
+      'wfCtQuote',
+      'wfCtPropPct',
+      'wfCtFixedRaw',
+      'wfCtUsd',
+      'wfCtSlip',
+    ].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        void saveWorkflowAlwaysOnFromUI();
+      });
+      document.getElementById(id)?.addEventListener('blur', () => {
+        void saveWorkflowAlwaysOnFromUI();
+      });
+    });
   }
 
   function renderWorkflowFormFields() {
@@ -2346,10 +2543,12 @@
         if (tabId === 'pulse') {
           loadConnectedProfiles();
           loadFollowing();
+          loadPulseFollowingAutomationBanner();
         }
         if (tabId === 'activity') {
           invalidateSidebarInstancesCache();
           refreshActivityPanel();
+          refreshPulseWatchActivityPanel();
           startSidebarsPolling();
           if (!isChromeTooOld && typeof checkAndRunOverdueScheduledRuns === 'function') checkAndRunOverdueScheduledRuns();
         }
@@ -2581,6 +2780,7 @@
   })();
   const FOLLOWING_PROFILES_STORAGE_KEY = 'followingProfiles';
   const FOLLOWING_ACCOUNTS_STORAGE_KEY = 'followingAccounts';
+  const FOLLOWING_WALLETS_STORAGE_KEY = 'followingWallets';
   /** In-memory cache; synced with API and local storage */
   let followingProfilesCache = [];
   let followingAccountsCache = [];
@@ -2588,6 +2788,10 @@
   let followingEmailsCache = [];
   let followingAddressesCache = [];
   let followingNotesCache = [];
+  let followingWalletsCache = [];
+
+  /** Default wrapped SOL mint for quote token on Solana. */
+  const WSOL_MINT_DEFAULT = 'So11111111111111111111111111111111111111112';
 
   /** Profile ids from the last successful GET /following for the current Whop user (used for POST-vs-PATCH). */
   let followingServerIdsFromLastGet = new Set();
@@ -2606,6 +2810,28 @@
     return typeof FollowingSyncCore !== 'undefined' ? FollowingSyncCore : null;
   }
 
+  function normalizeFollowingWalletRow(row) {
+    const core = getFollowingSyncCore();
+    return core && core.normalizeFollowingWallet ? core.normalizeFollowingWallet(row) : null;
+  }
+
+  function isValidSolanaAddress(s) {
+    const t = String(s || '').trim();
+    if (t.length < 32 || t.length > 44) return false;
+    return /^[1-9A-HJ-NP-Za-km-z]+$/.test(t);
+  }
+
+  function isValidEvmAddress(s) {
+    return /^0x[a-fA-F0-9]{40}$/.test(String(s || '').trim());
+  }
+
+  function parseOptionalPositiveNumber(s) {
+    const t = String(s || '').trim();
+    if (!t) return null;
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : null;
+  }
+
   function followingCachesSnapshot() {
     return {
       profiles: followingProfilesCache,
@@ -2614,7 +2840,526 @@
       emails: followingEmailsCache,
       addresses: followingAddressesCache,
       notes: followingNotesCache,
+      wallets: followingWalletsCache,
     };
+  }
+
+  /** Flatten Solana watch entries for the service worker (P0: HTTP polling only; see background/solana-watch.js). */
+  async function pushPulseSolanaWatchBundleToStorage() {
+    try {
+      const sol = (followingWalletsCache || []).filter(
+        (w) => w && !w.deleted && w.chain === 'solana' && w.watchEnabled && isValidSolanaAddress(w.address),
+      );
+      const byAddr = new Map();
+      sol.forEach((w) => {
+        const k = String(w.address || '').trim();
+        if (!byAddr.has(k)) byAddr.set(k, w);
+      });
+      const entries = [...byAddr.values()].map((w) => ({
+        walletId: w.id,
+        profileId: (w.profile || '').trim(),
+        address: String(w.address || '').trim(),
+        network: w.network || 'mainnet-beta',
+        automationEnabled: !!w.automationEnabled,
+        autoExecuteSwaps: !!w.autoExecuteSwaps,
+        sizeMode: w.sizeMode || 'off',
+        quoteMint: (w.quoteMint || '').trim() || WSOL_MINT_DEFAULT,
+        fixedAmountRaw: String(w.fixedAmountRaw || '').trim(),
+        usdAmount: String(w.usdAmount || '').trim(),
+        proportionalScalePercent: w.proportionalScalePercent != null ? w.proportionalScalePercent : 100,
+        slippageBps: w.slippageBps != null ? w.slippageBps : 50,
+      }));
+      await chrome.storage.local.set({
+        cfsPulseSolanaWatchBundle: { updatedAt: Date.now(), entries },
+      });
+    } catch (_) {}
+  }
+
+  function isValidEvmAddressForBscWatch(addr) {
+    return /^0x[0-9a-fA-F]{40}$/.test(String(addr || '').trim());
+  }
+
+  function bscWatchNetworkForFollowingWallet(w) {
+    const raw = String(w.network || 'bsc').trim().toLowerCase();
+    if (raw === 'ethereum' || raw === 'eth' || raw === 'mainnet' || raw === '1') return null;
+    if (raw === 'chapel' || raw === 'bsc-testnet' || raw === '97') return 'chapel';
+    return 'bsc';
+  }
+
+  async function pushPulseBscWatchBundleToStorage() {
+    try {
+      const evm = (followingWalletsCache || []).filter(
+        (w) =>
+          w && !w.deleted && w.watchEnabled && w.chain === 'evm' && isValidEvmAddressForBscWatch(w.address),
+      );
+      const withNet = [];
+      evm.forEach((w) => {
+        const net = bscWatchNetworkForFollowingWallet(w);
+        if (!net) return;
+        withNet.push(Object.assign({}, w, { _bscWatchNet: net }));
+      });
+      const byAddr = new Map();
+      withNet.forEach((w) => {
+        const k = String(w.address || '').trim().toLowerCase();
+        if (!byAddr.has(k)) byAddr.set(k, w);
+      });
+      const entries = [...byAddr.values()].map((w) => ({
+        walletId: w.id,
+        profileId: (w.profile || '').trim(),
+        address: String(w.address || '').trim(),
+        network: w._bscWatchNet || 'bsc',
+        label: String(w.label || '').trim(),
+        automationEnabled: !!w.automationEnabled,
+        autoExecuteSwaps: !!w.autoExecuteSwaps,
+        sizeMode: w.sizeMode || 'off',
+        quoteMint: (w.quoteMint || '').trim(),
+        fixedAmountRaw: String(w.fixedAmountRaw || '').trim(),
+        usdAmount: String(w.usdAmount || '').trim(),
+        proportionalScalePercent: w.proportionalScalePercent != null ? w.proportionalScalePercent : 100,
+        slippageBps: w.slippageBps != null ? w.slippageBps : 50,
+      }));
+      await chrome.storage.local.set({
+        cfsPulseBscWatchBundle: { updatedAt: Date.now(), entries },
+      });
+    } catch (_) {}
+  }
+
+  async function pushPulseWatchBundlesToStorage() {
+    await pushPulseSolanaWatchBundleToStorage();
+    await pushPulseBscWatchBundleToStorage();
+  }
+
+  const PULSE_FOLLOWING_AUTOMATION_GLOBAL_STORAGE_KEY = 'cfsFollowingAutomationGlobal';
+  const PULSE_SOLANA_CLUSTER_STORAGE_KEY = 'cfs_solana_cluster';
+  const PULSE_SOLANA_LAST_POLL_KEY = 'cfsSolanaWatchLastPoll';
+  const PULSE_SOLANA_WATCH_BUNDLE_KEY = 'cfsPulseSolanaWatchBundle';
+  const PULSE_BSC_LAST_POLL_KEY = 'cfsBscWatchLastPoll';
+  const PULSE_BSC_WATCH_BUNDLE_KEY = 'cfsPulseBscWatchBundle';
+
+  /** Keys that indicate the user configured Solana/BSC crypto (hide Crypto Activity when none are set). */
+  const PULSE_WATCH_VISIBILITY_STORAGE_KEYS = [
+    'cfs_bscscan_api_key',
+    'cfs_solana_watch_helius_api_key',
+    'cfs_solana_watch_rpc_url',
+    'cfs_solana_watch_ws_url',
+    'cfs_solana_automation_secret_b58',
+    'cfs_solana_secret_enc_json',
+    'cfs_solana_wallets_v2',
+    'cfs_solana_rpc_url',
+    'cfs_solana_jupiter_api_key',
+    'cfs_bsc_wallet_meta',
+    'cfs_bsc_wallet_secret_plain',
+    'cfs_bsc_wallet_secret_enc_json',
+    'cfs_bsc_wallets_v2',
+    'cfs_bsc_global_settings',
+    'cfs_bsc_wallet_v1',
+  ];
+
+  function pulseWatchHasCryptoKeysConfigured(stored) {
+    if (!stored || typeof stored !== 'object') return false;
+    const strOk = (k) => {
+      const v = stored[k];
+      return typeof v === 'string' && v.trim().length > 0;
+    };
+    const sol =
+      strOk('cfs_solana_watch_helius_api_key') ||
+      strOk('cfs_solana_watch_rpc_url') ||
+      strOk('cfs_solana_watch_ws_url') ||
+      strOk('cfs_solana_automation_secret_b58') ||
+      strOk('cfs_solana_secret_enc_json') ||
+      strOk('cfs_solana_wallets_v2') ||
+      strOk('cfs_solana_rpc_url') ||
+      strOk('cfs_solana_jupiter_api_key');
+    const meta = stored.cfs_bsc_wallet_meta;
+    const bscMeta = meta && typeof meta === 'object' && !Array.isArray(meta) && Object.keys(meta).length > 0;
+    const bscV2 = stored.cfs_bsc_wallets_v2 && String(stored.cfs_bsc_wallets_v2).trim();
+    const bsc =
+      strOk('cfs_bscscan_api_key') ||
+      bscMeta ||
+      !!bscV2 ||
+      strOk('cfs_bsc_global_settings') ||
+      strOk('cfs_bsc_wallet_secret_plain') ||
+      strOk('cfs_bsc_wallet_secret_enc_json') ||
+      (stored.cfs_bsc_wallet_v1 && typeof stored.cfs_bsc_wallet_v1 === 'object');
+    return !!(sol || bsc);
+  }
+
+  async function updatePulseWatchSectionVisibility() {
+    const wrap = document.getElementById('pulseWatchSection');
+    if (!wrap) return false;
+    try {
+      const stored = await chrome.storage.local.get(PULSE_WATCH_VISIBILITY_STORAGE_KEYS);
+      const show = pulseWatchHasCryptoKeysConfigured(stored);
+      wrap.style.display = show ? '' : 'none';
+      return show;
+    } catch (_) {
+      wrap.style.display = '';
+      return true;
+    }
+  }
+
+  /** Short labels for Following automation `reason` codes in the Pulse activity list. */
+  const PULSE_FOLLOWING_AUTOMATION_RESULT_REASON_LABELS = {
+    automation_off: 'Following automation off for this wallet',
+    paper_mode: 'paper mode (sized, not signed)',
+    not_swap: 'not classified as swap',
+    token_denylisted: 'token blocked (denylist)',
+    bsc_chapel_unsupported: 'BSC testnet automation unsupported',
+    automation_paused: 'paused (global)',
+    no_base_mint: 'no base mint',
+    cooldown: 'cooldown',
+    fixed_raw_missing: 'fixed amount missing',
+    invalid_usd: 'invalid USD amount',
+    price_unavailable: 'USD price unavailable',
+    decimals_error: 'decimals error',
+    zero_amount: 'zero or missing amount',
+    mode: 'sizing mode',
+    side: 'side',
+    quote_fail: 'quote failed',
+    drift_exceeded: 'price drift too high',
+    notify_only: 'notify only (auto-exec off)',
+    no_handler: 'no swap handler',
+    exec_fail: 'execution failed',
+    mint_denylisted: 'mint blocked (denylist)',
+    stale_target_tx: 'target tx too old (staleness)',
+    no_workflows: 'no workflows in Library',
+    no_always_on_workflow: 'no always-on workflow (Library)',
+    no_crypto_workflow_steps: 'no crypto/Pulse steps in Library workflows',
+    receipt_pending: 'receipt not indexed yet (will retry)',
+    pipeline_blocked: 'workflow pipeline blocked',
+    v3_path_missing: 'V3 swap path missing',
+    farm_fixed_usd_unsupported: 'farm automation: fixed USD not supported',
+    farm_mc_missing: 'farm: MasterChef address missing',
+    farm_op_unsupported: 'farm operation not supported',
+    farm_pool_info: 'farm: could not read pool info',
+  };
+
+  function pulseMintShort(mint) {
+    const s = String(mint || '').trim();
+    if (!s) return '';
+    return s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
+  }
+
+  function pulseSolscanTxHref(signature, cluster) {
+    const sig = String(signature || '').trim();
+    if (!sig || !/^[1-9A-HJ-NP-Za-km-z]+$/.test(sig)) return '';
+    const c = String(cluster || 'mainnet-beta').trim() || 'mainnet-beta';
+    const enc = encodeURIComponent(sig);
+    return c === 'devnet' ? `https://solscan.io/tx/${enc}?cluster=devnet` : `https://solscan.io/tx/${enc}`;
+  }
+
+  function pulseBscscanTxHref(txHash, bscNetwork) {
+    const h = String(txHash || '').trim();
+    if (!h || !/^0x[0-9a-fA-F]{64}$/.test(h)) return '';
+    const enc = encodeURIComponent(h);
+    const net = String(bscNetwork || 'bsc').trim().toLowerCase();
+    return net === 'chapel' ? `https://testnet.bscscan.com/tx/${enc}` : `https://bscscan.com/tx/${enc}`;
+  }
+
+  function pulseBscWatchVenueHtml(row) {
+    if (!row || row.chain !== 'bsc') return '';
+    const bits = [];
+    const v = String(row.venue || '').trim();
+    if (v) bits.push(v);
+    const farmExtras =
+      row.kind === 'farm_like' || String(row.venue || '').trim().toLowerCase() === 'farm';
+    if (farmExtras) {
+      const fo = String(row.farmOp || '').trim();
+      if (fo) bits.push(fo);
+      const pid = row.farmPid != null && String(row.farmPid).trim() !== '' ? String(row.farmPid).trim() : '';
+      if (pid) bits.push(`pid ${pid}`);
+    }
+    if (row.receiptAwaitConfirm) bits.push('confirming receipt');
+    if (!bits.length) return '';
+    return ` <span class="pulse-watch-activity-venue">(${escapeHtml(bits.join(' · '))})</span>`;
+  }
+
+  function pulseFollowingAutomationResultSummaryHtml(followingAutomationResult, solanaCluster, bscNetwork) {
+    const cr = followingAutomationResult && typeof followingAutomationResult === 'object' ? followingAutomationResult : null;
+    if (!cr) return '';
+    if (cr.executed && cr.txHash) {
+      const h = String(cr.txHash);
+      const href = pulseBscscanTxHref(h, bscNetwork || 'bsc');
+      if (href) {
+        return ` · automation: executed <a href="${href}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link pulse-watch-copy-sig" title="${escapeHtml(h)}">${escapeHtml(h.slice(0, 8))}…</a>`;
+      }
+      return ` · automation: executed <span class="pulse-watch-copy-sig" title="${escapeHtml(h)}">${escapeHtml(h.slice(0, 8))}…</span>`;
+    }
+    if (cr.executed && cr.signature) {
+      const sig = String(cr.signature);
+      const href = pulseSolscanTxHref(sig, solanaCluster);
+      if (href) {
+        return ` · automation: executed <a href="${href}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link pulse-watch-copy-sig" title="${escapeHtml(sig)}">${escapeHtml(sig.slice(0, 8))}…</a>`;
+      }
+      return ` · automation: executed <span class="pulse-watch-copy-sig" title="${escapeHtml(sig)}">${escapeHtml(sig.slice(0, 8))}…</span>`;
+    }
+    if (cr.executed) return ' · automation: executed';
+    if (cr.reason != null && cr.reason !== '') {
+      const code = String(cr.reason);
+      let label = PULSE_FOLLOWING_AUTOMATION_RESULT_REASON_LABELS[code] || code;
+      if (code === 'exec_fail' && cr.detail != null && String(cr.detail).trim() !== '') {
+        const rawD = String(cr.detail).trim();
+        const d = rawD.slice(0, 100);
+        label = `${label} (${d}${rawD.length > 100 ? '…' : ''})`;
+      }
+      if (code === 'stale_target_tx' && cr.ageSec != null && Number.isFinite(Number(cr.ageSec))) {
+        label = `${label} (~${Math.round(Number(cr.ageSec))}s since target block)`;
+      }
+      if (code === 'paper_mode' && cr.path) {
+        const parts = String(cr.path)
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean);
+        if (parts.length >= 2) {
+          const a = parts[0].length > 10 ? `${parts[0].slice(0, 6)}…` : parts[0];
+          const b = parts[parts.length - 1].length > 10 ? `${parts[parts.length - 1].slice(0, 6)}…` : parts[parts.length - 1];
+          label = `${label} (${a}→${b})`;
+        }
+      } else if (code === 'paper_mode' && cr.v3Path) {
+        const parts = String(cr.v3Path)
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean);
+        if (parts.length >= 2) {
+          const a = pulseMintShort(parts[0]);
+          const b = pulseMintShort(parts[parts.length - 1]);
+          if (a && b) label = `${label} (${a}→${b})`;
+        }
+      } else if (code === 'paper_mode' && (cr.inputMint || cr.outputMint)) {
+        const a = pulseMintShort(cr.inputMint);
+        const b = pulseMintShort(cr.outputMint);
+        if (a && b) label = `${label} (${a}→${b})`;
+        else if (a || b) label = `${label} (${a || b})`;
+      }
+      if (code === 'paper_mode' && cr.amountRaw != null && String(cr.amountRaw).trim() !== '') {
+        const ar = String(cr.amountRaw).trim();
+        label = `${label} amt ${ar.length > 16 ? `${ar.slice(0, 14)}…` : ar}`;
+      }
+      if (code === 'paper_mode' && cr.venue) {
+        const vn = String(cr.venue).trim();
+        if (vn) label = `${label} · ${vn}`;
+      }
+      if (code === 'paper_mode' && cr.farmOp) {
+        const fo = String(cr.farmOp).trim();
+        if (fo) label = `${label} · ${fo}`;
+      }
+      return ` · automation: ${escapeHtml(label)}`;
+    }
+    if (cr.skipped) return ' · automation: skipped';
+    return '';
+  }
+
+  function cfsSendServiceWorkerMessage(msg) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(msg, (res) => {
+          const le = chrome.runtime.lastError;
+          if (le) resolve({ ok: false, error: le.message });
+          else resolve(res == null ? {} : res);
+        });
+      } catch (e) {
+        resolve({ ok: false, error: e?.message || String(e) });
+      }
+    });
+  }
+
+  function formatPulseWatchBundlePart(label, bundle) {
+    if (!bundle || typeof bundle !== 'object') return '';
+    const n = Array.isArray(bundle.entries) ? bundle.entries.length : 0;
+    const t = bundle.updatedAt != null ? new Date(bundle.updatedAt).toLocaleString() : '';
+    return t ? `${label}: ${n} addr · ${t}` : `${label}: ${n} addr`;
+  }
+
+  async function updatePulseWatchBundleLine() {
+    const el = document.getElementById('pulseWatchBundleLine');
+    if (!el) return;
+    try {
+      const data = await chrome.storage.local.get([PULSE_SOLANA_WATCH_BUNDLE_KEY, PULSE_BSC_WATCH_BUNDLE_KEY]);
+      const sol = data[PULSE_SOLANA_WATCH_BUNDLE_KEY];
+      const bsc = data[PULSE_BSC_WATCH_BUNDLE_KEY];
+      const solPart = formatPulseWatchBundlePart('Solana', sol);
+      const bscPart = formatPulseWatchBundlePart('BSC', bsc);
+      if (!solPart && !bscPart) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      const nSol = sol && Array.isArray(sol.entries) ? sol.entries.length : 0;
+      const manySol = nSol > 12 ? ' · Many Solana addresses—RPC may rate-limit.' : '';
+      const nBsc = bsc && Array.isArray(bsc.entries) ? bsc.entries.length : 0;
+      const manyBsc = nBsc > 8 ? ' · Many BSC watches—BscScan free tier may rate-limit.' : '';
+      el.hidden = false;
+      el.textContent = [solPart, bscPart].filter(Boolean).join(' · ') + manySol + manyBsc;
+    } catch (_) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+  }
+
+  function pulseWatchPollDetail(p) {
+    if (!p || typeof p !== 'object') return '';
+    if (p.ok === false && p.error) {
+      return ` — failed: ${String(p.error).slice(0, 100)}`;
+    }
+    if (p.reason === 'no_watches') return ' · idle (empty bundle)';
+    if (p.reason === 'no_bscscan_key') return ' · idle (no BscScan API key)';
+    if (p.reason === 'no_workflows') return ' · idle (no workflows in Library)';
+    if (p.reason === 'no_always_on_workflow') return ' · idle (enable Always on + scopes in Library)';
+    if (p.reason === 'no_crypto_workflow_steps') {
+      return ' · idle (add a crypto or Pulse step to a Library workflow, or enable Always on Following)';
+    }
+    if (p.reason === 'watch_paused') return ' · idle (watch paused)';
+    if (p.reason === 'polled' && p.watchedCount != null) {
+      const n = Number(p.watchedCount);
+      return ` · checked ${n} address${n === 1 ? '' : 'es'}`;
+    }
+    return '';
+  }
+
+  async function updatePulseWatchLastPollLine() {
+    const el = document.getElementById('pulseWatchLastPollLine');
+    if (!el) return;
+    try {
+      const data = await chrome.storage.local.get([PULSE_SOLANA_LAST_POLL_KEY, PULSE_BSC_LAST_POLL_KEY]);
+      const sol = data[PULSE_SOLANA_LAST_POLL_KEY];
+      const bsc = data[PULSE_BSC_LAST_POLL_KEY];
+      const solOk = sol && typeof sol === 'object' && sol.ts != null;
+      const bscOk = bsc && typeof bsc === 'object' && bsc.ts != null;
+      if (!solOk && !bscOk) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      el.hidden = false;
+      const parts = [];
+      if (solOk) {
+        const t = new Date(sol.ts).toLocaleString();
+        parts.push(`Solana ${t}${pulseWatchPollDetail(sol)}`);
+      }
+      if (bscOk) {
+        const t = new Date(bsc.ts).toLocaleString();
+        parts.push(`BSC ${t}${pulseWatchPollDetail(bsc)}`);
+      }
+      el.textContent = `Last poll — ${parts.join(' · ')}`;
+    } catch (_) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+  }
+
+  async function updatePulseWatchStatusBanner() {
+    const el = document.getElementById('pulseWatchStatusBanner');
+    if (!el) return;
+    try {
+      const data = await chrome.storage.local.get(PULSE_FOLLOWING_AUTOMATION_GLOBAL_STORAGE_KEY);
+      const g = data[PULSE_FOLLOWING_AUTOMATION_GLOBAL_STORAGE_KEY] || {};
+      const parts = [];
+      const autoRes = await cfsSendServiceWorkerMessage({ type: 'CFS_FOLLOWING_AUTOMATION_STATUS' });
+      if (autoRes && autoRes.ok) {
+        if (autoRes.reason === 'no_workflows') {
+          parts.push('Watch and Following automation are off: add a workflow in Library.');
+        } else if (autoRes.reason === 'no_always_on_workflow') {
+          parts.push(
+            'Watch and Following automation are off: Always on is set but no scopes match. Adjust Library → Background automation, or clear Always on for legacy mode.',
+          );
+        } else if (autoRes.reason === 'no_crypto_workflow_steps') {
+          parts.push(
+            'Watch is off: no Library workflow includes a crypto or Pulse-related step. Add one (e.g. solanaWatchReadActivity) or enable Always on Following scopes.',
+          );
+        }
+      }
+      if (g.watchPaused === true) {
+        parts.push('Watch polling is paused. Turn it off in Settings → Following automation.');
+      }
+      if (g.automationPaused === true) {
+        parts.push('Following automation is paused globally.');
+      }
+      if (g.paperMode === true) {
+        parts.push('Paper mode: swaps are sized but not signed.');
+      }
+      if (!parts.length) {
+        el.hidden = true;
+        el.innerHTML = '';
+        return;
+      }
+      el.hidden = false;
+      el.innerHTML = parts.map((p) => `<p class="pulse-watch-status-line">${escapeHtml(p)}</p>`).join('');
+    } catch (_) {
+      el.hidden = true;
+      el.innerHTML = '';
+    }
+  }
+
+  async function refreshPulseWatchActivityPanel() {
+    const el = document.getElementById('pulseWatchActivityList');
+    if (!el) return;
+    const visible = await updatePulseWatchSectionVisibility();
+    if (!visible) return;
+    await updatePulseWatchStatusBanner();
+    await updatePulseWatchLastPollLine();
+    await updatePulseWatchBundleLine();
+    try {
+      const clusterStore = await chrome.storage.local.get(PULSE_SOLANA_CLUSTER_STORAGE_KEY);
+      const clusterFallback =
+        String(clusterStore[PULSE_SOLANA_CLUSTER_STORAGE_KEY] || 'mainnet-beta').trim() || 'mainnet-beta';
+      const [solRes, bscRes] = await Promise.all([
+        cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_GET_ACTIVITY', limit: 30 }),
+        cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_GET_ACTIVITY', limit: 30 }),
+      ]);
+      if ((!solRes || !solRes.ok) && (!bscRes || !bscRes.ok)) {
+        const err = solRes?.error || bscRes?.error || 'Could not load activity.';
+        el.innerHTML = `<p class="hint">${escapeHtml(err)}</p>`;
+        return;
+      }
+      const solRows = solRes && solRes.ok ? solRes.activity || [] : [];
+      const bscRows = bscRes && bscRes.ok ? bscRes.activity || [] : [];
+      const rows = [...solRows, ...bscRows].sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30);
+      if (!rows.length) {
+        el.innerHTML = '<p class="hint">No events yet.</p>';
+        return;
+      }
+      el.innerHTML = rows
+        .map((row) => {
+          const t = new Date(row.ts || 0).toLocaleString();
+          const addr = row.address || '';
+          const addrShort = addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
+          const isBsc = row.chain === 'bsc';
+          const chainLabel = isBsc ? 'BSC' : 'Solana';
+          let idShort = '';
+          let idHtml = '';
+          let faPart = '';
+          if (isBsc) {
+            const h = String(row.txHash || '').trim();
+            idShort = h.length > 10 ? `${h.slice(0, 8)}…` : h;
+            const bscHref = pulseBscscanTxHref(h, row.bscNetwork);
+            idHtml = bscHref
+              ? `<a href="${bscHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on BscScan">${escapeHtml(idShort)}</a>`
+              : escapeHtml(idShort);
+            faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, 'mainnet-beta', row.bscNetwork);
+          } else {
+            const sig = row.signature || '';
+            idShort = sig.length > 10 ? `${sig.slice(0, 8)}…` : sig;
+            const cluster = String(row.solanaCluster || clusterFallback || 'mainnet-beta').trim() || 'mainnet-beta';
+            const txHref = pulseSolscanTxHref(sig, cluster);
+            idHtml = txHref
+              ? `<a href="${txHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on Solscan">${escapeHtml(idShort)}</a>`
+              : escapeHtml(idShort);
+            faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, cluster);
+          }
+          const idTitle = isBsc ? String(row.txHash || '') : String(row.signature || '');
+          return `<div class="pulse-watch-activity-row">
+            <div class="pulse-watch-activity-line1"><span class="pulse-watch-activity-meta">${escapeHtml(t)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(chainLabel)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(row.kind || '')}</span>${pulseBscWatchVenueHtml(row)} — ${escapeHtml(row.summary || '')}</div>
+            <div class="pulse-watch-activity-line2"><span title="${escapeHtml(addr)}">${escapeHtml(addrShort)}</span> · <span title="${escapeHtml(idTitle)}">${idHtml}</span>${faPart}</div>
+          </div>`;
+        })
+        .join('');
+    } catch (e) {
+      el.innerHTML = `<p class="hint">${escapeHtml(e?.message || 'Failed to load activity.')}</p>`;
+    }
+  }
+
+  async function loadPulseFollowingAutomationBanner() {
+    await updatePulseWatchStatusBanner();
   }
 
   async function getFollowingSyncQueue() {
@@ -2708,12 +3453,20 @@
 
   function supabaseFollowingToExtensionCaches(followingList, platformsMap = {}) {
     const core = getFollowingSyncCore();
-    return core ? core.supabaseFollowingToExtensionCaches(followingList, platformsMap) : { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [] };
+    return core
+      ? core.supabaseFollowingToExtensionCaches(followingList, platformsMap)
+      : { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [], wallets: [] };
   }
 
   function mergeLocalAndOnlineFollowing(local, online, options) {
     const core = getFollowingSyncCore();
-    return core ? core.mergeLocalAndOnlineFollowing(local, online, options) : { merged: { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [] }, profilesToSync: [], profilesNeedingUpload: [] };
+    return core
+      ? core.mergeLocalAndOnlineFollowing(local, online, options)
+      : {
+          merged: { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [], wallets: [] },
+          profilesToSync: [],
+          profilesNeedingUpload: [],
+        };
   }
 
   function remapFollowingProfileIdInCaches(oldId, newId) {
@@ -2736,6 +3489,9 @@
     followingNotesCache.forEach((r) => {
       if ((r.following || '').trim() === o) r.following = n;
     });
+    followingWalletsCache.forEach((w) => {
+      if ((w.profile || '').trim() === o) w.profile = n;
+    });
   }
 
   /**
@@ -2753,6 +3509,7 @@
       const platformsBySlug = core.buildPlatformsBySlugMap(platforms);
       const { payload, skippedAccounts } = core.buildFollowingPayloadForProfile(pid, followingCachesSnapshot(), platformsBySlug);
       if (!payload) return false;
+      delete payload.wallets;
       if (skippedAccounts.length) {
         const labels = skippedAccounts.map((s) => s.platform || 'unknown').filter(Boolean);
         const uniq = [...new Set(labels)].slice(0, 4);
@@ -3024,6 +3781,7 @@
         followingEmailsCache = [];
         followingAddressesCache = [];
         followingNotesCache = [];
+        followingWalletsCache = [];
 
         async function ingestFollowingJsonFromFile(fileHandle) {
           try {
@@ -3036,6 +3794,7 @@
             const emailList = Array.isArray(obj.emails) ? obj.emails : [];
             const addressList = Array.isArray(obj.addresses) ? obj.addresses : [];
             const noteList = Array.isArray(obj.notes) ? obj.notes : [];
+            const walletList = Array.isArray(obj.wallets) ? obj.wallets : [];
             if (profile && profile.id) {
               if (profiles.some((p) => p.id === profile.id)) return;
               profiles.push(profile);
@@ -3097,6 +3856,13 @@
                   });
                 }
               });
+              walletList.forEach((row) => {
+                const id = (row.id ?? row.ID ?? '').toString().trim();
+                if (id && id !== '[object Object]') {
+                  const nw = normalizeFollowingWalletRow({ ...row, profile: profile.id, id });
+                  if (nw) followingWalletsCache.push(nw);
+                }
+              });
             }
           } catch (_) {}
         }
@@ -3118,9 +3884,19 @@
       followingEmailsCache = [];
       followingAddressesCache = [];
       followingNotesCache = [];
-      const data = await chrome.storage.local.get([FOLLOWING_PROFILES_STORAGE_KEY, FOLLOWING_ACCOUNTS_STORAGE_KEY]);
+      followingWalletsCache = [];
+      const data = await chrome.storage.local.get([
+        FOLLOWING_PROFILES_STORAGE_KEY,
+        FOLLOWING_ACCOUNTS_STORAGE_KEY,
+        FOLLOWING_WALLETS_STORAGE_KEY,
+      ]);
       const profiles = Array.isArray(data[FOLLOWING_PROFILES_STORAGE_KEY]) ? data[FOLLOWING_PROFILES_STORAGE_KEY].map(normalizeProfile) : [];
       const accounts = Array.isArray(data[FOLLOWING_ACCOUNTS_STORAGE_KEY]) ? data[FOLLOWING_ACCOUNTS_STORAGE_KEY].map(normalizeAccount) : [];
+      const wallRaw = Array.isArray(data[FOLLOWING_WALLETS_STORAGE_KEY]) ? data[FOLLOWING_WALLETS_STORAGE_KEY] : [];
+      wallRaw.forEach((row) => {
+        const nw = normalizeFollowingWalletRow(row);
+        if (nw) followingWalletsCache.push(nw);
+      });
       return { profiles, accounts };
     } catch (_) {
       return { profiles: [], accounts: [] };
@@ -3179,6 +3955,15 @@
             notesByProfile[p].push(row);
           }
         });
+        const walletsByProfile = {};
+        (followingWalletsCache || []).forEach((row) => {
+          if (row.deleted) return;
+          const p = (row.profile || '').trim();
+          if (p) {
+            if (!walletsByProfile[p]) walletsByProfile[p] = [];
+            walletsByProfile[p].push(row);
+          }
+        });
         const writtenIds = new Set();
         for (const profile of activeProfiles) {
           const rawId = toProfileIdStr(profile.id ?? profile.ID);
@@ -3193,6 +3978,7 @@
           const emailsForProfile = emailsByProfile[oldId] || emailsByProfile[rawId] || emailsByProfile[id] || [];
           const addressesForProfile = addressesByProfile[oldId] || addressesByProfile[rawId] || addressesByProfile[id] || [];
           const notesForProfile = notesByProfile[oldId] || notesByProfile[rawId] || notesByProfile[id] || [];
+          const walletsForProfile = walletsByProfile[oldId] || walletsByProfile[rawId] || walletsByProfile[id] || [];
           const payload = {
             profile: normalizeProfile({ ...profile, id }),
             accounts: accountsForProfile.map((a) => normalizeAccount({ ...a, profile: id })),
@@ -3200,6 +3986,10 @@
             emails: emailsForProfile.map((r) => ({ id: r.id, email: r.email, following: id, added_by: r.added_by, deleted: r.deleted })),
             addresses: addressesForProfile.map((r) => ({ id: r.id, following: id, added_by: r.added_by, address: r.address, address_2: r.address_2, city: r.city, state: r.state, zip: r.zip, country: r.country, deleted: r.deleted })),
             notes: notesForProfile.map((r) => ({ id: r.id, following: id, deleted: r.deleted, access: r.access, added_by: r.added_by, note: r.note, scheduled: r.scheduled || '' })),
+            wallets: walletsForProfile.map((w) => {
+              const nw = normalizeFollowingWalletRow({ ...w, profile: id });
+              return nw || w;
+            }),
           };
           const fh = await followingDir.getFileHandle(fileName, { create: true });
           const w = await fh.createWritable();
@@ -3222,12 +4012,15 @@
             }
           } catch (_) {}
         }
+        await pushPulseWatchBundlesToStorage();
         return;
       }
       await chrome.storage.local.set({
         [FOLLOWING_PROFILES_STORAGE_KEY]: (profiles || []).map(normalizeProfile),
         [FOLLOWING_ACCOUNTS_STORAGE_KEY]: (accounts || []).map(normalizeAccount),
+        [FOLLOWING_WALLETS_STORAGE_KEY]: (followingWalletsCache || []).map((w) => normalizeFollowingWalletRow(w) || w),
       });
+      await pushPulseWatchBundlesToStorage();
     } catch (_) {}
   }
 
@@ -3249,13 +4042,31 @@
     (followingAddressesCache || []).forEach((r) => { if (!r.deleted && r.following) { const p = (r.following || '').trim(); if (p) { if (!addressesByProfile[p]) addressesByProfile[p] = []; addressesByProfile[p].push(r); } } });
     const notesByProfile = {};
     (followingNotesCache || []).forEach((r) => { if (!r.deleted && r.following) { const p = (r.following || '').trim(); if (p) { if (!notesByProfile[p]) notesByProfile[p] = []; notesByProfile[p].push(r); } } });
-    return { accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile };
+    const walletsByProfile = {};
+    (followingWalletsCache || []).forEach((w) => {
+      if (w.deleted) return;
+      const p = (w.profile || '').trim();
+      if (p) {
+        if (!walletsByProfile[p]) walletsByProfile[p] = [];
+        walletsByProfile[p].push(w);
+      }
+    });
+    return { accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile, walletsByProfile };
   }
 
   function renderFollowingFromCaches() {
-    const { accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile } = buildFollowingByProfileMaps();
+    const { accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile, walletsByProfile } =
+      buildFollowingByProfileMaps();
     const activeProfiles = (followingProfilesCache || []).filter((p) => !p.deleted);
-    renderFollowingList(activeProfiles, accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile);
+    renderFollowingList(
+      activeProfiles,
+      accountsByProfile,
+      phonesByProfile,
+      emailsByProfile,
+      addressesByProfile,
+      notesByProfile,
+      walletsByProfile,
+    );
     attachFollowingListeners();
   }
 
@@ -3268,6 +4079,9 @@
     followingProfilesCache = local.profiles;
     followingAccountsCache = local.accounts;
     renderFollowingFromCaches();
+    await pushPulseWatchBundlesToStorage();
+    refreshPulseWatchActivityPanel();
+    loadPulseFollowingAutomationBanner();
     if (!whopLoggedIn) {
       setFollowingStatus('Sign in to sync with server. Showing local list.');
       return;
@@ -3293,6 +4107,7 @@
           emails: followingEmailsCache,
           addresses: followingAddressesCache,
           notes: followingNotesCache,
+          wallets: followingWalletsCache,
         };
         const core = getFollowingSyncCore();
         const { merged, profilesNeedingUpload } = mergeLocalAndOnlineFollowing(localCaches, online, {
@@ -3304,6 +4119,7 @@
         followingEmailsCache = merged.emails;
         followingAddressesCache = merged.addresses;
         followingNotesCache = merged.notes;
+        followingWalletsCache = merged.wallets || [];
         followingLastFetchTime = Date.now();
         await saveFollowingToLocal(followingProfilesCache, followingAccountsCache);
         renderFollowingFromCaches();
@@ -3330,12 +4146,16 @@
             setFollowingStatus('Synced with server.');
           }
         }
+        await pushPulseWatchBundlesToStorage();
+        refreshPulseWatchActivityPanel();
       } catch (e) {
         if (e?.code === 'UNAUTHORIZED' || e?.code === 'NOT_LOGGED_IN') {
           setFollowingStatus('Please log in again.', 'error');
         } else {
           setFollowingStatus('Failed to sync. Showing local list.', 'error');
         }
+        await pushPulseWatchBundlesToStorage();
+        refreshPulseWatchActivityPanel();
       }
     })();
   }
@@ -3367,6 +4187,7 @@
             emails: followingEmailsCache,
             addresses: followingAddressesCache,
             notes: followingNotesCache,
+            wallets: followingWalletsCache,
           };
           const { merged } = mergeLocalAndOnlineFollowing(localCaches, online, {});
           followingProfilesCache = merged.profiles;
@@ -3375,10 +4196,11 @@
           followingEmailsCache = merged.emails;
           followingAddressesCache = merged.addresses;
           followingNotesCache = merged.notes;
+          followingWalletsCache = merged.wallets || [];
           followingLastFetchTime = Date.now();
           await saveFollowingToLocal(followingProfilesCache, followingAccountsCache);
         }
-      } catch (_) {}
+        } catch (_) {}
     }
     if (typeof ExtensionApi !== 'undefined') {
       const auth = await getAuthState();
@@ -3393,6 +4215,8 @@
         } catch (_) {}
       }
     }
+    await pushPulseWatchBundlesToStorage();
+    refreshPulseWatchActivityPanel();
   }
   window.syncPulseFromBackend = syncPulseFromBackend;
 
@@ -3449,8 +4273,25 @@
         notesByProfile[p].push(row);
       }
     });
+    const walletsByProfile = {};
+    (followingWalletsCache || []).forEach((w) => {
+      if (w.deleted) return;
+      const p = (w.profile || '').trim();
+      if (p) {
+        if (!walletsByProfile[p]) walletsByProfile[p] = [];
+        walletsByProfile[p].push(w);
+      }
+    });
     const activeProfiles = followingProfilesCache.filter((p) => !p.deleted);
-    renderFollowingList(activeProfiles, accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile);
+    renderFollowingList(
+      activeProfiles,
+      accountsByProfile,
+      phonesByProfile,
+      emailsByProfile,
+      addressesByProfile,
+      notesByProfile,
+      walletsByProfile,
+    );
     attachFollowingListeners();
   }
 
@@ -3654,6 +4495,127 @@
           setFollowingStatus(whopLoggedIn ? 'Note added.' : 'Saved locally. Sign in with Whop to sync.');
           refreshFollowingUI();
         }
+      });
+    });
+
+    listEl.querySelectorAll('.following-add-wallet').forEach((btn) => {
+      btn.replaceWith(btn.cloneNode(true));
+    });
+    listEl.querySelectorAll('.following-add-wallet').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const profileId = btn.getAttribute('data-profile-id');
+        if (!profileId) return;
+        const section = btn.closest('.following-detail-section');
+        const netSel = section && section.querySelector('.following-select-wallet-network');
+        const addrIn = section && section.querySelector('.following-input-wallet-address');
+        const labIn = section && section.querySelector('.following-input-wallet-label');
+        const rawNet = (netSel && netSel.value) || 'solana:mainnet-beta';
+        const parts = String(rawNet).split(':');
+        const chainPart = (parts[0] || 'solana').trim();
+        const netPart = (parts[1] || '').trim();
+        const chain = chainPart === 'evm' ? 'evm' : 'solana';
+        const network = netPart || (chain === 'solana' ? 'mainnet-beta' : 'bsc');
+        const address = (addrIn && addrIn.value) ? String(addrIn.value).trim() : '';
+        const label = (labIn && labIn.value) ? String(labIn.value).trim() : '';
+        if (!address) {
+          setFollowingStatus('Enter a wallet address.', 'error');
+          return;
+        }
+        if (chain === 'solana' && !isValidSolanaAddress(address)) {
+          setFollowingStatus('Solana address looks invalid (base58, ~32–44 chars).', 'error');
+          return;
+        }
+        if (chain === 'evm' && !isValidEvmAddress(address)) {
+          setFollowingStatus('EVM address must be 0x followed by 40 hex characters.', 'error');
+          return;
+        }
+        const whopLoggedIn = typeof isWhopLoggedIn === 'function' && (await isWhopLoggedIn());
+        const newId = 'fw_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
+        const row = normalizeFollowingWalletRow({
+          id: newId,
+          profile: profileId,
+          chain,
+          address,
+          network,
+          label,
+          deleted: false,
+          watchEnabled: true,
+          automationEnabled: false,
+          autoExecuteSwaps: false,
+          sizeMode: 'off',
+          quoteMint: '',
+          fixedAmountRaw: '',
+          usdAmount: '',
+          proportionalScalePercent: 100,
+          slippageBps: 50,
+        });
+        if (!row) return;
+        followingWalletsCache.push(row);
+        touchFollowingProfileEdited(profileId);
+        if (whopLoggedIn) await syncFollowingProfileToSupabase(profileId);
+        invalidatePulseFollowingCache();
+        await saveFollowingToLocal(followingProfilesCache, followingAccountsCache);
+        if (addrIn) addrIn.value = '';
+        if (labIn) labIn.value = '';
+        setFollowingStatus(whopLoggedIn ? 'Wallet added.' : 'Saved locally.');
+        refreshFollowingUI();
+      });
+    });
+
+    listEl.querySelectorAll('.following-delete-wallet').forEach((btn) => {
+      btn.replaceWith(btn.cloneNode(true));
+    });
+    listEl.querySelectorAll('.following-delete-wallet').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const wid = btn.getAttribute('data-wallet-id');
+        const profileId = btn.getAttribute('data-profile-id');
+        const idx = followingWalletsCache.findIndex((w) => (w.id || '').trim() === (wid || '').trim());
+        if (idx < 0) return;
+        followingWalletsCache[idx] = { ...followingWalletsCache[idx], deleted: true };
+        touchFollowingProfileEdited(profileId);
+        const whopLoggedIn = typeof isWhopLoggedIn === 'function' && (await isWhopLoggedIn());
+        if (whopLoggedIn) await syncFollowingProfileToSupabase(profileId);
+        invalidatePulseFollowingCache();
+        await saveFollowingToLocal(followingProfilesCache, followingAccountsCache);
+        setFollowingStatus('Wallet removed.');
+        refreshFollowingUI();
+      });
+    });
+
+    listEl.querySelectorAll('.following-save-wallet').forEach((btn) => {
+      btn.replaceWith(btn.cloneNode(true));
+    });
+    listEl.querySelectorAll('.following-save-wallet').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const wid = btn.getAttribute('data-wallet-id');
+        const profileId = btn.getAttribute('data-profile-id');
+        const rowEl = btn.closest('.following-wallet-row');
+        if (!rowEl || !wid) return;
+        const idx = followingWalletsCache.findIndex((w) => (w.id || '').trim() === (wid || '').trim());
+        if (idx < 0) return;
+        const cur = followingWalletsCache[idx];
+        const watchEl = rowEl.querySelector('.following-wallet-watch');
+        const updated = normalizeFollowingWalletRow({
+          ...cur,
+          watchEnabled: !!(watchEl && watchEl.checked),
+          automationEnabled: false,
+          autoExecuteSwaps: false,
+          sizeMode: 'off',
+          quoteMint: '',
+          fixedAmountRaw: '',
+          usdAmount: '',
+          proportionalScalePercent: 100,
+          slippageBps: 50,
+        });
+        if (!updated) return;
+        followingWalletsCache[idx] = updated;
+        touchFollowingProfileEdited(profileId);
+        const whopLoggedIn = typeof isWhopLoggedIn === 'function' && (await isWhopLoggedIn());
+        if (whopLoggedIn) await syncFollowingProfileToSupabase(profileId);
+        invalidatePulseFollowingCache();
+        await saveFollowingToLocal(followingProfilesCache, followingAccountsCache);
+        setFollowingStatus('Wallet saved.');
+        refreshFollowingUI();
       });
     });
 
@@ -3927,7 +4889,15 @@
     return `${mmm} ${d}`;
   }
 
-  function renderFollowingList(profiles, accountsByProfile, phonesByProfile, emailsByProfile, addressesByProfile, notesByProfile) {
+  function renderFollowingList(
+    profiles,
+    accountsByProfile,
+    phonesByProfile,
+    emailsByProfile,
+    addressesByProfile,
+    notesByProfile,
+    walletsByProfile,
+  ) {
     const listEl = document.getElementById('followingList');
     if (!listEl) return;
     if (!profiles || profiles.length === 0) {
@@ -3938,6 +4908,7 @@
     const emByP = emailsByProfile || {};
     const adByP = addressesByProfile || {};
     const ntByP = notesByProfile || {};
+    const wlByP = walletsByProfile || {};
     function formatScheduledForDisplay(s) {
       if (!s || typeof s !== 'string') return '';
       try {
@@ -3956,6 +4927,7 @@
       const emails = emByP[profileId] || [];
       const addresses = adByP[profileId] || [];
       const notes = ntByP[profileId] || [];
+      const wallets = wlByP[profileId] || [];
       const iconAccounts = [];
       const otherAccounts = [];
       accounts.forEach((acc) => {
@@ -4041,6 +5013,37 @@
         <button type="button" class="following-detail-section-toggle" aria-expanded="true"><span class="following-detail-section-title">Notes</span>${chevronDownSvg}</button>
         <div class="following-detail-section-content"><div class="following-detail-list">${noteRows}</div><div class="following-detail-add following-detail-add-note"><textarea class="following-input-note" placeholder="Add a note…" rows="2"></textarea><label class="following-note-scheduled-label">Scheduled (optional)</label><input type="datetime-local" class="following-input-note-scheduled" aria-label="Scheduled date and time (optional)"><button type="button" class="btn btn-primary btn-small following-add-detail" data-profile-id="${escapeHtml(profileId)}" data-type="note">Add note</button></div></div>
       </div>`;
+      const walletRows = wallets.map((w) => {
+        const wid = escapeHtml((w.id || '').trim());
+        const rawAddr = String(w.address || '');
+        const addrShort = rawAddr.length > 14 ? `${rawAddr.slice(0, 6)}…${rawAddr.slice(-4)}` : rawAddr;
+        return `<div class="following-wallet-row" data-wallet-id="${wid}" data-profile-id="${escapeHtml(profileId)}">
+          <div class="following-wallet-row-head">
+            <span class="following-wallet-chain">${escapeHtml(w.chain || '')}${w.network ? ` · ${escapeHtml(w.network)}` : ''}</span>
+            <span class="following-wallet-addr" title="${escapeHtml(rawAddr)}">${escapeHtml(addrShort)}</span>
+            ${w.label ? `<span class="following-wallet-label">${escapeHtml(w.label)}</span>` : ''}
+            <label class="following-wallet-cb"><input type="checkbox" class="following-wallet-watch" ${w.watchEnabled !== false ? 'checked' : ''}> Watch</label>
+            <button type="button" class="btn btn-outline btn-small following-delete-wallet" data-wallet-id="${wid}" data-profile-id="${escapeHtml(profileId)}" title="Remove wallet">${deleteBtnSvg}</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0 0;font-size:11px;">Following automation is configured in Library → workflow → Always on + <code>selectFollowingAccount</code> + <code>workflow.followingAutomation</code>.</p>
+          <button type="button" class="btn btn-primary btn-small following-save-wallet" data-wallet-id="${wid}" data-profile-id="${escapeHtml(profileId)}">Save watch</button>
+        </div>`;
+      }).join('');
+      const walletNetworkOpts =
+        '<option value="solana:mainnet-beta">Solana mainnet-beta</option>' +
+        '<option value="solana:devnet">Solana devnet</option>' +
+        '<option value="evm:bsc">BSC</option>' +
+        '<option value="evm:ethereum">Ethereum</option>';
+      const walletSection = `<div class="following-detail-section" data-section="wallets" data-profile-id="${escapeHtml(profileId)}">
+        <button type="button" class="following-detail-section-toggle" aria-expanded="true"><span class="following-detail-section-title">On-chain wallets</span>${chevronDownSvg}</button>
+        <div class="following-detail-section-content"><div class="following-wallet-list">${walletRows}</div>
+        <div class="following-detail-add following-detail-add-wallet">
+          <select class="following-select-wallet-network" aria-label="Chain / network">${walletNetworkOpts}</select>
+          <input type="text" class="following-input-wallet-address" placeholder="Wallet address" aria-label="Wallet address">
+          <input type="text" class="following-input-wallet-label" placeholder="Label (optional)" aria-label="Label">
+          <button type="button" class="btn btn-primary btn-small following-add-wallet" data-profile-id="${escapeHtml(profileId)}">Add wallet</button>
+        </div></div>
+      </div>`;
       const bd = parseBirthday(prof.birthday);
       const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
       const monthOptionsHtml = '<option value="">Month</option>' + monthNames.map((name, i) => i === 0 ? '' : `<option value="${i}"${bd.month === String(i) ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
@@ -4067,6 +5070,7 @@
           ${emailSection}
           ${addressSection}
           ${notesSection}
+          ${walletSection}
           <div class="following-accounts">${accountsHtml}</div>
           <div class="following-add-account-form" data-profile-id="${escapeHtml(profileId)}">
             <input type="text" class="following-input-handle" placeholder="Handle (URL slug)" title="URL slug for the social account">
@@ -4078,6 +5082,127 @@
       </div>`;
     }).join('');
   }
+
+  document.getElementById('pulseWatchRefreshBtn')?.addEventListener('click', async () => {
+    const [tickSol, tickBsc] = await Promise.all([
+      cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_REFRESH_NOW', skipJitter: true }),
+      cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_REFRESH_NOW' }),
+    ]);
+    await refreshPulseWatchActivityPanel();
+    const paused = tickSol?.watch_paused || tickBsc?.watch_paused;
+    const errSol = tickSol?.ok === false ? tickSol?.error : null;
+    const errBsc = tickBsc?.ok === false ? tickBsc?.error : null;
+    if (paused) setFollowingStatus('Watch polling is paused; ticks skipped.', '');
+    else if (errSol && errBsc) setFollowingStatus(`Solana: ${errSol} · BSC: ${errBsc}`, 'error');
+    else if (errSol) setFollowingStatus(`Solana poll failed: ${errSol}`, 'error');
+    else if (errBsc) setFollowingStatus(`BSC poll failed: ${errBsc}`, 'error');
+    else if (tickSol?.idle && tickBsc?.idle) {
+      const bscReason = tickBsc?.reason === 'no_bscscan_key' ? ' (BSC: add BscScan key in Settings)' : '';
+      const noWf = tickSol?.reason === 'no_workflows' || tickBsc?.reason === 'no_workflows';
+      const noAo = tickSol?.reason === 'no_always_on_workflow' || tickBsc?.reason === 'no_always_on_workflow';
+      const noCrypto =
+        tickSol?.reason === 'no_crypto_workflow_steps' || tickBsc?.reason === 'no_crypto_workflow_steps';
+      if (noWf) {
+        setFollowingStatus(`Poll idle: add at least one workflow to Library (Following requires workflows).${bscReason}`, '');
+      } else if (noCrypto) {
+        setFollowingStatus(
+          `Poll idle: add a crypto or Pulse step to a Library workflow (e.g. solanaWatchReadActivity), or enable Always on Following.${bscReason}`,
+          '',
+        );
+      } else if (noAo) {
+        setFollowingStatus(
+          `Poll idle: enable "Always on (background)" and scopes on a Following automation workflow in Library (or use legacy: any workflow in Library with no always-on flags).${bscReason}`,
+          '',
+        );
+      } else {
+        setFollowingStatus(`Poll ticks idle (empty bundle / nothing to do)${bscReason}`, '');
+      }
+    } else setFollowingStatus('Poll ticks finished.', '');
+    setTimeout(() => setFollowingStatus(''), 2800);
+  });
+
+  document.getElementById('pulseWatchClearActivityBtn')?.addEventListener('click', async () => {
+    const [resSol, resBsc] = await Promise.all([
+      cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_CLEAR_ACTIVITY' }),
+      cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_CLEAR_ACTIVITY' }),
+    ]);
+    if ((!resSol || !resSol.ok) && (!resBsc || !resBsc.ok)) {
+      setFollowingStatus(resSol?.error || resBsc?.error || 'Could not clear activity.', 'error');
+      setTimeout(() => setFollowingStatus(''), 4000);
+      return;
+    }
+    await refreshPulseWatchActivityPanel();
+  });
+
+  document.getElementById('pulseWatchExportActivityBtn')?.addEventListener('click', async () => {
+    const [resSol, resBsc] = await Promise.all([
+      cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_GET_ACTIVITY', limit: 100 }),
+      cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_GET_ACTIVITY', limit: 100 }),
+    ]);
+    if ((!resSol || !resSol.ok) && (!resBsc || !resBsc.ok)) {
+      setFollowingStatus(resSol?.error || resBsc?.error || 'Could not export activity.', 'error');
+      setTimeout(() => setFollowingStatus(''), 4000);
+      return;
+    }
+    try {
+      const meta = await chrome.storage.local.get([
+        PULSE_SOLANA_LAST_POLL_KEY,
+        PULSE_SOLANA_WATCH_BUNDLE_KEY,
+        PULSE_BSC_LAST_POLL_KEY,
+        PULSE_BSC_WATCH_BUNDLE_KEY,
+        PULSE_FOLLOWING_AUTOMATION_GLOBAL_STORAGE_KEY,
+        PULSE_SOLANA_CLUSTER_STORAGE_KEY,
+      ]);
+      const bundle = meta[PULSE_SOLANA_WATCH_BUNDLE_KEY];
+      const bscBundle = meta[PULSE_BSC_WATCH_BUNDLE_KEY];
+      const globalCopy = meta[PULSE_FOLLOWING_AUTOMATION_GLOBAL_STORAGE_KEY];
+      let followingAutomationGlobalSnapshot = null;
+      if (globalCopy && typeof globalCopy === 'object') {
+        try {
+          followingAutomationGlobalSnapshot = JSON.parse(JSON.stringify(globalCopy));
+        } catch (_) {
+          followingAutomationGlobalSnapshot = { ...globalCopy };
+        }
+      }
+      const solAct = resSol && resSol.ok ? resSol.activity || [] : [];
+      const bscAct = resBsc && resBsc.ok ? resBsc.activity || [] : [];
+      const activity = [...solAct, ...bscAct].sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 100);
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        activity,
+        lastPollSolana: meta[PULSE_SOLANA_LAST_POLL_KEY] || null,
+        lastPollBsc: meta[PULSE_BSC_LAST_POLL_KEY] || null,
+        watchBundleSolana:
+          bundle && typeof bundle === 'object'
+            ? {
+                updatedAt: bundle.updatedAt,
+                entryCount: Array.isArray(bundle.entries) ? bundle.entries.length : 0,
+              }
+            : null,
+        watchBundleBsc:
+          bscBundle && typeof bscBundle === 'object'
+            ? {
+                updatedAt: bscBundle.updatedAt,
+                entryCount: Array.isArray(bscBundle.entries) ? bscBundle.entries.length : 0,
+              }
+            : null,
+        solanaCluster: meta[PULSE_SOLANA_CLUSTER_STORAGE_KEY] || null,
+        followingAutomationGlobalSnapshot,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pulse-following-watch-activity-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setFollowingStatus('Activity exported.', '');
+      setTimeout(() => setFollowingStatus(''), 2500);
+    } catch (e) {
+      setFollowingStatus(e?.message || 'Export failed.', 'error');
+      setTimeout(() => setFollowingStatus(''), 4000);
+    }
+  });
 
   document.getElementById('followingAddNewBtn')?.addEventListener('click', () => {
     const form = document.getElementById('followingAddForm');
@@ -4594,13 +5719,88 @@
     const wrapEl = document.getElementById('llmChatUiWrap');
     const sectionEl = document.getElementById('llmChatSection');
     if (!unavailableEl || !wrapEl) return;
-    const setUnavailable = (show, text) => {
+    const setUnavailable = (show, text, opts) => {
+      const withSettingsLink = opts && opts.withSettingsLink;
       unavailableEl.style.display = show ? 'block' : 'none';
       wrapEl.style.display = show ? 'none' : '';
       wrapEl.setAttribute('aria-hidden', show ? 'true' : 'false');
-      if (unavailableTextEl && text) unavailableTextEl.textContent = text;
+      if (unavailableTextEl) {
+        if (!show) {
+          unavailableTextEl.textContent = '';
+        } else if (text) {
+          if (withSettingsLink) {
+            unavailableTextEl.textContent = '';
+            unavailableTextEl.appendChild(document.createTextNode(text + ' '));
+            const a = document.createElement('a');
+            a.href = '#';
+            a.textContent = 'Open Settings';
+            a.addEventListener('click', function (e) {
+              e.preventDefault();
+              chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html') + '#cfs-llm-providers' });
+            });
+            unavailableTextEl.appendChild(a);
+            unavailableTextEl.appendChild(document.createTextNode(' → Local Keys → LLM providers.'));
+          } else {
+            unavailableTextEl.textContent = text;
+          }
+        }
+      }
       if (sectionEl) sectionEl.classList.toggle('llm-chat-section-disabled', !!show);
     };
+
+    let chatProvider = 'lamini';
+    try {
+      const llmSt = await chrome.storage.local.get([
+        'cfsLlmChatProvider',
+        'cfsLlmOpenaiKey',
+        'cfsLlmAnthropicKey',
+        'cfsLlmGeminiKey',
+        'cfsLlmGrokKey',
+      ]);
+      chatProvider = String(llmSt.cfsLlmChatProvider || 'lamini').toLowerCase();
+      const keyByProv = {
+        openai: 'cfsLlmOpenaiKey',
+        claude: 'cfsLlmAnthropicKey',
+        gemini: 'cfsLlmGeminiKey',
+        grok: 'cfsLlmGrokKey',
+      };
+      if (chatProvider !== 'lamini' && keyByProv[chatProvider]) {
+        const label =
+          chatProvider === 'openai'
+            ? 'OpenAI'
+            : chatProvider === 'claude'
+              ? 'Claude (Anthropic)'
+              : chatProvider === 'gemini'
+                ? 'Gemini'
+                : 'Grok (xAI)';
+        const rawKey = String(llmSt[keyByProv[chatProvider]] || '').trim();
+        if (rawKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+          setUnavailable(
+            true,
+            'Local AI Chat uses ' +
+              label +
+              ' but the saved API key exceeds ' +
+              CFS_LLM_API_KEY_MAX_CHARS +
+              ' characters.',
+            { withSettingsLink: true }
+          );
+          return;
+        }
+        if (!rawKey.length) {
+          setUnavailable(
+            true,
+            'Local AI Chat uses ' + label + ' but no API key is saved.',
+            { withSettingsLink: true }
+          );
+          return;
+        }
+        setUnavailable(false, '');
+        return;
+      }
+    } catch (_) {
+      /* fall through to LaMini checks */
+    }
+
     if (typeof cfsLaminiModelLooksComplete !== 'function' || typeof getStoredProjectFolderHandle !== 'function') {
       setUnavailable(
         true,
@@ -4613,14 +5813,14 @@
       if (!h) {
         setUnavailable(
           true,
-          'Local AI Chat uses the LaMini model in your project folder. Set a project folder above, then use Download LaMini (~820MB) when it appears.'
+          'Local AI Chat uses the LaMini model in your project folder when the chat provider is LaMini (local). Set a project folder above, then use Download LaMini (~820MB) when it appears — or choose a cloud provider in Settings → LLM providers → Local AI Chat default.'
         );
         return;
       }
       if (!(await cfsLaminiModelLooksComplete(h))) {
         setUnavailable(
           true,
-          'Download the LaMini model (~820MB) to use Local AI Chat. Use the Download LaMini button next to Set project folder when it is visible.'
+          'Download the LaMini model (~820MB) to use Local AI Chat with LaMini (local), or switch to a cloud provider in Settings → LLM providers → Local AI Chat default.'
         );
         return;
       }
@@ -6000,6 +7200,10 @@
     const statusEl = document.getElementById('llmChatStatus');
     if (!messagesEl || !inputEl || !sendBtn) return;
 
+    document.getElementById('llmChatOpenSettingsBtn')?.addEventListener('click', function () {
+      chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html') + '#cfs-llm-providers' });
+    });
+
     let chatHistory = [];
 
     function setChatStatus(msg, type) {
@@ -6200,14 +7404,31 @@
         ...chatHistory,
       ];
 
+      const llmChatStore = await chrome.storage.local.get(['cfsLlmChatProvider']);
+      const chatProv = String(llmChatStore.cfsLlmChatProvider || 'lamini').toLowerCase();
+      const useRemoteChat = chatProv === 'openai' || chatProv === 'claude' || chatProv === 'gemini' || chatProv === 'grok';
+
       try {
         const response = await new Promise(function(resolve) {
-          chrome.runtime.sendMessage(
-            { type: 'QC_CALL', method: 'generateChat', args: [messages, { max_new_tokens: 256, temperature: 0.7 }] },
-            function(res) {
-              resolve(res);
-            }
-          );
+          if (useRemoteChat) {
+            chrome.runtime.sendMessage(
+              {
+                type: 'CALL_REMOTE_LLM_CHAT',
+                messages: messages,
+                options: { max_new_tokens: 256, temperature: 0.7 },
+              },
+              function(res) {
+                resolve(res);
+              }
+            );
+          } else {
+            chrome.runtime.sendMessage(
+              { type: 'QC_CALL', method: 'generateChat', args: [messages, { max_new_tokens: 256, temperature: 0.7 }] },
+              function(res) {
+                resolve(res);
+              }
+            );
+          }
         });
 
         if (chrome.runtime.lastError) {
@@ -7280,6 +8501,9 @@
       row.innerHTML = '<strong>' + escapeHtml(label || projectId) + '</strong><div class="library-project-id" style="font-size:11px;color:var(--gen-muted,#6e6e73);margin-top:2px;"><code style="font-size:11px;background:#eee;padding:2px 6px;">' + escapeHtml(projectId) + '</code></div>';
       row.addEventListener('click', function() {
         uploadsPathSegments = [projectId];
+        try {
+          chrome.storage.local.set({ selectedProjectId: projectId });
+        } catch (_) {}
         refreshLibraryPanelSelection();
         refreshUploadsList();
       });
@@ -7339,6 +8563,68 @@
     return projectRoot.getDirectoryHandle('posts', { create: true });
   }
 
+  /**
+   * @param {FileSystemDirectoryHandle} postDir
+   * @param {string} folderLabel - _folder value for UI
+   * @param {Array} posts - mutates
+   */
+  async function tryReadPostFolder(postDir, folderLabel, posts) {
+    try {
+      const fh = await postDir.getFileHandle('post.json');
+      const file = await fh.getFile();
+      const text = await file.text();
+      const data = JSON.parse(text);
+      data._folder = folderLabel;
+      posts.push(data);
+    } catch (_) {}
+  }
+
+  async function readLegacyRootPosts(projectRoot, posts, userFilter) {
+    try {
+      const postsDir = await projectRoot.getDirectoryHandle('posts', { create: false });
+      for await (const [accountName, accountHandle] of postsDir.entries()) {
+        if (accountHandle.kind !== 'directory') continue;
+        if (userFilter && safeSlug(userFilter) !== accountName) continue;
+        for await (const [postName, postHandle] of accountHandle.entries()) {
+          if (postHandle.kind !== 'directory') continue;
+          await tryReadPostFolder(postHandle, 'posts/' + accountName + '/' + postName, posts);
+        }
+      }
+    } catch (_) {}
+  }
+
+  async function readUploadsPostsForProject(projectRoot, projectId, posts, userFilter) {
+    if (!projectId || typeof projectId !== 'string') return;
+    try {
+      const uploads = await projectRoot.getDirectoryHandle('uploads', { create: false });
+      const projDir = await uploads.getDirectoryHandle(projectId, { create: false });
+      const postsRoot = await projDir.getDirectoryHandle('posts', { create: false });
+      try {
+        const pending = await postsRoot.getDirectoryHandle('pending', { create: false });
+        for await (const [postName, postHandle] of pending.entries()) {
+          if (postHandle.kind !== 'directory') continue;
+          await tryReadPostFolder(
+            postHandle,
+            'uploads/' + projectId + '/posts/pending/' + postName,
+            posts
+          );
+        }
+      } catch (_) {}
+      for await (const [accountName, accountHandle] of postsRoot.entries()) {
+        if (accountHandle.kind !== 'directory' || accountName === 'pending') continue;
+        if (userFilter && safeSlug(userFilter) !== accountName) continue;
+        for await (const [postName, postHandle] of accountHandle.entries()) {
+          if (postHandle.kind !== 'directory') continue;
+          await tryReadPostFolder(
+            postHandle,
+            'uploads/' + projectId + '/posts/' + accountName + '/' + postName,
+            posts
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
   function safeSlug(str) {
     if (!str || typeof str !== 'string') return '_unknown';
     return str.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || '_unknown';
@@ -7348,26 +8634,75 @@
     return 'post_' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   }
 
-  async function writePostToFolder(postData, mediaFiles) {
+  /**
+   * @param {object} postData
+   * @param {object|null} mediaFiles
+   * @param {object} [writeOpts] - projectId, placement ('pending'|'posted'), postId, defaultProjectId
+   */
+  async function writePostToFolder(postData, mediaFiles, writeOpts) {
+    writeOpts = writeOpts || {};
     const projectRoot = await getStoredProjectFolderHandle();
     if (!projectRoot) return null;
     try {
       const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
       if (perm !== 'granted') return null;
     } catch (_) { return null; }
-    const postsDir = await getPostsDir(projectRoot);
-    const accountSlug = safeSlug(postData.user);
-    const accountDir = await postsDir.getDirectoryHandle(accountSlug, { create: true });
-    const postId = postTimestampId();
-    const postDir = await accountDir.getDirectoryHandle(postId, { create: true });
-    const now = new Date().toISOString();
-    const manifest = Object.assign({
+
+    var placement = (writeOpts.placement || postData.cfs_placement || 'posted').toLowerCase() === 'pending' ? 'pending' : 'posted';
+    var resolvedPid = (writeOpts.projectId || postData.cfs_project_id || '').trim();
+    if (!resolvedPid && typeof globalThis.__CFS_generatorProjectId === 'string' && globalThis.__CFS_generatorProjectId.trim()) {
+      resolvedPid = globalThis.__CFS_generatorProjectId.trim();
+    }
+    if (!resolvedPid && typeof CFS_projectIdResolve !== 'undefined') {
+      var snap = {
+        projectId: postData.projectId,
+        _cfsProjectId: postData._cfsProjectId,
+      };
+      if (typeof CFS_projectIdResolve.resolveProjectIdAsync === 'function') {
+        var rAsync = await CFS_projectIdResolve.resolveProjectIdAsync(snap, {
+          uploadsPathSegments: uploadsPathSegments,
+          defaultProjectId: writeOpts.defaultProjectId,
+        });
+        if (rAsync.ok) resolvedPid = rAsync.projectId;
+      } else {
+        var rSync = CFS_projectIdResolve.resolveProjectId(snap, {
+          uploadsPathSegments: uploadsPathSegments,
+          defaultProjectId: writeOpts.defaultProjectId,
+        });
+        if (rSync.ok) resolvedPid = rSync.projectId;
+      }
+    }
+    if (!resolvedPid) {
+      try { console.warn('[CFS] writePostToFolder: missing projectId (set cfs_project_id, row stamp, or Library uploads project).'); } catch (_) {}
+      return null;
+    }
+
+    var accountSlug = safeSlug(postData.user);
+    var postId = (writeOpts.postId || '').trim() || postTimestampId();
+    var postDir;
+
+    if (placement === 'pending') {
+      var pendingBase = await getUploadsDir(projectRoot, [resolvedPid, 'posts', 'pending']);
+      if (!pendingBase) return null;
+      postDir = await pendingBase.getDirectoryHandle(postId, { create: true });
+    } else {
+      var acctBase = await getUploadsDir(projectRoot, [resolvedPid, 'posts', accountSlug]);
+      if (!acctBase) return null;
+      postDir = await acctBase.getDirectoryHandle(postId, { create: true });
+    }
+
+    var now = new Date().toISOString();
+    var manifest = Object.assign({
       version: 2,
       status: 'draft',
       created_at: now,
       updated_at: now,
     }, postData);
     manifest.updated_at = now;
+    manifest.cfs_project_id = resolvedPid;
+    manifest.cfs_placement = placement;
+    delete manifest.projectId;
+
     if (mediaFiles && typeof mediaFiles === 'object') {
       for (const [filename, blob] of Object.entries(mediaFiles)) {
         if (!blob) continue;
@@ -7381,7 +8716,10 @@
     const w = await fh.createWritable();
     await w.write(JSON.stringify(manifest, null, 2));
     await w.close();
-    return { postId, path: 'posts/' + accountSlug + '/' + postId };
+    var relPath = placement === 'pending'
+      ? ('uploads/' + resolvedPid + '/posts/pending/' + postId)
+      : ('uploads/' + resolvedPid + '/posts/' + accountSlug + '/' + postId);
+    return { postId, path: relPath, projectId: resolvedPid, placement: placement };
   }
 
   async function readPostsFromFolder(userFilter) {
@@ -7392,24 +8730,19 @@
       if (perm !== 'granted') return [];
     } catch (_) { return []; }
     const posts = [];
-    try {
-      const postsDir = await projectRoot.getDirectoryHandle('posts', { create: false });
-      for await (const [accountName, accountHandle] of postsDir.entries()) {
-        if (accountHandle.kind !== 'directory') continue;
-        if (userFilter && safeSlug(userFilter) !== accountName) continue;
-        for await (const [postName, postHandle] of accountHandle.entries()) {
-          if (postHandle.kind !== 'directory') continue;
-          try {
-            const fh = await postHandle.getFileHandle('post.json');
-            const file = await fh.getFile();
-            const text = await file.text();
-            const data = JSON.parse(text);
-            data._folder = 'posts/' + accountName + '/' + postName;
-            posts.push(data);
-          } catch (_) {}
+    await readLegacyRootPosts(projectRoot, posts, userFilter);
+    const hint = uploadsPathSegments.length ? uploadsPathSegments[0] : null;
+    if (hint) {
+      await readUploadsPostsForProject(projectRoot, hint, posts, userFilter);
+    } else {
+      try {
+        const uploads = await projectRoot.getDirectoryHandle('uploads', { create: false });
+        for await (const [projId, h] of uploads.entries()) {
+          if (h.kind !== 'directory') continue;
+          await readUploadsPostsForProject(projectRoot, projId, posts, userFilter);
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
     return posts;
   }
 
@@ -7588,6 +8921,11 @@
 
   function refreshUploadsListWithPath(segments) {
     uploadsPathSegments = segments || [];
+    if (uploadsPathSegments.length && uploadsPathSegments[0]) {
+      try {
+        chrome.storage.local.set({ selectedProjectId: uploadsPathSegments[0] });
+      } catch (_) {}
+    }
     refreshUploadsList();
   }
 
@@ -7651,9 +8989,20 @@
     }
   });
 
-  document.getElementById('uploadsPostsBtn')?.addEventListener('click', function() {
+  document.getElementById('uploadsPostsBtn')?.addEventListener('click', async function() {
     if (uploadsPathSegments.length < 1) return;
-    uploadsPathSegments = [uploadsPathSegments[0], 'posts'];
+    const proj = uploadsPathSegments[0];
+    uploadsPathSegments = [proj, 'posts'];
+    const projectRoot = await getStoredProjectFolderHandle();
+    if (projectRoot) {
+      try {
+        const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          const postsParent = await getUploadsDir(projectRoot, [proj, 'posts']);
+          if (postsParent) await postsParent.getDirectoryHandle('pending', { create: true });
+        }
+      } catch (_) {}
+    }
     refreshUploadsList();
   });
 
@@ -7961,36 +9310,96 @@
     }
     const storage = await chrome.storage.local.get(['selectedProjectId']);
     const defaultProjectId = (storage.selectedProjectId || '').trim();
+    const uploadsProj = (uploadsPathSegments.length && uploadsPathSegments[0]) ? String(uploadsPathSegments[0]).trim() : '';
+    const keepQueued = [];
     let saved = 0;
     for (let i = 0; i < list.length; i++) {
       const item = list[i];
-      const projectId = (item.projectId && String(item.projectId).trim()) || defaultProjectId || 'default';
+      const projectId = (item.projectId && String(item.projectId).trim()) || uploadsProj || defaultProjectId || 'default';
       const safeProjectId = projectId.replace(/[^\w-]/g, '_') || 'default';
       const folderName = (item.folder || 'generations').replace(/[^\w-]/g, '_') || 'generations';
       try {
-        const libraryDir = await projectRoot.getDirectoryHandle('Library', { create: true });
-        const projectDir = await libraryDir.getDirectoryHandle(safeProjectId, { create: true });
-        const genDir = await projectDir.getDirectoryHandle(folderName, { create: true });
-        const data = item.data || '';
+        const genDir = await getUploadsDir(projectRoot, [safeProjectId, folderName]);
+        if (!genDir) {
+          keepQueued.push(item);
+          continue;
+        }
+        const data = item.data != null ? String(item.data) : '';
+        const remoteUrl = (item.url && String(item.url).trim()) ? String(item.url).trim() : '';
         let ext = 'png';
         let bytes;
+        let gotBytes = false;
         if (data.startsWith('data:')) {
           const m = data.match(/^data:([^;]+);/);
           if (m) {
             const mt = m[1].toLowerCase();
             if (mt.indexOf('png') !== -1) ext = 'png';
             else if (mt.indexOf('jpeg') !== -1 || mt.indexOf('jpg') !== -1) ext = 'jpg';
+            else if (mt.indexOf('webp') !== -1) ext = 'webp';
             else if (mt.indexOf('webm') !== -1) ext = 'webm';
             else if (mt.indexOf('mp4') !== -1) ext = 'mp4';
             else if (mt.indexOf('gif') !== -1) ext = 'gif';
             else if (mt.indexOf('plain') !== -1) ext = 'txt';
+            else if (mt.indexOf('wav') !== -1) ext = 'wav';
+            else if (mt.indexOf('mpeg') !== -1 || mt.indexOf('mp3') !== -1) ext = 'mp3';
           }
           const base64 = data.indexOf(',') !== -1 ? data.split(',')[1] : '';
           const binary = atob(base64 || '');
           bytes = new Uint8Array(binary.length);
           for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
-        } else {
-          setStatus('Unsupported generation format (use data URL). Skipped.', 'error');
+          gotBytes = true;
+        } else if (data.startsWith('blob:') || (remoteUrl && remoteUrl.startsWith('blob:'))) {
+          const blobSrc = data.startsWith('blob:') ? data.trim() : remoteUrl;
+          try {
+            const br = await fetch(blobSrc);
+            const blob = await br.blob();
+            const buf = await blob.arrayBuffer();
+            bytes = new Uint8Array(buf);
+            const mt = (blob.type || '').toLowerCase();
+            if (mt.indexOf('png') !== -1) ext = 'png';
+            else if (mt.indexOf('jpeg') !== -1 || mt.indexOf('jpg') !== -1) ext = 'jpg';
+            else if (mt.indexOf('webp') !== -1) ext = 'webp';
+            else if (mt.indexOf('webm') !== -1) ext = 'webm';
+            else if (mt.indexOf('mp4') !== -1) ext = 'mp4';
+            else if (mt.indexOf('gif') !== -1) ext = 'gif';
+            else if (mt.indexOf('text/plain') !== -1) ext = 'txt';
+            else if (mt.indexOf('wav') !== -1) ext = 'wav';
+            else if (mt.indexOf('mpeg') !== -1 || mt.indexOf('mp3') !== -1) ext = 'mp3';
+            else ext = 'bin';
+            gotBytes = true;
+          } catch (_) {
+            keepQueued.push(item);
+            continue;
+          }
+        } else if (remoteUrl && /^https?:\/\//i.test(remoteUrl)) {
+          const fmt = (item.format && String(item.format).trim()) ? String(item.format).trim().toLowerCase() : '';
+          ext = fmt || 'mp4';
+          if (ext === 'jpeg') ext = 'jpg';
+          const fetchResp = await new Promise(function(resolve) {
+            chrome.runtime.sendMessage({
+              type: 'FETCH_FILE',
+              url: remoteUrl,
+              filename: 'render.' + ext,
+            }, resolve);
+          });
+          if (!fetchResp || !fetchResp.ok) {
+            keepQueued.push(item);
+            continue;
+          }
+          const fn = (fetchResp.filename && String(fetchResp.filename)) || '';
+          const fnExt = fn.match(/\.([a-zA-Z0-9]+)(\?|$)/);
+          if (fnExt && fnExt[1]) {
+            var fe = fnExt[1].toLowerCase();
+            if (fe === 'jpeg') fe = 'jpg';
+            ext = fe;
+          }
+          const binaryR = atob(fetchResp.base64 || '');
+          bytes = new Uint8Array(binaryR.length);
+          for (let jr = 0; jr < binaryR.length; jr++) bytes[jr] = binaryR.charCodeAt(jr);
+          gotBytes = true;
+        }
+        if (!gotBytes) {
+          keepQueued.push(item);
           continue;
         }
         let filename;
@@ -8018,14 +9427,22 @@
         await writable.close();
         saved++;
       } catch (err) {
-        setStatus('Save failed: ' + (err.message || err), 'error');
-        return;
+        keepQueued.push(item);
+        try { console.warn('[CFS] save pending generation:', err); } catch (_) {}
       }
     }
     await new Promise(function(r) {
-      chrome.runtime.sendMessage({ type: 'CLEAR_PENDING_GENERATIONS' }, function() { r(); });
+      chrome.runtime.sendMessage({ type: 'SET_PENDING_GENERATIONS', list: keepQueued }, function() { r(); });
     });
-    setStatus('Saved ' + saved + ' generation(s) to Library/' + (defaultProjectId || 'project') + '/generations/.', 'success');
+    if (saved > 0 && keepQueued.length === 0) {
+      setStatus('Saved ' + saved + ' generation(s) under uploads/<projectId>/<folder>/ for each queued row.', 'success');
+    } else if (saved > 0 && keepQueued.length > 0) {
+      setStatus('Saved ' + saved + ' generation(s); ' + keepQueued.length + ' still in queue (fix issues and click Save again).', 'success');
+    } else if (keepQueued.length > 0) {
+      setStatus('No files saved; ' + keepQueued.length + ' item(s) still in queue.', 'error');
+    } else {
+      setStatus('Nothing to save.', '');
+    }
     if (window.refreshLibraryPanel) refreshLibraryPanel();
   });
 
@@ -9440,6 +10857,7 @@
     if (g) g.dataset.previewBound = '';
     renderWorkflowFormFields();
     renderWorkflowUrlPattern();
+    renderWorkflowAlwaysOnPanel();
     if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
     if (typeof updateWorkflowLastRunStatus === 'function') updateWorkflowLastRunStatus();
     renderStepsList();
@@ -9777,10 +11195,52 @@
     if (msg.type === 'SAVE_POST_TO_FOLDER') {
       (async () => {
         try {
-          const result = await writePostToFolder(msg.postData || {}, null);
-          chrome.runtime.sendMessage({ type: 'SAVE_POST_TO_FOLDER_RESULT', ok: true, result });
+          const rowSnap = msg.rowSnapshot && typeof msg.rowSnapshot === 'object' ? msg.rowSnapshot : {};
+          const postData = Object.assign({}, msg.postData || {});
+          if ((postData.projectId == null || String(postData.projectId).trim() === '') && rowSnap.projectId != null && String(rowSnap.projectId).trim() !== '') {
+            postData.projectId = rowSnap.projectId;
+          }
+          if ((postData._cfsProjectId == null || String(postData._cfsProjectId).trim() === '') && rowSnap._cfsProjectId != null && String(rowSnap._cfsProjectId).trim() !== '') {
+            postData._cfsProjectId = rowSnap._cfsProjectId;
+          }
+          const pidKey = (msg.projectIdVariableKey || '').trim() || 'projectId';
+          let resolved = (msg.resolvedProjectId || '').trim();
+          if (!resolved && typeof CFS_projectIdResolve !== 'undefined') {
+            const mergedRow = Object.assign({}, rowSnap);
+            if (postData.cfs_project_id) mergedRow.projectId = postData.cfs_project_id;
+            if (typeof CFS_projectIdResolve.resolveProjectIdAsync === 'function') {
+              const rAsync = await CFS_projectIdResolve.resolveProjectIdAsync(mergedRow, {
+                projectIdVariableKey: pidKey,
+                defaultProjectId: msg.defaultProjectId,
+                uploadsPathSegments: uploadsPathSegments,
+              });
+              if (rAsync.ok) resolved = rAsync.projectId;
+            } else {
+              const rSync = CFS_projectIdResolve.resolveProjectId(mergedRow, {
+                projectIdVariableKey: pidKey,
+                defaultProjectId: msg.defaultProjectId,
+                uploadsPathSegments: uploadsPathSegments,
+              });
+              if (rSync.ok) resolved = rSync.projectId;
+            }
+          }
+          const placement = (msg.placement || 'posted').toLowerCase() === 'pending' ? 'pending' : 'posted';
+          const folderPostId = (msg.postFolderId != null && String(msg.postFolderId).trim()) ? String(msg.postFolderId).trim() : '';
+          const result = await writePostToFolder(postData, msg.mediaFiles || null, {
+            projectId: resolved,
+            placement: placement,
+            defaultProjectId: msg.defaultProjectId,
+            postId: folderPostId,
+          });
+          chrome.runtime.sendMessage({
+            type: 'SAVE_POST_TO_FOLDER_RESULT',
+            ok: !!result,
+            result: result,
+            error: result ? undefined : 'writePostToFolder returned null (missing projectId or permission)',
+            _replyId: msg._replyId,
+          });
         } catch (e) {
-          chrome.runtime.sendMessage({ type: 'SAVE_POST_TO_FOLDER_RESULT', ok: false, error: e.message });
+          chrome.runtime.sendMessage({ type: 'SAVE_POST_TO_FOLDER_RESULT', ok: false, error: e.message, _replyId: msg._replyId });
         }
       })();
       return false;
@@ -10815,6 +12275,17 @@
       }
     }
     list.innerHTML = stepHtml.join('');
+    list.querySelectorAll('[data-field="llmProvider"]').forEach(function(sel) {
+      const step = sel.closest('.step-item');
+      if (!step) return;
+      const v = sel.value || '';
+      const showModel = v === 'openai' || v === 'claude' || v === 'gemini' || v === 'grok';
+      step.querySelectorAll('.cfs-llm-step-model-row').forEach(function(row) {
+        if (row.getAttribute('data-step') === sel.getAttribute('data-step')) {
+          row.style.display = showModel ? '' : 'none';
+        }
+      });
+    });
     list.querySelectorAll('.steps-go-to-record').forEach(function(link) {
       link.addEventListener('click', function(e) {
         e.preventDefault();
@@ -10832,6 +12303,23 @@
         const showTime = sel.value === 'time';
         step.querySelectorAll('.step-proceed-element').forEach(function(el) { el.style.display = showElement ? 'block' : 'none'; });
         step.querySelectorAll('.step-proceed-time').forEach(function(el) { el.style.display = showTime ? 'block' : 'none'; });
+      });
+    }
+    if (!list._llmProviderBound) {
+      list._llmProviderBound = true;
+      list.addEventListener('change', function(e) {
+        const sel = e.target.closest && e.target.closest('[data-field="llmProvider"]');
+        if (!sel || !list.contains(sel)) return;
+        const step = sel.closest('.step-item');
+        if (!step) return;
+        const idx = sel.getAttribute('data-step');
+        const v = sel.value || '';
+        const showModel = v === 'openai' || v === 'claude' || v === 'gemini' || v === 'grok';
+        step.querySelectorAll('.cfs-llm-step-model-row').forEach(function(row) {
+          if (row.getAttribute('data-step') === idx) {
+            row.style.display = showModel ? '' : 'none';
+          }
+        });
       });
     }
     if (!list._commentBlocksDelegated) {
@@ -11478,6 +12966,26 @@
           } catch (_) {}
         }
         const maxItems = Math.max(0, parseInt(item?.querySelector('[data-field="maxItems"]')?.value || '0', 10) || 0);
+        const parseScopeJson = (field) => {
+          const el = item?.querySelector(`[data-field="${field}"][data-step="${stepIndex}"]`);
+          const raw = (el?.value || '').trim();
+          if (!raw) return undefined;
+          try {
+            const p = JSON.parse(raw);
+            return Array.isArray(p) && p.length ? p : undefined;
+          } catch (_) {
+            return undefined;
+          }
+        };
+        const extractScope = {};
+        const ifs = parseScopeJson('iframeSelectors');
+        const ifb = parseScopeJson('iframeFallbackSelectors');
+        const shs = parseScopeJson('shadowHostSelectors');
+        const shf = parseScopeJson('shadowHostFallbackSelectors');
+        if (ifs) extractScope.iframeSelectors = ifs;
+        if (ifb) extractScope.iframeFallbackSelectors = ifb;
+        if (shs) extractScope.shadowHostSelectors = shs;
+        if (shf) extractScope.shadowHostFallbackSelectors = shf;
         if (!listSel) {
           setStatus('Set list container selector first (or use Select on page).', 'error');
           return;
@@ -11494,7 +13002,7 @@
         setStatus('Extracting...', '');
         try {
           await ensureContentScriptLoaded(tabId);
-          const res = await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_DATA', config: { listSelector: listSel, itemSelector: itemSel, fields, maxItems: maxItems || undefined } });
+          const res = await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_DATA', config: { listSelector: listSel, itemSelector: itemSel, fields, maxItems: maxItems || undefined, ...extractScope } });
           if (res?.ok && Array.isArray(res.rows)) {
             importedRows = res.rows;
             currentRowIndex = 0;
@@ -12439,6 +13947,23 @@
         return;
       }
       if (updated && typeof updated === 'object') Object.assign(action, updated);
+      if (action.type === 'llm') {
+        const p = String(action.llmProvider || '').trim();
+        if (!p) {
+          delete action.llmProvider;
+          delete action.llmOpenaiModel;
+          delete action.llmModelOverride;
+        } else if (p === 'lamini') {
+          delete action.llmOpenaiModel;
+          delete action.llmModelOverride;
+        } else if (p === 'openai') {
+          delete action.llmModelOverride;
+          if (!String(action.llmOpenaiModel || '').trim()) delete action.llmOpenaiModel;
+        } else if (p === 'claude' || p === 'gemini' || p === 'grok') {
+          delete action.llmOpenaiModel;
+          if (!String(action.llmModelOverride || '').trim()) delete action.llmModelOverride;
+        }
+      }
       const proceedWhenEl = item.querySelector('[data-field="proceedWhen"]');
       if (proceedWhenEl) action.proceedWhen = proceedWhenEl.value || 'stepComplete';
       if (action.proceedWhen === 'element') {
@@ -14651,7 +16176,14 @@
               if (rowForPlayback[from] !== undefined && rowForPlayback[to] === undefined) rowForPlayback[to] = rowForPlayback[from];
             }
           }
+          const rowPlaybackBudgetMs = getWorkflowPlaybackTimeoutMs(resolved);
+          const rowPlayDeadline = Date.now() + rowPlaybackBudgetMs;
           for (;;) {
+            const remainingMs = rowPlayDeadline - Date.now();
+            if (remainingMs <= 0) {
+              res = { ok: false, error: playbackTimeoutErrorMessage(rowPlaybackBudgetMs) + ' (batch row).' };
+              break;
+            }
             res = await Promise.race([
               new Promise((resolve) => {
                 try {
@@ -14664,7 +16196,10 @@
                 }
               }),
               stopSignal,
-            ]);
+              new Promise((_, rej) => {
+                setTimeout(() => rej(new Error(playbackTimeoutErrorMessage(rowPlaybackBudgetMs) + ' (batch row).')), remainingMs);
+              }),
+            ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
             if (res?.stopped) break;
             if (res?.navigate && res.url != null) {
               setStatus('Navigating…', '');
@@ -14824,6 +16359,7 @@
       return;
     }
     if (playbackTabId) {
+      cfsCancelApifyRunForTab(playbackTabId);
       chrome.tabs.sendMessage(playbackTabId, { type: 'PLAYER_STOP' }).catch(() => {});
       if (playbackResolve) playbackResolve();
       playbackTabId = null;
@@ -14883,9 +16419,11 @@
       const stopSignal = new Promise((resolve) => {
         playbackResolve = () => resolve({ ok: true, done: true, stopped: true });
       });
-      const PLAYBACK_TIMEOUT_MS = 300000;
+      const PLAYBACK_TIMEOUT_MS = getWorkflowPlaybackTimeoutMs(resolved);
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Playback timed out. Refresh and try again.')), PLAYBACK_TIMEOUT_MS);
+        setTimeout(() => reject(new Error(
+          playbackTimeoutErrorMessage(PLAYBACK_TIMEOUT_MS) + ' Refresh and try again.',
+        )), PLAYBACK_TIMEOUT_MS);
       });
       let currentTabIdRunFrom = tab.id;
       let startIndexRunFrom = startIndex;
@@ -15053,7 +16591,7 @@
       await ensureContentScriptLoaded(tab.id);
       setStatus(`Executing ${resolved.actions?.length || 0} steps...`, '');
       let done = 0, failed = 0;
-      const PLAYBACK_TIMEOUT_MS = 300000;
+      const PLAYBACK_TIMEOUT_MS = getWorkflowPlaybackTimeoutMs(resolved);
       progressInterval = setInterval(() => {
         const s = statusEl.textContent;
         if (s && s.startsWith('Executing') && !s.includes('Still')) setStatus(`Still running... (check the tab)`, '');
@@ -15091,7 +16629,7 @@
                   if (st && st.isPlaying === false) return { ok: true, done: true };
                 } catch (_) {}
               }
-              throw new Error('Playback timed out after 5 minutes. Refresh the page and try again.');
+              throw new Error(playbackTimeoutErrorMessage(PLAYBACK_TIMEOUT_MS) + ' Refresh the page and try again.');
             })(),
           ]);
           if (res?.stopped) break;
@@ -15204,12 +16742,24 @@
     if (recurringFields) recurringFields.style.display = type === 'recurring' ? '' : 'none';
     if (onceTz) onceTz.style.display = type === 'once' ? '' : 'none';
     const pattern = document.getElementById('scheduleRunPattern')?.value || 'daily';
+    const isInterval = pattern === 'interval';
+    const tzRow = document.getElementById('scheduleRunTzRow');
+    const timeRow = document.getElementById('scheduleRunTimeRow');
+    const intWrap = document.getElementById('scheduleRunIntervalWrap');
+    if (tzRow) tzRow.style.display = (type === 'recurring' && !isInterval) ? '' : 'none';
+    if (timeRow) timeRow.style.display = (type === 'recurring' && !isInterval) ? '' : 'none';
+    if (intWrap) intWrap.style.display = (type === 'recurring' && isInterval) ? '' : 'none';
     document.getElementById('scheduleRunDowWrap').style.display = (type === 'recurring' && pattern === 'weekly') ? '' : 'none';
     document.getElementById('scheduleRunDomWrap').style.display = (type === 'recurring' && pattern === 'monthly') ? '' : 'none';
     document.getElementById('scheduleRunMonthDayWrap').style.display = (type === 'recurring' && pattern === 'yearly') ? '' : 'none';
   }
   document.getElementById('scheduleRunType')?.addEventListener('change', toggleScheduleFormType);
   document.getElementById('scheduleRunPattern')?.addEventListener('change', toggleScheduleFormType);
+
+  document.getElementById('goToActivityTabBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelector('.header-tab[data-tab="activity"]')?.click();
+  });
 
   document.getElementById('scheduleRun')?.addEventListener('click', () => {
     const wfId = playbackWorkflow.value;
@@ -15255,12 +16805,20 @@
       entry.timezone = timezone;
       entry.time = time;
       entry.pattern = pattern;
-      const allowedPatterns = ['daily', 'weekly', 'monthly', 'yearly'];
+      const allowedPatterns = ['daily', 'weekly', 'monthly', 'yearly', 'interval'];
       if (!allowedPatterns.includes(pattern)) {
-        setStatus('Invalid recurrence pattern. Choose daily, weekly, monthly, or yearly.', 'error');
+        setStatus('Invalid recurrence pattern.', 'error');
         return;
       }
-      if (pattern === 'weekly') {
+      if (pattern === 'interval') {
+        const im = parseInt(document.getElementById('scheduleRunIntervalMinutes')?.value, 10);
+        if (isNaN(im) || im < 1) {
+          setStatus('Interval: set “Every (minutes)” to at least 1.', 'error');
+          return;
+        }
+        entry.intervalMinutes = Math.min(10080, im);
+        entry.lastRunAtMs = Date.now();
+      } else if (pattern === 'weekly') {
         const dow = (document.getElementById('scheduleRunDayOfWeek')?.value || '').split(',').map((n) => parseInt(n.trim(), 10)).filter((n) => !isNaN(n) && n >= 0 && n <= 6);
         if (dow.length) entry.dayOfWeek = dow;
       } else if (pattern === 'monthly') {
@@ -15348,7 +16906,7 @@
         rows.push(obj);
       }
     }
-    const scheduleColumns = ['workflow_id', 'run_at', 'schedule_type', 'timezone', 'time', 'pattern', 'day_of_week', 'day_of_month', 'month_day', 'month'];
+    const scheduleColumns = ['workflow_id', 'run_at', 'schedule_type', 'timezone', 'time', 'pattern', 'interval_minutes', 'day_of_week', 'day_of_month', 'month_day', 'month'];
     const list = await loadScheduledRuns();
     let added = 0;
     for (const row of rows) {
@@ -15367,8 +16925,13 @@
         entry.timezone = (trim(row.timezone) || 'UTC').trim() || 'UTC';
         entry.time = (trim(row.time) || '09:00').trim();
         entry.pattern = (trim(row.pattern) || 'daily').toLowerCase();
-        if (!['daily', 'weekly', 'monthly', 'yearly'].includes(entry.pattern)) continue;
-        if (entry.pattern === 'weekly') {
+        if (!['daily', 'weekly', 'monthly', 'yearly', 'interval'].includes(entry.pattern)) continue;
+        if (entry.pattern === 'interval') {
+          const im = parseInt(trim(row.interval_minutes), 10);
+          if (isNaN(im) || im < 1) continue;
+          entry.intervalMinutes = Math.min(10080, im);
+          entry.lastRunAtMs = Date.now();
+        } else if (entry.pattern === 'weekly') {
           const dow = (trim(row.day_of_week) || '').split(',').map((n) => parseInt(n.trim(), 10)).filter((n) => !isNaN(n) && n >= 0 && n <= 6);
           if (dow.length) entry.dayOfWeek = dow;
         } else if (entry.pattern === 'monthly') {
@@ -15448,7 +17011,7 @@
         try {
           await ensureContentScriptLoaded(tab.id);
         } catch (_) {}
-        const PLAYBACK_TIMEOUT_MS = 300000;
+        const scheduledPlaybackMs = getWorkflowPlaybackTimeoutMs(resolved);
         const res = await Promise.race([
           new Promise((resolve) => {
             chrome.tabs.sendMessage(tab.id, { type: 'PLAYER_START', workflow: resolved, row: entry.row || {} }, (resp) => {
@@ -15456,7 +17019,10 @@
               else resolve(resp || {});
             });
           }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Playback timed out')), PLAYBACK_TIMEOUT_MS)),
+          new Promise((_, rej) => setTimeout(
+            () => rej(new Error('Playback timed out after ' + (scheduledPlaybackMs / 60000) + ' minutes')),
+            scheduledPlaybackMs,
+          )),
         ]).catch((e) => ({ ok: false, error: e?.message || 'timeout' }));
         if (res?.ok) {
           setStatus('Overdue scheduled run completed: ' + (entry.workflowName || entry.workflowId), 'success');
@@ -15476,6 +17042,7 @@
       processRunStopRequested = true;
     }
     if (playbackTabId) {
+      cfsCancelApifyRunForTab(playbackTabId);
       chrome.tabs.sendMessage(playbackTabId, { type: 'PLAYER_STOP' }).catch(() => {});
     }
     if (playbackResolve) {
@@ -15603,6 +17170,7 @@
       if (playbackTabId) {
         const st = await chrome.tabs.sendMessage(tabId, { type: 'PLAYER_STATUS' });
         recordNextStepAt = st?.actionIndex ?? 0;
+        cfsCancelApifyRunForTab(tabId);
         chrome.tabs.sendMessage(tabId, { type: 'PLAYER_STOP' }).catch(() => {});
       }
       recordNextStepTabId = tabId;
@@ -15865,15 +17433,29 @@
       if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; }
       let currentTabProcess = tab;
       const runProcessWorkflowUntilDone = async (tabId, workflow, row, rowIndex) => {
+        const budgetMs = getWorkflowPlaybackTimeoutMs(workflow);
+        const deadline = Date.now() + budgetMs;
         let startIdx = 0;
         let res;
         for (;;) {
-          res = await new Promise(r => {
-            chrome.tabs.sendMessage(tabId, { type: 'PLAYER_START', workflow, row, rowIndex, startIndex: startIdx }, resp => {
-              if (chrome.runtime.lastError) r({ ok: false, error: chrome.runtime.lastError.message });
-              else r(resp || {});
-            });
-          });
+          if (processRunStopRequested) {
+            return { ok: false, error: 'Process stopped.' };
+          }
+          const remainingMs = deadline - Date.now();
+          if (remainingMs <= 0) {
+            return { ok: false, error: playbackTimeoutErrorMessage(budgetMs) + ' (process).' };
+          }
+          res = await Promise.race([
+            new Promise((r) => {
+              chrome.tabs.sendMessage(tabId, { type: 'PLAYER_START', workflow, row, rowIndex, startIndex: startIdx }, (resp) => {
+                if (chrome.runtime.lastError) r({ ok: false, error: chrome.runtime.lastError.message });
+                else r(resp || {});
+              });
+            }),
+            new Promise((_, rej) => {
+              setTimeout(() => rej(new Error(playbackTimeoutErrorMessage(budgetMs) + ' (process).')), remainingMs);
+            }),
+          ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
           if (res?.navigate && res.url != null) {
             setStatus('Navigating…', '');
             chrome.tabs.update(tabId, { url: res.url });
@@ -16761,12 +18343,23 @@
       try {
         await ensureContentScriptLoaded(tab.id);
       } catch (_) {}
-      await new Promise((r) => {
-        chrome.tabs.sendMessage(tab.id, { type: 'PLAYER_START', workflow: resolved, row: rowData || {} }, (resp) => {
-          if (chrome.runtime.lastError) r({ ok: false, error: chrome.runtime.lastError.message });
-          else r(resp || {});
-        });
-      });
+      const remoteBudgetMs = getWorkflowPlaybackTimeoutMs(resolved);
+      const remoteRes = await Promise.race([
+        new Promise((r) => {
+          chrome.tabs.sendMessage(tab.id, { type: 'PLAYER_START', workflow: resolved, row: rowData || {} }, (resp) => {
+            if (chrome.runtime.lastError) r({ ok: false, error: chrome.runtime.lastError.message });
+            else r(resp || {});
+          });
+        }),
+        new Promise((_, rej) => {
+          setTimeout(() => rej(new Error(playbackTimeoutErrorMessage(remoteBudgetMs) + ' (remote).')), remoteBudgetMs);
+        }),
+      ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+      if (remoteRes?.ok === false) {
+        setStatus('Remote workflow failed: ' + (remoteRes.error || 'unknown'), 'error');
+        pushWorkflowRunHistory({ workflowId: wfId, workflowName: workflows[wfId]?.name || wfId, startedAt: 0, endedAt: Date.now(), status: 'failed', type: 'remote', error: remoteRes.error });
+        return;
+      }
       setStatus('Remote workflow completed.', 'success');
       pushWorkflowRunHistory({ workflowId: wfId, workflowName: workflows[wfId]?.name || wfId, startedAt: 0, endedAt: Date.now(), status: 'success', type: 'remote' });
     }
@@ -16792,6 +18385,16 @@
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== 'local' || !changes.whop_auth) return;
       updateAuthUI();
+    });
+
+    let authPanelVisibleRefreshTimer = null;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (authPanelVisibleRefreshTimer) clearTimeout(authPanelVisibleRefreshTimer);
+      authPanelVisibleRefreshTimer = setTimeout(() => {
+        authPanelVisibleRefreshTimer = null;
+        updateAuthUI();
+      }, 350);
     });
 
     saveSidebarNameBtn?.addEventListener('click', async () => {
@@ -16910,6 +18513,29 @@
         setStatus(`Updated: ${payload.groups.length} group(s).`, 'success');
       }
       chrome.storage.local.remove('cfs_auto_discovery_update');
+    }
+    const cfsLlmStorageKeys = [
+      'cfsLlmChatProvider',
+      'cfsLlmChatOpenaiModel',
+      'cfsLlmChatModelOverride',
+      'cfsLlmOpenaiKey',
+      'cfsLlmAnthropicKey',
+      'cfsLlmGeminiKey',
+      'cfsLlmGrokKey',
+      'cfsLlmWorkflowProvider',
+      'cfsLlmWorkflowOpenaiModel',
+      'cfsLlmWorkflowModelOverride',
+    ];
+    if (cfsLlmStorageKeys.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
+      if (typeof updateLlmChatSectionAvailability === 'function') {
+        updateLlmChatSectionAvailability().catch(() => {});
+      }
+    }
+    if (changes.cfsFollowingAutomationGlobal || changes.workflows) {
+      updatePulseWatchStatusBanner().catch(() => {});
+    }
+    if (PULSE_WATCH_VISIBILITY_STORAGE_KEYS.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
+      refreshPulseWatchActivityPanel().catch(() => {});
     }
   });
 

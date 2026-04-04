@@ -150,6 +150,20 @@
         <div id="activityConnectedSidebars" class="activity-connected-sidebars"></div>
         <p id="activitySidebarsEmpty" class="hint activity-empty" style="display:none">Sign in to see other sidebars. Configure get_sidebar_instances in backend to list them.</p>
       </div>
+      <div class="pulse-watch-section" id="pulseWatchSection">
+        <div class="pulse-watch-heading-row">
+          <h3 class="activity-heading">Crypto Activity</h3>
+          <div class="pulse-watch-toolbar">
+            <button type="button" id="pulseWatchRefreshBtn" class="btn btn-outline btn-small">Refresh poll</button>
+            <button type="button" id="pulseWatchClearActivityBtn" class="btn btn-outline btn-small">Clear activity</button>
+            <button type="button" id="pulseWatchExportActivityBtn" class="btn btn-outline btn-small">Export JSON</button>
+          </div>
+        </div>
+        <div id="pulseWatchStatusBanner" class="pulse-watch-status-banner" hidden aria-live="polite"></div>
+        <p id="pulseWatchLastPollLine" class="hint pulse-watch-last-poll" hidden></p>
+        <p id="pulseWatchBundleLine" class="hint pulse-watch-last-poll" hidden></p>
+        <div id="pulseWatchActivityList" class="pulse-watch-activity-list" aria-live="polite"></div>
+      </div>
       </div>
     </section>
 
@@ -159,15 +173,15 @@
       </div>
       <div class="library-main-content">
       <h2>Library</h2>
-      <div class="form-row" style="margin-bottom:12px">
+      <div class="form-row" style="margin-bottom:12px;flex-wrap:wrap;gap:8px;align-items:center">
         <span id="libraryPendingCount" class="hint" style="display:none">0 pending generations to save.</span>
-        <button type="button" class="btn btn-primary btn-small" id="savePendingGenerationsBtn" style="display:none" title="Save queued generations to Library/{projectId}/generations/ with numeric names">Save pending generations</button>
+        <button type="button" class="btn btn-primary btn-small" id="savePendingGenerationsBtn" style="display:none" title="Save queued generations to uploads/{projectId}/generations/ (or your folder name) with numeric names">Save pending generations</button>
       </div>
       <h3 class="activity-heading">Content Generator</h3>
       <p class="hint" style="margin:0 0 8px 0;">Open the Content Generator in a new tab to create content.</p>
       <button type="button" class="btn btn-outline" id="openGeneratorLink" title="Open in new tab">Content Generator</button>
       <h3 class="activity-heading">Projects</h3>
-      <p id="libraryProjectsEmpty" class="hint activity-empty" style="display:none">Sign in to see projects. Generations save to <code>Library/{projectId}/generations/</code>.</p>
+      <p id="libraryProjectsEmpty" class="hint activity-empty" style="display:none">Sign in to see projects. Generations save to <code>uploads/{projectId}/generations/</code>.</p>
       <p class="hint" style="margin:0 0 8px 0;">Click a project to open its uploads folder — then add subfolders, upload files, or download.</p>
       <div id="libraryProjectsList" class="library-projects-list"></div>
 
@@ -235,6 +249,10 @@
             <button type="button" class="btn btn-small btn-outline" id="saveWorkflowToFolderBtn" title="Write to project folder: workflows/{id}/workflow-{id}-{version}.json (adds to existing; does not overwrite other versions)">Save to folder</button>
             <button type="button" class="btn btn-small btn-outline" id="copyWorkflowBtn" title="Copy workflow JSON to clipboard (share or backup)">Copy workflow</button>
           </div>
+          <details class="workflow-always-on-details" id="workflowAlwaysOnDetails" style="display:none;margin-top:10px;width:100%;">
+            <summary>Background automation (Following / copy)</summary>
+            <div id="workflowAlwaysOnPanel" class="workflow-always-on-panel hint" style="font-size:11px;margin-top:8px;line-height:1.45;"></div>
+          </details>
         <div id="libraryPlaybackSlot">
         <div id="sharedPlaybackBlock">
         <details class="workflow-data-collapsible" id="workflowDataDetails" role="region" aria-label="Data input (variables/rows for this workflow)">
@@ -301,6 +319,7 @@
         <div class="btn-group" style="margin-top:6px;">
           <button id="scheduleRun" class="btn btn-outline" title="Schedule this workflow to run at a later date and time">Schedule run</button>
           <button id="scheduleFromData" class="btn btn-outline" title="Schedule multiple runs from CSV or JSON (one row per run)">Schedule from CSV/JSON</button>
+          <button type="button" id="goToActivityTabBtn" class="btn btn-outline btn-small" title="Open Activity tab (upcoming runs and history)">Activity</button>
         </div>
         <p id="workflowLastRunStatus" class="workflow-last-run-status hint" style="margin:6px 0 0 0;font-size:11px;min-height:16px;" aria-live="polite"></p>
         <div id="scheduleRunForm" class="schedule-run-form" style="display:none">
@@ -316,13 +335,17 @@
             <input type="datetime-local" id="scheduleRunDateTime" min="">
           </div>
           <div id="scheduleRunRecurringFields" class="schedule-recurring-fields" style="display:none">
-            <div class="step-field">
+            <div class="step-field" id="scheduleRunTzRow">
               <label>Timezone (e.g. America/New_York)</label>
               <input type="text" id="scheduleRunTimezone" placeholder="America/New_York" value="America/New_York">
             </div>
-            <div class="step-field">
+            <div class="step-field" id="scheduleRunTimeRow">
               <label>Time</label>
               <input type="time" id="scheduleRunTime" value="09:00">
+            </div>
+            <div class="step-field" id="scheduleRunIntervalWrap" style="display:none">
+              <label>Every (minutes)</label>
+              <input type="number" id="scheduleRunIntervalMinutes" min="1" max="10080" value="15" title="Minimum effective granularity ~1 min (Chrome alarms)">
             </div>
             <div class="step-field">
               <label>Pattern</label>
@@ -331,6 +354,7 @@
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
                 <option value="yearly">Yearly</option>
+                <option value="interval">Every N minutes</option>
               </select>
             </div>
             <div class="step-field schedule-run-dow" id="scheduleRunDowWrap" style="display:none">
@@ -350,12 +374,12 @@
             <label>Timezone (optional, for display)</label>
             <input type="text" id="scheduleRunOnceTz" placeholder="America/New_York">
           </div>
-          <p class="hint">Scheduled runs appear under Activity → Upcoming. One-time runs at the set date/time; recurring runs at the set time (in that timezone) per pattern. Row data is stored with each schedule.</p>
+          <p class="hint">Scheduled runs appear under Activity → Upcoming. One-time runs at the set date/time; recurring runs at the set time (in that timezone) per pattern, or <strong>Every N minutes</strong> (checked on ~1-minute alarm ticks). Row data is stored with each schedule.</p>
           <button type="button" id="scheduleRunSubmit" class="btn btn-primary">Add to schedule</button>
           <button type="button" id="scheduleRunCancel" class="btn btn-outline">Cancel</button>
         </div>
         <div id="scheduleFromDataWrap" class="schedule-from-data-wrap" style="display:none">
-          <p class="hint">Paste CSV (header row + data) or JSON (array of objects). Each row becomes one scheduled run. Columns: <code>workflow_id</code> (optional), <code>run_at</code> (ISO datetime for one-time) or <code>schedule_type=recurring</code> with <code>timezone</code>, <code>time</code> (HH:mm), <code>pattern</code> (daily|weekly|monthly|yearly), <code>day_of_week</code>, <code>day_of_month</code>, <code>month_day</code> (M/D). Other columns become row data.</p>
+          <p class="hint">Paste CSV (header row + data) or JSON (array of objects). Each row becomes one scheduled run. Columns: <code>workflow_id</code> (optional), <code>run_at</code> (ISO datetime for one-time) or <code>schedule_type=recurring</code> with <code>timezone</code>, <code>time</code> (HH:mm), <code>pattern</code> (daily|weekly|monthly|yearly|<strong>interval</strong>), <code>interval_minutes</code> (for interval), <code>day_of_week</code>, <code>day_of_month</code>, <code>month_day</code> (M/D). Other columns become row data.</p>
           <textarea id="scheduleFromDataInput" rows="8" placeholder="CSV or JSON..."></textarea>
           <div class="form-row">
             <button type="button" id="scheduleFromDataSubmit" class="btn btn-primary">Parse and schedule</button>
@@ -498,7 +522,10 @@
     </section>
 
     <section class="llm-chat-section" id="llmChatSection">
-      <h2>Local AI Chat</h2>
+      <div class="llm-chat-heading-row">
+        <h2 class="llm-chat-heading">Local AI Chat</h2>
+        <button type="button" id="llmChatOpenSettingsBtn" class="btn btn-outline btn-small" title="Settings — LLM providers (API keys and Local AI Chat default)">Settings</button>
+      </div>
       <div id="llmChatUnavailable" class="llm-chat-unavailable hint" style="display:block;margin:0 0 10px 0;padding:10px;border-radius:6px;background:var(--bg-secondary,#f5f5f5);" role="status">
         <p id="llmChatUnavailableText" style="margin:0;">Checking whether the local LaMini model is available…</p>
       </div>
@@ -721,6 +748,7 @@
   <script src="../shared/walkthrough-export.js"></script>
   <script src="../lib/ffmpeg/ffmpeg.js"></script>
   <script src="../shared/ffmpeg-local.js"></script>
+  <script src="../shared/project-id-resolve.js"></script>
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/plan-capture-idb.js"></script>
   <script src="../shared/download-xenova-lamini.js"></script>

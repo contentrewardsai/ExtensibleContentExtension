@@ -29,6 +29,10 @@
       var variableKey = action.variableKey || '';
       var selectorsJson = JSON.stringify(action.selectors || [], null, 2);
       var fallbackJson = JSON.stringify(action.fallbackSelectors || [], null, 2);
+      var iframeJson = JSON.stringify(action.iframeSelectors || [], null, 2);
+      var iframeFbJson = JSON.stringify(action.iframeFallbackSelectors || [], null, 2);
+      var shadowJson = JSON.stringify(action.shadowHostSelectors || [], null, 2);
+      var shadowFbJson = JSON.stringify(action.shadowHostFallbackSelectors || [], null, 2);
       var body = '<div class="step-field"><label>Variable key (row column name)</label><input type="text" data-field="variableKey" data-step="' + i + '" value="' + escapeHtml(variableKey) + '" placeholder="e.g. email"></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="reactCompat" data-step="' + i + '"' + (reactCompat ? ' checked' : '') + '> React compatibility</label></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="optional" data-step="' + i + '"' + (optional ? ' checked' : '') + '> Optional</label></div>' +
@@ -36,6 +40,10 @@
         '<button type="button" class="btn btn-outline btn-small step-pick-on-page" data-step-index="' + i + '" data-pick-field="selectors" title="Select on page">Select on page</button></div>' +
         '<div class="step-field"><label>Fallback selectors (JSON)</label><span class="step-hint">Tried in score order after primaries fail (e.g. name, aria-label, class).</span><textarea data-field="fallbackSelectors" data-step="' + i + '" rows="6" placeholder="[]">' + escapeHtml(fallbackJson) + '</textarea>' +
         '<button type="button" class="btn btn-outline btn-small step-pick-on-page" data-step-index="' + i + '" data-pick-field="fallbackSelectors" title="Append pick as fallback">Select on page (fallback)</button></div>' +
+        '<div class="step-field"><label>Iframe selectors (JSON)</label><textarea data-field="iframeSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Iframe fallback selectors</label><textarea data-field="iframeFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeFbJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host selectors (JSON)</label><textarea data-field="shadowHostSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host fallback selectors</label><textarea data-field="shadowHostFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowFbJson) + '</textarea></div>' +
         '<div class="step-actions"><button class="btn btn-primary" data-save-step="' + i + '">Save</button></div>';
       return window.__CFS_buildStepItemShell('type', action, i, totalCount, helpers, body);
     },
@@ -72,6 +80,20 @@
           return { error: 'Invalid fallback selectors JSON' };
         }
       }
+      function parseSelField(field) {
+        var v = getVal(field);
+        if (v === undefined) return undefined;
+        try {
+          var p = JSON.parse(v || '[]');
+          return Array.isArray(p) && p.length ? p : undefined;
+        } catch (_) {
+          return undefined;
+        }
+      }
+      out.iframeSelectors = parseSelField('iframeSelectors');
+      out.iframeFallbackSelectors = parseSelField('iframeFallbackSelectors');
+      out.shadowHostSelectors = parseSelField('shadowHostSelectors');
+      out.shadowHostFallbackSelectors = parseSelField('shadowHostFallbackSelectors');
       return out;
     },
   });

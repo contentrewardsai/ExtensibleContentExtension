@@ -22,6 +22,10 @@
       var openJson = JSON.stringify(action.openSelectors || action.checkSelectors || action.selectors || [], null, 2);
       var optionJson = JSON.stringify(action.optionSelectors || [], null, 2);
       var optionTextsJson = JSON.stringify(action.optionTexts || [], null, 2);
+      var iframeJson = JSON.stringify(action.iframeSelectors || [], null, 2);
+      var iframeFbJson = JSON.stringify(action.iframeFallbackSelectors || [], null, 2);
+      var shadowJson = JSON.stringify(action.shadowHostSelectors || [], null, 2);
+      var shadowFbJson = JSON.stringify(action.shadowHostFallbackSelectors || [], null, 2);
       var body = '<div class="step-field"><label>Expected text (if already set, skip)</label><input type="text" data-field="expectedText" data-step="' + i + '" value="' + escapeHtml(expectedText) + '" placeholder="e.g. Frames to Video"></div>' +
         '<div class="step-field"><label>Option text (to click when changing)</label><input type="text" data-field="optionText" data-step="' + i + '" value="' + escapeHtml(optionText) + '" placeholder="e.g. Frames to Video"></div>' +
         '<div class="step-field"><label>Multiple options (tabs) in order — JSON array</label><textarea data-field="optionTexts" data-step="' + i + '" rows="2" placeholder=\'["Video", "Frames", "Landscape", "x4"]\'>' + escapeHtml(optionTextsJson) + '</textarea></div>' +
@@ -34,6 +38,10 @@
         '<div class="step-field"><label>Option selectors (optional)</label><textarea data-field="optionSelectors" data-step="' + i + '">' + escapeHtml(optionJson) + '</textarea></div>' +
         '<div class="step-field"><button type="button" class="btn btn-outline btn-small step-pick-on-page" data-step-index="' + i + '" data-pick-field="checkSelectors" title="Select on page (check)">Select on page (check)</button> ' +
         '<button type="button" class="btn btn-outline btn-small step-pick-on-page" data-step-index="' + i + '" data-pick-field="openSelectors" title="Select on page (open)">Select on page (open)</button></div>' +
+        '<div class="step-field"><label>Iframe selectors (JSON)</label><textarea data-field="iframeSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Iframe fallback selectors</label><textarea data-field="iframeFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeFbJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host selectors (JSON)</label><textarea data-field="shadowHostSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host fallback selectors</label><textarea data-field="shadowHostFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowFbJson) + '</textarea></div>' +
         '<div class="step-actions"><button class="btn btn-primary" data-save-step="' + i + '">Save</button></div>';
       return window.__CFS_buildStepItemShell('ensureSelect', action, i, totalCount, helpers, body);
     },
@@ -75,6 +83,20 @@
       } catch (_) {
         return { error: 'Invalid ensureSelect JSON' };
       }
+      function parseSelField(field) {
+        var v = getVal(field);
+        if (v === undefined || !String(v).trim()) return undefined;
+        try {
+          var p = JSON.parse(v || '[]');
+          return Array.isArray(p) && p.length ? p : undefined;
+        } catch (_) {
+          return undefined;
+        }
+      }
+      out.iframeSelectors = parseSelField('iframeSelectors');
+      out.iframeFallbackSelectors = parseSelField('iframeFallbackSelectors');
+      out.shadowHostSelectors = parseSelField('shadowHostSelectors');
+      out.shadowHostFallbackSelectors = parseSelField('shadowHostFallbackSelectors');
       return out;
     },
   });

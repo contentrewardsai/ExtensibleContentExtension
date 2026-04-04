@@ -17,6 +17,8 @@
     "descriptionVariableKey": "description",
     "linkUrlVariableKey": "",
     "userVariableKey": "user",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
     "apiKeyVariableKey": "uploadPostApiKey",
     "subredditVariableKey": "subreddit",
     "facebookPageIdVariableKey": "facebookPageId",
@@ -28,6 +30,7 @@
     "extraFieldsVariableKey": "",
     "saveAsVariable": "",
     "saveStatusToVariable": "",
+    "savePostManifestToDisk": true,
     "timeoutMs": 120000
   },
   "inputs": [
@@ -63,6 +66,8 @@
     { "key": "descriptionVariableKey", "label": "Description variable key", "inputType": "text", "placeholder": "description" },
     { "key": "linkUrlVariableKey", "label": "Link URL variable key (text posts)", "inputType": "text", "placeholder": "", "hint": "URL for link preview card on text posts (LinkedIn, Bluesky, Facebook, Reddit)." },
     { "key": "userVariableKey", "label": "User variable key", "inputType": "text", "placeholder": "user", "hint": "Upload Post user identifier. Required." },
+    { "key": "projectIdVariableKey", "label": "Project ID variable key (disk)", "inputType": "text", "placeholder": "projectId", "hint": "Row key for uploads/{projectId}/posts/... when saving post.json. Also uses _cfsProjectId from loadProjectFile." },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "", "hint": "Only if row has no projectId / stamp." },
     { "key": "apiKeyVariableKey", "label": "API key variable key", "inputType": "text", "placeholder": "uploadPostApiKey", "hint": "Row variable for Upload Post API key. Required." },
     { "key": "subredditVariableKey", "label": "Subreddit variable key (Reddit)", "inputType": "text", "placeholder": "subreddit", "hint": "Required for Reddit posts. Subreddit name without r/." },
     { "key": "facebookPageIdVariableKey", "label": "Facebook Page ID variable key", "inputType": "text", "placeholder": "facebookPageId", "hint": "Required for Facebook text/photo posts." },
@@ -72,6 +77,7 @@
     { "key": "asyncUpload", "label": "Async upload (return request_id immediately)", "inputType": "checkbox" },
     { "key": "firstCommentVariableKey", "label": "First comment variable (optional)", "inputType": "text", "placeholder": "" },
     { "key": "extraFieldsVariableKey", "label": "Extra fields variable (optional)", "inputType": "text", "placeholder": "", "hint": "Row variable containing JSON object of additional platform-specific params." },
+    { "key": "savePostManifestToDisk", "label": "Save post manifest to project folder after API success", "inputType": "checkbox", "hint": "Writes uploads/{projectId}/posts/{account}/... Requires side panel open and project folder." },
     { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "e.g. uploadPostResponse" },
     { "key": "saveStatusToVariable", "label": "Save status code to variable", "inputType": "text", "placeholder": "" },
     { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "placeholder": "120000", "min": 10000, "hint": "Request timeout. Default 120s for large uploads." }

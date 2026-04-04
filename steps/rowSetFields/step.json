@@ -1,0 +1,34 @@
+{
+  "id": "rowSetFields",
+  "label": "Set row fields (template)",
+  "category": "data",
+  "description": "Set **top-level** row keys from **fieldMap** template strings (literals and `{{variable}}`, same as **Send to endpoint**), and/or **rawCopies** to copy values from dot/bracket paths on the row **without stringifying** (objects/arrays preserved). **rawCopies** run first, then **fieldMap**. Optional **runIf** skips the whole step. **fieldMap** values are always **strings**.",
+  "defaultAction": {
+    "type": "rowSetFields",
+    "runIf": "",
+    "rawCopies": [],
+    "fieldMap": {
+      "exampleUrl": "{{base}}/{{slug}}"
+    }
+  },
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text",
+      "placeholder": "variable or {{path}}"
+    },
+    {
+      "key": "rawCopies",
+      "label": "Raw copies (JSON array of { to, fromPath })",
+      "inputType": "textarea",
+      "hint": "Optional. Copy from row path to top-level key before fieldMap. e.g. [{\"to\":\"data\",\"fromPath\":\"api.response\"}]"
+    },
+    {
+      "key": "fieldMap",
+      "label": "Field map (JSON object: key → template string)",
+      "inputType": "textarea",
+      "hint": "e.g. {\"pageUrl\": \"{{host}}/p/{{id}}\", \"label\": \"fixed\"}"
+    }
+  ]
+}

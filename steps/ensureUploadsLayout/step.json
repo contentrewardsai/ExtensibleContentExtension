@@ -1,0 +1,26 @@
+{
+  "id": "ensureUploadsLayout",
+  "label": "Ensure uploads layout (folders)",
+  "category": "integrations",
+  "description": "Creates uploads/{projectId}/... subfolders under the project root. Requires project folder permission. Resolves projectId from the row, saved Library uploads default (chrome.storage), or defaultProjectId.",
+  "defaultAction": {
+    "type": "ensureUploadsLayout",
+    "runIf": "",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "paths": [
+      "uploads/{{projectId}}/posts/pending",
+      "uploads/{{projectId}}/posts",
+      "uploads/{{projectId}}/generations",
+      "uploads/{{projectId}}/content",
+      "uploads/{{projectId}}/videos",
+      "uploads/{{projectId}}/audio"
+    ]
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "projectIdVariableKey", "label": "Project ID row key", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text" },
+    { "key": "paths", "label": "Paths (JSON array, optional)", "inputType": "textarea", "placeholder": "[\"uploads/{{projectId}}/posts/pending\"]" }
+  ]
+}

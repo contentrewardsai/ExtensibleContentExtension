@@ -1,8 +1,8 @@
 /**
- * LLM step: send prompt (with {{variable}} from row) to local LaMini model (Xenova/LaMini-Flan-T5-783M).
+ * LLM step: send prompt (with {{variable}} from row) to the configured backend (default: local LaMini in QC sandbox).
+ * If Settings → LLM providers → Workflow default is a cloud provider with a saved API key, the service worker calls that API instead.
  * Get response by type (boolean, text, or textWithFeedback), save to row variable(s).
- * Runs in QC sandbox with Transformers.js. Model must be downloaded (scripts/download-lamini-model.sh).
- * NOTE: Do not connect to external LLM/AI services. See docs/NOTES.md.
+ * LaMini runs in the QC sandbox (Transformers.js); download via project folder or scripts/download-lamini-model.sh.
  */
 (function() {
   'use strict';
@@ -61,7 +61,25 @@
       return;
     }
 
-    const response = await sendMessage({ type: 'CALL_LLM', prompt, responseType });
+    const msgPayload = { type: 'CALL_LLM', prompt, responseType };
+    const lp = (action.llmProvider || '').trim().toLowerCase();
+    if (lp === 'lamini' || lp === 'openai' || lp === 'claude' || lp === 'gemini' || lp === 'grok') {
+      msgPayload.llmProvider = lp;
+    }
+    if (action.llmOpenaiModel != null && String(action.llmOpenaiModel).trim() !== '') {
+      msgPayload.llmOpenaiModel = String(action.llmOpenaiModel).trim();
+    }
+    if (action.llmModelOverride != null && String(action.llmModelOverride).trim() !== '') {
+      msgPayload.llmModelOverride = String(action.llmModelOverride).trim();
+    }
+    const CFS_LLM_STEP_MODEL_MAX_CHARS = 256;
+    if (msgPayload.llmOpenaiModel && msgPayload.llmOpenaiModel.length > CFS_LLM_STEP_MODEL_MAX_CHARS) {
+      throw new Error('OpenAI model id is too long (max ' + CFS_LLM_STEP_MODEL_MAX_CHARS + ' characters)');
+    }
+    if (msgPayload.llmModelOverride && msgPayload.llmModelOverride.length > CFS_LLM_STEP_MODEL_MAX_CHARS) {
+      throw new Error('Model override is too long (max ' + CFS_LLM_STEP_MODEL_MAX_CHARS + ' characters)');
+    }
+    const response = await sendMessage(msgPayload);
 
     if (!response.ok) throw new Error(response.error || 'LLM call failed');
 

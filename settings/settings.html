@@ -33,6 +33,7 @@
     body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; max-width: 800px; margin: 0 auto; background: var(--bg); color: var(--fg); line-height: 1.5; }
     h1 { font-size: 1.5rem; margin: 0 0 24px 0; }
     h2 { font-size: 1.15rem; margin: 24px 0 12px 0; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    h2.h2-no-rule { border-bottom: none; padding-bottom: 0; }
     h3 { font-size: 0.95rem; margin: 16px 0 8px 0; }
     .hint { color: var(--muted); font-size: 0.82rem; }
     .section { margin-bottom: 28px; }
@@ -71,6 +72,16 @@
     .pd-field label { display: block; font-weight: 600; font-size: 0.82rem; margin-bottom: 2px; }
     .pd-field select, .pd-field input[type="text"] { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.85rem; background: var(--bg); color: var(--fg); }
     .pd-field .pd-checkbox-label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; font-weight: normal; }
+    #solanaWalletSection textarea,
+    #bscWalletSection textarea {
+      width: 100%; min-height: 72px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px;
+      font-size: 0.88rem; background: var(--bg); color: var(--fg); font-family: ui-monospace, monospace; resize: vertical; box-sizing: border-box;
+    }
+    #solanaWalletSection select,
+    #bscWalletSection select {
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.88rem;
+      background: var(--bg); color: var(--fg); flex: 1; min-width: 200px;
+    }
   </style>
 </head>
 <body>
@@ -104,6 +115,130 @@
       <button type="button" id="saveSsProductionKeyBtn" class="btn btn-primary btn-small">Save</button>
     </div>
     <p id="ssKeyStatus" class="status-msg" style="display:none"></p>
+  </div>
+
+  <div class="section" id="cfsLlmSection">
+    <h2>Optional cloud LLMs</h2>
+    <p class="hint">API keys stay in this browser. Use <strong>Lamini</strong> (default) for the built-in backend, or choose OpenAI, Claude, Gemini, or Grok for workflow LLM steps and Local AI Chat when a key is saved.</p>
+
+    <h3 style="margin-top:16px;">API keys</h3>
+    <div class="form-row">
+      <label for="cfsLlmOpenaiKeyInput">OpenAI</label>
+      <input type="password" id="cfsLlmOpenaiKeyInput" placeholder="sk-…" autocomplete="off">
+      <button type="button" id="toggleCfsLlmOpenaiKey" class="btn btn-small">Show</button>
+      <button type="button" id="saveCfsLlmOpenaiKeyBtn" class="btn btn-primary btn-small">Save</button>
+      <button type="button" id="testCfsLlmOpenaiBtn" class="btn btn-small">Test</button>
+    </div>
+    <p id="cfsLlmOpenaiKeyStatus" class="status-msg" style="display:none"></p>
+    <p id="cfsLlmOpenaiTestStatus" class="status-msg" style="display:none"></p>
+
+    <div class="form-row" style="margin-top:8px;">
+      <label for="cfsLlmAnthropicKeyInput">Anthropic (Claude)</label>
+      <input type="password" id="cfsLlmAnthropicKeyInput" placeholder="sk-ant-…" autocomplete="off">
+      <button type="button" id="toggleCfsLlmAnthropicKey" class="btn btn-small">Show</button>
+      <button type="button" id="saveCfsLlmAnthropicKeyBtn" class="btn btn-primary btn-small">Save</button>
+      <button type="button" id="testCfsLlmAnthropicBtn" class="btn btn-small">Test</button>
+    </div>
+    <p id="cfsLlmAnthropicKeyStatus" class="status-msg" style="display:none"></p>
+    <p id="cfsLlmAnthropicTestStatus" class="status-msg" style="display:none"></p>
+
+    <div class="form-row" style="margin-top:8px;">
+      <label for="cfsLlmGeminiKeyInput">Google (Gemini)</label>
+      <input type="password" id="cfsLlmGeminiKeyInput" placeholder="API key" autocomplete="off">
+      <button type="button" id="toggleCfsLlmGeminiKey" class="btn btn-small">Show</button>
+      <button type="button" id="saveCfsLlmGeminiKeyBtn" class="btn btn-primary btn-small">Save</button>
+      <button type="button" id="testCfsLlmGeminiBtn" class="btn btn-small">Test</button>
+    </div>
+    <p id="cfsLlmGeminiKeyStatus" class="status-msg" style="display:none"></p>
+    <p id="cfsLlmGeminiTestStatus" class="status-msg" style="display:none"></p>
+
+    <div class="form-row" style="margin-top:8px;">
+      <label for="cfsLlmGrokKeyInput">xAI (Grok)</label>
+      <input type="password" id="cfsLlmGrokKeyInput" placeholder="xai-…" autocomplete="off">
+      <button type="button" id="toggleCfsLlmGrokKey" class="btn btn-small">Show</button>
+      <button type="button" id="saveCfsLlmGrokKeyBtn" class="btn btn-primary btn-small">Save</button>
+      <button type="button" id="testCfsLlmGrokBtn" class="btn btn-small">Test</button>
+    </div>
+    <p id="cfsLlmGrokKeyStatus" class="status-msg" style="display:none"></p>
+    <p id="cfsLlmGrokTestStatus" class="status-msg" style="display:none"></p>
+
+    <div class="jwt-section" style="margin-top:20px;">
+      <h3 style="margin-top:0;">Workflow LLM default</h3>
+      <p class="hint" style="margin-top:0;">Provider and model used by LLM workflow steps when the step does not override the backend.</p>
+      <div class="form-row">
+        <label for="cfsLlmWorkflowProviderSelect">Provider</label>
+        <select id="cfsLlmWorkflowProviderSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+          <option value="lamini">Lamini (extension backend)</option>
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="gemini">Gemini (Google)</option>
+          <option value="grok">Grok (xAI)</option>
+        </select>
+      </div>
+      <div class="form-row cfs-llm-workflow-openai-model-row" style="display:none;">
+        <label for="cfsLlmWorkflowOpenaiModelSelect">OpenAI model</label>
+        <select id="cfsLlmWorkflowOpenaiModelSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
+          <option value="gpt-4-turbo">gpt-4-turbo</option>
+          <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+          <option value="o1-mini">o1-mini</option>
+          <option value="o1">o1</option>
+          <option value="__custom__">Custom…</option>
+        </select>
+        <input type="text" id="cfsLlmWorkflowOpenaiModelCustom" placeholder="Custom OpenAI model id" autocomplete="off" style="display:none;flex:1;min-width:200px;">
+      </div>
+      <div class="form-row cfs-llm-workflow-override-row" style="display:none;align-items:flex-start;">
+        <label id="cfsLlmWorkflowOverrideLabel" for="cfsLlmWorkflowOverrideModelSelect" style="padding-top:6px;">Model</label>
+        <span style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px;">
+          <select id="cfsLlmWorkflowOverrideModelSelect" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;"></select>
+          <input type="text" id="cfsLlmWorkflowOverrideModelCustom" placeholder="Custom model id" autocomplete="off" style="display:none;width:100%;">
+        </span>
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <button type="button" id="saveCfsLlmWorkflowDefaultsBtn" class="btn btn-primary btn-small">Save workflow defaults</button>
+      </div>
+      <p id="cfsLlmWorkflowDefaultsStatus" class="status-msg" style="display:none"></p>
+    </div>
+
+    <div class="jwt-section" style="margin-top:16px;">
+      <h3 style="margin-top:0;">Local AI Chat default</h3>
+      <p class="hint" style="margin-top:0;">Provider and model for side panel chat when not using Lamini.</p>
+      <div class="form-row">
+        <label for="cfsLlmChatProviderSelect">Provider</label>
+        <select id="cfsLlmChatProviderSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+          <option value="lamini">Lamini (extension backend)</option>
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="gemini">Gemini (Google)</option>
+          <option value="grok">Grok (xAI)</option>
+        </select>
+      </div>
+      <div class="form-row cfs-llm-chat-openai-model-row" style="display:none;">
+        <label for="cfsLlmChatOpenaiModelSelect">OpenAI model</label>
+        <select id="cfsLlmChatOpenaiModelSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
+          <option value="gpt-4-turbo">gpt-4-turbo</option>
+          <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+          <option value="o1-mini">o1-mini</option>
+          <option value="o1">o1</option>
+          <option value="__custom__">Custom…</option>
+        </select>
+        <input type="text" id="cfsLlmChatOpenaiModelCustom" placeholder="Custom OpenAI model id" autocomplete="off" style="display:none;flex:1;min-width:200px;">
+      </div>
+      <div class="form-row cfs-llm-chat-override-row" style="display:none;align-items:flex-start;">
+        <label id="cfsLlmChatOverrideLabel" for="cfsLlmChatOverrideModelSelect" style="padding-top:6px;">Model</label>
+        <span style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px;">
+          <select id="cfsLlmChatOverrideModelSelect" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;"></select>
+          <input type="text" id="cfsLlmChatOverrideModelCustom" placeholder="Custom model id" autocomplete="off" style="display:none;width:100%;">
+        </span>
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <button type="button" id="saveCfsLlmChatDefaultsBtn" class="btn btn-primary btn-small">Save chat defaults</button>
+      </div>
+      <p id="cfsLlmChatDefaultsStatus" class="status-msg" style="display:none"></p>
+    </div>
   </div>
 
   <div class="section" id="profilesSection">
@@ -165,8 +300,242 @@
     <p id="pdStatus" class="status-msg" style="display:none"></p>
   </div>
 
+  <div class="section" id="solanaWalletSection">
+    <h2>Solana automation wallet</h2>
+    <p class="hint">Hot wallet for Solana workflow steps (swaps, transfers, etc.). Never put private keys in workflow JSON. <a href="#" id="solanaDocLink">Open Solana automation notes</a>.</p>
+    <p id="solanaStatusLine" class="jwt-info" style="margin-bottom:10px;"></p>
+    <p id="solanaMsg" class="status-msg" style="display:none"></p>
+
+    <div id="solanaWalletListWrap" class="jwt-section" style="display:none;">
+      <h3 style="margin-top:0;">Saved wallets</h3>
+      <p class="hint" style="margin-top:0;">The <strong>Primary</strong> wallet is used for all Solana workflow steps. Unlock decrypts every password-protected wallet for this session.</p>
+      <div id="solanaWalletList"></div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">RPC and Jupiter</h3>
+      <div class="form-row">
+        <label for="solanaClusterSelect">Cluster</label>
+        <select id="solanaClusterSelect">
+          <option value="mainnet-beta">mainnet-beta</option>
+          <option value="devnet">devnet</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="solanaRpcUrl">RPC URL</label>
+        <input type="text" id="solanaRpcUrl" placeholder="https://api.mainnet-beta.solana.com" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="solanaJupKey">Jupiter API key</label>
+        <input type="password" id="solanaJupKey" placeholder="Optional" autocomplete="off">
+        <button type="button" id="solanaToggleJup" class="btn btn-small">Show</button>
+      </div>
+      <div class="form-row">
+        <button type="button" id="solanaSaveSettingsBtn" class="btn btn-primary btn-small">Save Solana settings</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Pulse watch (optional)</h3>
+      <p class="hint">Used by Solana watch steps. Keys stay in local extension storage.</p>
+      <div class="form-row">
+        <label for="solanaWatchRpcUrl">Watch RPC URL</label>
+        <input type="text" id="solanaWatchRpcUrl" placeholder="Optional HTTP RPC" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="solanaWatchHeliusKey">Helius API key</label>
+        <input type="password" id="solanaWatchHeliusKey" placeholder="Optional" autocomplete="off">
+        <button type="button" id="solanaToggleWatchHelius" class="btn btn-small">Show</button>
+      </div>
+      <div class="form-row">
+        <label for="solanaWatchWsUrl">WebSocket URL</label>
+        <input type="text" id="solanaWatchWsUrl" placeholder="Optional wss://" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="solanaQuicknodeWatchHttp">QuickNode HTTP</label>
+        <input type="text" id="solanaQuicknodeWatchHttp" placeholder="Optional" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="solanaWatchHighReliability"> High reliability mode</label>
+      </div>
+      <div class="form-row">
+        <button type="button" id="solanaSaveWatchBtn" class="btn btn-primary btn-small">Save watch settings</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Lock and encryption</h3>
+      <div class="form-row">
+        <label for="solanaUnlockPassword">Wallet password</label>
+        <input type="password" id="solanaUnlockPassword" placeholder="Unlock / encrypt" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="solanaEncryptOnImport"> Encrypt on import / generate (shared vault password)</label>
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="solanaSetAsPrimary"> Make new wallet Primary (automation uses Primary only)</label>
+      </div>
+      <div class="form-row">
+        <button type="button" id="solanaUnlockBtn" class="btn btn-primary btn-small">Unlock</button>
+        <button type="button" id="solanaLockBtn" class="btn btn-small">Lock session</button>
+        <button type="button" id="solanaRewrapBtn" class="btn btn-small">Encrypt existing plaintext</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Import or generate</h3>
+      <div class="form-row" style="align-items:flex-start;">
+        <label for="solanaSecretB58" style="padding-top:6px;">Base58 secret key</label>
+        <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px;">
+          <input type="password" id="solanaSecretB58" placeholder="Paste base58 private key" autocomplete="off">
+          <div class="form-row" style="margin-bottom:0;">
+            <button type="button" id="solanaToggleSk" class="btn btn-small">Show</button>
+            <button type="button" id="solanaImportB58Btn" class="btn btn-primary btn-small">Import base58</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-row" style="align-items:flex-start;">
+        <label for="solanaMnemonic" style="padding-top:6px;">Mnemonic</label>
+        <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px;">
+          <textarea id="solanaMnemonic" placeholder="12/24-word phrase" rows="3" autocomplete="off"></textarea>
+          <button type="button" id="solanaImportMnemonicBtn" class="btn btn-primary btn-small" style="align-self:flex-start;">Import mnemonic</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <button type="button" id="solanaGenerateKeypairBtn" class="btn btn-small">Generate random keypair</button>
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="solanaMnemonicBackedUp"> I will back up the new mnemonic offline</label>
+        <button type="button" id="solanaCreateMnemonicWalletBtn" class="btn btn-primary btn-small" disabled>Create wallet with new mnemonic</button>
+      </div>
+      <div id="solanaMnemonicReveal" style="display:none;margin-top:8px;">
+        <p class="hint">Store this phrase securely. It is shown once.</p>
+        <textarea id="solanaMnemonicRevealText" readonly rows="3" autocomplete="off"></textarea>
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:12px;">
+      <button type="button" id="solanaClearBtn" class="btn btn-small">Remove wallet from this browser</button>
+      <button type="button" id="solanaExportBtn" class="btn btn-small">Export secret…</button>
+    </div>
+    <div id="solanaExportPanel" style="display:none;margin-top:10px;" class="jwt-section">
+      <p class="hint">Type exactly <strong>EXPORT MY SOLANA KEY</strong> to confirm. There is a short delay before the key appears.</p>
+      <div class="form-row">
+        <label for="solanaExportConfirm">Confirmation</label>
+        <input type="text" id="solanaExportConfirm" placeholder="EXPORT MY SOLANA KEY" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <button type="button" id="solanaExportDoBtn" class="btn btn-primary btn-small">Reveal secret</button>
+      </div>
+      <textarea id="solanaExportOut" style="display:none;margin-top:8px;" rows="4" readonly autocomplete="off"></textarea>
+    </div>
+  </div>
+
+  <div class="section" id="bscWalletSection">
+    <h2>BSC / EVM automation wallet</h2>
+    <p class="hint">Hot wallet for BSC workflow steps. Keys stay local; workflows must not contain secrets. <a href="#" id="bscDocLink">BSC wallet storage</a> · <a href="#" id="bscAutomationDocLink">BSC automation</a>.</p>
+    <p id="bscStatusLine" class="jwt-info" style="margin-bottom:10px;"></p>
+    <p id="bscMsg" class="status-msg" style="display:none"></p>
+
+    <div id="bscWalletListWrap" class="jwt-section" style="display:none;">
+      <h3 style="margin-top:0;">Saved wallets</h3>
+      <p class="hint" style="margin-top:0;">The <strong>Primary</strong> wallet signs BSC automation steps. Unlock applies to every password-protected wallet.</p>
+      <div id="bscWalletList"></div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">RPC and BscScan</h3>
+      <div class="form-row">
+        <label for="bscRpcUrl">RPC URL</label>
+        <input type="text" id="bscRpcUrl" placeholder="https://…" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="bscChainId">Chain ID</label>
+        <input type="text" id="bscChainId" value="56" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="bscBscscanApiKey">BscScan API key</label>
+        <input type="password" id="bscBscscanApiKey" placeholder="For Pulse BSC watch" autocomplete="off">
+      </div>
+      <p id="bscBscscanKeyHint" class="hint" style="margin:0 0 8px 0;"></p>
+      <div class="form-row">
+        <button type="button" id="bscSaveRpcBtn" class="btn btn-primary btn-small">Save RPC / chain / BscScan</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Lock and encryption</h3>
+      <div class="form-row">
+        <label for="bscUnlockPassword">Wallet password</label>
+        <input type="password" id="bscUnlockPassword" placeholder="Unlock / encrypt" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="bscEncryptOnImport"> Encrypt on import / save (shared vault password)</label>
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="bscSetAsPrimary"> Make new wallet Primary</label>
+      </div>
+      <div class="form-row">
+        <button type="button" id="bscUnlockBtn" class="btn btn-primary btn-small">Unlock</button>
+        <button type="button" id="bscLockBtn" class="btn btn-small">Lock session</button>
+        <button type="button" id="bscRewrapBtn" class="btn btn-small">Encrypt existing plaintext</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Import or generate</h3>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="bscBackupAck"> I have backed up any wallet I import or create (funds are at risk without a backup)</label>
+      </div>
+      <div class="form-row" style="align-items:flex-start;">
+        <label for="bscPrivateKey" style="padding-top:6px;">Private key</label>
+        <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px;">
+          <input type="password" id="bscPrivateKey" placeholder="0x… or hex" autocomplete="off">
+          <div class="form-row" style="margin-bottom:0;">
+            <button type="button" id="bscTogglePk" class="btn btn-small">Show</button>
+            <button type="button" id="bscImportPkBtn" class="btn btn-primary btn-small">Import private key</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-row" style="align-items:flex-start;">
+        <label for="bscMnemonic" style="padding-top:6px;">Mnemonic</label>
+        <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px;">
+          <textarea id="bscMnemonic" placeholder="12/24-word phrase" rows="3" autocomplete="off"></textarea>
+          <button type="button" id="bscImportMnemonicBtn" class="btn btn-primary btn-small" style="align-self:flex-start;">Import mnemonic</button>
+        </div>
+      </div>
+      <div class="form-row" style="flex-wrap:wrap;gap:8px;">
+        <button type="button" id="bscGenerateMnemonicBtn" class="btn btn-small">Generate mnemonic</button>
+        <button type="button" id="bscSaveGeneratedBtn" class="btn btn-primary btn-small">Save generated wallet</button>
+      </div>
+      <div id="bscMnemonicReveal" style="display:none;margin-top:8px;">
+        <p class="hint">Write down the phrase, then save the wallet.</p>
+        <textarea id="bscMnemonicRevealText" rows="3" autocomplete="off"></textarea>
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:12px;">
+      <button type="button" id="bscClearBtn" class="btn btn-small">Remove wallet from this browser</button>
+      <button type="button" id="bscExportBtn" class="btn btn-small">Export secret…</button>
+    </div>
+    <div id="bscExportPanel" style="display:none;margin-top:10px;" class="jwt-section">
+      <p class="hint">Type exactly <strong>EXPORT MY BSC KEY</strong> to confirm. There is a short delay before the secret appears.</p>
+      <div class="form-row">
+        <label for="bscExportConfirm">Confirmation</label>
+        <input type="text" id="bscExportConfirm" placeholder="EXPORT MY BSC KEY" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <button type="button" id="bscExportDoBtn" class="btn btn-primary btn-small">Reveal secret</button>
+      </div>
+      <textarea id="bscExportOut" style="display:none;margin-top:8px;" rows="6" readonly autocomplete="off"></textarea>
+    </div>
+  </div>
+
   <div class="section" id="workflowsSection">
-    <h2>Workflows</h2>
+    <div class="form-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+      <h2 class="h2-no-rule" style="margin:0;">Workflows</h2>
+      <button type="button" id="settingsSyncAll" class="btn btn-small">Sync all to backend</button>
+    </div>
     <div class="form-row" style="margin-bottom:8px">
       <input type="text" id="settingsNewWorkflowName" placeholder="New workflow name" style="flex:1;min-width:0">
       <button type="button" id="settingsCreateWorkflow" class="btn btn-primary">Create New Workflow</button>
@@ -182,24 +551,8 @@
       <button type="button" id="settingsImportFromFile" class="btn">Import from file</button>
       <button type="button" id="settingsPasteWorkflow" class="btn" title="Paste workflow JSON from clipboard">Paste workflow</button>
     </div>
-    <div class="form-row" style="margin-top:6px">
-      <input type="text" id="settingsPresetUrl" placeholder="Preset URL (fetched on load)" style="flex:1;min-width:0">
-      <button type="button" id="settingsFetchPreset" class="btn">Save &amp; fetch preset</button>
-    </div>
     <input type="file" id="settingsImportFile" accept=".json" style="display:none">
     <div id="settingsBackendSearchResults" style="margin-top:8px;min-height:0;"></div>
-
-    <div class="form-row" style="margin-top:12px;margin-bottom:6px">
-      <button type="button" id="settingsSyncAll" class="btn btn-small">Sync all to backend</button>
-      <button type="button" id="settingsExportJson" class="btn btn-small" title="Export selected workflow as JSON">Export workflow (JSON)</button>
-      <button type="button" id="settingsExportWalkthrough" class="btn btn-small" title="Export as walkthrough config + embeddable JS">Export as walkthrough</button>
-      <label style="margin-left:8px;font-size:0.82rem;font-weight:normal;min-width:auto;"><input type="checkbox" id="settingsWalkthroughQuiz" title="Add quiz"> Include quiz</label>
-    </div>
-    <div class="form-row" style="margin-top:6px;flex-wrap:wrap;gap:6px;align-items:center;">
-      <label for="settingsWalkthroughReportUrl" class="hint" style="font-size:0.78rem;margin:0;min-width:auto;font-weight:normal;">Progress report URL (optional):</label>
-      <input type="text" id="settingsWalkthroughReportUrl" placeholder="https://your-backend.com/api/walkthrough-progress" style="flex:1;min-width:180px;padding:4px 8px;font-size:0.82rem;">
-      <span class="hint" style="font-size:0.78rem;">POSTs step_completed, walkthrough_completed, walkthrough_closed, step_viewed. Or listen for <code>cfs-walkthrough-progress</code>.</span>
-    </div>
 
     <h3 style="margin-top:16px;">Your workflows (local)</h3>
     <p class="hint" style="margin:0 0 6px 0;">Workflows are written to <code>workflows/{workflow-id}/</code> as <code>workflow-{id}-{version}.json</code> (highest number = latest). Synced to backend when you create or version.</p>
@@ -236,24 +589,42 @@
   <script src="../config/whop-auth.js"></script>
   <script src="../extension/config.js"></script>
   <script src="../extension/api.js"></script>
+  <script src="../extension/following-sync-core.js"></script>
   <script src="../shared/upload-post.js"></script>
   <script src="../shared/step-validator.js"></script>
   <script src="../shared/step-comment.js"></script>
   <script src="../shared/template-resolver.js"></script>
   <script src="../shared/selectors.js"></script>
+  <script src="../shared/recording-value.js"></script>
+  <script src="../shared/selector-parity.js"></script>
   <script src="../shared/analyzer.js"></script>
+  <script src="../shared/discovery-selector-filters.js"></script>
+  <script src="../shared/discovery-from-analyze.js"></script>
+  <script src="../shared/cross-workflow-selectors.js"></script>
   <script src="../shared/book-builder.js"></script>
   <script src="../shared/walkthrough-export.js"></script>
   <script src="../shared/run-variation.js"></script>
+  <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
   <script src="../shared/tooltip-overlay.js"></script>
   <script src="../test/unit-test-runner.js"></script>
+  <script src="../shared/apify-run-query-validation.js"></script>
+  <script src="../shared/apify-extract-run-id.js"></script>
+  <script src="../shared/infi-bin-path-json-shape.js"></script>
+  <script src="../shared/run-if-condition.js"></script>
+  <script src="../shared/row-list-normalize.js"></script>
+  <script src="../shared/project-id-resolve.js"></script>
   <script src="../test/unit-tests.js"></script>
   <script src="../steps/registry.js"></script>
   <!-- STEP_HANDLERS_START -->
   <script src="../steps/click/handler.js"></script>
   <script src="../steps/hover/handler.js"></script>
+  <script src="../steps/scroll/handler.js"></script>
+  <script src="../steps/waitForElement/handler.js"></script>
+  <script src="../steps/dragDrop/handler.js"></script>
+  <script src="../steps/clipboardRead/handler.js"></script>
+  <script src="../steps/clipboardWrite/handler.js"></script>
   <script src="../steps/loop/handler.js"></script>
   <script src="../steps/runWorkflow/handler.js"></script>
   <script src="../steps/type/handler.js"></script>
@@ -274,16 +645,30 @@
   <script src="../steps/extractData/handler.js"></script>
   <script src="../steps/runGenerator/handler.js"></script>
   <script src="../steps/sendToEndpoint/handler.js"></script>
+  <script src="../steps/waitForHttpPoll/handler.js"></script>
   <script src="../steps/uploadPost/handler.js"></script>
+  <script src="../steps/savePostDraftToFolder/handler.js"></script>
   <script src="../steps/setVideoSegments/handler.js"></script>
   <script src="../steps/combineVideos/handler.js"></script>
   <script src="../steps/trimVideo/handler.js"></script>
+  <script src="../steps/trimFromWordRange/handler.js"></script>
   <script src="../steps/saveGenerationToProject/handler.js"></script>
   <script src="../steps/captureAudio/handler.js"></script>
   <script src="../steps/transcribeAudio/handler.js"></script>
   <script src="../steps/whisperCheck/handler.js"></script>
   <script src="../steps/embeddingCheck/handler.js"></script>
   <script src="../steps/llm/handler.js"></script>
+  <script src="../steps/rowMath/handler.js"></script>
+  <script src="../steps/rowSetFields/handler.js"></script>
+  <script src="../steps/readJsonFromProject/handler.js"></script>
+  <script src="../steps/loadProjectFile/handler.js"></script>
+  <script src="../steps/ensureUploadsLayout/handler.js"></script>
+  <script src="../steps/extractAudioFromVideo/handler.js"></script>
+  <script src="../steps/writeJsonToProject/handler.js"></script>
+  <script src="../steps/rowListFilter/handler.js"></script>
+  <script src="../steps/rowListJoin/handler.js"></script>
+  <script src="../steps/rowListConcat/handler.js"></script>
+  <script src="../steps/rowListDedupe/handler.js"></script>
   <script src="../steps/delayBeforeNextRun/handler.js"></script>
   <script src="../steps/getFacebookPages/handler.js"></script>
   <script src="../steps/getLinkedInPages/handler.js"></script>
@@ -302,10 +687,90 @@
   <script src="../steps/updateFollowingProfile/handler.js"></script>
   <script src="../steps/deleteFollowingProfile/handler.js"></script>
   <script src="../steps/deleteFollowingDetail/handler.js"></script>
+  <script src="../steps/solanaJupiterSwap/handler.js"></script>
+  <script src="../steps/solanaTransferSol/handler.js"></script>
+  <script src="../steps/solanaTransferSpl/handler.js"></script>
+  <script src="../steps/solanaEnsureTokenAccount/handler.js"></script>
+  <script src="../steps/solanaWrapSol/handler.js"></script>
+  <script src="../steps/solanaUnwrapSol/handler.js"></script>
+  <script src="../steps/solanaReadBalances/handler.js"></script>
+  <script src="../steps/solanaReadMint/handler.js"></script>
+  <script src="../steps/solanaReadMetaplexMetadata/handler.js"></script>
+  <script src="../steps/solanaPumpfunBuy/handler.js"></script>
+  <script src="../steps/solanaPumpfunSell/handler.js"></script>
+  <script src="../steps/solanaPumpMarketProbe/handler.js"></script>
+  <script src="../steps/solanaPumpOrJupiterBuy/handler.js"></script>
+  <script src="../steps/solanaPumpOrJupiterSell/handler.js"></script>
+  <script src="../steps/solanaSellabilityProbe/handler.js"></script>
+  <script src="../steps/solanaPerpsStatus/handler.js"></script>
+  <script src="../steps/raydiumAddLiquidity/handler.js"></script>
+  <script src="../steps/raydiumRemoveLiquidity/handler.js"></script>
+  <script src="../steps/raydiumSwapStandard/handler.js"></script>
+  <script src="../steps/raydiumCpmmAddLiquidity/handler.js"></script>
+  <script src="../steps/raydiumCpmmRemoveLiquidity/handler.js"></script>
+  <script src="../steps/raydiumClmmOpenPosition/handler.js"></script>
+  <script src="../steps/raydiumClmmOpenPositionFromLiquidity/handler.js"></script>
+  <script src="../steps/raydiumClmmCollectReward/handler.js"></script>
+  <script src="../steps/raydiumClmmCollectRewards/handler.js"></script>
+  <script src="../steps/raydiumClmmHarvestLockPosition/handler.js"></script>
+  <script src="../steps/raydiumClmmLockPosition/handler.js"></script>
+  <script src="../steps/raydiumClmmClosePosition/handler.js"></script>
+  <script src="../steps/raydiumClmmIncreasePosition/handler.js"></script>
+  <script src="../steps/raydiumClmmIncreasePositionFromLiquidity/handler.js"></script>
+  <script src="../steps/raydiumClmmDecreaseLiquidity/handler.js"></script>
+  <script src="../steps/raydiumClmmSwap/handler.js"></script>
+  <script src="../steps/raydiumClmmSwapBaseOut/handler.js"></script>
+  <script src="../steps/raydiumClmmQuoteBaseIn/handler.js"></script>
+  <script src="../steps/raydiumClmmQuoteBaseOut/handler.js"></script>
+  <script src="../steps/meteoraDlmmAddLiquidity/handler.js"></script>
+  <script src="../steps/meteoraDlmmRemoveLiquidity/handler.js"></script>
+  <script src="../steps/meteoraDlmmClaimRewards/handler.js"></script>
+  <script src="../steps/meteoraCpammSwap/handler.js"></script>
+  <script src="../steps/meteoraCpammQuoteSwap/handler.js"></script>
+  <script src="../steps/meteoraCpammSwapExactOut/handler.js"></script>
+  <script src="../steps/meteoraCpammQuoteSwapExactOut/handler.js"></script>
+  <script src="../steps/meteoraCpammAddLiquidity/handler.js"></script>
+  <script src="../steps/meteoraCpammRemoveLiquidity/handler.js"></script>
+  <script src="../steps/meteoraCpammDecreaseLiquidity/handler.js"></script>
+  <script src="../steps/meteoraCpammClaimFees/handler.js"></script>
+  <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
+  <script src="../steps/bscPancake/handler.js"></script>
+  <script src="../steps/bscTransferBnb/handler.js"></script>
+  <script src="../steps/bscTransferBep20/handler.js"></script>
+  <script src="../steps/bscAggregatorSwap/handler.js"></script>
+  <script src="../steps/bscSellabilityProbe/handler.js"></script>
+  <script src="../steps/bscWatchRefresh/handler.js"></script>
+  <script src="../steps/bscWatchReadActivity/handler.js"></script>
+  <script src="../steps/watchActivityFilterTxAge/handler.js"></script>
+  <script src="../steps/watchActivityFilterPriceDrift/handler.js"></script>
+  <script src="../steps/selectFollowingAccount/handler.js"></script>
+  <script src="../steps/rugcheckToken/handler.js"></script>
+  <script src="../steps/solanaWatchRefresh/handler.js"></script>
+  <script src="../steps/solanaWatchReadActivity/handler.js"></script>
+  <script src="../steps/bscQuery/handler.js"></script>
+  <script src="../steps/asterSpotMarket/handler.js"></script>
+  <script src="../steps/asterSpotAccount/handler.js"></script>
+  <script src="../steps/asterSpotTrade/handler.js"></script>
+  <script src="../steps/asterSpotWait/handler.js"></script>
+  <script src="../steps/asterFuturesMarket/handler.js"></script>
+  <script src="../steps/asterFuturesAccount/handler.js"></script>
+  <script src="../steps/asterFuturesAnalysis/handler.js"></script>
+  <script src="../steps/asterFuturesWait/handler.js"></script>
+  <script src="../steps/asterFuturesTrade/handler.js"></script>
+  <script src="../steps/asterUserStreamWait/handler.js"></script>
+  <script src="../steps/apifyActorRun/handler.js"></script>
+  <script src="../steps/apifyRunStart/handler.js"></script>
+  <script src="../steps/apifyRunWait/handler.js"></script>
+  <script src="../steps/apifyDatasetItems/handler.js"></script>
   <!-- STEP_HANDLERS_END -->
   <!-- STEP_TESTS_START -->
   <script src="../steps/click/step-tests.js"></script>
   <script src="../steps/hover/step-tests.js"></script>
+  <script src="../steps/scroll/step-tests.js"></script>
+  <script src="../steps/waitForElement/step-tests.js"></script>
+  <script src="../steps/dragDrop/step-tests.js"></script>
+  <script src="../steps/clipboardRead/step-tests.js"></script>
+  <script src="../steps/clipboardWrite/step-tests.js"></script>
   <script src="../steps/loop/step-tests.js"></script>
   <script src="../steps/runWorkflow/step-tests.js"></script>
   <script src="../steps/type/step-tests.js"></script>
@@ -327,15 +792,28 @@
   <script src="../steps/runGenerator/step-tests.js"></script>
   <script src="../steps/sendToEndpoint/step-tests.js"></script>
   <script src="../steps/uploadPost/step-tests.js"></script>
+  <script src="../steps/savePostDraftToFolder/step-tests.js"></script>
   <script src="../steps/setVideoSegments/step-tests.js"></script>
   <script src="../steps/combineVideos/step-tests.js"></script>
   <script src="../steps/trimVideo/step-tests.js"></script>
+  <script src="../steps/trimFromWordRange/step-tests.js"></script>
   <script src="../steps/saveGenerationToProject/step-tests.js"></script>
   <script src="../steps/captureAudio/step-tests.js"></script>
   <script src="../steps/transcribeAudio/step-tests.js"></script>
   <script src="../steps/whisperCheck/step-tests.js"></script>
   <script src="../steps/embeddingCheck/step-tests.js"></script>
   <script src="../steps/llm/step-tests.js"></script>
+  <script src="../steps/rowMath/step-tests.js"></script>
+  <script src="../steps/rowSetFields/step-tests.js"></script>
+  <script src="../steps/readJsonFromProject/step-tests.js"></script>
+  <script src="../steps/loadProjectFile/step-tests.js"></script>
+  <script src="../steps/ensureUploadsLayout/step-tests.js"></script>
+  <script src="../steps/extractAudioFromVideo/step-tests.js"></script>
+  <script src="../steps/writeJsonToProject/step-tests.js"></script>
+  <script src="../steps/rowListFilter/step-tests.js"></script>
+  <script src="../steps/rowListJoin/step-tests.js"></script>
+  <script src="../steps/rowListConcat/step-tests.js"></script>
+  <script src="../steps/rowListDedupe/step-tests.js"></script>
   <script src="../steps/delayBeforeNextRun/step-tests.js"></script>
   <script src="../steps/getFacebookPages/step-tests.js"></script>
   <script src="../steps/getLinkedInPages/step-tests.js"></script>
@@ -354,6 +832,38 @@
   <script src="../steps/updateFollowingProfile/step-tests.js"></script>
   <script src="../steps/deleteFollowingProfile/step-tests.js"></script>
   <script src="../steps/deleteFollowingDetail/step-tests.js"></script>
+  <script src="../steps/solanaJupiterSwap/step-tests.js"></script>
+  <script src="../steps/solanaTransferSol/step-tests.js"></script>
+  <script src="../steps/solanaTransferSpl/step-tests.js"></script>
+  <script src="../steps/solanaEnsureTokenAccount/step-tests.js"></script>
+  <script src="../steps/solanaWrapSol/step-tests.js"></script>
+  <script src="../steps/solanaUnwrapSol/step-tests.js"></script>
+  <script src="../steps/solanaReadBalances/step-tests.js"></script>
+  <script src="../steps/solanaReadMint/step-tests.js"></script>
+  <script src="../steps/solanaReadMetaplexMetadata/step-tests.js"></script>
+  <script src="../steps/solanaPumpOrJupiterBuy/step-tests.js"></script>
+  <script src="../steps/solanaPumpOrJupiterSell/step-tests.js"></script>
+  <script src="../steps/solanaSellabilityProbe/step-tests.js"></script>
+  <script src="../steps/raydiumClmmSwap/step-tests.js"></script>
+  <script src="../steps/raydiumClmmSwapBaseOut/step-tests.js"></script>
+  <script src="../steps/raydiumClmmQuoteBaseIn/step-tests.js"></script>
+  <script src="../steps/raydiumClmmQuoteBaseOut/step-tests.js"></script>
+  <script src="../steps/meteoraDlmmAddLiquidity/step-tests.js"></script>
+  <script src="../steps/meteoraDlmmRemoveLiquidity/step-tests.js"></script>
+  <script src="../steps/meteoraDlmmClaimRewards/step-tests.js"></script>
+  <script src="../steps/meteoraCpammSwap/step-tests.js"></script>
+  <script src="../steps/meteoraCpammQuoteSwap/step-tests.js"></script>
+  <script src="../steps/meteoraCpammSwapExactOut/step-tests.js"></script>
+  <script src="../steps/meteoraCpammQuoteSwapExactOut/step-tests.js"></script>
+  <script src="../steps/meteoraCpammAddLiquidity/step-tests.js"></script>
+  <script src="../steps/meteoraCpammRemoveLiquidity/step-tests.js"></script>
+  <script src="../steps/meteoraCpammDecreaseLiquidity/step-tests.js"></script>
+  <script src="../steps/meteoraCpammClaimFees/step-tests.js"></script>
+  <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
+  <script src="../steps/bscTransferBnb/step-tests.js"></script>
+  <script src="../steps/bscTransferBep20/step-tests.js"></script>
+  <script src="../steps/bscSellabilityProbe/step-tests.js"></script>
+  <script src="../steps/apifyActorRun/step-tests.js"></script>
   <!-- STEP_TESTS_END -->
   <script src="../generator/core/wrap-text.js"></script>
   <script src="../generator/core/position-from-clip.js"></script>

@@ -1,0 +1,13 @@
+{
+  "id": "clipboardRead",
+  "label": "Clipboard read",
+  "category": "data",
+  "description": "Read plain text from the clipboard into a row variable. Needs clipboard permission; some browsers only allow read shortly after a user gesture (e.g. clicking Run).",
+  "defaultAction": {
+    "type": "clipboardRead",
+    "saveAsVariable": "clipboardText"
+  },
+  "formSchema": [
+    { "key": "saveAsVariable", "label": "Save as variable (row key)", "inputType": "text" }
+  ]
+}

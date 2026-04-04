@@ -1,0 +1,39 @@
+{
+  "id": "savePostDraftToFolder",
+  "label": "Save post draft to folder (pending)",
+  "category": "data",
+  "description": "Writes post.json under uploads/{projectId}/posts/pending/ without uploading. Requires side panel open and project folder. Optional: save relative path to a row variable.",
+  "defaultAction": {
+    "type": "savePostDraftToFolder",
+    "runIf": "",
+    "userVariableKey": "user",
+    "platformVariableKey": "platform",
+    "platformDefault": "tiktok",
+    "titleVariableKey": "title",
+    "titleDefault": "Draft",
+    "descriptionVariableKey": "description",
+    "videoVariableKey": "videoUrl",
+    "photoUrlsVariableKey": "photoUrls",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "postFolderIdVariableKey": "",
+    "optionsVariableKey": "",
+    "savePathToVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "userVariableKey", "label": "User variable key", "inputType": "text", "placeholder": "user" },
+    { "key": "platformVariableKey", "label": "Platform variable key", "inputType": "text", "placeholder": "platform" },
+    { "key": "platformDefault", "label": "Default platform(s)", "inputType": "text", "placeholder": "tiktok" },
+    { "key": "titleVariableKey", "label": "Title variable key", "inputType": "text", "placeholder": "title" },
+    { "key": "titleDefault", "label": "Default title", "inputType": "text", "placeholder": "Draft" },
+    { "key": "descriptionVariableKey", "label": "Description variable key", "inputType": "text", "placeholder": "description" },
+    { "key": "videoVariableKey", "label": "Video URL variable (optional)", "inputType": "text", "placeholder": "videoUrl" },
+    { "key": "photoUrlsVariableKey", "label": "Photo URL(s) variable (optional)", "inputType": "text", "placeholder": "photoUrls" },
+    { "key": "projectIdVariableKey", "label": "Project ID row key", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text" },
+    { "key": "postFolderIdVariableKey", "label": "Post folder id variable (optional)", "inputType": "text", "placeholder": "stable folder name from row" },
+    { "key": "optionsVariableKey", "label": "Options JSON variable (optional)", "inputType": "text", "placeholder": "postOptions", "hint": "Row key with JSON object merged into manifest options (e.g. first_comment)." },
+    { "key": "savePathToVariable", "label": "Save relative path to variable (optional)", "inputType": "text", "placeholder": "draftPostPath" }
+  ]
+}

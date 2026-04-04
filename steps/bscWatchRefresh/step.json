@@ -1,0 +1,15 @@
+{
+  "id": "bscWatchRefresh",
+  "label": "BSC watch refresh",
+  "category": "data",
+  "description": "Runs one BscScan poll for Following BSC (EVM) watched addresses. Requires BscScan API key in Settings. Optionally saves the tick result JSON to a row variable. Pair with bscWatchReadActivity, bscQuery, and bscPancake. See docs/BSC_AUTOMATION.md.",
+  "defaultAction": {
+    "type": "bscWatchRefresh",
+    "runIf": "",
+    "saveResultVariable": "bscWatchRefreshResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "saveResultVariable", "label": "Save tick JSON to variable (optional)", "inputType": "text", "placeholder": "e.g. bscWatchRefreshResult" }
+  ]
+}

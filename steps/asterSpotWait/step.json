@@ -1,0 +1,55 @@
+{
+  "id": "asterSpotWait",
+  "label": "Aster spot (wait)",
+  "category": "data",
+  "description": "Poll spot: queryOrder until status matches, or account balance (free/total) crosses a threshold. Same keys as futures in Settings.",
+  "defaultAction": {
+    "type": "asterSpotWait",
+    "runIf": "",
+    "waitKind": "order",
+    "symbol": "",
+    "orderId": "",
+    "origClientOrderId": "",
+    "targetOrderStatus": "FILLED",
+    "balanceAsset": "",
+    "balanceWaitMode": "freeAbove",
+    "balanceThreshold": "",
+    "recvWindow": "",
+    "pollIntervalMs": "2000",
+    "waitTimeoutMs": "120000",
+    "saveResultVariable": "asterSpotWaitResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    {
+      "key": "waitKind",
+      "label": "Wait kind",
+      "inputType": "select",
+      "options": [
+        { "value": "order", "label": "order (queryOrder)" },
+        { "value": "balance", "label": "balance (spot account balances)" }
+      ]
+    },
+    { "key": "symbol", "label": "symbol (order wait only)", "inputType": "text" },
+    { "key": "orderId", "label": "orderId", "inputType": "text" },
+    { "key": "origClientOrderId", "label": "origClientOrderId", "inputType": "text" },
+    { "key": "targetOrderStatus", "label": "Target status(es), comma-sep (order)", "inputType": "text" },
+    { "key": "balanceAsset", "label": "balanceAsset (balance wait, e.g. USDT)", "inputType": "text" },
+    {
+      "key": "balanceWaitMode",
+      "label": "Balance mode",
+      "inputType": "select",
+      "options": [
+        { "value": "freeAbove", "label": "freeAbove (default)" },
+        { "value": "freeBelow", "label": "freeBelow" },
+        { "value": "totalAbove", "label": "totalAbove (free+locked)" },
+        { "value": "totalBelow", "label": "totalBelow" }
+      ]
+    },
+    { "key": "balanceThreshold", "label": "balanceThreshold (number)", "inputType": "text" },
+    { "key": "recvWindow", "label": "recvWindow", "inputType": "text" },
+    { "key": "pollIntervalMs", "label": "Poll interval ms", "inputType": "text" },
+    { "key": "waitTimeoutMs", "label": "Timeout ms", "inputType": "text" },
+    { "key": "saveResultVariable", "label": "Save last snapshot to variable", "inputType": "text" }
+  ]
+}

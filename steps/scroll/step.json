@@ -1,0 +1,21 @@
+{
+  "id": "scroll",
+  "label": "Scroll",
+  "category": "interaction",
+  "description": "Scroll an element into view, or scroll by delta on the window or a container. Optional iframe/shadow scope via iframeSelectors and shadowHostSelectors.",
+  "defaultAction": {
+    "type": "scroll",
+    "mode": "intoView",
+    "selectors": [],
+    "behavior": "auto",
+    "optional": false
+  },
+  "formSchema": [
+    { "key": "mode", "label": "Mode", "inputType": "radio", "options": ["intoView", "delta"] },
+    { "key": "selectors", "label": "Selectors (JSON) — into view", "inputType": "textarea", "pickOnPage": true },
+    { "key": "scrollX", "label": "Delta X (delta mode)", "inputType": "number" },
+    { "key": "scrollY", "label": "Delta Y (delta mode)", "inputType": "number" },
+    { "key": "containerSelectors", "label": "Container selectors (JSON, delta mode)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "optional", "label": "Optional (skip if element not found)", "inputType": "checkbox" }
+  ]
+}

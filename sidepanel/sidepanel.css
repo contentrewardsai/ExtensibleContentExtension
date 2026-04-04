@@ -745,6 +745,173 @@ h1 {
   min-width: 0;
 }
 
+.following-wallet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.following-wallet-row {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+  font-size: 12px;
+}
+.following-wallet-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.following-wallet-chain {
+  font-weight: 600;
+  color: #374151;
+}
+.following-wallet-addr {
+  font-family: ui-monospace, monospace;
+  color: #1f2937;
+}
+.following-wallet-label {
+  color: #6b7280;
+}
+.following-wallet-cb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 11px;
+  color: #4b5563;
+}
+.following-wallet-copy-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.following-wallet-copy-fields input,
+.following-wallet-copy-fields select {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  min-width: 100px;
+}
+.following-wallet-drift-hint {
+  width: 100%;
+  font-size: 11px;
+  color: #6b7280;
+}
+.following-detail-add-wallet {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+}
+
+.pulse-watch-section {
+  margin: 20px 0;
+  padding: 12px 0;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+.pulse-watch-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.pulse-watch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.pulse-watch-status-banner {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fcd34d;
+}
+.pulse-watch-status-banner .pulse-watch-status-line {
+  margin: 0 0 4px;
+}
+.pulse-watch-status-banner .pulse-watch-status-line:last-child {
+  margin-bottom: 0;
+}
+.pulse-watch-last-poll {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #6b7280;
+}
+.pulse-watch-activity-list {
+  font-size: 11px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fafafa;
+  margin-bottom: 14px;
+}
+.pulse-watch-copy-sig {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  opacity: 0.9;
+}
+
+.pulse-watch-tx-link {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.pulse-watch-tx-link:hover {
+  text-decoration: underline;
+}
+.pulse-watch-activity-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  align-items: baseline;
+}
+.pulse-watch-activity-row:last-child {
+  border-bottom: none;
+}
+.pulse-watch-activity-line1,
+.pulse-watch-activity-line2 {
+  grid-column: 1 / -1;
+  line-height: 1.35;
+}
+.pulse-watch-activity-line2 {
+  color: #4b5563;
+  font-size: 10px;
+}
+.pulse-watch-activity-meta {
+  color: #6b7280;
+  font-size: 10px;
+}
+.pulse-watch-activity-kind {
+  font-weight: 600;
+  color: #374151;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.pulse-watch-activity-venue {
+  font-weight: 500;
+  color: #6b7280;
+  text-transform: none;
+  font-size: 10px;
+}
+
 /* Notes add form: textarea, optional scheduled picker, add button */
 .following-detail-add-note {
   flex-direction: column;
@@ -999,6 +1166,26 @@ section {
 /* Local AI Chat under Automations */
 .llm-chat-section {
   margin-top: 12px;
+}
+
+.llm-chat-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px 0;
+}
+
+.llm-chat-heading {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.llm-chat-unavailable a {
+  color: #007aff;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .llm-chat-messages {

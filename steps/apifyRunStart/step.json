@@ -1,0 +1,29 @@
+{
+  "id": "apifyRunStart",
+  "label": "Apify — start run only",
+  "category": "data",
+  "description": "POST Apify .../runs and return immediately with run id and metadata. Chain **apifyRunWait** (poll + optional dataset/OUTPUT) or **apifyDatasetItems** after other workflow steps. Stop cancels client work and aborts the server run when a run id is known.",
+  "defaultAction": {
+    "type": "apifyRunStart",
+    "runIf": "",
+    "targetType": "actor",
+    "resourceId": "",
+    "inputSource": "template",
+    "inputTemplate": "{}",
+    "dataVariable": "",
+    "tokenVariableKey": "",
+    "apifyRunTimeoutSecs": "",
+    "apifyRunMemoryMbytes": "",
+    "apifyRunMaxItems": "",
+    "apifyBuild": "",
+    "apifyMaxTotalChargeUsd": "",
+    "apifyRestartOnError": false,
+    "apifyStartWaitForFinishSecs": "",
+    "saveRunIdVariable": "apifyRunId",
+    "saveStatusVariable": "",
+    "saveRunMetaJsonVariable": "",
+    "saveConsoleUrlVariable": "",
+    "saveDatasetIdVariable": "",
+    "saveKeyValueStoreIdVariable": ""
+  }
+}

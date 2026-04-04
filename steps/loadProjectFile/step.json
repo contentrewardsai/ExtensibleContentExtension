@@ -1,0 +1,29 @@
+{
+  "id": "loadProjectFile",
+  "label": "Load file from project folder",
+  "category": "integrations",
+  "description": "Read a file under the chosen project folder (path supports {{vars}}) and store a data URL on the row. Resolves {{projectId}} from the row, saved Library uploads default, or defaultProjectId. Paths under uploads/... set _cfsProjectId when the row has no project id yet.",
+  "defaultAction": {
+    "type": "loadProjectFile",
+    "runIf": "",
+    "relativePath": "uploads/{{projectId}}/videos/example.mp4",
+    "saveAsVariable": "sourceMedia",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "ifMissing": "fail",
+    "maxBytes": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}}" },
+    { "key": "relativePath", "label": "Relative path (project root)", "inputType": "text", "placeholder": "uploads/{{projectId}}/videos/clip.mp4" },
+    { "key": "saveAsVariable", "label": "Save as variable (data URL)", "inputType": "text", "placeholder": "sourceMedia" },
+    { "key": "projectIdVariableKey", "label": "Explicit project id row key (do not overwrite if set)", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID (optional, for {{projectId}} in path)", "inputType": "text", "placeholder": "default" },
+    { "key": "ifMissing", "label": "If file missing", "inputType": "select", "options": [
+      { "value": "fail", "label": "Fail step" },
+      { "value": "empty", "label": "Set empty string" },
+      { "value": "skip", "label": "Skip (no-op)" }
+    ] },
+    { "key": "maxBytes", "label": "Max read size (bytes, optional)", "inputType": "number", "min": 1, "placeholder": "52428800" }
+  ]
+}

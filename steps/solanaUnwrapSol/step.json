@@ -1,0 +1,36 @@
+{
+  "id": "solanaUnwrapSol",
+  "label": "Solana unwrap WSOL",
+  "category": "data",
+  "description": "Closes the automation wallet’s WSOL associated token account so wrapped SOL returns as native lamports (full balance in that account). Fails if no WSOL ATA exists.",
+  "defaultAction": {
+    "type": "solanaUnwrapSol",
+    "runIf": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "saveAtaAddressVariable": "solanaWsolAta",
+    "saveAmountRawVariable": "solanaUnwrapAmountRaw",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text" },
+    { "key": "saveAtaAddressVariable", "label": "Save WSOL ATA address to variable", "inputType": "text" },
+    { "key": "saveAmountRawVariable", "label": "Save wrapped amount (raw) before close", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

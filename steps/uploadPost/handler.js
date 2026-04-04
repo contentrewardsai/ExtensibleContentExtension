@@ -92,11 +92,7 @@
     const { getRowValue, currentRow, sendMessage } = ctx;
     const row = currentRow || {};
 
-    const runIf = (action.runIf || '').trim();
-    if (runIf) {
-      const runIfVal = resolveTemplate(runIf, row, getRowValue, action);
-      if (!runIfVal || String(runIfVal).trim() === '') return;
-    }
+    if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     const apiKeyVar = (action.apiKeyVariableKey || '').trim() || 'uploadPostApiKey';
     const apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
@@ -297,20 +293,51 @@
       if (formFields.facebook_page_id) allOpts.facebook_page_id = formFields.facebook_page_id;
       if (formFields.linkedin_page_id) allOpts.target_linkedin_page_id = formFields.linkedin_page_id;
       if (formFields.pinterest_board_id) allOpts.pinterest_board_id = formFields.pinterest_board_id;
-      sendMessage({
-        type: 'SAVE_POST_TO_FOLDER',
-        postData: {
-          user: user, platform: platforms, title: title, description: description,
-          media: postMediaObj, options: allOpts,
-          status: scheduledDate ? 'scheduled' : 'posted',
-          scheduled_at: scheduledDate || null,
-          posted_at: scheduledDate ? null : new Date().toISOString(),
-          request_id: (response.json && response.json.request_id) || null,
-          job_id: (response.json && response.json.job_id) || null,
-          results: response.json || null,
-          source: 'workflow',
-        },
-      });
-    } catch (_) {}
+      var pidKey = (action.projectIdVariableKey || '').trim() || 'projectId';
+      var resolvedProjectId = '';
+      if (typeof CFS_projectIdResolve !== 'undefined') {
+        var pr = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
+          projectIdVariableKey: pidKey,
+          defaultProjectId: action.defaultProjectId,
+        });
+        if (pr.ok) resolvedProjectId = pr.projectId;
+      }
+      var rowSnapshot = {
+        projectId: row.projectId,
+        _cfsProjectId: row._cfsProjectId,
+      };
+      var saveDisk = action.savePostManifestToDisk !== false;
+      if (saveDisk) {
+        var saveRes = await sendMessage({
+          type: 'SAVE_POST_TO_FOLDER',
+          placement: 'posted',
+          resolvedProjectId: resolvedProjectId,
+          rowSnapshot: rowSnapshot,
+          projectIdVariableKey: pidKey,
+          defaultProjectId: action.defaultProjectId || '',
+          postData: {
+            user: user, platform: platforms, title: title, description: description,
+            media: postMediaObj, options: allOpts,
+            status: scheduledDate ? 'scheduled' : 'posted',
+            scheduled_at: scheduledDate || null,
+            posted_at: scheduledDate ? null : new Date().toISOString(),
+            request_id: (response.json && response.json.request_id) || null,
+            job_id: (response.json && response.json.job_id) || null,
+            results: response.json || null,
+            source: 'workflow',
+            cfs_project_id: resolvedProjectId || undefined,
+          },
+        });
+        if (!saveRes || saveRes.ok === false) {
+          try {
+            console.warn('[CFS] uploadPost: API upload succeeded but saving post.json to disk failed:', (saveRes && saveRes.error) || 'unknown');
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      try {
+        console.warn('[CFS] uploadPost: disk save error:', e && e.message ? e.message : e);
+      } catch (_) {}
+    }
   }, { needsElement: false });
 })();

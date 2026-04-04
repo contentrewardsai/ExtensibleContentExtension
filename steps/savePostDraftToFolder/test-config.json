@@ -1,0 +1,5 @@
+{
+  "unit": {
+    "include": ["step-tests.js"]
+  }
+}

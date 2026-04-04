@@ -1,0 +1,66 @@
+{
+  "id": "rowListJoin",
+  "label": "Join row lists",
+  "category": "data",
+  "description": "**Left** or **inner** join two arrays of **objects** on **leftKey** / **rightKey** (dot/bracket paths via **getByLoosePath**). Each side may be a row array or JSON string (**array** or single **object** as one element). Merge: **Object.assign({}, left, right)**; optional **rightFieldPrefix** renames right-side keys (e.g. `r_`) so they do not overwrite left fields with the same name. Duplicate join keys on the right: last row wins.",
+  "defaultAction": {
+    "type": "rowListJoin",
+    "runIf": "",
+    "leftVariable": "ids",
+    "rightVariable": "details",
+    "leftKey": "id",
+    "rightKey": "id",
+    "joinType": "left",
+    "rightFieldPrefix": "",
+    "saveToVariable": "merged"
+  },
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "leftVariable",
+      "label": "Left list (row variable)",
+      "inputType": "text"
+    },
+    {
+      "key": "rightVariable",
+      "label": "Right list (row variable)",
+      "inputType": "text"
+    },
+    {
+      "key": "leftKey",
+      "label": "Join key on left elements",
+      "inputType": "text",
+      "placeholder": "e.g. id or meta.id"
+    },
+    {
+      "key": "rightKey",
+      "label": "Join key on right elements",
+      "inputType": "text"
+    },
+    {
+      "key": "joinType",
+      "label": "Join type",
+      "inputType": "select",
+      "options": [
+        { "value": "left", "label": "Left (keep all left rows)" },
+        { "value": "inner", "label": "Inner (only matches)" }
+      ]
+    },
+    {
+      "key": "rightFieldPrefix",
+      "label": "Prefix merged fields from right (optional)",
+      "inputType": "text",
+      "placeholder": "e.g. r_ or detail_",
+      "hint": "Each key from the right row is prefixed so it does not clobber the same key on the left."
+    },
+    {
+      "key": "saveToVariable",
+      "label": "Save merged list to",
+      "inputType": "text"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "apifyRunWait",
+  "label": "Apify — wait for run",
+  "category": "data",
+  "description": "Poll an Apify run id until SUCCEEDED/FAILED/etc. Optionally load **dataset** items or **OUTPUT** into a row variable. Use after **apifyRunStart** or with a run id from elsewhere. **fetchAfter** `none` only updates saved run metadata.",
+  "defaultAction": {
+    "type": "apifyRunWait",
+    "runIf": "",
+    "runId": "{{apifyRunId}}",
+    "tokenVariableKey": "",
+    "fetchAfter": "dataset",
+    "asyncMaxWaitMs": 600000,
+    "pollIntervalMs": 500,
+    "datasetMaxItems": 0,
+    "outputRecordKey": "",
+    "apifySyncDatasetFields": "",
+    "apifySyncDatasetOmit": "",
+    "saveAsVariable": "apifyResult",
+    "saveStatusVariable": "",
+    "saveRunMetaJsonVariable": "",
+    "saveConsoleUrlVariable": "",
+    "saveDatasetIdVariable": "",
+    "saveKeyValueStoreIdVariable": ""
+  }
+}

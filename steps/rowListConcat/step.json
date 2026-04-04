@@ -1,0 +1,19 @@
+{
+  "id": "rowListConcat",
+  "label": "Concat row lists",
+  "category": "data",
+  "description": "Append **list B** after **list A** (both row variables). Uses the same array / JSON normalization as **Filter** and **Join**. Result is a **new** array (`a.concat(b)`); input arrays are unchanged.",
+  "defaultAction": {
+    "type": "rowListConcat",
+    "runIf": "",
+    "listAVariable": "listA",
+    "listBVariable": "listB",
+    "saveToVariable": "combined"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "listAVariable", "label": "First list (row variable)", "inputType": "text" },
+    { "key": "listBVariable", "label": "Second list (row variable)", "inputType": "text" },
+    { "key": "saveToVariable", "label": "Save combined list to", "inputType": "text" }
+  ]
+}

@@ -8,7 +8,12 @@
     const ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (extractData)');
     const { runExtractData, sendMessage } = ctx;
+    const base = ctx.document || document;
+    const rootDoc = typeof ctx.resolveDocumentForAction === 'function'
+      ? ctx.resolveDocumentForAction(action, base)
+      : base;
     const result = await runExtractData({
+      rootDoc,
       listSelector: action.listSelector,
       itemSelector: action.itemSelector,
       fields: action.fields || [],

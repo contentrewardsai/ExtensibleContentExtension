@@ -33,7 +33,7 @@ test.describe('offscreen queuing', () => {
 
       const results = await helperPage.evaluate(async (payload) => {
         const send = (msg) => new Promise((resolve) => {
-          chrome.runtime.sendMessage(chrome.runtime.id, msg, (r) => {
+          chrome.runtime.sendMessage(msg, (r) => {
             if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
             else resolve(r || { ok: false, error: 'No response' });
           });
@@ -91,7 +91,7 @@ test.describe('offscreen queuing', () => {
 
       const results = await helperPage.evaluate(async (combinePayload) => {
         const send = (msg) => new Promise((resolve) => {
-          chrome.runtime.sendMessage(chrome.runtime.id, msg, (r) => {
+          chrome.runtime.sendMessage(msg, (r) => {
             if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message, ts: Date.now() });
             else resolve(r ? { ...r, ts: Date.now() } : { ok: false, error: 'No response', ts: Date.now() });
           });

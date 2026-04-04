@@ -2,11 +2,12 @@
   "id": "saveGenerationToProject",
   "label": "Save generation to project",
   "category": "data",
-  "description": "Queue this row's generation (image/video/text) to be saved under Library/{projectId}/generations/. Use variableName for the output variable (e.g. generatedImage, combinedVideo from Combine videos or Run generator).",
+  "description": "Queue this row's generation (image/video/text) to be saved under uploads/{projectId}/generations/ (or another subfolder you set). Click Save pending generations in the Library panel. Use variableName for the output (e.g. generatedImage, combinedVideo).",
   "defaultAction": {
     "type": "saveGenerationToProject",
     "variableName": "generatedImage",
     "projectIdVariable": "{{projectId}}",
+    "defaultProjectId": "",
     "folder": "generations",
     "namingFormat": "numeric"
   },
@@ -14,7 +15,8 @@
     { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{generatedImage}}" },
     { "key": "variableName", "label": "Variable containing generation (data/blob URL, e.g. generatedImage or combinedVideo)", "inputType": "text", "placeholder": "generatedImage" },
     { "key": "projectIdVariable", "label": "Project ID (variable or literal)", "inputType": "text", "placeholder": "{{projectId}} or leave empty for selected project" },
-    { "key": "folder", "label": "Subfolder under project", "inputType": "text", "placeholder": "generations" },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "", "hint": "Used when row has no projectId / _cfsProjectId from loadProjectFile." },
+    { "key": "folder", "label": "Subfolder under uploads/{projectId}", "inputType": "text", "placeholder": "generations", "hint": "e.g. generations, videos — created under uploads/<id>/." },
     { "key": "namingFormat", "label": "Filename format", "inputType": "select", "options": [["numeric", "001, 002, ..."], ["row", "row-1, row-2, ..."]] }
   ]
 }

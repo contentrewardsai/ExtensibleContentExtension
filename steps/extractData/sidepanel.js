@@ -14,11 +14,19 @@
       var itemSelector = action.itemSelector || 'li, [data-index], tr';
       var fieldsJson = JSON.stringify(action.fields || [{ key: 'name', selectors: [] }, { key: 'email', selectors: [] }], null, 2);
       var maxItems = action.maxItems || 0;
+      var iframeJson = JSON.stringify(action.iframeSelectors || [], null, 2);
+      var iframeFbJson = JSON.stringify(action.iframeFallbackSelectors || [], null, 2);
+      var shadowJson = JSON.stringify(action.shadowHostSelectors || [], null, 2);
+      var shadowFbJson = JSON.stringify(action.shadowHostFallbackSelectors || [], null, 2);
       var body = '<div class="step-field"><label>List container selector</label><input type="text" data-field="listSelector" data-step="' + i + '" value="' + escapeHtml(listSelector) + '" placeholder="e.g. table tbody, ul">' +
         '<button type="button" class="btn btn-outline btn-small step-pick-on-page" data-step-index="' + i + '" data-pick-field="listSelector" title="Select on page">Select on page</button></div>' +
         '<div class="step-field"><label>Item selector (within list)</label><input type="text" data-field="itemSelector" data-step="' + i + '" value="' + escapeHtml(itemSelector) + '" placeholder="li, tr, [data-index]"></div>' +
         '<div class="step-field"><label>Fields to extract (JSON array)</label><textarea data-field="fields" data-step="' + i + '" rows="4">' + escapeHtml(fieldsJson) + '</textarea></div>' +
         '<div class="step-field"><label>Max items (0 = no limit)</label><input type="number" data-field="maxItems" data-step="' + i + '" value="' + maxItems + '" min="0" placeholder="0"></div>' +
+        '<div class="step-field"><label>Iframe selectors (JSON)</label><textarea data-field="iframeSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Iframe fallback selectors</label><textarea data-field="iframeFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeFbJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host selectors (JSON)</label><textarea data-field="shadowHostSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host fallback selectors</label><textarea data-field="shadowHostFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowFbJson) + '</textarea></div>' +
         '<div class="step-field"><button type="button" class="btn btn-outline step-test-extract" data-step-index="' + i + '" title="Run extraction on the current page">Test extraction</button></div>' +
         '<div class="step-actions"><button class="btn btn-primary" data-save-step="' + i + '">Save</button></div>';
       return window.__CFS_buildStepItemShell('extractData', action, i, totalCount, helpers, body);
@@ -49,6 +57,20 @@
       }
       var maxVal = getVal('maxItems');
       out.maxItems = (maxVal !== undefined && maxVal !== '') ? Math.max(0, parseInt(maxVal, 10) || 0) : 0;
+      function parseSelField(field) {
+        var v = getVal(field);
+        if (v === undefined || !String(v).trim()) return undefined;
+        try {
+          var p = JSON.parse(v || '[]');
+          return Array.isArray(p) && p.length ? p : undefined;
+        } catch (_) {
+          return undefined;
+        }
+      }
+      out.iframeSelectors = parseSelField('iframeSelectors');
+      out.iframeFallbackSelectors = parseSelField('iframeFallbackSelectors');
+      out.shadowHostSelectors = parseSelField('shadowHostSelectors');
+      out.shadowHostFallbackSelectors = parseSelField('shadowHostFallbackSelectors');
       return out;
     },
   });

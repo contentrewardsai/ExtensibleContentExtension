@@ -1,0 +1,33 @@
+{
+  "id": "writeJsonToProject",
+  "label": "Write JSON to project file",
+  "category": "data",
+  "description": "Writes JSON under the project folder (relative path). Data from a row variable or a literal string (with template resolution). Optional shallow merge with existing file.",
+  "defaultAction": {
+    "type": "writeJsonToProject",
+    "runIf": "",
+    "relativePath": "",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "dataSource": "variable",
+    "dataVariable": "",
+    "jsonLiteral": "{}",
+    "mergeMode": "replace"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "relativePath", "label": "Relative path under project", "inputType": "text" },
+    { "key": "projectIdVariableKey", "label": "Project ID row key (for {{projectId}} in path)", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "default" },
+    { "key": "dataSource", "label": "Data source", "inputType": "select", "options": [
+      { "value": "variable", "label": "Row variable" },
+      { "value": "literal", "label": "JSON literal" }
+    ] },
+    { "key": "dataVariable", "label": "Variable name (if variable)", "inputType": "text" },
+    { "key": "jsonLiteral", "label": "JSON literal (if literal)", "inputType": "text" },
+    { "key": "mergeMode", "label": "Merge mode", "inputType": "select", "options": [
+      { "value": "replace", "label": "replace" },
+      { "value": "shallowMerge", "label": "shallowMerge" }
+    ] }
+  ]
+}

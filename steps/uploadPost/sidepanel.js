@@ -17,6 +17,8 @@
       descriptionVariableKey: 'description',
       linkUrlVariableKey: '',
       userVariableKey: 'user',
+      projectIdVariableKey: 'projectId',
+      defaultProjectId: '',
       apiKeyVariableKey: 'uploadPostApiKey',
       subredditVariableKey: 'subreddit',
       facebookPageIdVariableKey: 'facebookPageId',
@@ -28,6 +30,7 @@
       extraFieldsVariableKey: '',
       saveAsVariable: '',
       saveStatusToVariable: '',
+      savePostManifestToDisk: true,
       timeoutMs: 120000,
     },
     getSummary: function(action) {

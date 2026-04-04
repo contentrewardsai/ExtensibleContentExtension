@@ -1,0 +1,40 @@
+{
+  "id": "raydiumClmmDecreaseLiquidity",
+  "label": "Raydium CLMM decrease liquidity",
+  "category": "data",
+  "description": "Removes liquidity from a **CLMM position** the automation wallet owns (matched by **positionNftMint**). Leave **liquidityRaw** empty or set **max** to burn all position liquidity. **amountMinARaw** / **amountMinBRaw** are minimum token outputs (raw). **closePosition** also closes the NFT position when true (full exit). Optional **poolId** must match the position if set.",
+  "defaultAction": {
+    "type": "raydiumClmmDecreaseLiquidity",
+    "runIf": "",
+    "positionNftMint": "",
+    "poolId": "",
+    "liquidityRaw": "",
+    "amountMinARaw": "0",
+    "amountMinBRaw": "0",
+    "closePosition": false,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "positionNftMint", "label": "Position NFT mint", "inputType": "text" },
+    { "key": "poolId", "label": "Pool id (optional check)", "inputType": "text" },
+    { "key": "liquidityRaw", "label": "Liquidity to remove (raw, empty=max)", "inputType": "text" },
+    { "key": "amountMinARaw", "label": "Min mint A out (raw)", "inputType": "text" },
+    { "key": "amountMinBRaw", "label": "Min mint B out (raw)", "inputType": "text" },
+    { "key": "closePosition", "label": "Close position NFT after", "inputType": "checkbox" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" }
+  ]
+}

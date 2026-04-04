@@ -1,0 +1,23 @@
+{
+  "id": "trimFromWordRange",
+  "label": "Trim times from word range",
+  "category": "data",
+  "description": "Reads word timestamps JSON (from transcribeAudio saveWordsToVariable), picks inclusive start/end word indices, and sets two row numbers (seconds) for trimVideo startTime / endTime.",
+  "defaultAction": {
+    "type": "trimFromWordRange",
+    "runIf": "",
+    "wordsVariableKey": "transcriptWords",
+    "startWordIndex": 0,
+    "endWordIndex": 0,
+    "saveStartVariable": "clipStart",
+    "saveEndVariable": "clipEnd"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "wordsVariableKey", "label": "Row variable with words JSON array", "inputType": "text", "placeholder": "transcriptWords" },
+    { "key": "startWordIndex", "label": "First word index (0-based, inclusive)", "inputType": "number", "min": 0 },
+    { "key": "endWordIndex", "label": "Last word index (inclusive)", "inputType": "number", "min": 0 },
+    { "key": "saveStartVariable", "label": "Save start time (seconds) to", "inputType": "text", "placeholder": "clipStart" },
+    { "key": "saveEndVariable", "label": "Save end time (seconds) to", "inputType": "text", "placeholder": "clipEnd" }
+  ]
+}

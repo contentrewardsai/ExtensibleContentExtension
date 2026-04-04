@@ -1,0 +1,82 @@
+# Validates extension invariants (no secrets; prebuilt chain bundles committed).
+name: Extension checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  bundle-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=moderate
+      - name: Prebuilt chain bundles match sources (BSC/Solana)
+        run: npm run build:chain-bundles && git diff --exit-code -- background/evm-lib.bundle.js background/solana-lib.bundle.js background/pump-sdk.bundle.js background/raydium-sdk.bundle.js background/meteora-dlmm.bundle.js background/meteora-cpamm.bundle.js background/infinity-sdk.bundle.js
+      - run: npm run build:step-tests
+      - name: Generated step HTML must match steps/manifest.json
+        run: git diff --exit-code test/unit-tests.html settings/settings.html
+      - run: npm run validate:steps
+      - run: npm run test:solana
+      - run: npm run test:evm-bundle
+      - run: npm run test:bsc-watch-wired
+      - run: npm run test:bsc-following-venues-wired
+      - run: npm run test:aster-futures-wired
+      - run: npm run test:aster-rate-limit-parse
+      - run: npm run test:cfs-always-on-wired
+      - run: npm run test:crypto-rate-limit-wired
+      - run: npm run test:crypto-workflow-step-types
+      - run: npm run test:crypto-manifest-hosts
+      - run: npm run test:crypto-observability-wired
+      - run: npm run test:sellability-probe-wired
+      - run: npm run test:bsc-v3-npm-query-wired
+      - run: npm run test:infinity-bundle
+      - run: npm run test:bsc-infinity-wired
+      - run: npm run test:infi-bin-path-json
+      - run: npm run test:remote-llm-wired
+      - run: npm run check:content-bundle
+      - run: npm run test:ffmpeg-vendor
+      - run: npm run test:unit
+      - run: npm run test:apify
+      - run: npm run test:project-id-resolve
+      - run: npm run test:recorder-integration
+
+  e2e-playwright-smoke:
+    runs-on: ubuntu-latest
+    needs: bundle-checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium --with-deps
+      - run: npm run test:e2e:ci-smoke
+        env:
+          CI: '1'
+          PW_WORKERS: '1'
+
+  optional-crypto-rpc-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SOLANA_RPC_SMOKE_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Read-only RPC smoke (optional secrets)
+        env:
+          SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
+          BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
+        run: npm run test:crypto-rpc-smoke

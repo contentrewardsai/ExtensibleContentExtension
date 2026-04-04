@@ -18,6 +18,25 @@
     return err?.message || String(err);
   }
 
+  /** Tell the service worker to abort in-flight Apify work for this tab (APIFY_RUN, APIFY_RUN_START, APIFY_RUN_WAIT, APIFY_DATASET_ITEMS). */
+  function cfsSendApifyRunCancelFromContentTab() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.getCurrent === 'function') {
+        chrome.tabs.getCurrent((tab) => {
+          const id = tab && typeof tab.id === 'number' && Number.isInteger(tab.id) && tab.id >= 0 ? tab.id : null;
+          const payload = id != null ? { type: 'APIFY_RUN_CANCEL', tabId: id } : { type: 'APIFY_RUN_CANCEL' };
+          try {
+            chrome.runtime.sendMessage(payload, () => void chrome.runtime.lastError);
+          } catch (_) {}
+        });
+        return;
+      }
+    } catch (_) {}
+    try {
+      chrome.runtime.sendMessage({ type: 'APIFY_RUN_CANCEL' }, () => void chrome.runtime.lastError);
+    } catch (_) {}
+  }
+
   const QC_FAILED_GEN_PHRASES = ['failed generation', 'generation failed', 'something went wrong', 'try again', 'generation error', "couldn't generate", 'could not generate'];
 
   /** Shared Virtuoso/QC helper: failure text without any video yet. */
@@ -60,6 +79,7 @@
         manualProceedResolver();
         manualProceedResolver = null;
       }
+      cfsSendApifyRunCancelFromContentTab();
       sendResponse({ ok: true });
     } else if (msg.type === 'PLAYER_STATUS') {
       sendResponse({ isPlaying, actionIndex, waitingManual: !!manualProceedResolver });
@@ -718,11 +738,28 @@
    * Returns { ok: true, rows } or { ok: false, error }.
    */
   function runExtractData(config) {
-    const doc = document;
-    const listSelector = config.listSelector;
-    const itemSelector = config.itemSelector || 'li, [data-index], tr, [role="row"], .item, [class*="item"]';
-    const fields = Array.isArray(config.fields) ? config.fields : [];
-    const maxItems = typeof config.maxItems === 'number' && config.maxItems > 0 ? config.maxItems : 0;
+    const cfg = config || {};
+    let doc = document;
+    if (cfg.rootDoc && cfg.rootDoc.nodeType) {
+      doc = cfg.rootDoc;
+    } else if (typeof resolveDocumentForAction === 'function') {
+      const hasScope =
+        (cfg.iframeSelectors && cfg.iframeSelectors.length) ||
+        (cfg.iframeFallbackSelectors && cfg.iframeFallbackSelectors.length) ||
+        (cfg.shadowHostSelectors && cfg.shadowHostSelectors.length) ||
+        (cfg.shadowHostFallbackSelectors && cfg.shadowHostFallbackSelectors.length);
+      if (hasScope) {
+        try {
+          doc = resolveDocumentForAction(cfg, document);
+        } catch (_) {
+          doc = document;
+        }
+      }
+    }
+    const listSelector = cfg.listSelector;
+    const itemSelector = cfg.itemSelector || 'li, [data-index], tr, [role="row"], .item, [class*="item"]';
+    const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
+    const maxItems = typeof cfg.maxItems === 'number' && cfg.maxItems > 0 ? cfg.maxItems : 0;
 
     let list = null;
     if (typeof listSelector === 'string' && listSelector.trim()) {
@@ -893,7 +930,7 @@
         if (isEnsureSelect && (action.checkSelectors?.length || action.openSelectors?.length || action.fallbackSelectors?.length)) {
           const base = action.checkSelectors?.length ? action.checkSelectors : action.openSelectors || [];
           const sels = [...base, ...(action.fallbackSelectors || [])];
-          const stepInfo = { stepIndex: actionIndex + 1, type: 'ensureSelect', summary: action.stepLabel || action.expectedText || '', action };
+          const stepInfo = { stepIndex: actionIndex + 1, type: 'ensureSelect', summary: action.stepLabel || action.expectedText || '', action, rootDoc: scopeDocForAction(action) };
           try {
             await waitForElement(sels, ELEMENT_TIMEOUT_MS, stepInfo);
           } catch (waitErr) {
@@ -906,7 +943,7 @@
         } else if (needsElement && (action.selectors?.length || action.fallbackSelectors?.length || action.type === 'type')) {
           const timeout = action.optional ? OPTIONAL_STEP_TIMEOUT_MS : ELEMENT_TIMEOUT_MS;
           const summary = action.stepLabel || action.text || action.displayedValue || action.tagName || action.placeholder || action.name || action.variableKey || '';
-          const stepInfo = { stepIndex: actionIndex + 1, type: action.type, summary, action };
+          const stepInfo = { stepIndex: actionIndex + 1, type: action.type, summary, action, rootDoc: scopeDocForAction(action) };
           const waitSels = [...(action.selectors || []), ...(action.fallbackSelectors || [])];
           try {
             await waitForElement(waitSels, timeout, stepInfo);
@@ -927,13 +964,9 @@
           actionIndex += skipResult.skipCount || 1;
           continue;
         }
-        if (action.runIf) {
-          const key = String(action.runIf).trim().replace(/^\{\{\s*|\s*\}\}$/g, '').trim();
-          const val = key ? getRowValue(currentRow || {}, key) : undefined;
-          if (val === undefined || val === null || val === '' || val === false || val === 0) {
-            actionIndex++;
-            continue;
-          }
+        if (action.runIf && !evaluateRunIfCondition(action.runIf, currentRow || {}, getRowValue)) {
+          actionIndex++;
+          continue;
         }
         const prevAction = actions[actionIndex - 1];
         const prevMeta = prevAction && (typeof window !== 'undefined' && window.__CFS_stepHandlerMeta) ? window.__CFS_stepHandlerMeta[prevAction.type] : null;
@@ -1206,7 +1239,7 @@
   }
 
   async function waitForGenerationComplete(cfg, timeoutMs, stepInfo = {}) {
-    const doc = document;
+    const doc = (cfg && cfg.rootDoc && cfg.rootDoc.nodeType) ? cfg.rootDoc : document;
     const start = Date.now();
     const { stepIndex, type, summary } = stepInfo;
     const stepLabel = stepIndex ? `Step ${stepIndex} (${type}${summary ? ': ' + String(summary).slice(0, 30) : ''})` : 'Generation';
@@ -1215,23 +1248,30 @@
     const cardIndex = cfg.cardIndex ?? 'last';
     const pollInterval = 800;
 
+    const defaultSearchRoot = () => {
+      if (doc.nodeType === 9) return doc.body;
+      if (doc.nodeType === 11) return doc;
+      return document.body;
+    };
+
     const getContainer = () => {
+      const fallback = defaultSearchRoot();
       const sels = containerSelectors || [];
-      if (sels.length === 0) return doc.body;
+      if (sels.length === 0) return fallback;
       const first = sels[0];
       if (typeof first === 'string') {
         try {
           const el = doc.querySelector(first);
-          return el || doc.body;
+          return el || fallback;
         } catch (_) {
-          return doc.body;
+          return fallback;
         }
       }
       if (typeof resolveElement === 'function') {
         const el = resolveElement(sels, doc);
-        return el || doc.body;
+        return el || fallback;
       }
-      return doc.body;
+      return fallback;
     };
 
     const checkComplete = () => {
@@ -1240,7 +1280,8 @@
       const videos = container.querySelectorAll(videoSelector);
       if (videos.length === 0) return false;
       const children = Array.from(container.children).filter(c => c.nodeType === 1);
-      const useAny = cardIndex === 'any' || container === doc.body;
+      const fallbackRoot = defaultSearchRoot();
+      const useAny = cardIndex === 'any' || container === fallbackRoot || (doc.nodeType === 9 && container === doc.body);
       if (children.length === 0 || useAny) return videos[0] || false;
       let target = null;
       if (cardIndex === 'last') target = children[children.length - 1];
@@ -1261,7 +1302,7 @@
   }
 
   async function waitForElement(selectors, timeoutMs, stepInfo = {}) {
-    const doc = document;
+    const doc = stepInfo.rootDoc && stepInfo.rootDoc.nodeType ? stepInfo.rootDoc : document;
     const start = Date.now();
     const { stepIndex, type, summary, action } = stepInfo;
     const stepLabel = stepIndex ? `Step ${stepIndex} (${type}${summary ? ': ' + String(summary).slice(0, 30) : ''})` : 'Element';
@@ -1544,7 +1585,7 @@
           if (a.type === 'ensureSelect' && (a.checkSelectors?.length || a.openSelectors?.length || a.fallbackSelectors?.length)) {
             const base = a.checkSelectors?.length ? a.checkSelectors : a.openSelectors || [];
             const sels = [...base, ...(a.fallbackSelectors || [])];
-            const stepInfo = { stepIndex: i + 1, type: 'ensureSelect', summary: a.expectedText || '' };
+            const stepInfo = { stepIndex: i + 1, type: 'ensureSelect', summary: a.expectedText || '', action: a, rootDoc: scopeDocForAction(a) };
             try {
               await waitForElement(sels, a.optional ? OPTIONAL_STEP_TIMEOUT_MS : ELEMENT_TIMEOUT_MS, stepInfo);
             } catch (waitErr) {
@@ -1553,7 +1594,7 @@
             }
           } else if ((window.__CFS_stepHandlerMeta && window.__CFS_stepHandlerMeta[a.type]?.needsElement) && (a.selectors?.length || a.fallbackSelectors?.length)) {
             const sels = [...(a.selectors || []), ...(a.fallbackSelectors || [])];
-            const stepInfo = { stepIndex: i + 1, type: a.type, summary: a.stepLabel || a.text || a.tagName || '' };
+            const stepInfo = { stepIndex: i + 1, type: a.type, summary: a.stepLabel || a.text || a.tagName || '', action: a, rootDoc: scopeDocForAction(a) };
             try {
               await waitForElement(sels, a.optional ? OPTIONAL_STEP_TIMEOUT_MS : ELEMENT_TIMEOUT_MS, stepInfo);
             } catch (waitErr) {
@@ -1566,6 +1607,7 @@
             i += (skipResult.skipCount || 1) - 1;
             continue;
           }
+          if (a.runIf && !evaluateRunIfCondition(a.runIf, currentRow || {}, getRowValue)) continue;
           await executeAction(a);
           await waitForStability(a);
         }
@@ -1630,6 +1672,8 @@
             const skipResult = await trySkipByDOMState(step, steps, j);
             if (skipResult?.skip) {
               j += (skipResult.skipCount || 1) - 1;
+            } else if (step.runIf && !evaluateRunIfCondition(step.runIf, currentRow || {}, getRowValue)) {
+              /* skip */
             } else {
               await executeAction(step);
             }
@@ -1714,7 +1758,11 @@
   }
 
   async function executeEnsureSelect(action) {
-    const doc = document;
+    const baseDoc = document;
+    const doc = typeof resolveDocumentForAction === 'function'
+      ? resolveDocumentForAction(action, baseDoc)
+      : baseDoc;
+    const docForKeyboard = doc.nodeType === 9 ? doc : (doc.ownerDocument || document);
     const checkBase = action.checkSelectors?.length ? action.checkSelectors : action.openSelectors || [];
     const openBase = action.openSelectors?.length ? action.openSelectors : action.checkSelectors || [];
     const checkSels = [...checkBase, ...(action.fallbackSelectors || [])];
@@ -1825,7 +1873,7 @@
         const keyCode = keyCodeByKey[closeKey] || 0;
         try {
           for (let i = 0; i < closeKeyCount; i++) {
-            doc.dispatchEvent(new KeyboardEvent('keydown', { key: closeKey, keyCode, bubbles: true }));
+            docForKeyboard.dispatchEvent(new KeyboardEvent('keydown', { key: closeKey, keyCode, bubbles: true }));
             await sleep(100);
           }
         } catch (_) {}
@@ -1888,7 +1936,7 @@
     for (let attempt = 0; attempt < 2; attempt++) {
       await sleep(POLL_INTERVAL_MS * (attempt + 1));
       try {
-        if (retrySels.length) await waitForElement(retrySels, 15000);
+        if (retrySels.length) await waitForElement(retrySels, 15000, { action, rootDoc: scopeDocForAction(action) });
         await executeAction(action);
         return true;
       } catch (_) {}
@@ -1940,6 +1988,63 @@
   }
 
   /**
+   * Narrow automation to a same-origin iframe and/or one open shadow root (in that order).
+   * Optional on any action: `iframeSelectors`, `shadowHostSelectors` (same entry shape as other selector lists).
+   */
+  function resolveDocumentForAction(action, baseDoc) {
+    const root = baseDoc && baseDoc.nodeType ? baseDoc : document;
+    if (!action || typeof resolveElement !== 'function') return root;
+    let doc = root;
+    const iframeSels = [...(action.iframeSelectors || []), ...(action.iframeFallbackSelectors || [])];
+    if (iframeSels.length) {
+      const iframeEl = resolveElement(iframeSels, doc);
+      if (!iframeEl || String(iframeEl.tagName || '').toLowerCase() !== 'iframe') {
+        throw new Error('iframeSelectors did not resolve to an iframe element');
+      }
+      const cd = iframeEl.contentDocument;
+      if (!cd) {
+        throw new Error('Cannot access iframe document (cross-origin or not loaded)');
+      }
+      doc = cd;
+    }
+    const shadowSels = [...(action.shadowHostSelectors || []), ...(action.shadowHostFallbackSelectors || [])];
+    if (shadowSels.length) {
+      const host = resolveElement(shadowSels, doc);
+      if (!host) throw new Error('shadowHostSelectors did not resolve to an element');
+      const sr = host.shadowRoot;
+      if (!sr) throw new Error('Element has no open shadow root');
+      doc = sr;
+    }
+    return doc;
+  }
+
+  /**
+   * Like resolveElementForAction but always resolves under `doc` (e.g. after resolveDocumentForAction).
+   * Does not read iframe/shadow fields — use resolveDocumentForAction first.
+   */
+  function resolveElementForActionInDocument(action, doc = document) {
+    if (!action || typeof resolveElement !== 'function') return null;
+    const sels = [...(action.selectors || []), ...(action.fallbackSelectors || [])];
+    return sels.length ? resolveElement(sels, doc) : null;
+  }
+
+  /** Document or ShadowRoot for wait/resolve when action sets iframe or shadow scope. */
+  function scopeDocForAction(action) {
+    if (!action) return document;
+    const hasScope =
+      (action.iframeSelectors && action.iframeSelectors.length) ||
+      (action.iframeFallbackSelectors && action.iframeFallbackSelectors.length) ||
+      (action.shadowHostSelectors && action.shadowHostSelectors.length) ||
+      (action.shadowHostFallbackSelectors && action.shadowHostFallbackSelectors.length);
+    if (!hasScope) return document;
+    try {
+      return resolveDocumentForAction(action, document);
+    } catch (_) {
+      return document;
+    }
+  }
+
+  /**
    * Step handlers are loaded from per-step JS files (steps/{id}/handler.js) at init.
    * Element steps (click, type, select, upload, download) receive ctx with helpers
    * and implement their own resolution + execution. See docs/STEP_PLUGINS.md.
@@ -1949,6 +2054,9 @@
       resolveElement: typeof resolveElement === 'function' ? resolveElement : null,
       resolveAllElements: typeof resolveAllElements === 'function' ? resolveAllElements : null,
       resolveElementForAction,
+      resolveElementForActionInDocument,
+      resolveDocumentForAction,
+      scopeDocForAction,
       resolveAllElementsForAction,
       resolveAllCandidatesForAction,
       resolveAllCandidates: typeof resolveAllCandidates === 'function' ? resolveAllCandidates : null,
@@ -2088,6 +2196,16 @@
     return '';
   }
 
+  function evaluateRunIfCondition(runIfRaw, row, getRv) {
+    const ric = typeof CFS_runIfCondition !== 'undefined' ? CFS_runIfCondition : null;
+    if (ric && typeof ric.evaluate === 'function') return ric.evaluate(runIfRaw, row, getRv);
+    const s = String(runIfRaw || '').trim();
+    if (!s) return true;
+    const key = s.replace(/^\{\{\s*|\s*\}\}$/g, '').trim();
+    const val = key ? getRv(row, key) : undefined;
+    return !(val === undefined || val === null || val === '' || val === false || val === 0);
+  }
+
   function performClick(el) {
     if (!el || !el.dispatchEvent) return;
     try {
@@ -2121,7 +2239,7 @@
 
     if (isCropOrSave && nextAction?.type === 'click' && (nextAction.selectors?.length || nextAction.fallbackSelectors?.length)) {
       const sels = [...(nextAction.selectors || []), ...(nextAction.fallbackSelectors || [])];
-      const stepInfo = { type: 'click', summary: nextAction.text || nextAction.displayedValue || 'next step' };
+      const stepInfo = { type: 'click', summary: nextAction.text || nextAction.displayedValue || 'next step', action: nextAction, rootDoc: scopeDocForAction(nextAction) };
       try {
         await waitForElement(sels, 15000, stepInfo);
       } catch (_) {}
@@ -2139,7 +2257,7 @@
     if (proceedWhen === 'element' && (action.proceedWhenSelectors?.length || action.proceedWhenFallbackSelectors?.length)) {
       const sels = [...(action.proceedWhenSelectors || []), ...(action.proceedWhenFallbackSelectors || [])];
       const timeoutMs = Math.min(Math.max(action.proceedAfterMs || 300000, 5000), 600000);
-      const stepInfo = { type: 'proceedWhen', summary: 'element appears' };
+      const stepInfo = { type: 'proceedWhen', summary: 'element appears', action, rootDoc: scopeDocForAction(action) };
       await waitForElement(sels, timeoutMs, stepInfo);
       return;
     }

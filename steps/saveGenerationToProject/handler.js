@@ -1,7 +1,7 @@
 /**
  * Save generation to project: queue the variable's content (image/video/text data URL or blob URL)
- * for saving under Library/{projectId}/generations/ with numeric naming. The sidepanel handles
- * the actual file write when the user has set the project folder and clicks Save pending.
+ * for saving under uploads/{projectId}/generations/ (default folder) with numeric naming.
+ * The sidepanel writes files when the user has set the project folder and clicks Save pending generations.
  */
 (function() {
   'use strict';
@@ -23,7 +23,13 @@
     const data = getRowValue(row, varName);
     if (!data || typeof data !== 'string') return;
 
-    const projectId = resolve(action.projectIdVariable || '');
+    let projectId = resolve(action.projectIdVariable || '');
+    if (!projectId && typeof CFS_projectIdResolve !== 'undefined') {
+      const r = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
+        defaultProjectId: action.defaultProjectId,
+      });
+      if (r.ok) projectId = r.projectId;
+    }
     const folder = action.folder || 'generations';
     const rowIndex = (ctx.currentRowIndex != null ? ctx.currentRowIndex : (row._rowIndex != null ? row._rowIndex : 0));
     const namingFormat = (action.namingFormat || 'numeric').toLowerCase();
