@@ -7,7 +7,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | Layer | Purpose | How |
 |-------|---------|-----|
 | **L1** | Payloads, parsing, merge logic, step UI contracts | `npm run test:unit`, `steps/*/step-tests.js`, `npm run test:crypto-workflow-step-types` |
-| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` + `getSlot` + `getLatestBlockhash`, EVM `eth_chainId` + `eth_blockNumber`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
+| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` / `getSlot` / `getLatestBlockhash` / `getVersion`; EVM `eth_chainId` / `eth_blockNumber`; on BSC **56**, `eth_call` WBNB `decimals()`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
