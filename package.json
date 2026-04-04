@@ -17,6 +17,7 @@
     "test:ffmpeg-vendor": "node scripts/verify-ffmpeg-vendor.cjs",
     "validate:steps": "node scripts/validate-step-definitions.cjs",
     "report:step-test-coverage": "node scripts/report-step-test-coverage.mjs",
+    "report:test-landscape": "node scripts/report-test-landscape.mjs",
     "build:step-tests": "node scripts/build-step-tests.cjs",
     "test:e2e": "npm run build:step-tests && node scripts/build-step-e2e.cjs && npx playwright test",
     "test:e2e:ci": "npm run build:step-tests && node scripts/build-step-e2e.cjs && CI=1 npx playwright test",
