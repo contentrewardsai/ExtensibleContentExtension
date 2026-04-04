@@ -348,6 +348,37 @@
     assertTrue(/^\d{4}-\d{2}-\d{2}$/.test(et.dateStr), 'ET dateStr format');
   }
 
+  /** Interval recurring: missing lastRunAtMs must still run (legacy/imported rows otherwise never fire). */
+  function testShouldRunRecurringIntervalFirstRun() {
+    function shouldRunRecurringInterval(schedule, nowMs) {
+      var pattern = (schedule.pattern || 'daily').toLowerCase();
+      if (pattern !== 'interval') return null;
+      var mins = Math.max(1, parseInt(schedule.intervalMinutes, 10) || 1);
+      var intervalMs = mins * 60 * 1000;
+      var last = schedule.lastRunAtMs != null ? Number(schedule.lastRunAtMs) : 0;
+      if (!last || last <= 0) return true;
+      if ((nowMs - last) < intervalMs) return false;
+      return true;
+    }
+    var t0 = 1700000000000;
+    assertTrue(
+      shouldRunRecurringInterval({ pattern: 'interval', intervalMinutes: 5 }, t0),
+      'interval without lastRunAtMs should run on first check'
+    );
+    assertTrue(
+      shouldRunRecurringInterval({ pattern: 'interval', intervalMinutes: 5, lastRunAtMs: 0 }, t0),
+      'interval with lastRunAtMs 0 should run'
+    );
+    assertFalse(
+      shouldRunRecurringInterval({ pattern: 'interval', intervalMinutes: 5, lastRunAtMs: t0 - 60000 }, t0),
+      'interval should not run before interval elapses'
+    );
+    assertTrue(
+      shouldRunRecurringInterval({ pattern: 'interval', intervalMinutes: 5, lastRunAtMs: t0 - 6 * 60000 }, t0),
+      'interval should run after interval elapses'
+    );
+  }
+
   /** shouldRunRecurring: weekly pattern with array of days */
   function testShouldRunRecurringWeeklyArray() {
     function shouldRunRecurring(schedule, nowInZone) {
@@ -3902,6 +3933,7 @@
     testVideoCombinerEndTimeCondition,
     testGetNowInTimezoneShape,
     testShouldRunRecurringWeeklyArray,
+    testShouldRunRecurringIntervalFirstRun,
     testShouldRunRecurringAlreadyRan,
     testShouldRunRecurringUnknownPattern,
     testResolveNestedWorkflows,
