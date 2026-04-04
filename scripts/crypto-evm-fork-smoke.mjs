@@ -4,7 +4,7 @@
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
  * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, then
- * eth_getCode on a known contract for chain 56 (Pancake V2 router) or 97 (WBNB Chapel).
+ * eth_getCode on a known contract for chain 56 (Pancake V2 router) or 97 (Infinity Vault Chapel).
  * Exit 0 on success; does not send transactions.
  */
 import process from 'node:process';
@@ -13,8 +13,8 @@ const url = (process.env.CRYPTO_EVM_FORK_RPC_URL || 'http://127.0.0.1:8545').tri
 
 /** Same as background/bsc-evm.js PANCAKE_ROUTER_V2 — proves mainnet/fork sees DEX bytecode. */
 const PANCAKE_V2_ROUTER_BSC = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
-/** Wrapped BNB on BSC Chapel (common testnet deployment). */
-const WBNB_CHAPEL = '0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd';
+/** Same as background/bsc-evm.js INFI_VAULT_CHAPEL — extension uses this on chain 97. */
+const INFI_VAULT_CHAPEL = '0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD';
 
 async function rpc(method, params = []) {
   const res = await fetch(url, {
@@ -55,8 +55,8 @@ async function main() {
     probe = PANCAKE_V2_ROUTER_BSC;
     label = 'Pancake V2 router (mainnet)';
   } else if (cid === 97) {
-    probe = WBNB_CHAPEL;
-    label = 'WBNB (Chapel)';
+    probe = INFI_VAULT_CHAPEL;
+    label = 'Infinity Vault (Chapel)';
   }
   if (probe) {
     const code = await rpc('eth_getCode', [probe, 'latest']);
