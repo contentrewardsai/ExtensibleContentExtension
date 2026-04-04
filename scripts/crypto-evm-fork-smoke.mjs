@@ -4,7 +4,7 @@
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
  * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, then
- * eth_getCode on pinned contracts: chain 56 Pancake V2 router + WBNB (+ eth_call WBNB.decimals);
+ * eth_gasPrice + eth_getCode: chain 56 router + WBNB + Infinity Vault mainnet (+ eth_call WBNB.decimals);
  * chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
  */
@@ -16,6 +16,8 @@ const url = (process.env.CRYPTO_EVM_FORK_RPC_URL || 'http://127.0.0.1:8545').tri
 const PANCAKE_V2_ROUTER_BSC = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
 /** Same as background/bsc-evm.js WBNB_BSC. */
 const WBNB_BSC = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
+/** Same as background/bsc-evm.js INFI_VAULT_BSC. */
+const INFI_VAULT_BSC = '0x238a358808379702088667322f80aC48bAd5e6c4';
 /** Same as background/bsc-evm.js INFI_VAULT_CHAPEL — extension uses this on chain 97. */
 const INFI_VAULT_CHAPEL = '0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD';
 /** Same as background/bsc-evm.js INFI_BIN_POOL_MANAGER_CHAPEL. */
@@ -55,6 +57,11 @@ async function main() {
   console.log('[crypto-evm-fork-smoke] eth_chainId:', chainId);
   console.log('[crypto-evm-fork-smoke] latest block:', block?.number ?? '(null)');
   console.log('[crypto-evm-fork-smoke] eth_blockNumber:', blockNum);
+  const gasPrice = await rpc('eth_gasPrice', []);
+  if (typeof gasPrice !== 'string' || !/^0x[0-9a-fA-F]+$/.test(gasPrice) || parseInt(gasPrice, 16) <= 0) {
+    throw new Error(`eth_gasPrice unexpected ${JSON.stringify(gasPrice)}`);
+  }
+  console.log('[crypto-evm-fork-smoke] eth_gasPrice:', gasPrice);
 
   const cid = parseChainIdHex(chainId);
   const probes =
@@ -62,6 +69,7 @@ async function main() {
       ? [
           [PANCAKE_V2_ROUTER_BSC, 'Pancake V2 router (mainnet)'],
           [WBNB_BSC, 'WBNB (mainnet)'],
+          [INFI_VAULT_BSC, 'Infinity Vault (mainnet)'],
         ]
       : cid === 97
         ? [

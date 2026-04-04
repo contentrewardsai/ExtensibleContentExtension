@@ -115,6 +115,20 @@ async function main() {
       throw new Error(`BSC: unexpected eth_blockNumber ${JSON.stringify(n)}`);
     }
     console.log('[crypto-rpc-smoke] BSC eth_blockNumber:', n);
+    const gp = await postJson(
+      bscUrl,
+      { jsonrpc: '2.0', id: 4, method: 'eth_gasPrice', params: [] },
+      'BSC eth_gasPrice'
+    );
+    const gpx = gp.result;
+    if (typeof gpx !== 'string' || !/^0x[0-9a-fA-F]+$/.test(gpx)) {
+      throw new Error(`BSC: unexpected eth_gasPrice ${JSON.stringify(gpx)}`);
+    }
+    const gasWei = parseInt(gpx, 16);
+    if (!Number.isFinite(gasWei) || gasWei <= 0) {
+      throw new Error(`BSC: eth_gasPrice not positive ${gpx}`);
+    }
+    console.log('[crypto-rpc-smoke] BSC eth_gasPrice:', gpx);
 
     const cid = parseInt(hex, 16);
     /** ERC20 decimals() — same WBNB mainnet pin as bsc-evm.js (chain 56 only). */
@@ -125,7 +139,7 @@ async function main() {
         bscUrl,
         {
           jsonrpc: '2.0',
-          id: 3,
+          id: 5,
           method: 'eth_call',
           params: [{ to: WBNB_MAINNET, data: DECIMALS_SEL }, 'latest'],
         },
