@@ -81,6 +81,13 @@
   /** Cap domShowHide lists so heavy pages (e.g. search suggestions) do not flood workflow JSON. */
   const DOM_SHOWHIDE_MAX_UNIQUE = 48;
   const HOVER_DEBOUNCE_MS = 200;
+  /** Coalesce wheel events into one scroll step (trackpads fire many per gesture). */
+  const SCROLL_COALESCE_MS = 400;
+  const SCROLL_MIN_ABS = 0.5;
+  /** Dedupe navigation steps (SPA + link clicks). */
+  const NAV_DEDUPE_MS = 800;
+  /** Same-tab link: skip duplicate click when we record goToUrl shortly after pointerdown. */
+  const SAME_TAB_LINK_NAV_MS = 600;
 
   let mutationBuffer = [];
   let mutationObserver = null;
@@ -89,6 +96,21 @@
   let lastHoverRecordedTime = 0;
   let pendingHover = null;
   let pendingHoverTimeoutId = null;
+
+  /** @type {{ dx: number, dy: number, lastT: number, timer: ReturnType<typeof setTimeout>|null, containerEl: Element|null }|null} */
+  let pendingScroll = null;
+  /** @type {{ href: string, t: number }|null} */
+  let lastRecordedNav = null;
+  /** @type {number|null} */
+  let lastPointerDownForLinkTs = null;
+  /** @type {string|null} */
+  let lastPointerDownForLinkHref = null;
+  let lastPointerDownOpenTab = false;
+  /** @type {{ primary: unknown[], fallbacks?: unknown[], ts: number }|null} */
+  let dragDropPendingSource = null;
+  let origHistoryPushState = null;
+  let origHistoryReplaceState = null;
+  let onPopStateWrapped = null;
 
   let syncRecordingToBgTimer = null;
 
@@ -219,6 +241,188 @@
 
   /** Recorded action.type values that may receive domShowHide from the mutation buffer after the step. */
   const DOM_SHOWHIDE_ACTION_TYPES = ['click', 'hover', 'download'];
+
+  const KEY_RECORDABLE = {
+    Escape: true,
+    Tab: true,
+    ArrowUp: true,
+    ArrowDown: true,
+    ArrowLeft: true,
+    ArrowRight: true,
+    PageUp: true,
+    PageDown: true,
+    Home: true,
+    End: true,
+    Backspace: true,
+    Delete: true,
+    ' ': true,
+  };
+
+  function isLikelyScrollContainer(node) {
+    if (!node || node.nodeType !== 1 || typeof node.scrollBy !== 'function') return false;
+    const sh = node.scrollHeight - node.clientHeight;
+    const sw = node.scrollWidth - node.clientWidth;
+    if (sh <= 1 && sw <= 1) return false;
+    const st = window.getComputedStyle(node);
+    return /(auto|scroll|overlay)/.test(st.overflowY) || /(auto|scroll|overlay)/.test(st.overflowX);
+  }
+
+  function findWheelScrollTarget(startEl) {
+    let n = startEl;
+    for (let i = 0; n && i < 80; i++) {
+      if (isLikelyScrollContainer(n)) return n;
+      n = n.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function flushPendingScroll() {
+    if (!pendingScroll) return;
+    if (pendingScroll.timer) {
+      clearTimeout(pendingScroll.timer);
+      pendingScroll.timer = null;
+    }
+    const contEl = pendingScroll.containerEl;
+    const dx = Math.round(pendingScroll.dx);
+    const dy = Math.round(pendingScroll.dy);
+    pendingScroll = null;
+    if (Math.abs(dx) < SCROLL_MIN_ABS && Math.abs(dy) < SCROLL_MIN_ABS) return;
+    maybeInsertWait();
+    const action = {
+      type: 'scroll',
+      mode: 'delta',
+      deltaX: dx,
+      deltaY: dy,
+      behavior: 'auto',
+      settleMs: 100,
+      url: window.location.href,
+      timestamp: Date.now(),
+    };
+    if (contEl && contEl !== document.documentElement && contEl !== document.body && document.documentElement.contains(contEl)) {
+      const cap = capturePrimaryAndFallbacks(contEl);
+      if (cap.primary.length) {
+        action.containerSelectors = cap.primary;
+        if (cap.fallbacks.length) action.containerFallbackSelectors = cap.fallbacks;
+      }
+    }
+    attachPageStateToAction(action);
+    pushRecordedAction(action);
+    if (domChangeTimeoutId) clearTimeout(domChangeTimeoutId);
+    domChangeTimeoutId = setTimeout(attachDomChangesToLastAction, DOM_CHANGE_DELAY_MS);
+  }
+
+  function onWheel(e) {
+    if (!isRecording || qualityCheckMode) return;
+    let el = e.target;
+    if (el.nodeType !== 1) el = el.parentElement;
+    if (!el) return;
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) {
+      dx *= 16;
+      dy *= 16;
+    } else if (e.deltaMode === 2) {
+      dx *= window.innerWidth || 1;
+      dy *= window.innerHeight || 1;
+    }
+    if (Math.abs(dx) < SCROLL_MIN_ABS && Math.abs(dy) < SCROLL_MIN_ABS) return;
+    const cont = findWheelScrollTarget(el);
+    const now = Date.now();
+    if (!pendingScroll || pendingScroll.containerEl !== cont) {
+      if (pendingScroll) flushPendingScroll();
+      pendingScroll = { dx: 0, dy: 0, lastT: now, timer: null, containerEl: cont };
+    }
+    pendingScroll.dx += dx;
+    pendingScroll.dy += dy;
+    pendingScroll.lastT = now;
+    if (pendingScroll.timer) clearTimeout(pendingScroll.timer);
+    pendingScroll.timer = setTimeout(() => {
+      pendingScroll.timer = null;
+      flushPendingScroll();
+    }, SCROLL_COALESCE_MS);
+  }
+
+  function recordGoToUrl(href, source) {
+    const h = String(href || '').trim();
+    if (!h || !/^https?:\/\//i.test(h)) return;
+    const now = Date.now();
+    if (lastRecordedNav && lastRecordedNav.href === h && now - lastRecordedNav.t < NAV_DEDUPE_MS) return;
+    lastRecordedNav = { href: h, t: now };
+    maybeInsertWait();
+    const action = {
+      type: 'goToUrl',
+      url: h,
+      urlRecordedFrom: source || 'recorder',
+      timestamp: now,
+    };
+    attachPageStateToAction(action);
+    pushRecordedAction(action);
+  }
+
+  function recordOpenTab(href, newWindow) {
+    const h = String(href || '').trim();
+    if (!h || !/^https?:\/\//i.test(h)) return;
+    const now = Date.now();
+    if (lastRecordedNav && lastRecordedNav.href === h && now - lastRecordedNav.t < NAV_DEDUPE_MS) return;
+    lastRecordedNav = { href: h, t: now };
+    maybeInsertWait();
+    const action = {
+      type: 'openTab',
+      url: h,
+      andSwitchToTab: false,
+      openInNewWindow: !!newWindow,
+      urlRecordedFrom: 'recorder',
+      timestamp: now,
+    };
+    attachPageStateToAction(action);
+    pushRecordedAction(action);
+  }
+
+  function onHistoryNavigation() {
+    if (!isRecording || qualityCheckMode) return;
+    try {
+      recordGoToUrl(window.location.href, 'history');
+    } catch (_) {}
+  }
+
+  function patchHistoryForRecording() {
+    if (origHistoryPushState) return;
+    const hist = window.history;
+    if (!hist || typeof hist.pushState !== 'function') return;
+    origHistoryPushState = hist.pushState.bind(hist);
+    origHistoryReplaceState = hist.replaceState.bind(hist);
+    hist.pushState = function statePush() {
+      const r = origHistoryPushState.apply(hist, arguments);
+      onHistoryNavigation();
+      return r;
+    };
+    hist.replaceState = function stateReplace() {
+      const r = origHistoryReplaceState.apply(hist, arguments);
+      onHistoryNavigation();
+      return r;
+    };
+    onPopStateWrapped = function () {
+      onHistoryNavigation();
+    };
+    window.addEventListener('popstate', onPopStateWrapped);
+  }
+
+  function unpatchHistoryForRecording() {
+    if (origHistoryPushState && window.history) {
+      try {
+        window.history.pushState = origHistoryPushState;
+        window.history.replaceState = origHistoryReplaceState;
+      } catch (_) {}
+    }
+    origHistoryPushState = null;
+    origHistoryReplaceState = null;
+    if (onPopStateWrapped) {
+      try {
+        window.removeEventListener('popstate', onPopStateWrapped);
+      } catch (_) {}
+      onPopStateWrapped = null;
+    }
+  }
 
   function attachDomChangesToLastAction() {
     domChangeTimeoutId = null;
@@ -392,6 +596,8 @@
       clearTimeout(syncRecordingToBgTimer);
       syncRecordingToBgTimer = null;
     }
+    if (pendingScroll) flushPendingScroll();
+    dragDropPendingSource = null;
     isRecording = false;
     if (typingTimeout) {
       clearTimeout(typingTimeout);
@@ -611,6 +817,7 @@
   }
 
   function setupListeners() {
+    patchHistoryForRecording();
     document.addEventListener('click', onClick, true);
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('mousedown', onMouseDown, true);
@@ -619,9 +826,14 @@
     document.addEventListener('input', onInput, true);
     document.addEventListener('change', onChange, true);
     document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    document.addEventListener('dragstart', onDragStart, true);
+    document.addEventListener('drop', onDrop, true);
+    document.addEventListener('dragend', onDragEnd, true);
   }
 
   function removeListeners() {
+    unpatchHistoryForRecording();
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('pointerdown', onPointerDown, true);
     document.removeEventListener('mousedown', onMouseDown, true);
@@ -630,7 +842,12 @@
     document.removeEventListener('input', onInput, true);
     document.removeEventListener('change', onChange, true);
     document.removeEventListener('keydown', onKeyDown, true);
+    document.removeEventListener('wheel', onWheel, true);
+    document.removeEventListener('dragstart', onDragStart, true);
+    document.removeEventListener('drop', onDrop, true);
+    document.removeEventListener('dragend', onDragEnd, true);
     lastHoverTarget = null;
+    if (pendingScroll) flushPendingScroll();
     if (pendingHoverTimeoutId) {
       clearTimeout(pendingHoverTimeoutId);
       pendingHoverTimeoutId = null;
@@ -865,7 +1082,6 @@
     const target = captureEl || el;
     if (!isOption && shouldSkipNoisePointerTarget(target)) return;
     const isDownload = el.tagName?.toLowerCase() === 'a' && (el.hasAttribute('download') || el.getAttribute('href')?.match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i));
-    const isNavLink = el.tagName?.toLowerCase() === 'a' && el.href && !el.target && !el.href.startsWith('javascript:');
     const rawText = (el.textContent || el.innerText || el.value || '').replace(/\s+/g, ' ').trim().slice(0, 100);
     const displayedValue = isOption ? (getOptionLabelText(target) || rawText) : rawText;
     const textForFallback = displayedValue || (target.textContent || el.textContent || el.innerText || '')?.replace(/\s+/g, ' ').trim().slice(0, 100) || '';
@@ -889,8 +1105,6 @@
     if (isDownload) {
       action.downloadUrl = el.href;
       action.variableKey = 'downloadTarget';
-    } else if (isNavLink) {
-      action.waitAfter = 'navigation';
     }
     attachPageStateToAction(action);
     attachRecordedResolutionMeta(action, target);
@@ -917,6 +1131,25 @@
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
+    lastPointerDownForLinkTs = null;
+    lastPointerDownForLinkHref = null;
+    lastPointerDownOpenTab = false;
+    const linkEl = el.closest && el.closest('a[href]');
+    if (linkEl && linkEl.href && !String(linkEl.href).startsWith('javascript:') && !String(linkEl.href).startsWith('#')) {
+      lastPointerDownForLinkTs = Date.now();
+      lastPointerDownForLinkHref = String(linkEl.href);
+      lastPointerDownOpenTab = String(linkEl.target || '').toLowerCase() === '_blank';
+      const isDl =
+        linkEl.hasAttribute('download') ||
+        !!String(linkEl.getAttribute('href') || '').match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i);
+      if (!isDl) {
+        if (lastPointerDownOpenTab) {
+          recordOpenTab(lastPointerDownForLinkHref, false);
+        } else {
+          recordGoToUrl(lastPointerDownForLinkHref, 'link');
+        }
+      }
+    }
     const isOption = isDropdownOptionClick(el);
     if (isOption) return;
     const clickable = findClickableTarget(el);
@@ -1115,7 +1348,7 @@
   }
 
   function onKeyDown(e) {
-    if (!isRecording) return;
+    if (!isRecording || qualityCheckMode) return;
     const target = e.target && e.target.nodeType === 1 ? e.target : null;
     if (e.key === 'Enter' && target && typeof target.closest === 'function' && target.closest('form')) {
       if (typingEnterFlushTimeoutId) clearTimeout(typingEnterFlushTimeoutId);
@@ -1124,6 +1357,83 @@
         flushTypingAction();
       }, 100);
     }
+    if (e.repeat) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = target ? target.tagName && target.tagName.toLowerCase() : '';
+    const editable =
+      target &&
+      (tag === 'input' ||
+        tag === 'textarea' ||
+        target.isContentEditable ||
+        (target.getAttribute && target.getAttribute('contenteditable') === 'true'));
+    if (editable) return;
+    const k = e.key;
+    if (!KEY_RECORDABLE[k]) return;
+    maybeInsertWait();
+    const action = {
+      type: 'key',
+      key: k,
+      count: 1,
+      url: window.location.href,
+      timestamp: Date.now(),
+    };
+    attachPageStateToAction(action);
+    pushRecordedAction(action);
+  }
+
+  function onDragStart(e) {
+    if (!isRecording || qualityCheckMode) return;
+    let el = e.target;
+    if (el && el.nodeType !== 1) el = el.parentElement;
+    if (!el) return;
+    const dragRoot = el.closest && el.closest('[draggable="true"]');
+    const useEl = dragRoot || (el.getAttribute && el.getAttribute('draggable') === 'true' ? el : null);
+    if (!useEl) return;
+    const cap = capturePrimaryAndFallbacks(useEl);
+    if (!cap.primary.length) return;
+    dragDropPendingSource = {
+      primary: cap.primary,
+      fallbacks: cap.fallbacks,
+      ts: Date.now(),
+    };
+  }
+
+  function onDrop(e) {
+    if (!isRecording || qualityCheckMode || !dragDropPendingSource) return;
+    let tel = e.target;
+    if (tel && tel.nodeType !== 1) tel = tel.parentElement;
+    if (!tel) {
+      dragDropPendingSource = null;
+      return;
+    }
+    const tCap = capturePrimaryAndFallbacks(tel);
+    if (!tCap.primary.length) {
+      dragDropPendingSource = null;
+      return;
+    }
+    maybeInsertWait();
+    const action = {
+      type: 'dragDrop',
+      sourceSelectors: dragDropPendingSource.primary,
+      targetSelectors: tCap.primary,
+      steps: 12,
+      stepDelayMs: 25,
+      url: window.location.href,
+      timestamp: Date.now(),
+    };
+    if (dragDropPendingSource.fallbacks && dragDropPendingSource.fallbacks.length) {
+      action.sourceFallbackSelectors = dragDropPendingSource.fallbacks;
+    }
+    if (tCap.fallbacks && tCap.fallbacks.length) action.targetFallbackSelectors = tCap.fallbacks;
+    attachPageStateToAction(action);
+    pushRecordedAction(action);
+    dragDropPendingSource = null;
+    if (domChangeTimeoutId) clearTimeout(domChangeTimeoutId);
+    domChangeTimeoutId = setTimeout(attachDomChangesToLastAction, DOM_CHANGE_DELAY_MS);
+  }
+
+  function onDragEnd() {
+    dragDropPendingSource = null;
   }
 
   window.addEventListener('pagehide', () => {
