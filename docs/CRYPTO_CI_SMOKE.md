@@ -13,8 +13,8 @@ node scripts/crypto-rpc-smoke.mjs
 ```
 
 - If **neither** environment variable below is set, the script **exits 0** immediately and prints `skip`.
-- **Solana:** **`getHealth`**, **`getSlot`**, **`getLatestBlockhash`** (`finalized`), **`getVersion`** (`solana-core`), **`getEpochInfo`** (`epoch` + `slotIndex`).
-- **BSC / EVM:** **`eth_chainId`** and **`net_version`** (decimal string must match chain id), **`eth_blockNumber`**, **`eth_gasPrice`**, **`eth_syncing`** (must be **`false`**). On **chain 56** only: **`eth_call`** WBNB **`decimals()`** → 18.
+- **Solana:** **`getHealth`**, **`getSlot`**, **`getLatestBlockhash`** (`finalized`), **`getVersion`** (`solana-core`), **`getEpochInfo`**. If the RPC hostname suggests **devnet** / **testnet** / **mainnet**, **`getGenesisHash`** must match the well-known cluster genesis (override with env **`SOLANA_EXPECTED_GENESIS_HASH`** for custom hosts).
+- **BSC / EVM:** **`eth_chainId`** + **`net_version`**, **`eth_getBlockByNumber("0x0")`** hash must match canonical **BSC mainnet** or **Chapel** when chain id is **56** or **97**, then **`eth_blockNumber`**, **`eth_gasPrice`**, **`eth_syncing`** (must be **`false`**). On **chain 56** only: **`eth_call`** WBNB **`decimals()`** → 18.
 
 npm alias:
 
@@ -29,6 +29,7 @@ Add **optional** secrets in the repo (Settings → Secrets and variables → Act
 | Secret | Purpose |
 |--------|---------|
 | **`SOLANA_RPC_SMOKE_URL`** | Full HTTPS JSON-RPC URL for Solana (devnet or mainnet read-only key URL). |
+| **`SOLANA_EXPECTED_GENESIS_HASH`** | Optional: force **`getGenesisHash`** assertion when the RPC hostname does not contain devnet/testnet/mainnet (same value as public cluster genesis). |
 | **`BSC_RPC_SMOKE_URL`** | Full HTTPS JSON-RPC URL for BNB Chain (Chapel `97` or mainnet `56`). |
 | **`CRYPTO_EVM_FORK_RPC_URL`** | Optional: `http://host:8545` (Anvil) or HTTPS RPC — enables job **`optional-crypto-evm-fork-smoke`** (`eth_chainId` + latest block). |
 

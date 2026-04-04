@@ -14,6 +14,28 @@ import process from 'node:process';
 const solUrl = (process.env.SOLANA_RPC_SMOKE_URL || '').trim();
 const bscUrl = (process.env.BSC_RPC_SMOKE_URL || '').trim();
 
+/** Canonical genesis block hashes (eth_getBlockByNumber("0x0").hash). */
+const GENESIS_HASH_BSC_56 = '0x0d21840abff46b96c84b2ac9e10e4f5cdaeb5693cb665db62a2f3b02d2d57b5b';
+const GENESIS_HASH_BSC_97 = '0x6d3c66c5357ec91d5c43af47e234a939b22557cbb552dc45bebbceeed90fbe34';
+
+const SOLANA_GENESIS_MAINNET = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
+const SOLANA_GENESIS_DEVNET = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const SOLANA_GENESIS_TESTNET = '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY';
+
+function expectedSolanaGenesisFromUrl(rpcUrl) {
+  const override = (process.env.SOLANA_EXPECTED_GENESIS_HASH || '').trim();
+  if (override) return override;
+  try {
+    const host = new URL(rpcUrl).hostname.toLowerCase();
+    if (host.includes('devnet')) return SOLANA_GENESIS_DEVNET;
+    if (host.includes('testnet')) return SOLANA_GENESIS_TESTNET;
+    if (host.includes('mainnet') || host === 'api.solana.com' || host.endsWith('.solana.com')) {
+      return SOLANA_GENESIS_MAINNET;
+    }
+  } catch (_) {}
+  return null;
+}
+
 if (!solUrl && !bscUrl) {
   console.log('[crypto-rpc-smoke] skip: set SOLANA_RPC_SMOKE_URL and/or BSC_RPC_SMOKE_URL to run');
   process.exit(0);
@@ -110,6 +132,21 @@ async function main() {
       throw new Error(`Solana: getEpochInfo missing epoch/slotIndex ${JSON.stringify(ei)}`);
     }
     console.log('[crypto-rpc-smoke] Solana getEpochInfo epoch:', epoch, 'slotIndex:', slotIdx);
+    const expGh = expectedSolanaGenesisFromUrl(solUrl);
+    if (expGh) {
+      const gh = await postJson(
+        solUrl,
+        { jsonrpc: '2.0', id: 6, method: 'getGenesisHash' },
+        'Solana getGenesisHash'
+      );
+      const h = gh.result;
+      if (typeof h !== 'string' || h !== expGh) {
+        throw new Error(`Solana: getGenesisHash expected ${expGh}, got ${JSON.stringify(h)}`);
+      }
+      console.log('[crypto-rpc-smoke] Solana getGenesisHash: ok (matches cluster hint)');
+    } else {
+      console.log('[crypto-rpc-smoke] Solana skip getGenesisHash (set SOLANA_EXPECTED_GENESIS_HASH or use devnet/testnet/mainnet host)');
+    }
   }
 
   if (bscUrl) {
@@ -175,6 +212,26 @@ async function main() {
     }
     console.log('[crypto-rpc-smoke] BSC eth_syncing: false');
 
+    const gen = await postJson(
+      bscUrl,
+      { jsonrpc: '2.0', id: 8, method: 'eth_getBlockByNumber', params: ['0x0', false] },
+      'BSC genesis block'
+    );
+    const gh = gen.result && gen.result.hash;
+    if (typeof gh !== 'string' || !/^0x[0-9a-fA-F]{64}$/i.test(gh)) {
+      throw new Error(`BSC: genesis hash unexpected ${JSON.stringify(gh)}`);
+    }
+    const want =
+      cidFromHex === 56 ? GENESIS_HASH_BSC_56 : cidFromHex === 97 ? GENESIS_HASH_BSC_97 : null;
+    if (want && gh.toLowerCase() !== want.toLowerCase()) {
+      throw new Error(`BSC: genesis hash ${gh} does not match canonical chain ${cidFromHex}`);
+    }
+    if (want) {
+      console.log('[crypto-rpc-smoke] BSC genesis hash: ok (chain', cidFromHex + ')');
+    } else {
+      console.log('[crypto-rpc-smoke] BSC genesis hash:', gh, '(no canonical check for chain', cidFromHex + ')');
+    }
+
     const cid = cidFromHex;
     /** ERC20 decimals() — same WBNB mainnet pin as bsc-evm.js (chain 56 only). */
     const WBNB_MAINNET = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
@@ -184,7 +241,7 @@ async function main() {
         bscUrl,
         {
           jsonrpc: '2.0',
-          id: 7,
+          id: 9,
           method: 'eth_call',
           params: [{ to: WBNB_MAINNET, data: DECIMALS_SEL }, 'latest'],
         },
