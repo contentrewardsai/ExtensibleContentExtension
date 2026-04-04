@@ -42,15 +42,17 @@ Add **optional** secrets in the repo (Settings → Secrets and variables → Act
 
 `.github/workflows/extension-checks.yml` includes a job **`optional-crypto-rpc-smoke`** that runs when **`SOLANA_RPC_SMOKE_URL`** and/or **`BSC_RPC_SMOKE_URL`** is set. Both secrets are passed through so you can run **Solana-only**, **BSC-only**, or both in one job. After read-only smoke it runs **`npm run test:crypto-solana-tx-smoke`** (skips cleanly if **`CRYPTO_SOLANA_TX_SECRET_KEY`** is unset or balance insufficient unless **`CRYPTO_SOLANA_TX_FORCE=1`**).
 
-## HTTP smoke (Rugcheck, Aster, optional BscScan)
+## HTTP smoke (Rugcheck, Aster, Jupiter quote, optional BscScan)
 
-Read-only **`GET`** checks aligned with **`following-automation-runner.js`** (Rugcheck) and **`aster-futures.js`** (public ping/time). Optional **BscScan** proxy **`eth_blockNumber`** when an API key secret is set (same pattern as **`bsc-watch.js`**).
+Read-only **`GET`** checks aligned with **`following-automation-runner.js`** (Rugcheck), **`aster-futures.js`** (public ping/time), and **`solana-swap.js`** / **`quote-api.jup.ag/v6/quote`**. Optional **BscScan** proxy **`eth_blockNumber`** when an API key secret is set (same pattern as **`bsc-watch.js`**).
 
 | Secret / env | Purpose |
 |--------------|---------|
-| **`CRYPTO_HTTP_SMOKE_RUN`** | Non-empty (e.g. `1`) — run Rugcheck + Aster public smoke. |
+| **`CRYPTO_HTTP_SMOKE_RUN`** | Non-empty (e.g. `1`) — run Rugcheck + Aster + Jupiter quote smoke. |
+| **`CRYPTO_HTTP_SMOKE_JUPITER_API_KEY`** | Optional: passed as **`x-api-key`** on Jupiter quote (same header as extension **`cfs_solana_jupiter_api_key`**). |
 | **`CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY`** | BscScan API key — also run proxy **`eth_blockNumber`** (mainnet API unless **`CRYPTO_HTTP_SMOKE_BSCSCAN_NETWORK=chapel`**). |
 | **`CRYPTO_HTTP_SMOKE_RUGCHECK_MINT`** | Optional mint for Rugcheck URL (default: wrapped SOL). |
+| **`CRYPTO_HTTP_SMOKE_JUPITER_*`** | Optional quote overrides: **`INPUT_MINT`**, **`OUTPUT_MINT`**, **`AMOUNT_RAW`**, **`SLIPPAGE_BPS`** (defaults: SOL → USDC, `1000000` lamports, `50` bps). |
 
 Local:
 
