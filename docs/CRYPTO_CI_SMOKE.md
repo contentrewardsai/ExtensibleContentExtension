@@ -79,3 +79,15 @@ export SOLANA_RPC_SMOKE_URL='https://api.devnet.solana.com'
 export CRYPTO_SOLANA_TX_SECRET_KEY='<base58 secret>'
 npm run test:crypto-solana-tx-smoke
 ```
+
+## Playwright extension crypto E2E (optional)
+
+Loads the **unpacked MV3 extension** in Chromium and sends **`chrome.runtime`** messages that hit the **real service worker** (`CFS_SOLANA_RPC_READ`, `CFS_BSC_QUERY`, Aster public, Rugcheck). See **`test/e2e/crypto-e2e-playwright.spec.mjs`**.
+
+| Secret | Purpose |
+|--------|---------|
+| **`E2E_CRYPTO_PLAYWRIGHT`** | Non-empty (e.g. `1`) — enables job **`optional-e2e-crypto-playwright`**. |
+| **`SOLANA_RPC_SMOKE_URL`** | Required for Solana-side tests (same as RPC smoke). |
+| **`BSC_RPC_SMOKE_URL`** | Required for BSC **`CFS_BSC_QUERY`** tests. |
+
+Local: `E2E_CRYPTO=1` plus both RPC URLs, then **`npm run test:e2e:crypto`** (after **`npx playwright install chromium`**).

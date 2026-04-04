@@ -31,7 +31,7 @@ Use after releases or infra changes. **Tiny notionals**; **dedicated wallet**; r
 
 - [ ] Run **`npm run test:crypto-rpc-smoke`** with production-like RPC URLs (read-only keys).
 - [ ] Optional: **`CRYPTO_HTTP_SMOKE=1 npm run test:crypto-http-smoke`** (Rugcheck + Aster + Jupiter quote; add BscScan / Jupiter API key secrets as needed).
-- [ ] Optional: **`E2E_CRYPTO=1 npm run test:e2e:crypto`** — Playwright loads the extension and hits live **`CFS_SOLANA_RPC_READ`**, **`CFS_BSC_QUERY`**, Aster public, Rugcheck (set RPC URLs as in **`test/e2e/crypto-e2e-playwright.spec.mjs`**).
+- [ ] Optional: **`E2E_CRYPTO=1 npm run test:e2e:crypto`** — Playwright loads the extension and hits live Solana/BSC/Aster/Rugcheck **`CFS_*`** paths (set RPC URLs as in **`test/e2e/crypto-e2e-playwright.spec.mjs`**). CI: **`E2E_CRYPTO_PLAYWRIGHT`** + RPC secrets → **`optional-e2e-crypto-playwright`**.
 - [ ] Optional: **`npm run test:crypto-solana-tx-smoke`** with a **devnet**-funded throwaway key (`CRYPTO_SOLANA_TX_SECRET_KEY`) to prove signing + confirmation.
 - [ ] If using Anvil in CI: **`CRYPTO_EVM_FORK_RPC_URL`** job green (includes **`test:crypto-evm-fork-tx-smoke`** when the default Anvil account is funded).
 
