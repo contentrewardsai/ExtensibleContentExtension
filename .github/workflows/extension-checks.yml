@@ -34,6 +34,7 @@ jobs:
       - run: npm run test:cfs-always-on-wired
       - run: npm run test:crypto-rate-limit-wired
       - run: npm run test:crypto-workflow-step-types
+      - run: npm run verify:crypto-matrix
       - run: npm run test:crypto-manifest-hosts
       - run: npm run test:crypto-observability-wired
       - run: npm run test:sellability-probe-wired
@@ -80,3 +81,18 @@ jobs:
           SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
           BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
         run: npm run test:crypto-rpc-smoke
+
+  optional-crypto-evm-fork-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: EVM JSON-RPC block smoke (Anvil fork URL or provider)
+        env:
+          CRYPTO_EVM_FORK_RPC_URL: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL }}
+        run: npm run test:crypto-evm-fork-smoke
