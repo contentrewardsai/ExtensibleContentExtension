@@ -1,0 +1,42 @@
+{
+  "id": "solanaPumpMarketProbe",
+  "label": "Solana Pump / Raydium probe",
+  "category": "data",
+  "description": "Read-only: loads Pump.fun bonding-curve state and optionally queries Raydium v3 API for spot pools between this mint and a quote mint (default wrapped SOL). Requires the automation wallet configured (Pump SDK needs a user context). Writes row variables for runIf — e.g. branch to solanaPumpfunBuy when pumpOnBondingCurve is true, else solanaJupiterSwap.",
+  "defaultAction": {
+    "type": "solanaPumpMarketProbe",
+    "runIf": "",
+    "mint": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "checkRaydium": true,
+    "quoteMint": "So11111111111111111111111111111111111111112",
+    "raydiumPageSize": 20,
+    "savePumpBondingCurveCompleteVariable": "pumpBondingCurveComplete",
+    "savePumpOnBondingCurveVariable": "pumpOnBondingCurve",
+    "saveRaydiumPoolCheckVariable": "raydiumPoolCheck",
+    "saveRaydiumSpotPoolFoundVariable": "raydiumSpotPoolFound",
+    "saveRaydiumPoolCountVariable": "raydiumPoolCount",
+    "savePumpProbeErrorVariable": "pumpProbeError",
+    "saveRaydiumDetailVariable": "raydiumProbeDetail"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "mint", "label": "Token mint", "inputType": "text", "placeholder": "Base58 mint" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override (optional)", "inputType": "text" },
+    { "key": "checkRaydium", "label": "Query Raydium pools (mainnet only)", "inputType": "checkbox" },
+    { "key": "quoteMint", "label": "Quote mint for Raydium pair", "inputType": "text", "placeholder": "WSOL or USDC mint" },
+    { "key": "raydiumPageSize", "label": "Raydium page size (1–100)", "inputType": "number" },
+    { "key": "savePumpBondingCurveCompleteVariable", "label": "Row var: bonding curve complete (true/false/unknown)", "inputType": "text" },
+    { "key": "savePumpOnBondingCurveVariable", "label": "Row var: still on bonding curve (true/false)", "inputType": "text" },
+    { "key": "saveRaydiumPoolCheckVariable", "label": "Row var: Raydium status (found/not_found/...)", "inputType": "text" },
+    { "key": "saveRaydiumSpotPoolFoundVariable", "label": "Row var: simplified found (true/false/unknown)", "inputType": "text" },
+    { "key": "saveRaydiumPoolCountVariable", "label": "Row var: pool count from page", "inputType": "text" },
+    { "key": "savePumpProbeErrorVariable", "label": "Row var: Pump fetch error (optional)", "inputType": "text" },
+    { "key": "saveRaydiumDetailVariable", "label": "Row var: Raydium error detail (optional)", "inputType": "text" }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "watchActivityFilterPriceDrift",
+  "label": "Watch activity filter (price drift)",
+  "category": "data",
+  "description": "Reads `{ activity, latest, count }` from a row variable. For each **swap_like** row, fetches a fresh quote (Jupiter on Solana, Pancake V2 router on BSC) and drops rows where implied price drift vs the target tx exceeds the configured max **percent** for that **side** (buy / sell / both fallback, same rules as legacy Pulse Following automation). Empty buy/sell/both fields mean no limit for that path. **amountRaw** (optional template): raw amount for your quote leg; if empty, uses the target wallet’s leg raw (`quoteSpentRaw` / `baseSoldRaw`) from the activity row. One network request per row — keep **limit** small when reading activity. **chain** optional (`solana` / `bsc`); inferred from rows if unset. Rows that are not swaps or lack fields are kept with **priceFilterSkippedReason**.",
+  "defaultAction": {
+    "type": "watchActivityFilterPriceDrift",
+    "runIf": "",
+    "inputVariable": "bscWatchActivity",
+    "maxDriftPercentBuy": "",
+    "maxDriftPercentSell": "",
+    "maxDriftPercentBoth": "2",
+    "amountRaw": "",
+    "slippageBps": "50",
+    "chain": "",
+    "saveResultVariable": "bscWatchActivity"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "inputVariable", "label": "Input variable (JSON)", "inputType": "text", "placeholder": "e.g. bscWatchActivity" },
+    { "key": "maxDriftPercentBuy", "label": "Max drift % (buy)", "inputType": "text", "placeholder": "optional" },
+    { "key": "maxDriftPercentSell", "label": "Max drift % (sell)", "inputType": "text", "placeholder": "optional" },
+    { "key": "maxDriftPercentBoth", "label": "Max drift % (both)", "inputType": "text", "placeholder": "e.g. 2" },
+    { "key": "amountRaw", "label": "Quote amount raw (optional)", "inputType": "text", "placeholder": "{{myCopyAmountRaw}}" },
+    { "key": "slippageBps", "label": "Slippage (bps)", "inputType": "text", "placeholder": "50" },
+    { "key": "chain", "label": "Chain (optional)", "inputType": "text", "placeholder": "solana or bsc" },
+    { "key": "saveResultVariable", "label": "Save filtered JSON to variable", "inputType": "text", "placeholder": "bscWatchActivity" }
+  ]
+}

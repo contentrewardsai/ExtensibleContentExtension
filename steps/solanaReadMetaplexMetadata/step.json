@@ -1,0 +1,52 @@
+{
+  "id": "solanaReadMetaplexMetadata",
+  "label": "Solana read Metaplex metadata",
+  "category": "data",
+  "description": "Read-only RPC: Metaplex Token Metadata PDA for a mint (on-chain name, symbol, uri, update authority). metadataFound is true/false if the PDA exists and is owned by the Metaplex program. Optional HTTPS fetch of the on-chain uri; ipfs://, ipns://, and ar:// use gateway bases (defaults ipfs.io paths and arweave.net, overridable). 256 KiB max, private hosts blocked. No wallet unlock.",
+  "defaultAction": {
+    "type": "solanaReadMetaplexMetadata",
+    "runIf": "",
+    "mint": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "fetchMetaplexUriBody": false,
+    "metaplexIpfsGateway": "",
+    "metaplexIpnsGateway": "",
+    "metaplexArweaveGateway": "",
+    "saveMetadataFoundVariable": "solanaMetaplexFound",
+    "saveMetadataAccountVariable": "solanaMetaplexAccount",
+    "saveNameVariable": "solanaMetaplexName",
+    "saveSymbolVariable": "solanaMetaplexSymbol",
+    "saveUriVariable": "solanaMetaplexUri",
+    "saveUpdateAuthorityVariable": "solanaMetaplexUpdateAuthority",
+    "saveUriFetchOkVariable": "",
+    "saveUriResolvedForFetchVariable": "",
+    "saveUriBodyVariable": "",
+    "saveUriFetchErrorVariable": "",
+    "saveUriBodyTruncatedVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "mint", "label": "Mint", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "fetchMetaplexUriBody", "label": "HTTPS-fetch uri body (off-chain JSON etc.)", "inputType": "checkbox" },
+    { "key": "metaplexIpfsGateway", "label": "IPFS gateway base (optional, default https://ipfs.io/ipfs/)", "inputType": "text" },
+    { "key": "metaplexIpnsGateway", "label": "IPNS gateway base (optional, default https://ipfs.io/ipns/)", "inputType": "text" },
+    { "key": "metaplexArweaveGateway", "label": "Arweave gateway base (optional, default https://arweave.net/)", "inputType": "text" },
+    { "key": "saveMetadataFoundVariable", "label": "Save metadata found (true/false)", "inputType": "text" },
+    { "key": "saveMetadataAccountVariable", "label": "Save metadata account address", "inputType": "text" },
+    { "key": "saveNameVariable", "label": "Save on-chain name", "inputType": "text" },
+    { "key": "saveSymbolVariable", "label": "Save on-chain symbol", "inputType": "text" },
+    { "key": "saveUriVariable", "label": "Save on-chain uri", "inputType": "text" },
+    { "key": "saveUpdateAuthorityVariable", "label": "Save update authority", "inputType": "text" },
+    { "key": "saveUriFetchOkVariable", "label": "Save uri fetch ok (when fetch on)", "inputType": "text" },
+    { "key": "saveUriResolvedForFetchVariable", "label": "Save resolved fetch URL (https / gateway)", "inputType": "text" },
+    { "key": "saveUriBodyVariable", "label": "Save uri response body (when fetch on)", "inputType": "text" },
+    { "key": "saveUriFetchErrorVariable", "label": "Save uri fetch error code (when fetch on)", "inputType": "text" },
+    { "key": "saveUriBodyTruncatedVariable", "label": "Save uri body truncated true/false", "inputType": "text" }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "raydiumClmmOpenPosition",
+  "label": "Raydium CLMM open position",
+  "category": "data",
+  "description": "Opens a **concentrated liquidity** position on a Raydium CLMM pool (`openPositionFromBase`). You must set **tickLower** / **tickUpper** (aligned to pool tick spacing), **base** (`MintA` or `MintB`), **baseAmountRaw**, and **otherAmountMaxRaw** (max spend on the other token — set generously to avoid failures). Mints the position NFT; optional **savePositionNftVariable** stores its mint for **raydiumClmmIncreasePosition** or **raydiumClmmDecreaseLiquidity**. For **liquidity** + max A/B instead of base side, use **raydiumClmmOpenPositionFromLiquidity**. Not CPMM or Standard AMM.",
+  "defaultAction": {
+    "type": "raydiumClmmOpenPosition",
+    "runIf": "",
+    "poolId": "",
+    "tickLower": "",
+    "tickUpper": "",
+    "base": "MintA",
+    "baseAmountRaw": "",
+    "otherAmountMaxRaw": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "savePositionNftVariable": "clmmPositionNft"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "poolId", "label": "CLMM pool id", "inputType": "text" },
+    { "key": "tickLower", "label": "Tick lower (int)", "inputType": "text" },
+    { "key": "tickUpper", "label": "Tick upper (int)", "inputType": "text" },
+    { "key": "base", "label": "Base side", "inputType": "select", "options": [
+      { "value": "MintA", "label": "MintA" },
+      { "value": "MintB", "label": "MintB" }
+    ] },
+    { "key": "baseAmountRaw", "label": "Base amount (raw)", "inputType": "text" },
+    { "key": "otherAmountMaxRaw", "label": "Other side max (raw)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" },
+    { "key": "savePositionNftVariable", "label": "Save position NFT mint (optional)", "inputType": "text" }
+  ]
+}

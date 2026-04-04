@@ -1,0 +1,32 @@
+{
+  "id": "raydiumClmmLockPosition",
+  "label": "Raydium CLMM lock position",
+  "category": "data",
+  "description": "Locks an **unlocked** CLMM position NFT via `lockPosition` (Raydium lock program). After locking, harvest rewards with **raydiumClmmHarvestLockPosition** using the **lock** NFT mint. Optional **poolId** must match the position’s pool if set.",
+  "defaultAction": {
+    "type": "raydiumClmmLockPosition",
+    "runIf": "",
+    "positionNftMint": "",
+    "poolId": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "positionNftMint", "label": "Position NFT mint", "inputType": "text" },
+    { "key": "poolId", "label": "Pool id (optional check)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "rowListDedupe",
+  "label": "Dedupe row list",
+  "category": "data",
+  "description": "Remove duplicate **plain objects** in a row-backed list by **`dedupeKey`** (`getByLoosePath` on each element). **keepFirst** (default off): keep the first occurrence of each key; otherwise keep the **last**. Elements with **missing** key (`undefined` / `null`) are all **kept** (not deduped against each other).",
+  "defaultAction": {
+    "type": "rowListDedupe",
+    "runIf": "",
+    "sourceVariable": "items",
+    "saveToVariable": "items",
+    "dedupeKey": "id",
+    "keepFirst": false
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "sourceVariable", "label": "Source list (row variable)", "inputType": "text" },
+    { "key": "saveToVariable", "label": "Save deduped list to", "inputType": "text" },
+    { "key": "dedupeKey", "label": "Key path on each object", "inputType": "text", "placeholder": "e.g. id or data.id" },
+    { "key": "keepFirst", "label": "Keep first occurrence (else keep last)", "inputType": "checkbox" }
+  ]
+}

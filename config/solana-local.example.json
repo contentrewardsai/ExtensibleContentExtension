@@ -1,0 +1,6 @@
+{
+  "_comment": "Example only — never commit real secrets. Extension stores keys in chrome.storage (Settings → Solana). Optional: copy to solana-local.json (gitignored) for local tooling scripts.",
+  "rpcUrl": "",
+  "cluster": "devnet",
+  "jupiterApiKey": ""
+}

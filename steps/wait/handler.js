@@ -8,10 +8,15 @@
     const ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (wait)');
     const { sleep, waitForElement, waitForGenerationComplete, actionIndex } = ctx;
+    const base = ctx.document || document;
+    const scopedDoc = typeof ctx.resolveDocumentForAction === 'function'
+      ? ctx.resolveDocumentForAction(action, base)
+      : base;
     if (action.waitFor === 'generationComplete') {
       const timeout = Math.max(action.durationMax ?? action.duration ?? 120000, 10000);
       const stepInfo = { stepIndex: (actionIndex || 0) + 1, type: 'wait', summary: 'until generation complete' };
       const cfg = {
+        rootDoc: scopedDoc,
         containerSelectors: action.waitForSelectors || action.waitForGenerationComplete?.containerSelectors,
         videoSelector: action.waitForGenerationComplete?.videoSelector || 'video[src]',
         cardIndex: action.waitForGenerationComplete?.cardIndex ?? 'last',
@@ -28,7 +33,7 @@
         const waitSels = [].concat(action.waitForSelectors || [], action.fallbackSelectors || []);
         if (waitSels.length) {
           const elTimeout = Math.max(action.durationMax ?? action.duration ?? 30000, 5000);
-          const elStepInfo = { stepIndex: (actionIndex || 0) + 1, type: 'wait', summary: 'until element visible', action };
+          const elStepInfo = { stepIndex: (actionIndex || 0) + 1, type: 'wait', summary: 'until element visible', action, rootDoc: scopedDoc };
           await waitForElement(waitSels, elTimeout, elStepInfo);
         } else {
           await sleep(duration);

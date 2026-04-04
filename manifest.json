@@ -11,6 +11,7 @@
   },
   "permissions": [
     "alarms",
+    "notifications",
     "storage",
     "activeTab",
     "scripting",
@@ -19,7 +20,9 @@
     "windows",
     "sidePanel",
     "tabCapture",
-    "offscreen"
+    "offscreen",
+    "clipboardRead",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -32,7 +35,25 @@
     "https://raw.githubusercontent.com/*",
     "https://www.extensiblecontent.com/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "https://quote-api.jup.ag/*",
+    "https://api.jup.ag/*",
+    "https://api.mainnet-beta.solana.com/*",
+    "https://api.devnet.solana.com/*",
+    "https://api-v3.raydium.io/*",
+    "https://api.apify.com/*",
+    "https://api.bscscan.com/*",
+    "https://api-testnet.bscscan.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.x.ai/*",
+    "https://api.rugcheck.xyz/*",
+    "https://fapi.asterdex.com/*",
+    "https://sapi.asterdex.com/*",
+    "wss://fstream.asterdex.com/*",
+    "wss://sstream.asterdex.com/*",
+    "https://infinity.pancakeswap.com/*"
   ],
   "action": {
     "default_icon": {
@@ -59,6 +80,9 @@
         "shared/selector-parity.js",
         "shared/manifest-loader.js",
         "shared/template-resolver.js",
+        "shared/row-list-normalize.js",
+        "shared/run-if-condition.js",
+        "shared/project-id-resolve.js",
         "shared/personal-info-sync.js",
         "steps/registry.js",
         "steps/loader.js",
@@ -71,9 +95,11 @@
     },
     {
       "matches": [
-        "https://www.extensiblecontent.com/extension/*",
-        "http://localhost:3000/extension/*",
-        "http://127.0.0.1:3000/extension/*"
+        "https://www.extensiblecontent.com/*",
+        "https://extensiblecontent.com/*",
+        "https://*.extensiblecontent.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
       ],
       "js": [
         "content/whop-auth-bridge.js"
@@ -84,14 +110,20 @@
   "externally_connectable": {
     "matches": [
       "https://www.extensiblecontent.com/*",
-      "http://localhost:3000/*",
-      "http://127.0.0.1:3000/*"
+      "https://extensiblecontent.com/*",
+      "https://*.extensiblecontent.com/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
     ]
   },
   "web_accessible_resources": [
     {
       "resources": [
         "docs/BACKEND.md",
+        "docs/INTEGRATIONS.md",
+        "docs/BSC_AUTOMATION.md",
+        "docs/BSC_WALLET_STORAGE.md",
+        "docs/SOLANA_AUTOMATION.md",
         "test/fixtures/record-playback-test.html",
         "steps/manifest.json",
         "steps/*/handler.js"

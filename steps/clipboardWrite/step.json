@@ -1,0 +1,13 @@
+{
+  "id": "clipboardWrite",
+  "label": "Clipboard write",
+  "category": "data",
+  "description": "Copy text to the clipboard. Supports {{rowVariable}} in the text. Requires clipboardWrite permission.",
+  "defaultAction": {
+    "type": "clipboardWrite",
+    "text": ""
+  },
+  "formSchema": [
+    { "key": "text", "label": "Text (supports {{var}})", "inputType": "textarea" }
+  ]
+}

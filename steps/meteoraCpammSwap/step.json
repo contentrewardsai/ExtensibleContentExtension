@@ -1,0 +1,48 @@
+{
+  "id": "meteoraCpammSwap",
+  "label": "Meteora CP-AMM swap",
+  "category": "data",
+  "description": "Single-hop **exact-in** swap on a Meteora DAMM v2 / CP-AMM pool. Set **pool**, **inputMint**, **outputMint** (must be the pool’s two token mints, either direction), and **amountInRaw** (smallest units). Uses SDK **getQuote** for **minimumAmountOut** from **slippagePercent** (maps to basis points). Optional **minimumAmountOutRaw** sets a floor: on-chain min out is **max**(quoted min, floor), e.g. `{{cpammQuoteMinOutRaw}}` after **meteoraCpammQuoteSwap**. No referral route. Rebuild: `npm run build:meteora-cpamm`.",
+  "defaultAction": {
+    "type": "meteoraCpammSwap",
+    "runIf": "",
+    "pool": "",
+    "inputMint": "",
+    "outputMint": "",
+    "amountInRaw": "",
+    "minimumAmountOutRaw": "",
+    "slippagePercent": 1,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "saveExpectedOutVariable": "",
+    "saveMinOutVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "pool", "label": "CP-AMM pool address", "inputType": "text" },
+    { "key": "inputMint", "label": "Input token mint", "inputType": "text" },
+    { "key": "outputMint", "label": "Output token mint", "inputType": "text" },
+    { "key": "amountInRaw", "label": "Amount in (raw)", "inputType": "text" },
+    { "key": "minimumAmountOutRaw", "label": "Min out floor (raw, optional)", "inputType": "text" },
+    { "key": "slippagePercent", "label": "Slippage (percent → min out)", "inputType": "number" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 400000" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" },
+    { "key": "saveExpectedOutVariable", "label": "Save quoted out amount (raw, optional)", "inputType": "text" },
+    { "key": "saveMinOutVariable", "label": "Save min out after slippage (raw, optional)", "inputType": "text" }
+  ]
+}

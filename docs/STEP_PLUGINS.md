@@ -60,8 +60,23 @@ Step definitions can describe how a step plugs into the workflow using these **s
 | **success** | What “success” means (element visible, no error, count reached). | `checkCompletions`: at least `minCompletions` items. |
 | **failure** | What counts as failure (error phrases, timeout, missing element). | `waitForVideos`: `failedGenerationPhrases` in item text. |
 | **selectors** | Element targeting (single or list + item). | click/type: `selectors`; extractData: `listSelector` + `itemSelector` + fields. |
-| **conditions** | When to run (e.g. only if row has value). | `runIf` resolved from row; step skipped when empty/falsy. |
+| **conditions** | When to run (e.g. only if row has value). | `runIf`: player uses **shared/run-if-condition.js** (`CFS_runIfCondition`) — truthy row values, dot/`[index]` paths, one comparison (`>=`, `<=`, `===`, `==`, `!==`, `!=`, `>`, `<`), optional literals `true`/`false`/number. Handlers that re-check `runIf` should use **`CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)`**. |
 | **loops** | Repeat semantics (e.g. for each row, for each item). | Loop step: `listVariable`, `count`; `itemVariable`/`indexVariable` expose `{{item}}`, `{{itemIndex}}`. |
+
+### Row and list data steps (`category: data`)
+
+These steps only mutate **`currentRow`** (no HTTP in the row-mapping steps). See **`steps/{id}/README.md`** for each:
+
+| Step | Role |
+|------|------|
+| **rowMath** | Numeric / compare ops on row values; writes numbers or booleans. |
+| **rowSetFields** | **`rawCopies`** (path → key, preserve types) and/or **`fieldMap`** templates (`{{var}}` → strings). |
+| **rowListFilter** | Filter/slice a row-backed list using the same DSL as **`runIf`** per element; optional **`invertFilter`**; output for **Loop** `listVariable`. |
+| **rowListJoin** | Left/inner join two object lists on loose paths; optional **`rightFieldPrefix`** on merged right fields. |
+| **rowListConcat** | **`listAVariable`** then **`listBVariable`** into **`saveToVariable`** (`a.concat(b)`). |
+| **rowListDedupe** | Deduplicate plain objects by **`dedupeKey`**; **`keepFirst`** or keep last; missing keys pass through. |
+
+List normalization for filter/join/concat/dedupe: **`shared/row-list-normalize.js`** (`CFS_rowListNormalize.normalize`).
 
 Definitions can include these as **optional** fields (e.g. `inputs`, `outputs`, `wait`) so that:
 

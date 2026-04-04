@@ -1,0 +1,27 @@
+{
+  "id": "selectFollowingAccount",
+  "label": "Select Following account (automation bind)",
+  "category": "data",
+  "description": "Binds this always-on workflow to one Pulse Following wallet row (profile + on-chain address). The service worker matches this step when processing watch and automation events. Place before Rugcheck / drift / tx-age steps in the workflow.",
+  "defaultAction": {
+    "type": "selectFollowingAccount",
+    "runIf": "",
+    "profileId": "",
+    "address": "",
+    "chain": "solana"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "profileId", "label": "Following profile id", "inputType": "text", "placeholder": "UUID from Pulse profile" },
+    { "key": "address", "label": "Wallet address", "inputType": "text", "placeholder": "Solana base58 or 0x…" },
+    {
+      "key": "chain",
+      "label": "Chain",
+      "inputType": "select",
+      "options": [
+        { "value": "solana", "label": "Solana" },
+        { "value": "evm", "label": "EVM (e.g. BSC)" }
+      ]
+    }
+  ]
+}

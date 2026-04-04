@@ -1,0 +1,36 @@
+{
+  "id": "meteoraCpammClaimFees",
+  "label": "Meteora CP-AMM claim fees",
+  "category": "data",
+  "description": "Claim accumulated **trading fees** for a CP-AMM position (DAMM v2). Does not remove liquidity. **position** is the position account PDA. **pool** optional if it matches on-chain. Rebuild: `npm run build:meteora-cpamm`.",
+  "defaultAction": {
+    "type": "meteoraCpammClaimFees",
+    "runIf": "",
+    "pool": "",
+    "position": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "pool", "label": "Pool address (optional)", "inputType": "text" },
+    { "key": "position", "label": "Position account address", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 400000" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" }
+  ]
+}

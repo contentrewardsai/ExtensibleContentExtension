@@ -1,0 +1,42 @@
+{
+  "id": "raydiumClmmOpenPositionFromLiquidity",
+  "label": "Raydium CLMM open position (liquidity)",
+  "category": "data",
+  "description": "Opens a **new** CLMM position with **`openPositionFromLiquidity`**: **liquidityRaw** (SDK units) plus **amountMaxARaw** / **amountMaxBRaw** caps on mint A and B. For fixed **base** + **otherAmountMax** use **raydiumClmmOpenPosition**. Ticks must match pool spacing. Optional **savePositionNftVariable** stores the new position NFT mint.",
+  "defaultAction": {
+    "type": "raydiumClmmOpenPositionFromLiquidity",
+    "runIf": "",
+    "poolId": "",
+    "tickLower": "",
+    "tickUpper": "",
+    "liquidityRaw": "",
+    "amountMaxARaw": "",
+    "amountMaxBRaw": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "savePositionNftVariable": "clmmPositionNft"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "poolId", "label": "Pool id", "inputType": "text" },
+    { "key": "tickLower", "label": "Tick lower", "inputType": "text" },
+    { "key": "tickUpper", "label": "Tick upper", "inputType": "text" },
+    { "key": "liquidityRaw", "label": "Liquidity (raw)", "inputType": "text" },
+    { "key": "amountMaxARaw", "label": "Max mint A (raw)", "inputType": "text" },
+    { "key": "amountMaxBRaw", "label": "Max mint B (raw)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" },
+    { "key": "savePositionNftVariable", "label": "Save position NFT variable", "inputType": "text" }
+  ]
+}

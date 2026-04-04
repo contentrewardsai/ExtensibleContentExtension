@@ -6,7 +6,7 @@ This doc clarifies: (1) what is a **step** vs **runtimes** (sandbox, offscreen) 
 
 ## 1. Workflow steps vs features (and why sandbox/offscreen aren’t steps)
 
-- **Workflow steps** are the discrete actions in a workflow that the user adds and the player runs in order: e.g. “Click”, “Type”, “Wait”, “Screen capture”. Each has a type (`action.type`), lives in `workflow.analyzed.actions[]`, and is implemented by a step plugin in `steps/{id}/` (handler + sidepanel). The **player** runs these one by one.
+- **Workflow steps** are the discrete actions in a workflow that the user adds and the player runs in order: e.g. “Click”, “Type”, “Wait”, “Screen capture”, or **Solana** steps (Jupiter swap, SPL transfer, **read-only** balance/mint queries, **ensure ATA**, **wrap/unwrap WSOL**). Each has a type (`action.type`), lives in `workflow.analyzed.actions[]`, and is implemented by a step plugin in `steps/{id}/` (handler + sidepanel). The **player** runs these one by one. On-chain Solana steps typically use **`needsElement: false`** and **`ctx.sendMessage`** to the service worker (`background/solana-swap.js` and related modules); see **docs/SOLANA_AUTOMATION.md**.
 
 - **Features** are broader capabilities that use the same runtimes but are not single items in that list. For example, **Quality Check** runs after a workflow run (or during a batch) and compares outputs to inputs; it uses the **sandbox** to run ML (embeddings, Whisper). **Tab audio capture** is used both by the **screenCapture** step and by the QC “Tab audio” button; it uses the **offscreen** document.
 
@@ -176,7 +176,7 @@ The sidepanel loads workflows only from these plugins (and from remote URL, back
 | Group | Steps | Relationship |
 |-------|--------|--------------|
 | **Navigation** | `goToUrl`, `openTab` | Both deal with URLs; `goToUrl` navigates the current tab, `openTab` opens a new tab/window and can switch playback to it. Kept separate for clarity. |
-| **Wait / completion** | `wait`, `watchVideoProgress`, `waitForVideos`, `checkCompletions`, `checkSuccessfulGenerations` | Different purposes: `wait` = fixed time or "element visible" or "generation complete"; `watchVideoProgress` = wait for % to finish; `waitForVideos` = wait for list items + optional render; `checkCompletions` = min completions in list; `checkSuccessfulGenerations` = min successful count with retry/stop/skip. Combining them into one "mega wait" step would be harder to configure and explain. |
+| **Wait / completion** | `wait`, `waitForElement`, `watchVideoProgress`, `waitForVideos`, `checkCompletions`, `checkSuccessfulGenerations` | Different purposes: `wait` = fixed time or "element visible" or "generation complete"; **`waitForElement`** is the same visibility polling as Wait → element (and adds wait-until-hidden) but as a dedicated step for readable workflows; `watchVideoProgress` = wait for % to finish; `waitForVideos` = wait for list items + optional render; `checkCompletions` = min completions in list; `checkSuccessfulGenerations` = min successful count with retry/stop/skip. Combining them into one "mega wait" step would be harder to configure and explain. |
 | **Dropdown** | `select`, `ensureSelect` | `select` = native `<select>`. `ensureSelect` = custom dropdown (open, pick option, optionally close). Different DOM and UX. |
 | **Click vs hover** | `click`, `hover` | Click performs a click; hover only dispatches mouseenter/mouseover (e.g. to open a menu). Use hover then click when the target is revealed on hover. |
 

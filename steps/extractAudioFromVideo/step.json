@@ -1,0 +1,17 @@
+{
+  "id": "extractAudioFromVideo",
+  "label": "Extract audio from video",
+  "category": "data",
+  "description": "Reads a video from a row variable (data or blob URL), runs FFmpeg in an offscreen document, and saves an audio data URL (M4A) to another variable for transcribeAudio.",
+  "defaultAction": {
+    "type": "extractAudioFromVideo",
+    "runIf": "",
+    "videoVariableKey": "sourceVideo",
+    "saveAsVariable": "extractedAudio"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "videoVariableKey", "label": "Row variable with video (data/blob URL)", "inputType": "text", "placeholder": "sourceVideo" },
+    { "key": "saveAsVariable", "label": "Save audio to variable", "inputType": "text", "placeholder": "extractedAudio" }
+  ]
+}

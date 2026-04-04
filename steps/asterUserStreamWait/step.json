@@ -1,0 +1,81 @@
+{
+  "id": "asterUserStreamWait",
+  "label": "Aster user stream (wait)",
+  "category": "data",
+  "description": "Opens the Aster futures or spot user-data WebSocket in an offscreen document and resolves when the first message matches. Provide wsUrl or userStreamJsonKey (row JSON from userStreamUrl → wsUrl). Hosts: fstream/sstream.asterdex.com only. Excludes other offscreen use while waiting.",
+  "defaultAction": {
+    "type": "asterUserStreamWait",
+    "runIf": "",
+    "wsUrl": "",
+    "userStreamJsonKey": "",
+    "matchEvent": "",
+    "matchSubstring": "",
+    "skipEventTypes": "",
+    "listenKey": "",
+    "listenKeyMarket": "",
+    "listenKeyKeepaliveIntervalMs": "",
+    "recvWindow": "",
+    "waitTimeoutMs": "120000",
+    "maxMessages": "",
+    "saveResultVariable": "asterUserStreamWaitResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    {
+      "key": "wsUrl",
+      "label": "wsUrl (full wss URL, optional if json key set)",
+      "inputType": "text",
+      "placeholder": "or leave empty and set userStreamJsonKey"
+    },
+    {
+      "key": "userStreamJsonKey",
+      "label": "userStreamJsonKey (row column with userStreamUrl JSON)",
+      "inputType": "text",
+      "placeholder": "e.g. streamResult — uses .wsUrl or .url"
+    },
+    {
+      "key": "matchEvent",
+      "label": "matchEvent (optional, Binance-style e field)",
+      "inputType": "text",
+      "placeholder": "ORDER_TRADE_UPDATE (case-insensitive)"
+    },
+    {
+      "key": "matchSubstring",
+      "label": "matchSubstring (optional, raw text contains)",
+      "inputType": "text",
+      "placeholder": ""
+    },
+    {
+      "key": "skipEventTypes",
+      "label": "skipEventTypes (optional, comma-sep e values)",
+      "inputType": "text",
+      "placeholder": "ACCOUNT_UPDATE"
+    },
+    {
+      "key": "listenKey",
+      "label": "listenKey (optional; for keepalive, or from userStream JSON)",
+      "inputType": "text",
+      "placeholder": ""
+    },
+    {
+      "key": "listenKeyMarket",
+      "label": "listenKeyMarket (keepalive; empty = from wsUrl host)",
+      "inputType": "select",
+      "options": [
+        { "value": "", "label": "auto (fstream→futures, sstream→spot)" },
+        { "value": "futures", "label": "futures (fstream / UM user stream)" },
+        { "value": "spot", "label": "spot (sstream)" }
+      ]
+    },
+    {
+      "key": "listenKeyKeepaliveIntervalMs",
+      "label": "listenKey keepalive interval ms (60000–3600000, empty=off)",
+      "inputType": "text",
+      "placeholder": "1200000 (~20 min)"
+    },
+    { "key": "recvWindow", "label": "recvWindow (optional, REST keepalive)", "inputType": "text" },
+    { "key": "waitTimeoutMs", "label": "Timeout ms (1000–600000)", "inputType": "text" },
+    { "key": "maxMessages", "label": "maxMessages (optional, default 2000)", "inputType": "text" },
+    { "key": "saveResultVariable", "label": "Save parsed event to variable", "inputType": "text" }
+  ]
+}

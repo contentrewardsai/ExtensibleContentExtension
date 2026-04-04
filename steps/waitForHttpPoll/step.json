@@ -1,0 +1,26 @@
+{
+  "id": "waitForHttpPoll",
+  "label": "Wait for HTTP poll (webhook relay)",
+  "category": "flow",
+  "description": "Poll a GET URL (your TradingView webhook relay) until a new alert payload appears, then merge JSON fields into the current row. Optional TradingView DOM mode watches page text on *.tradingview.com. See steps/waitForHttpPoll/README.md.",
+  "defaultAction": {
+    "type": "waitForHttpPoll",
+    "runIf": "",
+    "signalSource": "httpPoll",
+    "url": "",
+    "urlVariableKey": "alertRelayUrl",
+    "headersJson": "",
+    "pollIntervalMs": 2000,
+    "requestTimeoutMs": 25000,
+    "waitTimeoutMs": 300000,
+    "dedupeField": "alertId",
+    "acceptFirstPayload": false,
+    "payloadPath": "",
+    "pendingField": "",
+    "pendingValue": "",
+    "domContainerSelector": "#id_alert-widget-tabs-slots_tabpanel_log",
+    "domWatchLastLogItem": true,
+    "sideRegex": "\\b(BUY|SELL|LONG|SHORT)\\b",
+    "onFailure": "stop"
+  }
+}

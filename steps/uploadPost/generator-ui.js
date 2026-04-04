@@ -907,6 +907,7 @@
             }
             try {
               if (typeof global.__CFS_writePostToFolder === 'function') {
+                var genPid = (global.__CFS_generatorProjectId || '').trim();
                 global.__CFS_writePostToFolder({
                   user: user, platform: [platform],
                   title: title || 'Untitled', description: desc || title || '',
@@ -918,6 +919,7 @@
                   job_id: (result.json && result.json.job_id) || null,
                   results: result.json || null,
                   source: output.source || 'generator',
+                  cfs_project_id: genPid || undefined,
                 }, mediaFiles);
               }
             } catch (_) {}

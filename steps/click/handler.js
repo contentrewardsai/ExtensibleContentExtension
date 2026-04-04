@@ -1,13 +1,79 @@
 /**
- * Click step: resolution + execution in this file.
+ * Click step: resolution + execution (left/right/middle, single/double).
  */
 (function() {
   'use strict';
+
+  function performPointerAction(el, action) {
+    const btn = action.button != null ? action.button : 'left';
+    const count = Math.min(2, Math.max(1, parseInt(action.clickCount, 10) || 1));
+    const rect = el.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+    const view = el.ownerDocument && el.ownerDocument.defaultView ? el.ownerDocument.defaultView : window;
+    let button = 0;
+    let buttonsDown = 1;
+    if (btn === 'right' || btn === 2) {
+      button = 2;
+      buttonsDown = 2;
+    } else if (btn === 'middle' || btn === 1) {
+      button = 1;
+      buttonsDown = 4;
+    }
+    const maxClicks = button === 0 ? count : 1;
+    for (let c = 0; c < maxClicks; c++) {
+      const detail = c + 1;
+      const down = {
+        bubbles: true,
+        cancelable: true,
+        view: view,
+        clientX: clientX,
+        clientY: clientY,
+        button: button,
+        buttons: buttonsDown,
+        detail: detail,
+      };
+      el.dispatchEvent(new MouseEvent('mousedown', down));
+      const up = {
+        bubbles: true,
+        cancelable: true,
+        view: view,
+        clientX: clientX,
+        clientY: clientY,
+        button: button,
+        buttons: 0,
+        detail: detail,
+      };
+      el.dispatchEvent(new MouseEvent('mouseup', up));
+      if (button === 0) {
+        el.dispatchEvent(new MouseEvent('click', up));
+      } else if (button === 1) {
+        el.dispatchEvent(new MouseEvent('auxclick', Object.assign({}, up, { button: 1 })));
+      } else {
+        el.dispatchEvent(new MouseEvent('contextmenu', Object.assign({}, up, { button: 2 })));
+      }
+    }
+    if (maxClicks >= 2 && button === 0) {
+      el.dispatchEvent(new MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        view: view,
+        clientX: clientX,
+        clientY: clientY,
+        button: 0,
+        buttons: 0,
+        detail: 2,
+      }));
+    }
+  }
+
   window.__CFS_registerStepHandler('click', async function(action, opts) {
     const ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (click)');
-    const row = ctx.currentRow || {};
-    const doc = ctx.document || document;
+    const base = ctx.document || document;
+    const doc = typeof ctx.resolveDocumentForAction === 'function'
+      ? ctx.resolveDocumentForAction(action, base)
+      : base;
     const resolveAllCandidatesForAction = ctx.resolveAllCandidatesForAction;
     const resolveAllCandidates = ctx.resolveAllCandidates;
     const resolveElement = ctx.resolveElement;
@@ -15,7 +81,6 @@
     const isExternalNavLink = ctx.isExternalNavLink;
     const findClickableByText = ctx.findClickableByText;
     const findClickableImageAfterCropSave = ctx.findClickableImageAfterCropSave;
-    const performClick = ctx.performClick;
     const sleep = ctx.sleep;
     const yieldToReact = ctx.yieldToReact;
 
@@ -79,7 +144,7 @@
         if (!clickable && el.closest('[data-type="button-overlay"]')) clickable = el.closest('[data-type="button-overlay"]').closest('button');
         clickable = clickable || el;
         if (isExternalNavLink(clickable)) throw new Error('Would open external link (e.g. Discord), skipping');
-        performClick(clickable);
+        performPointerAction(clickable, action);
         return;
       } catch (err) {
         lastError = err;

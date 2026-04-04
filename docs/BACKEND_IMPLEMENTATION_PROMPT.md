@@ -66,6 +66,7 @@ All extension API requests include `Authorization: Bearer <whop_access_token>`. 
 | name | String | |
 | birthday | String? | |
 | accounts | JSON | Array of `{handle, url, platform_id}` |
+| wallets | JSON? | Optional array of Following **on-chain wallets** (`chain`, `address`, `network`, watch / automation sizing fields, `slippage_bps`, etc.) for Pulse sync — extension is **file/local-first** today; add when API should round-trip **`wallets[]`** with profiles (see **following/README.md**). **Do not** persist removed fields **`price_drift_max_percent`** / legacy drift object — **price drift** and **tx max age** are workflow-only (**`watchActivityFilterPriceDrift`**, **`watchActivityFilterTxAge`**); there is no per-wallet or global API field for them anymore. |
 | emails | JSON | Array of `{email}` |
 | phones | JSON | Array of `{phone_number}` |
 | addresses | JSON | Array of `{address, address_2, city, state, zip, country}` |

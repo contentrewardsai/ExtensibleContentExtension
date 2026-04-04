@@ -1,0 +1,19 @@
+{
+  "id": "waitForElement",
+  "label": "Wait for element",
+  "category": "flow",
+  "description": "Wait until an element is visible or hidden. Same visibility polling as the Wait step’s “element” mode, but as a dedicated step for readable workflows. Optional iframe/shadow scope via iframeSelectors / shadowHostSelectors.",
+  "defaultAction": {
+    "type": "waitForElement",
+    "state": "visible",
+    "selectors": [],
+    "timeoutMs": 30000,
+    "optional": false
+  },
+  "formSchema": [
+    { "key": "state", "label": "State", "inputType": "radio", "options": ["visible", "hidden"] },
+    { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "min": 1000 },
+    { "key": "optional", "label": "Optional (continue on timeout)", "inputType": "checkbox" }
+  ]
+}

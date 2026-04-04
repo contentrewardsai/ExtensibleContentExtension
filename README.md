@@ -15,6 +15,24 @@ A Chrome extension that records your workflows, analyzes patterns across multipl
 
 **Chrome 116 or later** is required for full functionality (Plan, Library, workflow recording and playback, generators, screen capture, etc.). On Chrome 114–115, the **Pulse** and **Activity** tabs work; other tabs show an upgrade prompt. The extension may not load on Chrome versions below 114.
 
+## Privacy and permissions
+
+The extension **records and automates workflows on sites you use**. Below is how sensitive Chrome permissions relate to that purpose. Use this section as the basis for **Chrome Web Store** “single purpose” and **privacy** copy; keep it in sync when [`manifest.json`](manifest.json) changes.
+
+| Permission / access | Why it exists |
+|---------------------|----------------|
+| **`host_permissions` including `<all_urls>`** and content scripts on matching pages | Lets the recorder and player run on **whichever sites you choose** for workflows. Work does not run on arbitrary tabs unless you start recording or playback there. |
+| **`tabs`**, **`windows`**, **`activeTab`**, **`scripting`** | Opens and targets the correct tab for recording, playback, and step injection. |
+| **`clipboardRead`**, **`clipboardWrite`** | Used when a workflow includes clipboard steps, or when you copy/paste in the UI. |
+| **`downloads`** | Saves files when a workflow uses download-related steps or exports. |
+| **`tabCapture`** | Tab/screen capture for recording and quality-check flows (e.g. tab audio). |
+| **`offscreen`** | Background processing (e.g. video/audio combine) without blocking the side panel. |
+| **`storage`** | Stores workflows, settings, and **optional user-supplied** keys (e.g. LLM APIs) **locally** in the browser. |
+| **`notifications`**, **`alarms`** | User-visible notifications and scheduled background tasks where enabled. |
+| **`sidePanel`** | Main UI in Chrome’s side panel. |
+
+Explicit **`host_permissions`** entries also list third-party HTTPS origins used for optional features (integrations, chain APIs, LLMs). Those calls originate from the extension only when the relevant feature or step runs. Maintainers: when adding origins, update the manifest and see **docs/HOST_PERMISSIONS_CRYPTO.md**.
+
 ## Installation
 
 1. Open Chrome and go to `chrome://extensions/`

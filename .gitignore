@@ -15,8 +15,11 @@ models/*
 
 # E2E persistent profile (user data dir)
 test/.e2e-user-data*/
+test/.e2e-*-profile/
 
 # Build / test artifacts
+# Chain SDK bundles under background/*.bundle.js are committed so `npm ci` alone
+# is enough to load the extension; run `npm run build:chain-bundles` after dep bumps.
 test/e2e-step-config.json
 playwright-report/
 test-results/
@@ -24,12 +27,24 @@ test-results/
 # Extension signing keys (never commit)
 *.pem
 
+# BSC / EVM hot wallet local overrides (never commit secrets)
+config/bsc-wallet.local.json
+
+# Solana automation: never commit local key material or backups
+config/solana-local.json
+**/solana-keypair*.json
+solana-keypair*.json
+
 # Logs
 *.log
 
-# Local/user data (do not commit)
-config/**
+# Local/user data (do not commit) — tracked files are whitelisted (config/ has no subdirs in-repo)
+config/*
 !config/whop-auth.example.js
+!config/solana-local.example.json
+
+# Editor / IDE (local; keep machine-specific settings out of the repo)
+.vscode/
 following/*
 !following/README.md
 uploads/*

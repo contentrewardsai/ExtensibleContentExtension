@@ -21,6 +21,10 @@
       var waitForSelVal = Array.isArray(action.waitForSelectors) ? JSON.stringify(action.waitForSelectors, null, 2) : (action.waitForGenerationComplete?.containerSelectors?.[0]?.value || action.waitForGenerationComplete?.containerSelectors?.[0] || '');
       if (waitFor === 'generationComplete' && typeof waitForSelVal !== 'string') waitForSelVal = typeof action.waitForSelectors?.[0] === 'string' ? action.waitForSelectors[0] : '';
       var waitFallbackJson = JSON.stringify(action.fallbackSelectors || [], null, 2);
+      var iframeJson = JSON.stringify(action.iframeSelectors || [], null, 2);
+      var iframeFbJson = JSON.stringify(action.iframeFallbackSelectors || [], null, 2);
+      var shadowJson = JSON.stringify(action.shadowHostSelectors || [], null, 2);
+      var shadowFbJson = JSON.stringify(action.shadowHostFallbackSelectors || [], null, 2);
       var cardIndex = (action.waitForGenerationComplete && action.waitForGenerationComplete.cardIndex) || 'last';
       var body = '<div class="step-field"><label><input type="radio" name="waitFor-' + i + '" data-field="waitForElement" data-step="' + i + '"' + (waitFor === 'element' ? ' checked' : '') + '> Wait until element visible</label></div>' +
         '<div class="step-field"><label><input type="radio" name="waitFor-' + i + '" data-field="waitForGenerationComplete" data-step="' + i + '"' + (waitFor === 'generationComplete' ? ' checked' : '') + '> Wait until generation complete (video appears)</label></div>' +
@@ -34,6 +38,10 @@
         '<option value="first"' + (cardIndex === 'first' ? ' selected' : '') + '>First</option>' +
         '<option value="any"' + (cardIndex === 'any' ? ' selected' : '') + '>Any video in container</option></select></div>' +
         '<div class="step-field"><label>Duration / timeout (ms)</label><input type="number" data-field="duration" data-step="' + i + '" value="' + (action.durationMax ?? action.duration ?? durationMax) + '" min="100" placeholder="3000"></div>' +
+        '<div class="step-field"><label>Iframe selectors (JSON)</label><textarea data-field="iframeSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Iframe fallback selectors</label><textarea data-field="iframeFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(iframeFbJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host selectors (JSON)</label><textarea data-field="shadowHostSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowJson) + '</textarea></div>' +
+        '<div class="step-field"><label>Shadow host fallback selectors</label><textarea data-field="shadowHostFallbackSelectors" data-step="' + i + '" rows="2">' + escapeHtml(shadowFbJson) + '</textarea></div>' +
         '<div class="step-actions"><button class="btn btn-primary" data-save-step="' + i + '">Save</button></div>';
       return window.__CFS_buildStepItemShell('wait', action, i, totalCount, helpers, body);
     },
@@ -82,6 +90,20 @@
       } else {
         out.fallbackSelectors = undefined;
       }
+      function parseSelField(field) {
+        var v = getVal(field);
+        if (v === undefined || !String(v).trim()) return undefined;
+        try {
+          var p = JSON.parse(v || '[]');
+          return Array.isArray(p) && p.length ? p : undefined;
+        } catch (_) {
+          return undefined;
+        }
+      }
+      out.iframeSelectors = parseSelField('iframeSelectors');
+      out.iframeFallbackSelectors = parseSelField('iframeFallbackSelectors');
+      out.shadowHostSelectors = parseSelField('shadowHostSelectors');
+      out.shadowHostFallbackSelectors = parseSelField('shadowHostFallbackSelectors');
       return out;
     },
   });

@@ -2,7 +2,7 @@
   "id": "ensureSelect",
   "label": "Ensure dropdown",
   "category": "interaction",
-  "description": "Ensure a dropdown shows a specific value. If it already does, the step is skipped; otherwise open the dropdown and select the option.",
+  "description": "Ensure a dropdown shows a specific value. If it already does, the step is skipped; otherwise open the dropdown and select the option. Optional iframe/shadow scope (menus portaled to document body may need scope only on the trigger).",
   "defaultAction": {
     "type": "ensureSelect",
     "expectedText": "",

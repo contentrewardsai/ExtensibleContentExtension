@@ -10,8 +10,14 @@
     if (!ctx) throw new Error('Step context missing (runGenerator)');
     const { getRowValue, currentRow, sendMessage } = ctx;
     const row = currentRow || {};
-    const pluginId = action.pluginId;
-    if (!pluginId) throw new Error('runGenerator: pluginId required');
+    const pluginIdRaw = action.pluginId;
+    if (!pluginIdRaw) throw new Error('runGenerator: pluginId required');
+    const pluginIdStr = String(pluginIdRaw).trim();
+    const pluginIdMatch = pluginIdStr.match(/^\{\{(.+)\}\}$/);
+    const pluginId = pluginIdMatch
+      ? String(getRowValue(row, pluginIdMatch[1].trim()) || '').trim()
+      : pluginIdStr;
+    if (!pluginId) throw new Error('runGenerator: template id (pluginId) is empty after resolving row variable');
 
     function stepCommentFullText(comment) {
       const c = comment || {};

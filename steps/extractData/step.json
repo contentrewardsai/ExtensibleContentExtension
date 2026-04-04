@@ -2,7 +2,7 @@
   "id": "extractData",
   "label": "Extract data",
   "category": "data",
-  "description": "Extract a list from the page (e.g. table rows, list items) into a table of rows. Use Run All Rows to process them with a workflow.",
+  "description": "Extract a list from the page (e.g. table rows, list items) into a table of rows. Use Run All Rows to process them with a workflow. Optional iframe/shadow scope for the list container.",
   "defaultAction": {
     "type": "extractData",
     "listSelector": "",

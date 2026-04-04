@@ -1,0 +1,46 @@
+{
+  "id": "meteoraCpammAddLiquidity",
+  "label": "Meteora CP-AMM add liquidity",
+  "category": "data",
+  "description": "Add liquidity on Meteora DAMM v2 / CP-AMM ([meteora.ag/pools](https://www.meteora.ag/pools)). **New position:** set **pool** only (not DLMM LB pair). **Increase:** set **position** (existing account PDA); **pool** optional if it matches on-chain. **Single-sided** / **two-sided** raw amounts as before. Saves **position** / **NFT mint**; response includes **mode** `create` or `increase`. Rebuild: `npm run build:meteora-cpamm`.",
+  "defaultAction": {
+    "type": "meteoraCpammAddLiquidity",
+    "runIf": "",
+    "pool": "",
+    "position": "",
+    "totalTokenARaw": "",
+    "totalTokenBRaw": "",
+    "slippagePercent": 1,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "savePositionVariable": "meteoraCpammPosition",
+    "savePositionNftMintVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "pool", "label": "Pool address (required for new position)", "inputType": "text" },
+    { "key": "position", "label": "Position account (optional — increase liquidity)", "inputType": "text" },
+    { "key": "totalTokenARaw", "label": "Token A amount (raw; 0 if B-only single-sided)", "inputType": "text" },
+    { "key": "totalTokenBRaw", "label": "Token B amount (raw; 0 if A-only; both set = two-sided)", "inputType": "text" },
+    { "key": "slippagePercent", "label": "Slippage (percent)", "inputType": "number" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 400000" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" },
+    { "key": "savePositionVariable", "label": "Save position account address", "inputType": "text" },
+    { "key": "savePositionNftMintVariable", "label": "Save position NFT mint (optional)", "inputType": "text" }
+  ]
+}

@@ -2,7 +2,7 @@
   "id": "download",
   "label": "Download",
   "category": "interaction",
-  "description": "Trigger a file download. The download URL can come from the current row variable or from a link/button on the page.",
+  "description": "Trigger a file download. The download URL can come from the current row variable or from a link/button on the page. Optional iframe/shadow scope.",
   "defaultAction": {
     "type": "download",
     "selectors": [],

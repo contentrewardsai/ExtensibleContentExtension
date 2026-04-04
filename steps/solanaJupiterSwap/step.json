@@ -1,0 +1,52 @@
+{
+  "id": "solanaJupiterSwap",
+  "label": "Solana Jupiter swap",
+  "category": "data",
+  "description": "Automated token swap on Solana via Jupiter (quote-api v6). Uses the automation wallet from Settings → Solana (not Phantom). Amount is the raw integer in the token's smallest units (lamports for SOL). Optional Jupiter prioritization fee (auto or lamports) and dynamic compute-unit limit toggle. Configure RPC and keys only in extension settings—never commit secrets.",
+  "defaultAction": {
+    "type": "solanaJupiterSwap",
+    "runIf": "",
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "",
+    "amountRaw": "",
+    "slippageBps": 50,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "onlyDirectRoutes": false,
+    "jupiterDexes": "",
+    "jupiterExcludeDexes": "",
+    "jupiterPrioritizationFeeLamports": "",
+    "jupiterDynamicComputeUnitLimit": true,
+    "jupiterWrapAndUnwrapSol": true,
+    "jupiterCrossCheckMaxDeviationBps": 0,
+    "jupiterCrossCheckOptional": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "inputMint", "label": "Input mint", "inputType": "text", "placeholder": "So11111111111111111111111111111111111111112 for SOL" },
+    { "key": "outputMint", "label": "Output mint", "inputType": "text", "placeholder": "Token mint address" },
+    { "key": "amountRaw", "label": "Amount (raw, smallest units)", "inputType": "text", "placeholder": "e.g. 1000000 or {{swapLamports}}" },
+    { "key": "slippageBps", "label": "Slippage (basis points)", "inputType": "number", "placeholder": "50" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text", "placeholder": "Leave empty to use Settings or default public RPC" },
+    { "key": "skipSimulation", "label": "Skip RPC simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight on send", "inputType": "checkbox" },
+    { "key": "onlyDirectRoutes", "label": "Jupiter: direct routes only (fewer hops)", "inputType": "checkbox" },
+    { "key": "jupiterDexes", "label": "Jupiter: include DEXes only (optional)", "inputType": "text", "placeholder": "e.g. Raydium,Orca (comma-separated; see Jupiter docs)" },
+    { "key": "jupiterExcludeDexes", "label": "Jupiter: exclude DEXes (optional)", "inputType": "text", "placeholder": "Comma-separated labels" },
+    { "key": "jupiterPrioritizationFeeLamports", "label": "Jupiter: prioritization fee (lamports)", "inputType": "text", "placeholder": "Leave empty for auto, or integer lamports, or auto" },
+    { "key": "jupiterDynamicComputeUnitLimit", "label": "Jupiter: dynamic compute unit limit", "inputType": "checkbox" },
+    { "key": "jupiterWrapAndUnwrapSol", "label": "Jupiter: auto wrap/unwrap SOL (disable if using WSOL mint + solanaWrapSol)", "inputType": "checkbox" },
+    { "key": "jupiterCrossCheckMaxDeviationBps", "label": "Cross-check: max outAmount deviation vs alternate route (bps, 0=off)", "inputType": "number", "placeholder": "0", "min": 0, "max": 10000 },
+    { "key": "jupiterCrossCheckOptional", "label": "Cross-check: do not fail if alternate quote missing", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text", "placeholder": "solanaTxSignature" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text", "placeholder": "solanaExplorerUrl" }
+  ]
+}

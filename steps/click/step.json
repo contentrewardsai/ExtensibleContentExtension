@@ -2,11 +2,13 @@
   "id": "click",
   "label": "Click",
   "category": "interaction",
-  "description": "Click an element on the page. Use selectors or Select on page to target the element.",
+  "description": "Click an element on the page (left/right/middle; optional double-click). Use selectors or Select on page. Optional iframe/shadow scope via iframeSelectors / shadowHostSelectors.",
   "defaultAction": {
     "type": "click",
     "selectors": [],
-    "optional": false
+    "optional": false,
+    "button": "left",
+    "clickCount": 1
   },
   "formSchema": [
     { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },

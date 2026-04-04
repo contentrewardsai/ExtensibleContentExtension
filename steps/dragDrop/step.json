@@ -1,0 +1,19 @@
+{
+  "id": "dragDrop",
+  "label": "Drag and drop",
+  "category": "interaction",
+  "description": "Drag from a source element to a target using synthetic pointer and drag events. Many UIs need HTML5 DnD; some only listen to mousemove. Optional iframe/shadow scope on the action.",
+  "defaultAction": {
+    "type": "dragDrop",
+    "sourceSelectors": [],
+    "targetSelectors": [],
+    "optional": false,
+    "steps": 12,
+    "stepDelayMs": 25
+  },
+  "formSchema": [
+    { "key": "sourceSelectors", "label": "Source selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "targetSelectors", "label": "Target selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
+    { "key": "optional", "label": "Optional (skip on failure)", "inputType": "checkbox" }
+  ]
+}

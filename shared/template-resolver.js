@@ -47,7 +47,73 @@
     return cur;
   }
 
+  /**
+   * If value is a JSON object/array string, parse; otherwise return as-is.
+   */
+  function tryParseJsonString(v) {
+    if (typeof v !== 'string') return v;
+    var t = v.trim();
+    if (!t || (t[0] !== '{' && t[0] !== '[')) return v;
+    try {
+      return JSON.parse(t);
+    } catch (_) {
+      return v;
+    }
+  }
+
+  /**
+   * Token path: dot-separated keys and [n] array indices, e.g. "data.items[0].id"
+   */
+  function tokenizeLoosePath(pathStr) {
+    var tokens = [];
+    var s = String(pathStr || '').trim();
+    var i = 0;
+    while (i < s.length) {
+      if (s[i] === '.' || s[i] === ' ') {
+        i++;
+        continue;
+      }
+      if (s[i] === '[') {
+        var j = s.indexOf(']', i);
+        if (j === -1) break;
+        var n = parseInt(s.slice(i + 1, j), 10);
+        if (!isNaN(n)) tokens.push({ type: 'index', value: n });
+        i = j + 1;
+        continue;
+      }
+      var j = i;
+      while (j < s.length && s[j] !== '.' && s[j] !== '[' && s[j] !== ' ') j++;
+      var name = s.slice(i, j).trim();
+      if (name) tokens.push({ type: 'key', value: name });
+      i = j;
+    }
+    return tokens;
+  }
+
+  /**
+   * Walk obj using dot + bracket segments; JSON-parse string intermediates when descending deeper.
+   */
+  function getByLoosePath(obj, pathStr) {
+    if (pathStr == null || String(pathStr).trim() === '') return obj;
+    var tokens = tokenizeLoosePath(pathStr);
+    if (tokens.length === 0) return obj;
+    var cur = obj;
+    for (var ti = 0; ti < tokens.length; ti++) {
+      if (cur == null) return undefined;
+      if (ti > 0 && typeof cur === 'string') cur = tryParseJsonString(cur);
+      var tok = tokens[ti];
+      cur = tok.type === 'index' ? cur[tok.value] : cur[tok.value];
+    }
+    return cur;
+  }
+
   if (typeof global !== 'undefined') {
-    global.CFS_templateResolver = { resolveTemplate: resolveTemplate, getByPath: getByPath };
+    global.CFS_templateResolver = {
+      resolveTemplate: resolveTemplate,
+      getByPath: getByPath,
+      tryParseJsonString: tryParseJsonString,
+      tokenizeLoosePath: tokenizeLoosePath,
+      getByLoosePath: getByLoosePath,
+    };
   }
 })(typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : globalThis);

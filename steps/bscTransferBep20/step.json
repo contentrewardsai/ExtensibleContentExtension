@@ -1,0 +1,29 @@
+{
+  "id": "bscTransferBep20",
+  "label": "BSC transfer BEP-20",
+  "category": "data",
+  "description": "ERC-20 transfer from the BSC automation wallet (same as bscPancake → transferErc20). Amount is smallest units (uint256 string) or max/balance. Settings → BSC / PancakeSwap; unlock encrypted wallets once per session.",
+  "defaultAction": {
+    "type": "bscTransferBep20",
+    "runIf": "",
+    "token": "",
+    "to": "",
+    "amount": "",
+    "deadline": "",
+    "waitConfirmations": 1,
+    "gasLimit": "",
+    "saveTxHashVariable": "bscTxHash",
+    "saveExplorerUrlVariable": "bscExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "token", "label": "Token contract (0x…)", "inputType": "text", "placeholder": "BEP-20 address" },
+    { "key": "to", "label": "To address (0x…)", "inputType": "text" },
+    { "key": "amount", "label": "Amount (raw or max/balance)", "inputType": "text" },
+    { "key": "deadline", "label": "Unused (reserved)", "inputType": "text" },
+    { "key": "waitConfirmations", "label": "Wait confirmations", "inputType": "number", "placeholder": "1" },
+    { "key": "gasLimit", "label": "gasLimit (optional)", "inputType": "text" },
+    { "key": "saveTxHashVariable", "label": "Save tx hash to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

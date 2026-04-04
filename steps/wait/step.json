@@ -2,7 +2,7 @@
   "id": "wait",
   "label": "Wait",
   "category": "flow",
-  "description": "Wait for a fixed time, for an element to appear, or for generation to complete.",
+  "description": "Wait for a fixed time, for an element to appear, or for generation to complete. Optional iframe/shadow scope for element and generation-complete polling.",
   "defaultAction": {
     "type": "wait",
     "duration": 3000,

@@ -66,9 +66,16 @@
 
     if (action.saveToProject && typeof action.saveToProject === 'string' && action.saveToProject.trim()) {
       const folder = action.saveToProject.trim();
-      const projectId = action.projectIdVariable != null
+      let projectId = action.projectIdVariable != null
         ? resolveUrl(row, String(action.projectIdVariable), getRowValue)
-        : null;
+        : '';
+      projectId = projectId != null && String(projectId).trim() ? String(projectId).trim() : '';
+      if (!projectId && typeof CFS_projectIdResolve !== 'undefined') {
+        const r = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
+          defaultProjectId: action.defaultProjectId,
+        });
+        if (r.ok) projectId = r.projectId;
+      }
       const rowIndex = (ctx.currentRowIndex != null ? ctx.currentRowIndex : (row._rowIndex != null ? row._rowIndex : 0));
       const filename = (action.saveFilename != null && String(action.saveFilename).trim())
         ? resolveUrl(row, String(action.saveFilename).trim(), getRowValue)
@@ -76,7 +83,7 @@
       await sendMessage({
         type: 'QUEUE_SAVE_GENERATION',
         payload: {
-          projectId: projectId || null,
+          projectId: projectId ? projectId : null,
           folder,
           data,
           rowIndex,

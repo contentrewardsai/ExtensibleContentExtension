@@ -14,7 +14,7 @@ A second manifest entry injects **content/whop-auth-bridge.js** only on **extens
 | **shared/recording-value.js** | `getRecordedTypingValue` for recorded type steps (input/textarea vs contenteditable). Loaded after selectors, before recorder. |
 | **shared/selector-parity.js** | Cross-workflow enrich / selector parity (`CFS_selectorParity`); loaded after recording-value, before manifest-loader. |
 | **shared/manifest-loader.js** | Manifest fetch utilities (`CFS_manifestLoader`); used by steps/loader and generator. |
-| **shared/template-resolver.js** | Template/variable resolution (`resolveTemplate`, `getByPath`); used by sendToEndpoint step. |
+| **shared/template-resolver.js** | Template/variable resolution (`resolveTemplate`, `getByPath`); used by sendToEndpoint, Apify step, and other template-aware steps. |
 | **steps/registry.js** | Step handler registry (`__CFS_registerStepHandler`). Loaded before step handlers. |
 | **steps/loader.js** | Fetches steps/manifest.json and requests injection of each steps/{id}/handler.js via the background. Handlers are not in the extension manifest. |
 | **steps/{id}/handler.js** | Step plugins (click, type, wait, runGenerator, etc.). Injected at runtime by the loader; each registers one step type. |
@@ -43,14 +43,16 @@ So:
 
 | Directory | Purpose | Scripts in the right place? |
 |-----------|---------|-----------------------------|
-| **background/** | Service worker (message routing, offscreen docs, downloads). | Yes – manifest `background.service_worker` points here. |
+| **background/** | Service worker (message routing, offscreen docs, downloads). Loads **`aster-futures.js`** (Aster REST, **`CFS_ASTER_FUTURES`**, IP **request-weight** + account **order-count** pacing from **`exchangeInfo`** / response headers), **`solana-sellability-probe.js`** (**`CFS_SOLANA_SELLABILITY_PROBE`**), **`bsc-sellability-probe.js`** (**`CFS_BSC_SELLABILITY_PROBE`**), **`following-automation-runner.js`** (Pulse Following automation headless pipeline), and other domain modules. Prebuilt bundles (commit after `npm run build:*`): **`evm-lib.bundle.js`** (ethers for **`bsc-evm.js`**), **`infinity-sdk.bundle.js`** (Pancake Infinity SDK before **`bsc-evm.js`**), plus Solana/Raydium/Meteora/Pump bundles as listed in **`package.json`**. | Yes – manifest `background.service_worker` points here. |
 | **sidepanel/** | Side panel UI (workflows, recording, playback). | Yes – manifest `side_panel.default_path` points here. |
 | **generator/** | Generator UI + templates + inputs/outputs. Opened as an extension page. | Yes – feature-owned. |
 | **generator/extensions/** | Editor plugin scripts (e.g. STT, TTS) loaded at runtime; the loader API lives in **generator/editor/extensions/** (`loader.js`, `api.js`). | Yes – plugins vs loader are separate on purpose. |
-| **steps/** | Step plugins (handler.js + sidepanel.js + step.json per step). Some steps have a README (e.g. extractData, loop, runGenerator, runWorkflow, screenCapture, sendToEndpoint); see **steps/README.md** § Step-specific documentation. | Yes – handler.js are content scripts but live here by feature. |
-| **shared/** | Code used by more than one context (selectors, analyzer, backend, book-builder, walkthrough-export). | Yes – shared libraries, not entry points. |
+| **steps/** | Step plugins (handler.js + sidepanel.js + step.json per step). Many steps have **steps/{id}/README.md** (see **steps/README.md** § Step-specific documentation), including Solana automation under **steps/solana\*/** and **steps/raydium\*/** plus **docs/SOLANA_AUTOMATION.md**. | Yes – handler.js are content scripts but live here by feature. |
+| **shared/** | Code used by more than one context (selectors, analyzer, backend, book-builder, walkthrough-export). **`shared/cfs-always-on-automation.js`** — Pulse Following workflow gate + **`alwaysOn`** scope merge; loaded by the service worker before **`background/solana-watch.js`**. | Yes – shared libraries, not entry points. |
+| **shared/apify-*.js** | Apify helpers loaded by the service worker (and mirrored in unit tests): **`shared/apify-dataset-response.js`** (dataset items + pagination headers), **`shared/apify-run-query-validation.js`** (run query param guards), **`shared/apify-extract-run-id.js`** (run id hints for errors). Regression coverage: **`npm run test:apify`** (three verify scripts; also run in **Extension checks** CI). |
+| **shared/infi-bin-path-json-shape.js** | Pancake Infinity multi-hop **`infiBinPathJson`** shape validation (**`CFS_parseInfiBinPathJsonShape`**, **`CFS_infiBinPathCurrencyChainError`**). Loaded before **`background/bsc-evm.js`** in the service worker; **`parseInfiBinPathJson`** delegates here. Regression: **`npm run test:infi-bin-path-json`**. |
 | **lib/** | Third-party libraries (e.g. Sortable, html2canvas). | Yes – vendor code only. |
-| **offscreen/** | Offscreen document (e.g. tab audio capture, generator runner). | Yes – manifest/background create these. |
+| **offscreen/** | Offscreen documents: tab audio, generator runner, video combiner, QC, screen recorder, project folder I/O, **Aster user-stream** WebSocket (**aster-user-stream** for **`CFS_ASTER_USER_STREAM_WAIT`**). | Yes – manifest/background create these. |
 | **sandbox/** | Sandboxed page (e.g. quality-check). | Yes – manifest sandbox.pages. |
 | **workflows/** | Workflow JSON and workflow plugins. | Yes – workflow definitions. |
 | **config/** | Extension defaults; **config/discovery-hints.json** is a domain-free global catalog for auto-discovery (merged after workflow + step hints). Host-specific discovery lives only under each workflow’s `discovery.domains`. **config/platform-defaults.json** mirrors Upload Post platform defaults when a project folder is set; see **docs/PLATFORM_DEFAULTS.md**. | Yes – shipped defaults and optional project override. |
@@ -97,6 +99,7 @@ Documentation is colocated with features where practical. Use this index to find
 |-----|-------|
 | **PROJECT_STRUCTURE.md** | This file. Directories, load order, documentation index. |
 | **WORKFLOW_SPEC.md** | Workflow model, steps, variables, format, step-based vs generator, scheduled run data. |
+| **INTEGRATIONS.md** | HTTP, Apify, project JSON file steps, scheduling vs batch delay, programmatic schedules. |
 | **PROGRAMMATIC_API.md** | SET_IMPORTED_ROWS, RUN_WORKFLOW. |
 | **GENERATOR_ARCHITECTURE.md** | Generator overview, unified editor, timeline, outputs. |
 | **PLUGIN_ARCHITECTURE.md** | Manifest + registry pattern, project folder, built-in APIs (ctx, sidepanel, generator inputs). |
@@ -115,6 +118,12 @@ Documentation is colocated with features where practical. Use this index to find
 | **UPLOAD_POST_POSTS_SPEC.md** | Upload/post specs. |
 | **PLATFORM_DEFAULTS.md** | `config/platform-defaults.json` ↔ Settings “Upload Post Platform Defaults”, storage key, upload step. |
 | **STEPS_AND_RUNTIMES.md** | Steps vs runtimes, overlap, hover, recorder, implementation consistency. |
+| **PULSE_INDEXER_RFC.md** | Optional Pulse backend indexer (design sketch). |
+| **CRYPTO_BUNDLE_UPGRADE_RUNBOOK.md** | Rebuild `background/*.bundle.js` after chain SDK npm bumps. |
+| **CRYPTO_VENDOR_API_DRIFT.md** | Maintainer checklist when Jupiter / Aster / BscScan / ParaSwap APIs move. |
+| **CRYPTO_OBSERVABILITY.md** | `[CFS_CRYPTO]` service worker logging for 429 / retries. |
+| **CRYPTO_CI_SMOKE.md** | Optional CI read-only RPC smoke (`test:crypto-rpc-smoke`). |
+| **HOST_PERMISSIONS_CRYPTO.md** | Checklist for new crypto-related `host_permissions`. |
 
 ---
 
@@ -122,7 +131,7 @@ Documentation is colocated with features where practical. Use this index to find
 
 - **content_scripts[0].js** – Same order as **shared/content-script-tab-bundle.js** (see § Content scripts above). Individual step **handler.js** files are not listed here; **steps/loader.js** fetches **steps/manifest.json** and the background injects each **steps/{id}/handler.js** at runtime.
 - **content_scripts** (Whop) – **content/whop-auth-bridge.js** on `https://www.extensiblecontent.com/extension/*` and matching localhost paths only.
-- **web_accessible_resources** – `docs/BACKEND.md` (troubleshooting link), `test/fixtures/record-playback-test.html` (E2E fixtures), **`steps/manifest.json`**, **`steps/*/handler.js`** (URLs for the step loader / runtime injection), and `models/*` (data models). Content scripts are still injected via `scripting.executeScript` (file path), not loaded by URL for the main bundle.
+- **web_accessible_resources** – `docs/BACKEND.md`, `docs/INTEGRATIONS.md` (sidepanel links), `test/fixtures/record-playback-test.html` (E2E fixtures), **`steps/manifest.json`**, **`steps/*/handler.js`** (URLs for the step loader / runtime injection), and `models/*` (data models). Content scripts are still injected via `scripting.executeScript` (file path), not loaded by URL for the main bundle.
 
 ---
 

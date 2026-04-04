@@ -558,6 +558,255 @@
         case 'SEND_TO_ENDPOINT':
           if (!msg.url || typeof msg.url !== 'string') return { valid: false, error: 'url required' };
           break;
+        case 'APIFY_TEST_TOKEN': {
+          var apifyTestTokMax = 2048;
+          if (msg.token != null && String(msg.token).trim().length > apifyTestTokMax) {
+            return { valid: false, error: 'token exceeds ' + apifyTestTokMax + ' characters' };
+          }
+          break;
+        }
+        case 'APIFY_RUN_CANCEL':
+          if (msg.tabId != null && msg.tabId !== '') {
+            var tabIdNum = Number(msg.tabId);
+            if (!isFinite(tabIdNum) || tabIdNum !== Math.floor(tabIdNum) || tabIdNum < 0) {
+              return { valid: false, error: 'tabId must be a non-negative integer when provided' };
+            }
+          }
+          break;
+        case 'APIFY_RUN': {
+          var apifyFieldMax = 2048;
+          var apifyBuildMax = 256;
+          var apifyInputMaxBytes = 2 * 1024 * 1024;
+          var apifyOutKeyMax = 256;
+          var apifyResourceIdMax = 512;
+          var apifyTokenMax = 2048;
+          if (msg.targetType !== 'actor' && msg.targetType !== 'task') {
+            return { valid: false, error: 'targetType must be actor or task' };
+          }
+          if (!msg.resourceId || typeof msg.resourceId !== 'string' || !String(msg.resourceId).trim()) {
+            return { valid: false, error: 'resourceId required' };
+          }
+          if (String(msg.resourceId).trim().length > apifyResourceIdMax) {
+            return { valid: false, error: 'resourceId exceeds ' + apifyResourceIdMax + ' characters' };
+          }
+          if (msg.token != null && String(msg.token).trim().length > apifyTokenMax) {
+            return { valid: false, error: 'token exceeds ' + apifyTokenMax + ' characters' };
+          }
+          if (msg.mode !== 'syncDataset' && msg.mode !== 'syncOutput' && msg.mode !== 'asyncPoll') {
+            return { valid: false, error: 'mode must be syncDataset, syncOutput, or asyncPoll' };
+          }
+          if (msg.asyncResultType != null && String(msg.asyncResultType) !== ''
+            && msg.asyncResultType !== 'dataset' && msg.asyncResultType !== 'output') {
+            return { valid: false, error: 'asyncResultType must be dataset or output' };
+          }
+          if (msg.apifySyncDatasetFields != null && String(msg.apifySyncDatasetFields).length > apifyFieldMax) {
+            return { valid: false, error: 'apifySyncDatasetFields exceeds ' + apifyFieldMax + ' characters' };
+          }
+          if (msg.apifySyncDatasetOmit != null && String(msg.apifySyncDatasetOmit).length > apifyFieldMax) {
+            return { valid: false, error: 'apifySyncDatasetOmit exceeds ' + apifyFieldMax + ' characters' };
+          }
+          if (msg.input != null) {
+            if (typeof msg.input !== 'object' || Array.isArray(msg.input)) {
+              return { valid: false, error: 'input must be a plain object when provided' };
+            }
+            var inputStr;
+            try {
+              inputStr = JSON.stringify(msg.input);
+            } catch (e) {
+              return { valid: false, error: 'input must be JSON-serializable' };
+            }
+            var inputBytes = new TextEncoder().encode(inputStr).length;
+            if (inputBytes > apifyInputMaxBytes) {
+              return { valid: false, error: 'Apify input JSON exceeds ' + apifyInputMaxBytes + ' bytes (UTF-8)' };
+            }
+          }
+          if (msg.outputRecordKey != null && String(msg.outputRecordKey).length > apifyOutKeyMax) {
+            return { valid: false, error: 'outputRecordKey exceeds ' + apifyOutKeyMax + ' characters' };
+          }
+          if (msg.apifyBuild != null && String(msg.apifyBuild).trim().length > apifyBuildMax) {
+            return { valid: false, error: 'apifyBuild exceeds ' + apifyBuildMax + ' characters (after trim)' };
+          }
+          var apifySyncTimeoutMax = 600000;
+          var apifyAsyncMaxWaitMax = 2 * 3600 * 1000;
+          var apifyPollMax = 300000;
+          var apifyDatasetItemsMax = 50000000;
+          if (msg.syncTimeoutMs != null && msg.syncTimeoutMs !== '') {
+            var st = Number(msg.syncTimeoutMs);
+            if (isFinite(st) && st < 1000) {
+              return { valid: false, error: 'syncTimeoutMs must be at least 1000 ms when set' };
+            }
+            if (isFinite(st) && st > apifySyncTimeoutMax) {
+              return { valid: false, error: 'syncTimeoutMs exceeds ' + apifySyncTimeoutMax + ' ms' };
+            }
+          }
+          if (msg.asyncMaxWaitMs != null && msg.asyncMaxWaitMs !== '') {
+            var am = Number(msg.asyncMaxWaitMs);
+            if (isFinite(am) && am < 1000) {
+              return { valid: false, error: 'asyncMaxWaitMs must be at least 1000 ms when set' };
+            }
+            if (isFinite(am) && am > apifyAsyncMaxWaitMax) {
+              return { valid: false, error: 'asyncMaxWaitMs exceeds ' + apifyAsyncMaxWaitMax + ' ms' };
+            }
+          }
+          if (msg.pollIntervalMs != null && msg.pollIntervalMs !== '') {
+            var pi = Number(msg.pollIntervalMs);
+            if (isFinite(pi) && pi < 0) {
+              return { valid: false, error: 'pollIntervalMs must be non-negative' };
+            }
+            if (isFinite(pi) && pi > apifyPollMax) {
+              return { valid: false, error: 'pollIntervalMs exceeds ' + apifyPollMax + ' ms' };
+            }
+          }
+          if (msg.datasetMaxItems != null && msg.datasetMaxItems !== '') {
+            var dm = Number(msg.datasetMaxItems);
+            if (isFinite(dm) && dm < 0) {
+              return { valid: false, error: 'datasetMaxItems must be non-negative' };
+            }
+            if (isFinite(dm) && dm > apifyDatasetItemsMax) {
+              return { valid: false, error: 'datasetMaxItems exceeds ' + apifyDatasetItemsMax };
+            }
+          }
+          if (typeof CFS_apifyRunQueryParamsValidationError === 'function') {
+            var apifyQe = CFS_apifyRunQueryParamsValidationError(msg);
+            if (apifyQe) return { valid: false, error: apifyQe };
+          }
+          break;
+        }
+        case 'APIFY_RUN_START': {
+          var apifyBuildMaxS = 256;
+          var apifyInputMaxBytesS = 2 * 1024 * 1024;
+          var apifyResourceIdMaxS = 512;
+          var apifyTokenMaxS = 2048;
+          if (msg.targetType !== 'actor' && msg.targetType !== 'task') {
+            return { valid: false, error: 'targetType must be actor or task' };
+          }
+          if (!msg.resourceId || typeof msg.resourceId !== 'string' || !String(msg.resourceId).trim()) {
+            return { valid: false, error: 'resourceId required' };
+          }
+          if (String(msg.resourceId).trim().length > apifyResourceIdMaxS) {
+            return { valid: false, error: 'resourceId exceeds ' + apifyResourceIdMaxS + ' characters' };
+          }
+          if (msg.token != null && String(msg.token).trim().length > apifyTokenMaxS) {
+            return { valid: false, error: 'token exceeds ' + apifyTokenMaxS + ' characters' };
+          }
+          if (msg.input != null) {
+            if (typeof msg.input !== 'object' || Array.isArray(msg.input)) {
+              return { valid: false, error: 'input must be a plain object when provided' };
+            }
+            var inputStrS;
+            try {
+              inputStrS = JSON.stringify(msg.input);
+            } catch (e) {
+              return { valid: false, error: 'input must be JSON-serializable' };
+            }
+            var inputBytesS = new TextEncoder().encode(inputStrS).length;
+            if (inputBytesS > apifyInputMaxBytesS) {
+              return { valid: false, error: 'Apify input JSON exceeds ' + apifyInputMaxBytesS + ' bytes (UTF-8)' };
+            }
+          }
+          if (msg.apifyBuild != null && String(msg.apifyBuild).trim().length > apifyBuildMaxS) {
+            return { valid: false, error: 'apifyBuild exceeds ' + apifyBuildMaxS + ' characters (after trim)' };
+          }
+          if (typeof CFS_apifyRunQueryParamsValidationError === 'function') {
+            var apifyQeS = CFS_apifyRunQueryParamsValidationError(msg);
+            if (apifyQeS) return { valid: false, error: apifyQeS };
+          }
+          break;
+        }
+        case 'APIFY_RUN_WAIT': {
+          var apifyFieldMaxW = 2048;
+          var apifyOutKeyMaxW = 256;
+          var apifyRunIdMaxW = 512;
+          var apifyTokenMaxW = 2048;
+          var apifyAsyncMaxWaitMaxW = 2 * 3600 * 1000;
+          var apifyPollMaxW = 300000;
+          var apifyDatasetItemsMaxW = 50000000;
+          if (!msg.runId || typeof msg.runId !== 'string' || !String(msg.runId).trim()) {
+            return { valid: false, error: 'runId required' };
+          }
+          if (String(msg.runId).trim().length > apifyRunIdMaxW) {
+            return { valid: false, error: 'runId exceeds ' + apifyRunIdMaxW + ' characters' };
+          }
+          if (msg.token != null && String(msg.token).trim().length > apifyTokenMaxW) {
+            return { valid: false, error: 'token exceeds ' + apifyTokenMaxW + ' characters' };
+          }
+          if (msg.fetchAfter != null && String(msg.fetchAfter) !== ''
+            && msg.fetchAfter !== 'none' && msg.fetchAfter !== 'dataset' && msg.fetchAfter !== 'output') {
+            return { valid: false, error: 'fetchAfter must be none, dataset, or output' };
+          }
+          if (msg.apifySyncDatasetFields != null && String(msg.apifySyncDatasetFields).length > apifyFieldMaxW) {
+            return { valid: false, error: 'apifySyncDatasetFields exceeds ' + apifyFieldMaxW + ' characters' };
+          }
+          if (msg.apifySyncDatasetOmit != null && String(msg.apifySyncDatasetOmit).length > apifyFieldMaxW) {
+            return { valid: false, error: 'apifySyncDatasetOmit exceeds ' + apifyFieldMaxW + ' characters' };
+          }
+          if (msg.outputRecordKey != null && String(msg.outputRecordKey).length > apifyOutKeyMaxW) {
+            return { valid: false, error: 'outputRecordKey exceeds ' + apifyOutKeyMaxW + ' characters' };
+          }
+          if (msg.asyncMaxWaitMs != null && msg.asyncMaxWaitMs !== '') {
+            var amw = Number(msg.asyncMaxWaitMs);
+            if (isFinite(amw) && amw < 1000) {
+              return { valid: false, error: 'asyncMaxWaitMs must be at least 1000 ms when set' };
+            }
+            if (isFinite(amw) && amw > apifyAsyncMaxWaitMaxW) {
+              return { valid: false, error: 'asyncMaxWaitMs exceeds ' + apifyAsyncMaxWaitMaxW + ' ms' };
+            }
+          }
+          if (msg.pollIntervalMs != null && msg.pollIntervalMs !== '') {
+            var piw = Number(msg.pollIntervalMs);
+            if (isFinite(piw) && piw < 0) {
+              return { valid: false, error: 'pollIntervalMs must be non-negative' };
+            }
+            if (isFinite(piw) && piw > apifyPollMaxW) {
+              return { valid: false, error: 'pollIntervalMs exceeds ' + apifyPollMaxW + ' ms' };
+            }
+          }
+          if (msg.datasetMaxItems != null && msg.datasetMaxItems !== '') {
+            var dmw = Number(msg.datasetMaxItems);
+            if (isFinite(dmw) && dmw < 0) {
+              return { valid: false, error: 'datasetMaxItems must be non-negative' };
+            }
+            if (isFinite(dmw) && dmw > apifyDatasetItemsMaxW) {
+              return { valid: false, error: 'datasetMaxItems exceeds ' + apifyDatasetItemsMaxW };
+            }
+          }
+          if (typeof CFS_apifyRunQueryParamsValidationError === 'function') {
+            var apifyQeW = CFS_apifyRunQueryParamsValidationError(msg);
+            if (apifyQeW) return { valid: false, error: apifyQeW };
+          }
+          break;
+        }
+        case 'APIFY_DATASET_ITEMS': {
+          var apifyFieldMaxD = 2048;
+          var apifyDatasetIdMaxD = 512;
+          var apifyTokenMaxD = 2048;
+          var apifyDatasetItemsMaxD = 50000000;
+          if (!msg.datasetId || typeof msg.datasetId !== 'string' || !String(msg.datasetId).trim()) {
+            return { valid: false, error: 'datasetId required' };
+          }
+          if (String(msg.datasetId).trim().length > apifyDatasetIdMaxD) {
+            return { valid: false, error: 'datasetId exceeds ' + apifyDatasetIdMaxD + ' characters' };
+          }
+          if (msg.token != null && String(msg.token).trim().length > apifyTokenMaxD) {
+            return { valid: false, error: 'token exceeds ' + apifyTokenMaxD + ' characters' };
+          }
+          if (msg.apifySyncDatasetFields != null && String(msg.apifySyncDatasetFields).length > apifyFieldMaxD) {
+            return { valid: false, error: 'apifySyncDatasetFields exceeds ' + apifyFieldMaxD + ' characters' };
+          }
+          if (msg.apifySyncDatasetOmit != null && String(msg.apifySyncDatasetOmit).length > apifyFieldMaxD) {
+            return { valid: false, error: 'apifySyncDatasetOmit exceeds ' + apifyFieldMaxD + ' characters' };
+          }
+          if (msg.datasetMaxItems != null && msg.datasetMaxItems !== '') {
+            var dmd = Number(msg.datasetMaxItems);
+            if (isFinite(dmd) && dmd < 0) {
+              return { valid: false, error: 'datasetMaxItems must be non-negative' };
+            }
+            if (isFinite(dmd) && dmd > apifyDatasetItemsMaxD) {
+              return { valid: false, error: 'datasetMaxItems exceeds ' + apifyDatasetItemsMaxD };
+            }
+          }
+          break;
+        }
         case 'UPLOAD_POST':
           if (!msg.apiKey || typeof msg.apiKey !== 'string') return { valid: false, error: 'apiKey required' };
           if (!msg.formFields || typeof msg.formFields !== 'object') return { valid: false, error: 'formFields required' };
@@ -570,6 +819,10 @@
           break;
         case 'RUN_WORKFLOW':
           if (!msg.workflowId || typeof msg.workflowId !== 'string') return { valid: false, error: 'workflowId required' };
+          break;
+        case 'SET_PENDING_GENERATIONS':
+          if (!Array.isArray(msg.list)) return { valid: false, error: 'list must be an array' };
+          if (msg.list.length > 500) return { valid: false, error: 'list length must be at most 500' };
           break;
         default:
           break;
@@ -593,8 +846,161 @@
     assertFalse(validateMessagePayload('FETCH_FILE', {}).valid);
     assertTrue(validateMessagePayload('FETCH_FILE', { url: 'http://x' }).valid);
 
+    assertFalse(validateMessagePayload('SET_PENDING_GENERATIONS', {}).valid);
+    assertFalse(validateMessagePayload('SET_PENDING_GENERATIONS', { list: 'bad' }).valid);
+    assertTrue(validateMessagePayload('SET_PENDING_GENERATIONS', { list: [] }).valid);
+    assertTrue(validateMessagePayload('SET_PENDING_GENERATIONS', { list: [{ data: 'x' }] }).valid);
+
     assertFalse(validateMessagePayload('SEND_TO_ENDPOINT', {}).valid);
     assertTrue(validateMessagePayload('SEND_TO_ENDPOINT', { url: 'http://x' }).valid);
+
+    assertTrue(validateMessagePayload('APIFY_TEST_TOKEN', {}).valid);
+    assertTrue(validateMessagePayload('APIFY_TEST_TOKEN', { token: 'x' }).valid);
+    assertFalse(validateMessagePayload('APIFY_TEST_TOKEN', { token: new Array(2050).join('t') }).valid);
+
+    assertFalse(validateMessagePayload('APIFY_RUN', {}).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', { targetType: 'actor' }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', { targetType: 'bad', resourceId: 'x', mode: 'syncDataset' }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', { targetType: 'actor', resourceId: '  ', mode: 'syncDataset' }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', { targetType: 'actor', resourceId: 'id', mode: 'bad' }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN_CANCEL', {}).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN_CANCEL', { tabId: 0 }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN_CANCEL', { tabId: '42' }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN_CANCEL', { tabId: -1 }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN_CANCEL', { tabId: 1.5 }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN', { targetType: 'actor', resourceId: 'apify~x', mode: 'syncDataset' }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN', { targetType: 'task', resourceId: 'task1', mode: 'asyncPoll' }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      apifySyncDatasetFields: 'url,title',
+      apifySyncDatasetOmit: 'html',
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', { targetType: 'actor', resourceId: 'x', mode: 'syncDataset', asyncResultType: 'nope' }).valid);
+    var longApifyStr = new Array(2050).join('x');
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      apifySyncDatasetFields: longApifyStr,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      apifySyncDatasetOmit: longApifyStr,
+    }).valid);
+
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      input: [1, 2],
+    }).valid);
+    (function() {
+      var circular = {};
+      circular.self = circular;
+      assertFalse(validateMessagePayload('APIFY_RUN', {
+        targetType: 'actor',
+        resourceId: 'x',
+        mode: 'syncDataset',
+        input: circular,
+      }).valid);
+    }());
+    var hugeInput = { blob: new Array(2 * 1024 * 1024 + 2).join('y') };
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      input: hugeInput,
+    }).valid);
+
+    var longOutKey = new Array(258).join('z');
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncOutput',
+      outputRecordKey: longOutKey,
+    }).valid);
+
+    var longResourceId = new Array(514).join('r');
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: longResourceId,
+      mode: 'syncDataset',
+    }).valid);
+
+    var longToken = new Array(2050).join('t');
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      token: longToken,
+    }).valid);
+
+    var longBuild = new Array(258).join('b');
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor',
+      resourceId: 'x',
+      mode: 'syncDataset',
+      apifyBuild: longBuild,
+    }).valid);
+
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'syncDataset', syncTimeoutMs: 500,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'syncDataset', syncTimeoutMs: 600001,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', asyncMaxWaitMs: 500,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', asyncMaxWaitMs: 2 * 3600 * 1000 + 1,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', pollIntervalMs: -1,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', pollIntervalMs: 300001,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', datasetMaxItems: -1,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', datasetMaxItems: 50000001,
+    }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', pollIntervalMs: 0,
+    }).valid);
+
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'syncDataset', apifyRunTimeoutSecs: 700000,
+    }).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'syncDataset', apifyRunTimeoutSecs: 604800,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', apifyStartWaitForFinishSecs: 0,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'asyncPoll', apifyStartWaitForFinishSecs: 61,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'syncDataset', apifySyncDatasetLimit: 2000000,
+    }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN', {
+      targetType: 'actor', resourceId: 'x', mode: 'syncDataset', apifyMaxTotalChargeUsd: 2000000,
+    }).valid);
+
+    assertFalse(validateMessagePayload('APIFY_RUN_START', {}).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN_START', { targetType: 'actor', resourceId: 'a~b', input: {} }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN_WAIT', {}).valid);
+    assertTrue(validateMessagePayload('APIFY_RUN_WAIT', { runId: 'run1', fetchAfter: 'none' }).valid);
+    assertFalse(validateMessagePayload('APIFY_RUN_WAIT', { runId: 'x', fetchAfter: 'bogus' }).valid);
+    assertFalse(validateMessagePayload('APIFY_DATASET_ITEMS', {}).valid);
+    assertTrue(validateMessagePayload('APIFY_DATASET_ITEMS', { datasetId: 'ds123' }).valid);
 
     assertFalse(validateMessagePayload('UPLOAD_POST', {}).valid);
     assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key' }).valid);
@@ -2375,6 +2781,67 @@
     assertDeepEqual(g({ a: [1, 2, 3] }, 'a'), [1, 2, 3]);
   }
 
+  function testGetByLoosePathNested() {
+    var gl = global.CFS_templateResolver && global.CFS_templateResolver.getByLoosePath;
+    if (!gl) throw new Error('getByLoosePath not loaded');
+    var row = { api: { stats: { views: 7 } } };
+    assertEqual(gl(row, 'api.stats.views'), 7);
+    assertEqual(gl({ items: [{ n: 1 }, { n: 9 }] }, 'items[1].n'), 9);
+  }
+
+  function testRunIfConditionComparisonGt() {
+    var ev = global.CFS_runIfCondition && global.CFS_runIfCondition.evaluate;
+    if (!ev) throw new Error('CFS_runIfCondition not loaded');
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var row = { a: 10, b: 3 };
+    assertTrue(ev('{{a}} > {{b}}', row, getRow));
+    assertFalse(ev('{{b}} > {{a}}', row, getRow));
+    assertTrue(ev('{{a}} > 5', row, getRow));
+  }
+
+  function testRunIfConditionLegacyFlag() {
+    var ev = global.CFS_runIfCondition.evaluate;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    assertTrue(ev('go', { go: true }, getRow));
+    assertFalse(ev('go', { go: false }, getRow));
+    assertFalse(ev('go', { go: 0 }, getRow));
+    assertTrue(ev('{{enabled}}', { enabled: 1 }, getRow));
+  }
+
+  function testRunIfConditionLiteralTrue() {
+    var ev = global.CFS_runIfCondition.evaluate;
+    function getRow() { return ''; }
+    assertTrue(ev('true', {}, getRow));
+    assertFalse(ev('false', {}, getRow));
+  }
+
+  function testRunIfShouldSkipEmpty() {
+    var sk = global.CFS_runIfCondition.shouldSkip;
+    function getRow() { return ''; }
+    assertFalse(sk('', {}, getRow));
+    assertFalse(sk('   ', {}, getRow));
+  }
+
+  function testRunIfTripleEqualsAndNotEquals() {
+    var ev = global.CFS_runIfCondition.evaluate;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var row = { x: 5, y: '5' };
+    assertTrue(ev('{{x}} === 5', row, getRow));
+    assertTrue(ev('{{y}} == 5', row, getRow));
+    assertFalse(ev('{{x}} !== 5', row, getRow));
+    assertTrue(ev('{{x}} !== 3', row, getRow));
+  }
+
+  function testRunIfSkipWhenRunIfAction() {
+    var sw = global.CFS_runIfCondition.skipWhenRunIf;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    assertFalse(sw({}, { a: 1 }, getRow));
+    assertFalse(sw({ runIf: '' }, { a: 1 }, getRow));
+    assertFalse(sw({ runIf: '  ' }, { a: 1 }, getRow));
+    assertFalse(sw({ runIf: '{{a}}' }, { a: 1 }, getRow));
+    assertTrue(sw({ runIf: '{{a}}' }, { a: 0 }, getRow));
+  }
+
   /* =========================================================================
    * step-comment.js — additional edge cases
    * ========================================================================= */
@@ -3009,6 +3476,23 @@
     assertFalse(c.isLocalFollowingId(''));
   }
 
+  function testFollowingSyncNormalizeWallet() {
+    var c = global.FollowingSyncCore;
+    if (!c) throw new Error('FollowingSyncCore missing');
+    var w = c.normalizeFollowingWallet({
+      id: 'w1',
+      profile: 'p1',
+      chain: 'solana',
+      address: 'AbCdEf',
+      network: 'mainnet-beta',
+      sizeMode: 'proportional',
+      slippageBps: 75,
+    });
+    assertEqual(w.chain, 'solana');
+    assertEqual(w.sizeMode, 'proportional');
+    assertEqual(w.slippageBps, 75);
+  }
+
   function testFollowingSyncPayloadSkipsUnknownPlatform() {
     var c = global.FollowingSyncCore;
     if (!c) throw new Error('FollowingSyncCore missing');
@@ -3020,6 +3504,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var out = c.buildFollowingPayloadForProfile('p1', caches, platforms);
     assertEqual(out.payload.accounts.length, 0);
@@ -3036,8 +3521,9 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
-    var online = { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [] };
+    var online = { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [], wallets: [] };
     var m = c.mergeLocalAndOnlineFollowing(local, online);
     assertTrue(m.profilesNeedingUpload.indexOf('fp_1') >= 0);
   }
@@ -3064,6 +3550,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var online = {
       profiles: [{
@@ -3079,6 +3566,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var m = c.mergeLocalAndOnlineFollowing(local, online, {
       onFollowingStatus: function (msg) { statusMsg = msg; },
@@ -3102,6 +3590,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var online = {
       profiles: [{
@@ -3117,6 +3606,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var m = c.mergeLocalAndOnlineFollowing(local, online, {});
     var phones = m.merged.phones.filter(function (r) { return (r.following || '').trim() === 'p1'; });
@@ -3137,8 +3627,9 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
-    var online = { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [] };
+    var online = { profiles: [], accounts: [], phones: [], emails: [], addresses: [], notes: [], wallets: [] };
     var m = c.mergeLocalAndOnlineFollowing(local, online, {});
     assertTrue(m.profilesNeedingUpload.indexOf(orphanUuid) >= 0, 'UUID not in current GET must POST on this account');
   }
@@ -3153,6 +3644,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var online = {
       profiles: [{ id: 'p1', name: 'ServerName', user: '', birthday: '', deleted: false, server_updated_at: '' }],
@@ -3161,6 +3653,7 @@
       emails: [],
       addresses: [],
       notes: [],
+      wallets: [],
     };
     var statusMsg = null;
     var m = c.mergeLocalAndOnlineFollowing(local, online, {
@@ -3333,6 +3826,44 @@
     assertEqual(S.applyToTypedValue('foo123bar', null, pi, resolveElement, {}), 'foo123bar');
   }
 
+  /** Infinity multi-hop path JSON shape (shared/infi-bin-path-json-shape.js) */
+  function testInfiBinPathJsonShapeValidOneHop() {
+    var p = global.CFS_parseInfiBinPathJsonShape;
+    if (typeof p !== 'function') throw new Error('CFS_parseInfiBinPathJsonShape not loaded');
+    var j = JSON.stringify([
+      {
+        intermediateCurrency: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+        infinityFee: '3000',
+        binStep: '10',
+      },
+    ]);
+    var r = p(j);
+    assertTrue(r.ok, 'one hop ok');
+    assertEqual(r.hops.length, 1);
+  }
+
+  function testInfiBinPathJsonShapeRejectsFeeOverflow() {
+    var p = global.CFS_parseInfiBinPathJsonShape;
+    var j = JSON.stringify([
+      {
+        intermediateCurrency: '0x0000000000000000000000000000000000000001',
+        infinityFee: '16777216',
+        binStep: '1',
+      },
+    ]);
+    var r = p(j);
+    assertFalse(r.ok);
+    assertTrue(r.error.indexOf('uint24') >= 0);
+  }
+
+  function testInfiBinPathCurrencyChainErrorDetectsStall() {
+    var c = global.CFS_infiBinPathCurrencyChainError;
+    if (typeof c !== 'function') throw new Error('CFS_infiBinPathCurrencyChainError not loaded');
+    var hops = [{ intermediateCurrency: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c' }];
+    var e = c('0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', hops);
+    assertTrue(e != null && e.indexOf('must differ') >= 0);
+  }
+
   global.CFS_unitTestsRegistered = [
     testConnectedAccountLimitCanAddUnderCap,
     testConnectedAccountLimitAppend,
@@ -3377,6 +3908,9 @@
     testNormalizeProjectStepHandlers,
     testMkHistoryEntry,
     testValidateMessagePayload,
+    testInfiBinPathJsonShapeValidOneHop,
+    testInfiBinPathJsonShapeRejectsFeeOverflow,
+    testInfiBinPathCurrencyChainErrorDetectsStall,
     testOffscreenMutexFIFOOrder,
     testOffscreenMutexErrorRelease,
     testOffscreenMutexSingleConcurrent,
@@ -3516,6 +4050,13 @@
     testTemplateResolverNestedPathVar,
     testTemplateResolverNoTemplates,
     testGetByPathDeep,
+    testGetByLoosePathNested,
+    testRunIfConditionComparisonGt,
+    testRunIfConditionLegacyFlag,
+    testRunIfConditionLiteralTrue,
+    testRunIfShouldSkipEmpty,
+    testRunIfTripleEqualsAndNotEquals,
+    testRunIfSkipWhenRunIfAction,
     testStepCommentPartsWithMedia,
     testStepCommentPartsCustomOrder,
     testStepCommentSummaryLongText,
@@ -3570,6 +4111,7 @@
     testRecordingValueContentEditableCrLf,
     testFollowingSyncNormalizeApiRow,
     testFollowingSyncIsLocalId,
+    testFollowingSyncNormalizeWallet,
     testFollowingSyncPayloadSkipsUnknownPlatform,
     testFollowingSyncMergeNeedingUpload,
     testFollowingSyncParseUpdatedAtMs,

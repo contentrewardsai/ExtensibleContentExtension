@@ -6,11 +6,7 @@
     const { getRowValue, currentRow, sendMessage } = ctx;
     const row = currentRow || {};
 
-    const runIf = (action.runIf || '').trim();
-    if (runIf) {
-      const v = getRowValue(row, runIf);
-      if (!v || String(v).trim() === '') return;
-    }
+    if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     const userVar = (action.userVariableKey || '').trim();
     const platformVar = (action.platformVariableKey || '').trim();

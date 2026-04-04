@@ -2,7 +2,7 @@
   "id": "hover",
   "label": "Hover",
   "category": "interaction",
-  "description": "Hover over an element (mouseenter/mouseover) so menus or dropdowns appear. Use before a click when the target is only visible on hover.",
+  "description": "Hover over an element (mouseenter/mouseover) so menus or dropdowns appear. Use before a click when the target is only visible on hover. Optional iframe/shadow scope via iframeSelectors / shadowHostSelectors.",
   "defaultAction": {
     "type": "hover",
     "selectors": [],

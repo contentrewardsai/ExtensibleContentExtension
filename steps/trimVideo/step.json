@@ -18,6 +18,7 @@
     { "key": "saveAsVariable", "label": "Save trimmed video to variable", "inputType": "text", "placeholder": "trimmedVideo" },
     { "key": "saveToProject", "label": "Also queue save to project (folder name; empty = skip)", "inputType": "text", "placeholder": "e.g. generations" },
     { "key": "saveFilename", "label": "Filename when saving (optional; use {{title}} for row value; .webm added if no extension)", "inputType": "text", "placeholder": "{{title}}-trimmed or my-video" },
-    { "key": "projectIdVariable", "label": "Project ID for save (when saveToProject set; use {{projectId}})", "inputType": "text", "placeholder": "{{projectId}}" }
+    { "key": "projectIdVariable", "label": "Project ID for save (when saveToProject set; use {{projectId}})", "inputType": "text", "placeholder": "{{projectId}}" },
+    { "key": "defaultProjectId", "label": "Default project ID if variable empty (optional)", "inputType": "text", "placeholder": "default" }
   ]
 }

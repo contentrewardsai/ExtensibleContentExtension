@@ -99,14 +99,14 @@
           var stop2 = sendRecorder({ type: 'RECORDER_STOP' });
           if (!stop2 || !stop2.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stop2));
           var n = (stop2.actions || []).length;
+          if (n < 1) return fail('stable: expected at least one action from RECORDER_STOP');
           setTimeout(function () {
             var st = sendRecorder({ type: 'RECORDER_STATUS' });
-            if (!st || st.actionCount !== n) {
+            // finalizeRecordingSession copies actions into the stop payload then clears the buffer.
+            if (!st || st.actionCount !== 0) {
               return fail(
-                'after 650ms RECORDER_STATUS actionCount ' +
-                  (st && st.actionCount) +
-                  ' !== stop actions length ' +
-                  n
+                'after 650ms RECORDER_STATUS actionCount expected 0 (cleared after stop), got ' +
+                  (st && st.actionCount)
               );
             }
             pass();
@@ -140,9 +140,8 @@
           }
           setTimeout(function () {
             var st3 = sendRecorder({ type: 'RECORDER_STATUS' });
-            var n3 = (stop3.actions || []).length;
-            if (!st3 || st3.actionCount !== n3) {
-              return fail('enter: status count drift');
+            if (!st3 || st3.actionCount !== 0) {
+              return fail('enter: RECORDER_STATUS actionCount expected 0 after stop, got ' + (st3 && st3.actionCount));
             }
             pass();
           }, 200);

@@ -31,7 +31,7 @@ The Extensible Content extension uses **Whop** for authentication and **extensib
 | **Projects** | `GET/POST/PATCH/DELETE /api/extension/projects` |
 | **Workflows** | `GET/POST/PATCH/DELETE /api/extension/workflows`, `GET /api/extension/workflows/catalog` (published / domain filter; see below) |
 | **Workflow step media** | `POST /api/extension/workflow-step-media` (multipart; step narration uploads — see below) |
-| **Following** | `GET/POST/PATCH/DELETE /api/extension/following` |
+| **Following** | `GET/POST/PATCH/DELETE /api/extension/following` (optional **`wallets[]`** on profiles — no **`price_drift_max_percent`**; drift/age are workflow-only; see **following/README.md**, **docs/BACKEND_IMPLEMENTATION_PROMPT.md**) |
 | **Industries** | `GET /api/extension/industries` (no auth) |
 | **Platforms** | `GET /api/extension/platforms` (no auth) |
 | **Monetization** | `GET /api/extension/monetization` (no auth) |
@@ -126,6 +126,8 @@ Sidebars use `extension/sidebars-api.js`:
 ## Sending data to your own endpoints from workflows
 
 Workflows can send HTTP requests to any URL using the **Send to endpoint** step. Use it to POST/GET/PUT data to your backend or third-party APIs. See **steps/sendToEndpoint/README.md** for full configuration.
+
+To run [Apify](https://apify.com) Actors or saved tasks (sync or async poll, dataset or OUTPUT), use the **Apify Actor / Task** step (or the split steps **apifyRunStart** / **apifyRunWait** / **apifyDatasetItems** → **`APIFY_RUN_START`**, **`APIFY_RUN_WAIT`**, **`APIFY_DATASET_ITEMS`**) and store your API token under extension **Settings → Apify API token** (saves are rejected over **2048** characters). The service worker validates payload size and shape (including **512**-char actor/task id, **2048**-char token, **256**-char `build` tag), optional run query numeric bounds (**`shared/apify-run-query-validation.js`**), surfaces Apify `error.details` when present, adds **Apify Console** run links when a run id appears in failed **sync** / **start run** responses or in async error paths (and **401** hints to Settings), fails async **dataset** mode if the succeeded run has no **default dataset id** (directs users to OUTPUT mode), includes **`consoleUrl`** on async **`run`** metadata, and handles **`APIFY_TEST_TOKEN`** (`GET /v2/users/me`) for Settings **Test token** (field token length checked before save/test). Async default-dataset paging uses **`shared/apify-dataset-response.js`**; sync/start error Console hints use **`shared/apify-extract-run-id.js`**. Run **`npm run test:apify`** for those plus run-query validation. **Stop** during playback sends **`APIFY_RUN_CANCEL`** (tab id from the side panel and/or the content tab) so the service worker aborts in-flight Apify HTTP work for that tab (**`APIFY_RUN`** and the split messages); the remote Apify run may still continue on Apify’s side. See **steps/apifyActorRun/README.md**.
 
 ---
 

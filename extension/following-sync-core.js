@@ -47,6 +47,10 @@
     return String(val).trim();
   }
 
+  function toWalletIdStr(val) {
+    return toAccountIdStr(val);
+  }
+
   /** @returns {number|null} ms since epoch, or null if missing/unparseable */
   function parseUpdatedAtMs(isoOrString) {
     if (isoOrString == null) return null;
@@ -83,6 +87,54 @@
       url: String(row.url ?? '').trim(),
       profile: profileId,
       deleted: row.deleted === true || row.deleted === 'true',
+    };
+  }
+
+  /** @param {number|null|undefined} n */
+  function numOrNull(n) {
+    if (n == null || n === '') return null;
+    const x = Number(n);
+    return Number.isFinite(x) ? x : null;
+  }
+
+  /**
+   * On-chain wallet row for Following (Pulse). Local + file first; API may add `row.wallets` later.
+   * sizeMode: off | proportional | fixed_token | fixed_usd
+   */
+  function normalizeFollowingWallet(row) {
+    const profileVal = row.profile ?? row.following;
+    const profileId =
+      profileVal && typeof profileVal === 'object'
+        ? String(profileVal.id ?? profileVal.ID ?? '').trim()
+        : String(profileVal ?? '').trim();
+    const chainRaw = String(row.chain ?? 'solana').trim().toLowerCase();
+    const chain = chainRaw === 'ethereum' || chainRaw === 'eth' ? 'evm' : chainRaw === 'bsc' ? 'evm' : chainRaw;
+    let network = String(row.network ?? '').trim();
+    if (!network) {
+      if (chain === 'solana') network = 'mainnet-beta';
+      else if (chain === 'evm') network = 'bsc';
+    }
+    const mode = String(row.sizeMode ?? 'off')
+      .trim()
+      .toLowerCase();
+    const sizeMode = ['proportional', 'fixed_token', 'fixed_usd'].includes(mode) ? mode : 'off';
+    return {
+      id: toWalletIdStr(row.id ?? row.ID),
+      profile: profileId,
+      chain,
+      address: String(row.address ?? '').trim(),
+      network,
+      label: String(row.label ?? '').trim(),
+      deleted: row.deleted === true || row.deleted === 'true',
+      watchEnabled: row.watchEnabled !== false,
+      automationEnabled: row.automationEnabled === true,
+      autoExecuteSwaps: row.autoExecuteSwaps === true,
+      sizeMode,
+      quoteMint: String(row.quoteMint ?? '').trim(),
+      fixedAmountRaw: String(row.fixedAmountRaw ?? '').trim(),
+      usdAmount: String(row.usdAmount ?? '').trim(),
+      proportionalScalePercent: numOrNull(row.proportionalScalePercent) != null ? numOrNull(row.proportionalScalePercent) : 100,
+      slippageBps: Math.min(10000, Math.max(0, parseInt(String(row.slippageBps ?? 50), 10) || 50)),
     };
   }
 
@@ -129,7 +181,7 @@
 
   /**
    * @param {string} profileId
-   * @param {{ profiles: Array, accounts: Array, phones: Array, emails: Array, addresses: Array, notes: Array }} caches
+   * @param {{ profiles: Array, accounts: Array, phones: Array, emails: Array, addresses: Array, notes: Array, wallets?: Array }} caches
    * @param {Object} platformsBySlug
    * @returns {{ payload: object|null, skippedAccounts: Array<{platform:string,reason:string}> }}
    */
@@ -141,6 +193,7 @@
     const emails = (caches.emails || []).filter((r) => (r.following || '').trim() === (profileId || '').trim() && !r.deleted);
     const addrs = (caches.addresses || []).filter((r) => (r.following || '').trim() === (profileId || '').trim() && !r.deleted);
     const noteList = (caches.notes || []).filter((r) => (r.following || '').trim() === (profileId || '').trim() && !r.deleted);
+    const wall = (caches.wallets || []).filter((w) => (w.profile || '').trim() === (profileId || '').trim() && !w.deleted);
     const skippedAccounts = [];
     const accounts = [];
     accs.forEach((a) => {
@@ -164,6 +217,22 @@
         country: r.country,
       })),
       notes: noteList.map((r) => ({ note: r.note, access: r.access || undefined, scheduled: r.scheduled || undefined })),
+      /** Extension field for future API sync; servers may ignore until `wallets` is supported. */
+      wallets: wall.map((w) => ({
+        chain: w.chain,
+        address: w.address,
+        network: w.network,
+        label: w.label || undefined,
+        watch_enabled: w.watchEnabled,
+        automation_enabled: w.automationEnabled,
+        auto_execute_swaps: w.autoExecuteSwaps,
+        size_mode: w.sizeMode,
+        quote_mint: w.quoteMint || undefined,
+        fixed_amount_raw: w.fixedAmountRaw || undefined,
+        usd_amount: w.usdAmount || undefined,
+        proportional_scale_percent: w.proportionalScalePercent,
+        slippage_bps: w.slippageBps,
+      })),
     };
     return { payload, skippedAccounts };
   }
@@ -181,6 +250,7 @@
     const emails = [];
     const addresses = [];
     const notes = [];
+    const wallets = [];
     const toPlatformSlug = (platformId, platformObj) => {
       if (platformObj?.slug) return String(platformObj.slug).toLowerCase();
       if (platformObj?.name) return String(platformObj.name).toLowerCase();
@@ -234,8 +304,32 @@
         if (r.deleted) return;
         notes.push({ id: r.id, following: pId, deleted: false, access: r.access || '', added_by: r.added_by || '', note: r.note || '', scheduled: r.scheduled || '' });
       });
+      const apiWallets = row.wallets ?? row.following_wallets ?? [];
+      (Array.isArray(apiWallets) ? apiWallets : []).forEach((w) => {
+        if (w.deleted) return;
+        wallets.push(
+          normalizeFollowingWallet({
+            id: w.id,
+            profile: pId,
+            chain: w.chain,
+            address: w.address,
+            network: w.network,
+            label: w.label,
+            deleted: false,
+            watchEnabled: w.watch_enabled !== false && w.watchEnabled !== false,
+            automationEnabled: w.automation_enabled === true || w.automationEnabled === true,
+            autoExecuteSwaps: w.auto_execute_swaps === true || w.autoExecuteSwaps === true,
+            sizeMode: w.size_mode || w.sizeMode,
+            quoteMint: w.quote_mint || w.quoteMint,
+            fixedAmountRaw: w.fixed_amount_raw || w.fixedAmountRaw,
+            usdAmount: w.usd_amount || w.usdAmount,
+            proportionalScalePercent: w.proportional_scale_percent ?? w.proportionalScalePercent,
+            slippageBps: w.slippage_bps ?? w.slippageBps,
+          }),
+        );
+      });
     });
-    return { profiles, accounts, phones, emails, addresses, notes };
+    return { profiles, accounts, phones, emails, addresses, notes, wallets };
   }
 
   /**
@@ -261,6 +355,8 @@
     const onlineAddresses = (online.addresses || []).filter((r) => r && !r.deleted);
     const localNotes = (local.notes || []).filter((r) => r && !r.deleted);
     const onlineNotes = (online.notes || []).filter((r) => r && !r.deleted);
+    const localWallets = (local.wallets || []).filter((w) => w && !w.deleted);
+    const onlineWallets = (online.wallets || []).filter((w) => w && !w.deleted);
 
     const byProfile = (arr, key) => {
       const m = {};
@@ -283,12 +379,16 @@
     const onlineAddressesByProfile = byProfile(onlineAddresses, 'following');
     const localNotesByProfile = byProfile(localNotes, 'following');
     const onlineNotesByProfile = byProfile(onlineNotes, 'following');
+    const localWalletsByProfile = byProfile(localWallets, 'profile');
+    const onlineWalletsByProfile = byProfile(onlineWallets, 'profile');
 
     const accKey = (a) => `${(a.handle || '').toLowerCase()}|${(a.platform || '').toLowerCase()}|${(a.url || '').toLowerCase()}`;
     const phoneKey = (r, pid) => `ph|${(r.phone || r.phone_number || '').trim().toLowerCase()}|${pid}`;
     const emailKey = (r, pid) => `em|${(r.email || '').trim().toLowerCase()}|${pid}`;
     const addrKey = (r, pid) => `ad|${(r.address || '').trim()}|${(r.city || '').trim()}|${(r.country || '').trim()}|${pid}`;
     const noteKey = (r, pid) => `nt|${(r.note || '').trim().slice(0, 200)}|${pid}`;
+    const walletKey = (w, pid) =>
+      `wl|${(w.chain || '').toLowerCase()}|${(w.address || '').trim().toLowerCase()}|${(w.network || '').toLowerCase()}|${pid}`;
 
     const accountUrls = (accs) => new Set((accs || []).map((a) => (a.url || '').trim().toLowerCase()).filter(Boolean));
     const profileKey = (p) => `${(p.name || '').toLowerCase()}|${(p.user || '').toLowerCase()}`;
@@ -339,6 +439,12 @@
       const oNtKeys = new Set(oNt.map((r) => noteKey(r, oid)));
       for (const r of lNt) {
         if (!oNtKeys.has(noteKey(r, oid))) return true;
+      }
+      const oWl = onlineWalletsByProfile[oid] || [];
+      const lWl = localWalletsByProfile[localPid] || [];
+      const oWlKeys = new Set(oWl.map((w) => walletKey(w, oid)));
+      for (const w of lWl) {
+        if (!oWlKeys.has(walletKey(w, oid))) return true;
       }
       return false;
     }
@@ -444,31 +550,34 @@
       }
     }
 
-    const mergeSimple = (localArr, onlineArr, keyFn, modeForPid) => {
+    const mergeSimple = (localArr, onlineArr, keyFn, modeForPid, profileField = 'following') => {
       const seen = new Set();
       const out = [];
       for (const p of mergedProfiles) {
         const pid = (p.id || '').trim();
         const localPid = Object.entries(localIdToOnlineId).find(([, v]) => v === pid)?.[0] || pid;
-        const localForP = (localArr || []).filter((r) => (r.following || '').trim() === pid || (r.following || '').trim() === localPid);
-        const onlineForP = (onlineArr || []).filter((r) => (r.following || '').trim() === pid);
+        const localForP = (localArr || []).filter((r) => (r[profileField] || '').trim() === pid || (r[profileField] || '').trim() === localPid);
+        const onlineForP = (onlineArr || []).filter((r) => (r[profileField] || '').trim() === pid);
         const mode = modeForPid(pid);
         const rows = mode === 'serverWins' ? onlineForP : [...onlineForP, ...localForP];
         rows.forEach((r) => {
           const k = keyFn(r, pid);
           if (seen.has(k)) return;
           seen.add(k);
-          out.push({ ...r, following: pid, deleted: false });
+          const base = { ...r, deleted: false };
+          if (profileField === 'following') out.push({ ...base, following: pid });
+          else out.push({ ...base, profile: pid });
         });
       }
       return out;
     };
 
     const modeFn = (pid) => lwwByPid.get(pid) || 'baseline';
-    const mergedPhones = mergeSimple(localPhones, onlinePhones, phoneKey, modeFn);
-    const mergedEmails = mergeSimple(localEmails, onlineEmails, emailKey, modeFn);
-    const mergedAddresses = mergeSimple(localAddresses, onlineAddresses, addrKey, modeFn);
-    const mergedNotes = mergeSimple(localNotes, onlineNotes, noteKey, modeFn);
+    const mergedPhones = mergeSimple(localPhones, onlinePhones, phoneKey, modeFn, 'following');
+    const mergedEmails = mergeSimple(localEmails, onlineEmails, emailKey, modeFn, 'following');
+    const mergedAddresses = mergeSimple(localAddresses, onlineAddresses, addrKey, modeFn, 'following');
+    const mergedNotes = mergeSimple(localNotes, onlineNotes, noteKey, modeFn, 'following');
+    const mergedWallets = mergeSimple(localWallets, onlineWallets, walletKey, modeFn, 'profile');
 
     const merged = {
       profiles: mergedProfiles,
@@ -477,6 +586,7 @@
       emails: mergedEmails,
       addresses: mergedAddresses,
       notes: mergedNotes,
+      wallets: mergedWallets.map((w) => normalizeFollowingWallet(w)),
     };
 
     const profilesNeedingUploadSet = new Set(profilesToSync);
@@ -507,6 +617,7 @@
     normalizeFollowingApiRow,
     normalizeProfile,
     normalizeAccount,
+    normalizeFollowingWallet,
     isLocalFollowingId,
     isUuidLikeFollowingId,
     buildPlatformsBySlugMap,

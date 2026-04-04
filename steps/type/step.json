@@ -2,7 +2,7 @@
   "id": "type",
   "label": "Type",
   "category": "interaction",
-  "description": "Type text into an input, textarea, or contenteditable. Value comes from the current row variable (e.g. spreadsheet column).",
+  "description": "Type text into an input, textarea, or contenteditable. Value comes from the current row variable (e.g. spreadsheet column). Optional iframe/shadow scope via iframeSelectors / shadowHostSelectors (same as Click).",
   "defaultAction": {
     "type": "type",
     "selectors": [],

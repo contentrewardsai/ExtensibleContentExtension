@@ -6,10 +6,12 @@
   "defaultAction": {
     "type": "transcribeAudio",
     "audioVariable": "capturedAudio",
-    "saveAsVariable": "transcript"
+    "saveAsVariable": "transcript",
+    "saveWordsToVariable": ""
   },
   "formSchema": [
-    { "key": "audioVariable", "label": "Row variable with audio (data URL or variable name)", "inputType": "text" },
-    { "key": "saveAsVariable", "label": "Save transcript to variable", "inputType": "text" }
+    { "key": "audioVariable", "label": "Row variable with audio (data/blob URL or https URL)", "inputType": "text" },
+    { "key": "saveAsVariable", "label": "Save transcript to variable", "inputType": "text" },
+    { "key": "saveWordsToVariable", "label": "Save word timestamps JSON to variable (optional)", "inputType": "text", "placeholder": "transcriptWords", "hint": "When Whisper returns word segments, JSON array of {text,start,end}." }
   ]
 }

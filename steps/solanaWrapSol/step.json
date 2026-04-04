@@ -1,0 +1,36 @@
+{
+  "id": "solanaWrapSol",
+  "label": "Solana wrap SOL (WSOL)",
+  "category": "data",
+  "description": "Transfers native lamports into the automation wallet’s WSOL associated token account and syncs native balance (classic SPL wrapped SOL / NATIVE_MINT). Does not use Jupiter. Leave enough SOL unwrapped for fees and rent.",
+  "defaultAction": {
+    "type": "solanaWrapSol",
+    "runIf": "",
+    "lamports": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "computeUnitLimit": "",
+    "computeUnitPriceMicroLamports": "",
+    "saveAtaAddressVariable": "solanaWsolAta",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "lamports", "label": "Lamports to wrap", "inputType": "text", "placeholder": "Integer string" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
+    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text" },
+    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text" },
+    { "key": "saveAtaAddressVariable", "label": "Save WSOL ATA address to variable", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

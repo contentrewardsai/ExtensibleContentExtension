@@ -1,0 +1,40 @@
+{
+  "id": "meteoraCpammQuoteSwapExactOut",
+  "label": "Meteora CP-AMM quote (swap exact out)",
+  "category": "data",
+  "description": "Read-only **exact-out** quote (`CFS_METEORA_CPAMM_QUOTE_SWAP_EXACT_OUT`): fixed **amountOutRaw** (output token raw units), SDK **getQuote2** swapMode 2. Returns expected input and max input after slippage. Optional **maximumAmountInRaw** caps **maxInAmountRaw** to **min**(quoted max, ceiling). Pair with **meteoraCpammSwapExactOut**. Rebuild: `npm run build:meteora-cpamm`.",
+  "defaultAction": {
+    "type": "meteoraCpammQuoteSwapExactOut",
+    "runIf": "",
+    "pool": "",
+    "inputMint": "",
+    "outputMint": "",
+    "amountOutRaw": "",
+    "slippagePercent": 1,
+    "maximumAmountInRaw": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "saveAmountOutVariable": "",
+    "saveExpectedInVariable": "cpammQuoteExactOutExpectedInRaw",
+    "saveMaxInVariable": "cpammQuoteExactOutMaxInRaw",
+    "saveSlippageBpsVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "pool", "label": "CP-AMM pool address", "inputType": "text" },
+    { "key": "inputMint", "label": "Input token mint", "inputType": "text" },
+    { "key": "outputMint", "label": "Output token mint", "inputType": "text" },
+    { "key": "amountOutRaw", "label": "Exact amount out (raw)", "inputType": "text" },
+    { "key": "slippagePercent", "label": "Slippage (percent → max in)", "inputType": "number" },
+    { "key": "maximumAmountInRaw", "label": "Cap max input (raw, optional)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
+    { "key": "saveAmountOutVariable", "label": "Save amount out (raw, optional)", "inputType": "text" },
+    { "key": "saveExpectedInVariable", "label": "Save expected in (raw)", "inputType": "text" },
+    { "key": "saveMaxInVariable", "label": "Save max in after slippage (raw)", "inputType": "text" },
+    { "key": "saveSlippageBpsVariable", "label": "Save slippage bps (optional)", "inputType": "text" }
+  ]
+}

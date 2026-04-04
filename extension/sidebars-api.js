@@ -64,22 +64,53 @@
     return res.json();
   }
 
+  /** POST /register should upsert; if the server inserts only, Postgres raises sidebars_user_id_window_id_key. */
+  function isDuplicateSidebarConstraintError(err) {
+    if (!err) return false;
+    if (err.status === 409) return true;
+    const m = String(err.message || '').toLowerCase();
+    return (
+      m.includes('duplicate') ||
+      m.includes('unique constraint') ||
+      m.includes('sidebars_user_id_window_id')
+    );
+  }
+
   /**
    * Register or upsert sidebar.
    * @param {{ window_id: string, sidebar_name?: string, active_project_id?: string|null }} body - window_id should be `${chrome.windows.Window.id}_sidepanel` (tab-independent).
    * @returns {Promise<{ id: string, window_id: string, sidebar_name: string, active_project_id?: string|null, ... }>}
    */
   async function registerSidebar({ window_id, sidebar_name = 'Office PC', active_project_id = null }) {
-    const res = await apiFetch('/api/extension/sidebars/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        window_id: String(window_id),
-        sidebar_name: String(sidebar_name || 'Office PC').trim(),
-        active_project_id: active_project_id != null ? String(active_project_id) : null,
-      }),
-    });
-    const sidebar = res?.sidebar ?? res?.data ?? res;
-    return sidebar && typeof sidebar === 'object' ? sidebar : res;
+    const payload = {
+      window_id: String(window_id),
+      sidebar_name: String(sidebar_name || 'Office PC').trim(),
+      active_project_id: active_project_id != null ? String(active_project_id) : null,
+    };
+    try {
+      const res = await apiFetch('/api/extension/sidebars/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const sidebar = res?.sidebar ?? res?.data ?? res;
+      return sidebar && typeof sidebar === 'object' ? sidebar : res;
+    } catch (e) {
+      if (!isDuplicateSidebarConstraintError(e)) throw e;
+      try {
+        const instances = await listSidebars();
+        const wid = String(window_id);
+        const found = (Array.isArray(instances) ? instances : []).find((s) => s && String(s.window_id) === wid);
+        const id = found && (found.id || found.sidebar_id);
+        if (!id) throw e;
+        await updateSidebar(id, {
+          sidebar_name: payload.sidebar_name,
+          active_project_id: payload.active_project_id,
+        }).catch(() => {});
+        return { ...found, id };
+      } catch (_) {
+        throw e;
+      }
+    }
   }
 
   /**

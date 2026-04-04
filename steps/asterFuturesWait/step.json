@@ -1,0 +1,69 @@
+{
+  "id": "asterFuturesWait",
+  "label": "Aster futures (wait)",
+  "category": "data",
+  "description": "Poll until order status (queryOrder), position size (positionRisk), or futures wallet balance threshold (balance v2). Uses Settings API keys.",
+  "defaultAction": {
+    "type": "asterFuturesWait",
+    "runIf": "",
+    "waitKind": "order",
+    "symbol": "",
+    "orderId": "",
+    "origClientOrderId": "",
+    "targetOrderStatus": "FILLED",
+    "positionWaitMode": "nonzero",
+    "positionThreshold": "",
+    "balanceAsset": "",
+    "balanceWaitMode": "availableAbove",
+    "balanceThreshold": "",
+    "recvWindow": "",
+    "pollIntervalMs": "2000",
+    "waitTimeoutMs": "120000",
+    "saveResultVariable": "asterWaitResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    {
+      "key": "waitKind",
+      "label": "Wait kind",
+      "inputType": "select",
+      "options": [
+        { "value": "order", "label": "order (queryOrder until status)" },
+        { "value": "position", "label": "position (positionRisk until size)" },
+        { "value": "balance", "label": "balance (v2 balance until threshold)" }
+      ]
+    },
+    { "key": "symbol", "label": "symbol (order + position waits)", "inputType": "text" },
+    { "key": "orderId", "label": "orderId (order wait)", "inputType": "text" },
+    { "key": "origClientOrderId", "label": "origClientOrderId (order wait)", "inputType": "text" },
+    { "key": "targetOrderStatus", "label": "Target status(es), comma-sep", "inputType": "text" },
+    {
+      "key": "positionWaitMode",
+      "label": "Position mode",
+      "inputType": "select",
+      "options": [
+        { "value": "nonzero", "label": "nonzero (|amt| > 0)" },
+        { "value": "zero", "label": "zero / flat" },
+        { "value": "absAbove", "label": "absAbove (needs positionThreshold)" }
+      ]
+    },
+    { "key": "positionThreshold", "label": "positionThreshold (absAbove)", "inputType": "text" },
+    { "key": "balanceAsset", "label": "balanceAsset (balance wait, e.g. USDT)", "inputType": "text" },
+    {
+      "key": "balanceWaitMode",
+      "label": "Balance mode",
+      "inputType": "select",
+      "options": [
+        { "value": "availableAbove", "label": "availableAbove (default)" },
+        { "value": "availableBelow", "label": "availableBelow" },
+        { "value": "walletAbove", "label": "walletAbove (balance field)" },
+        { "value": "walletBelow", "label": "walletBelow" }
+      ]
+    },
+    { "key": "balanceThreshold", "label": "balanceThreshold (number)", "inputType": "text" },
+    { "key": "recvWindow", "label": "recvWindow", "inputType": "text" },
+    { "key": "pollIntervalMs", "label": "Poll interval ms", "inputType": "text" },
+    { "key": "waitTimeoutMs", "label": "Timeout ms", "inputType": "text" },
+    { "key": "saveResultVariable", "label": "Save last snapshot to variable", "inputType": "text" }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "readJsonFromProject",
+  "label": "Read JSON from project file",
+  "category": "integrations",
+  "description": "Load and parse a JSON file under the project folder (relative path). Stores the parsed value on the current row. Requires project folder set; uses the same handle as Reload Extension / workflows.",
+  "defaultAction": {
+    "type": "readJsonFromProject",
+    "runIf": "",
+    "relativePath": "data/example.json",
+    "saveAsVariable": "fileJson",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "ifMissing": "fail",
+    "maxBytes": ""
+  },
+  "inputs": [
+    { "key": "relativePath", "description": "Path under project root (supports {{var}})" },
+    { "key": "saveAsVariable", "description": "Row variable to store parsed JSON" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Parsed JSON (object or array)" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "relativePath", "label": "Relative path", "inputType": "text", "placeholder": "data/state.json" },
+    { "key": "saveAsVariable", "label": "Save as variable", "inputType": "text", "placeholder": "fileJson" },
+    { "key": "projectIdVariableKey", "label": "Project ID row key (for {{projectId}} in path)", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "default" },
+    { "key": "ifMissing", "label": "If file missing", "inputType": "select", "options": [
+      { "value": "fail", "label": "Fail step" },
+      { "value": "empty", "label": "Set empty object {}" },
+      { "value": "skip", "label": "Skip (no-op)" }
+    ] },
+    { "key": "maxBytes", "label": "Max read size (bytes, optional)", "inputType": "number", "min": 1, "placeholder": "5242880" }
+  ]
+}

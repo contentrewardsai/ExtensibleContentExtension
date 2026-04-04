@@ -1,0 +1,34 @@
+{
+  "id": "solanaPumpfunBuy",
+  "label": "Solana Pump.fun buy",
+  "category": "data",
+  "description": "Buy a Pump.fun bonding-curve token with SOL using the automation wallet (Settings → Solana). solLamports is lamports to spend (1 SOL = 1e9). Fails if the coin has graduated; use Solana Jupiter swap instead. Rebuild background bundle after SDK upgrades: npm run build:pump.",
+  "defaultAction": {
+    "type": "solanaPumpfunBuy",
+    "runIf": "",
+    "mint": "",
+    "solLamports": "",
+    "slippage": 1,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "skipSimulation": false,
+    "skipPreflight": false,
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "mint", "label": "Token mint (base58)", "inputType": "text", "placeholder": "Pump.fun token mint" },
+    { "key": "solLamports", "label": "SOL to spend (lamports)", "inputType": "text", "placeholder": "e.g. 100000000 for 0.1 SOL" },
+    { "key": "slippage", "label": "Pump SDK slippage", "inputType": "number", "placeholder": "1 (see @pump-fun/pump-sdk)" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text", "placeholder": "Leave empty for Settings / default" },
+    { "key": "skipSimulation", "label": "Skip RPC simulation", "inputType": "checkbox" },
+    { "key": "skipPreflight", "label": "Skip preflight on send", "inputType": "checkbox" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text", "placeholder": "solanaTxSignature" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text", "placeholder": "solanaExplorerUrl" }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "id": "asterSpotTrade",
+  "label": "Aster spot (trade)",
+  "category": "data",
+  "description": "Signed spot TRADE on sapi.asterdex.com: placeOrder, cancel, cancel all on symbol, batchOrders. Optional dryRun, validateExchangeFilters, roundToExchangeFilters. Requires Allow spot trading + same keys as futures.",
+  "defaultAction": {
+    "type": "asterSpotTrade",
+    "runIf": "",
+    "operation": "placeOrder",
+    "recvWindow": "",
+    "symbol": "",
+    "side": "",
+    "orderType": "MARKET",
+    "timeInForce": "GTC",
+    "quantity": "",
+    "quoteOrderQty": "",
+    "price": "",
+    "newClientOrderId": "",
+    "stopPrice": "",
+    "icebergQty": "",
+    "newOrderRespType": "",
+    "orderId": "",
+    "origClientOrderId": "",
+    "batchOrders": "",
+    "dryRun": "",
+    "validateExchangeFilters": "",
+    "roundToExchangeFilters": "",
+    "saveResultVariable": "asterSpotTradeResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    {
+      "key": "operation",
+      "label": "Operation",
+      "inputType": "select",
+      "options": [
+        { "value": "placeOrder", "label": "placeOrder" },
+        { "value": "cancelOrder", "label": "cancelOrder" },
+        { "value": "cancelAllOpen", "label": "cancelAllOpen (symbol)" },
+        { "value": "batchOrders", "label": "batchOrders (JSON array string)" }
+      ]
+    },
+    { "key": "recvWindow", "label": "recvWindow", "inputType": "text" },
+    { "key": "symbol", "label": "symbol", "inputType": "text" },
+    { "key": "side", "label": "side (BUY/SELL)", "inputType": "text" },
+    { "key": "orderType", "label": "orderType (LIMIT/MARKET/…)", "inputType": "text" },
+    { "key": "timeInForce", "label": "timeInForce", "inputType": "text" },
+    { "key": "quantity", "label": "quantity (base asset)", "inputType": "text" },
+    { "key": "quoteOrderQty", "label": "quoteOrderQty (MARKET alternative)", "inputType": "text" },
+    { "key": "price", "label": "price", "inputType": "text" },
+    { "key": "newClientOrderId", "label": "newClientOrderId", "inputType": "text" },
+    { "key": "stopPrice", "label": "stopPrice", "inputType": "text" },
+    { "key": "icebergQty", "label": "icebergQty", "inputType": "text" },
+    { "key": "newOrderRespType", "label": "newOrderRespType", "inputType": "text" },
+    { "key": "orderId", "label": "orderId (cancel)", "inputType": "text" },
+    { "key": "origClientOrderId", "label": "origClientOrderId", "inputType": "text" },
+    { "key": "batchOrders", "label": "batchOrders (JSON array)", "inputType": "textarea" },
+    { "key": "dryRun", "label": "dryRun (placeOrder)", "inputType": "text" },
+    { "key": "validateExchangeFilters", "label": "validateExchangeFilters", "inputType": "text" },
+    { "key": "roundToExchangeFilters", "label": "roundToExchangeFilters", "inputType": "text" },
+    { "key": "saveResultVariable", "label": "Save JSON result to variable", "inputType": "text" }
+  ]
+}
