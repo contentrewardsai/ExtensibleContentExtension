@@ -7,7 +7,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | Layer | Purpose | How |
 |-------|---------|-----|
 | **L1** | Payloads, parsing, merge logic, step UI contracts | `npm run test:unit`, `steps/*/step-tests.js`, `npm run test:crypto-workflow-step-types` |
-| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — genesis hash checks (Solana cluster hint / BSC 56·97), `net_version` ↔ `eth_chainId`, …; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
+| **L2** | Read-only RPC + indexer reachability | `npm run test:crypto-rpc-smoke` — genesis hash checks (Solana cluster hint / BSC 56·97), `net_version` ↔ `eth_chainId`, …; optional **`npm run test:crypto-http-smoke`** — Rugcheck + Aster public + optional BscScan proxy; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` · optional signed tx: `npm run test:crypto-evm-fork-tx-smoke` (Anvil default key → 1 wei transfer; skips on zero balance) |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs · optional CI: **`test:crypto-solana-tx-smoke`** with **`CRYPTO_SOLANA_TX_SECRET_KEY`** (throwaway key + devnet RPC) |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
