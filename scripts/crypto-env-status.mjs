@@ -8,6 +8,9 @@ import process from 'node:process';
 const keys = [
   'SOLANA_RPC_SMOKE_URL',
   'SOLANA_EXPECTED_GENESIS_HASH',
+  'CRYPTO_SOLANA_TX_RPC_URL',
+  'CRYPTO_SOLANA_TX_SECRET_KEY',
+  'CRYPTO_SOLANA_TX_FORCE',
   'BSC_RPC_SMOKE_URL',
   'CRYPTO_EVM_FORK_RPC_URL',
   'CRYPTO_EVM_FORK_TX_RPC_URL',
@@ -28,9 +31,11 @@ console.log('Optional crypto test environment (set in shell or CI secrets):\n');
 for (const k of keys) {
   const v = process.env[k];
   const set = v != null && String(v).trim() !== '';
-  console.log(`  ${k}: ${set ? mask(String(v)) : '(not set)'}`);
+  const display =
+    k === 'CRYPTO_SOLANA_TX_SECRET_KEY' ? (set ? '(set — value hidden)' : '(not set)') : set ? mask(String(v)) : '(not set)';
+  console.log(`  ${k}: ${display}`);
 }
 console.log(
-  '\nCommands: npm run test:crypto-rpc-smoke | npm run test:crypto-evm-fork-smoke | npm run test:crypto-evm-fork-tx-smoke'
+  '\nCommands: npm run test:crypto-rpc-smoke | npm run test:crypto-solana-tx-smoke | npm run test:crypto-evm-fork-smoke | npm run test:crypto-evm-fork-tx-smoke'
 );
 console.log('Docs: docs/CRYPTO_TESTING_QUICKREF.md');

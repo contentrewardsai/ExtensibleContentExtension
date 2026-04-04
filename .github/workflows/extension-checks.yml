@@ -79,11 +79,14 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: Read-only RPC smoke (optional secrets)
+      - name: Read-only RPC smoke + optional Solana tx (optional secrets)
         env:
           SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
           BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
-        run: npm run test:crypto-rpc-smoke
+          CRYPTO_SOLANA_TX_SECRET_KEY: ${{ secrets.CRYPTO_SOLANA_TX_SECRET_KEY }}
+        run: |
+          npm run test:crypto-rpc-smoke
+          npm run test:crypto-solana-tx-smoke
 
   optional-crypto-evm-fork-smoke:
     runs-on: ubuntu-latest

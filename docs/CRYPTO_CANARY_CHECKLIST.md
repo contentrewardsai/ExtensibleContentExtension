@@ -30,6 +30,7 @@ Use after releases or infra changes. **Tiny notionals**; **dedicated wallet**; r
 ## Automation
 
 - [ ] Run **`npm run test:crypto-rpc-smoke`** with production-like RPC URLs (read-only keys).
+- [ ] Optional: **`npm run test:crypto-solana-tx-smoke`** with a **devnet**-funded throwaway key (`CRYPTO_SOLANA_TX_SECRET_KEY`) to prove signing + confirmation.
 - [ ] If using Anvil in CI: **`CRYPTO_EVM_FORK_RPC_URL`** job green (includes **`test:crypto-evm-fork-tx-smoke`** when the default Anvil account is funded).
 
 See **[CRYPTO_TEST_STRATEGY.md](./CRYPTO_TEST_STRATEGY.md)** for layers L1–L4.
