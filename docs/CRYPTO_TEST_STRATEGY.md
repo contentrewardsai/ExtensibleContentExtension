@@ -27,7 +27,7 @@ npm run verify:crypto-matrix   # CI — fails if matrix is stale
 
 ```bash
 npm run verify:crypto-smoke-addrs-sync   # fork smoke Pancake router must match background/bsc-evm.js (CI)
-npm run verify:crypto-bsc-genesis-sync   # BSC genesis hash literals match in both smoke scripts (CI)
+npm run verify:crypto-bsc-genesis-sync   # BSC genesis hashes in crypto-constants.json; both smoke scripts load them (CI)
 npm run verify:bsc-pancake-docs-sync     # docs/BSC_PANCAKE_ADDRESSES.md matches bsc-evm.js pins (CI)
 ```
 

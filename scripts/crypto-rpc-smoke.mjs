@@ -9,18 +9,26 @@
  *
  * See docs/CRYPTO_CI_SMOKE.md
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const cryptoConsts = JSON.parse(readFileSync(join(__dirname, 'crypto-constants.json'), 'utf8'));
 
 const solUrl = (process.env.SOLANA_RPC_SMOKE_URL || '').trim();
 const bscUrl = (process.env.BSC_RPC_SMOKE_URL || '').trim();
 
 /** Canonical genesis block hashes (eth_getBlockByNumber("0x0").hash). */
-const GENESIS_HASH_BSC_56 = '0x0d21840abff46b96c84b2ac9e10e4f5cdaeb5693cb665db62a2f3b02d2d57b5b';
-const GENESIS_HASH_BSC_97 = '0x6d3c66c5357ec91d5c43af47e234a939b22557cbb552dc45bebbceeed90fbe34';
+const {
+  genesisBlockHashChain56: GENESIS_HASH_BSC_56,
+  genesisBlockHashChain97: GENESIS_HASH_BSC_97,
+} = cryptoConsts.bsc;
 
-const SOLANA_GENESIS_MAINNET = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
-const SOLANA_GENESIS_DEVNET = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
-const SOLANA_GENESIS_TESTNET = '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY';
+const SOLANA_GENESIS_MAINNET = cryptoConsts.solana.genesisHashMainnetBeta;
+const SOLANA_GENESIS_DEVNET = cryptoConsts.solana.genesisHashDevnet;
+const SOLANA_GENESIS_TESTNET = cryptoConsts.solana.genesisHashTestnet;
 
 function expectedSolanaGenesisFromUrl(rpcUrl) {
   const override = (process.env.SOLANA_EXPECTED_GENESIS_HASH || '').trim();
