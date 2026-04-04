@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * Guard: BSC addresses hard-coded in crypto-evm-fork-smoke.mjs stay aligned with
- * background/bsc-evm.js (Pancake V2 router) so fork smoke probes the same contract
- * the extension uses on chain 56.
+ * Guard: BSC addresses in crypto-evm-fork-smoke.mjs match background/bsc-evm.js:
+ * Pancake V2 router (chain 56 probe) and Infinity Vault Chapel (chain 97 probe).
  *
  * Run: node scripts/verify-crypto-smoke-addrs-sync.cjs
  */
@@ -51,11 +50,30 @@ if (routerEvm !== routerSmoke) {
   process.exit(1);
 }
 
-const chapelM = smoke.match(/const\s+WBNB_CHAPEL\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
-if (!chapelM || !/^0x[a-fA-F0-9]{40}$/i.test(chapelM[1])) {
-  console.error('verify-crypto-smoke-addrs-sync: invalid WBNB_CHAPEL in crypto-evm-fork-smoke.mjs');
+const evmVault = evm.match(/var\s+INFI_VAULT_CHAPEL\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
+if (!evmVault) {
+  console.error('verify-crypto-smoke-addrs-sync: could not parse INFI_VAULT_CHAPEL from bsc-evm.js');
+  process.exit(1);
+}
+const vaultEvm = evmVault[1].toLowerCase();
+
+const smokeVaultM = smoke.match(/const\s+INFI_VAULT_CHAPEL\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
+if (!smokeVaultM) {
+  console.error('verify-crypto-smoke-addrs-sync: could not parse INFI_VAULT_CHAPEL in crypto-evm-fork-smoke.mjs');
+  process.exit(1);
+}
+const vaultSmoke = smokeVaultM[1].toLowerCase();
+
+if (vaultEvm !== vaultSmoke) {
+  console.error(
+    'verify-crypto-smoke-addrs-sync: INFI_VAULT_CHAPEL mismatch',
+    '\n  bsc-evm.js:              ',
+    vaultEvm,
+    '\n  crypto-evm-fork-smoke:   ',
+    vaultSmoke,
+  );
   process.exit(1);
 }
 
-console.log('verify-crypto-smoke-addrs-sync: OK (Pancake V2 router matches bsc-evm.js)');
+console.log('verify-crypto-smoke-addrs-sync: OK (router + Chapel vault match bsc-evm.js)');
 process.exit(0);
