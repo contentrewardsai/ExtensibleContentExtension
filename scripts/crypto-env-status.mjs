@@ -7,6 +7,7 @@ import process from 'node:process';
 
 const keys = [
   'SOLANA_RPC_SMOKE_URL',
+  'SOLANA_EXPECTED_GENESIS_HASH',
   'BSC_RPC_SMOKE_URL',
   'CRYPTO_EVM_FORK_RPC_URL',
   'BSC_FORK_URL',

@@ -3,7 +3,7 @@
  * EVM JSON-RPC smoke: Anvil fork, public BSC/Chapel, or any eth_* endpoint.
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
- * Runs eth_chainId + net_version (must agree), eth_getBlockByNumber("latest"), eth_blockNumber, eth_gasPrice, eth_syncing, then
+ * Runs eth_chainId + net_version (must agree), genesis block hash (56/97 canonical), latest block, eth_blockNumber, eth_gasPrice, eth_syncing, then
  * eth_getCode: chain 56 router + WBNB + Infinity Vault mainnet (+ eth_call WBNB.decimals);
  * chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
@@ -25,6 +25,9 @@ const INFI_BIN_POOL_MANAGER_CHAPEL = '0xe71d2e0230cE0765be53A8A1ee05bdACF30F296B
 
 /** ERC20 decimals() selector */
 const ERC20_DECIMALS_DATA = '0x313ce567';
+
+const GENESIS_HASH_BSC_56 = '0x0d21840abff46b96c84b2ac9e10e4f5cdaeb5693cb665db62a2f3b02d2d57b5b';
+const GENESIS_HASH_BSC_97 = '0x6d3c66c5357ec91d5c43af47e234a939b22557cbb552dc45bebbceeed90fbe34';
 
 async function rpc(method, params = []) {
   const res = await fetch(url, {
@@ -80,6 +83,19 @@ async function main() {
     throw new Error(`eth_syncing expected false, got ${JSON.stringify(syncing)}`);
   }
   console.log('[crypto-evm-fork-smoke] eth_syncing: false');
+
+  const gen = await rpc('eth_getBlockByNumber', ['0x0', false]);
+  const ghash = gen && gen.hash;
+  if (typeof ghash !== 'string' || !/^0x[0-9a-fA-F]{64}$/i.test(ghash)) {
+    throw new Error(`genesis hash unexpected ${JSON.stringify(ghash)}`);
+  }
+  const cidForGen = parseChainIdHex(chainId);
+  const wantGen = cidForGen === 56 ? GENESIS_HASH_BSC_56 : cidForGen === 97 ? GENESIS_HASH_BSC_97 : null;
+  if (wantGen && ghash.toLowerCase() !== wantGen.toLowerCase()) {
+    throw new Error(`genesis hash ${ghash} does not match canonical chain ${cidForGen}`);
+  }
+  if (wantGen) console.log('[crypto-evm-fork-smoke] genesis hash: ok (chain', cidForGen + ')');
+  else console.log('[crypto-evm-fork-smoke] genesis hash:', ghash, '(no canonical check)');
 
   const cid = parseChainIdHex(chainId);
   const probes =
