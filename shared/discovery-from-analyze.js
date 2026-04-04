@@ -8,6 +8,7 @@
   var STEP_TYPES_FOR_INPUT_CANDIDATES = {
     type: true,
     click: true,
+    hover: true,
     select: true,
     upload: true,
     ensureSelect: true,
