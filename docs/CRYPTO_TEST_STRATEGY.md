@@ -7,7 +7,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | Layer | Purpose | How |
 |-------|---------|-----|
 | **L1** | Payloads, parsing, merge logic, step UI contracts | `npm run test:unit`, `steps/*/step-tests.js`, `npm run test:crypto-workflow-step-types` |
-| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` + `getSlot`, EVM `eth_chainId` + `eth_blockNumber`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
+| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` + `getSlot` + `getLatestBlockhash`, EVM `eth_chainId` + `eth_blockNumber`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
@@ -72,7 +72,7 @@ In another shell:
 CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke
 ```
 
-On **chain 56** the script also **`eth_getCode`** on the PancakeSwap V2 router (`0x10ED43C71…`) to confirm bytecode is visible (fork or mainnet RPC). On **chain 97** it probes **Infinity Vault (Chapel)** — same address as **`INFI_VAULT_CHAPEL`** in `bsc-evm.js`.
+On **chain 56** the script **`eth_getCode`** on the PancakeSwap V2 router (`0x10ED43C71…`). On **chain 97** it probes **Infinity Vault** and **BinPoolManager** (`INFI_VAULT_CHAPEL`, `INFI_BIN_POOL_MANAGER_CHAPEL` in `bsc-evm.js`).
 
 Extension **BSC automation** uses **mainnet contract addresses** in `background/bsc-evm.js`; a **mainnet fork** is the closest automated match for swap/stake paths. **BSC testnet (chain 97)** needs separate deployed addresses for full DEX parity (not in-repo today).
 
@@ -88,5 +88,6 @@ Extension **BSC automation** uses **mainnet contract addresses** in `background/
 
 ## Related docs
 
+- [CRYPTO_TESTING_QUICKREF.md](./CRYPTO_TESTING_QUICKREF.md) — commands cheat sheet
 - [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) — optional CI RPC secrets
 - [BSC_AUTOMATION.md](./BSC_AUTOMATION.md), [SOLANA_AUTOMATION.md](./SOLANA_AUTOMATION.md)

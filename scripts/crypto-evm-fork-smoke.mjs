@@ -4,7 +4,7 @@
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
  * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, then
- * eth_getCode on a known contract for chain 56 (Pancake V2 router) or 97 (Infinity Vault Chapel).
+ * eth_getCode on pinned contracts: chain 56 Pancake V2 router; chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
  */
 import process from 'node:process';
@@ -15,6 +15,8 @@ const url = (process.env.CRYPTO_EVM_FORK_RPC_URL || 'http://127.0.0.1:8545').tri
 const PANCAKE_V2_ROUTER_BSC = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
 /** Same as background/bsc-evm.js INFI_VAULT_CHAPEL — extension uses this on chain 97. */
 const INFI_VAULT_CHAPEL = '0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD';
+/** Same as background/bsc-evm.js INFI_BIN_POOL_MANAGER_CHAPEL. */
+const INFI_BIN_POOL_MANAGER_CHAPEL = '0xe71d2e0230cE0765be53A8A1ee05bdACF30F296B';
 
 async function rpc(method, params = []) {
   const res = await fetch(url, {
@@ -49,21 +51,23 @@ async function main() {
   console.log('[crypto-evm-fork-smoke] eth_blockNumber:', blockNum);
 
   const cid = parseChainIdHex(chainId);
-  let probe = null;
-  let label = '';
-  if (cid === 56) {
-    probe = PANCAKE_V2_ROUTER_BSC;
-    label = 'Pancake V2 router (mainnet)';
-  } else if (cid === 97) {
-    probe = INFI_VAULT_CHAPEL;
-    label = 'Infinity Vault (Chapel)';
-  }
-  if (probe) {
-    const code = await rpc('eth_getCode', [probe, 'latest']);
-    if (typeof code !== 'string' || code === '0x' || code.length < 10) {
-      throw new Error(`eth_getCode ${probe} (${label}) empty or missing — wrong chain or RPC?`);
+  const probes =
+    cid === 56
+      ? [[PANCAKE_V2_ROUTER_BSC, 'Pancake V2 router (mainnet)']]
+      : cid === 97
+        ? [
+            [INFI_VAULT_CHAPEL, 'Infinity Vault (Chapel)'],
+            [INFI_BIN_POOL_MANAGER_CHAPEL, 'Infinity BinPoolManager (Chapel)'],
+          ]
+        : [];
+  if (probes.length) {
+    for (const [addr, label] of probes) {
+      const code = await rpc('eth_getCode', [addr, 'latest']);
+      if (typeof code !== 'string' || code === '0x' || code.length < 10) {
+        throw new Error(`eth_getCode ${addr} (${label}) empty or missing — wrong chain or RPC?`);
+      }
+      console.log(`[crypto-evm-fork-smoke] eth_getCode ${label}: ok (${code.length} chars)`);
     }
-    console.log(`[crypto-evm-fork-smoke] eth_getCode ${label}: ok (${code.length} chars)`);
   } else {
     console.log('[crypto-evm-fork-smoke] skip eth_getCode probe (chain not 56 or 97)');
   }

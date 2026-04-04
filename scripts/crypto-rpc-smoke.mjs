@@ -62,6 +62,22 @@ async function main() {
       throw new Error(`Solana: getSlot unexpected ${JSON.stringify(slot.result)}`);
     }
     console.log('[crypto-rpc-smoke] Solana getSlot:', slot.result);
+    const lb = await postJson(
+      solUrl,
+      {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'getLatestBlockhash',
+        params: [{ commitment: 'finalized' }],
+      },
+      'Solana getLatestBlockhash'
+    );
+    const v = lb.result && lb.result.value;
+    const bh = v && v.blockhash;
+    if (typeof bh !== 'string' || bh.length < 32) {
+      throw new Error(`Solana: getLatestBlockhash unexpected ${JSON.stringify(lb.result)}`);
+    }
+    console.log('[crypto-rpc-smoke] Solana getLatestBlockhash: ok (len ' + bh.length + ')');
   }
 
   if (bscUrl) {

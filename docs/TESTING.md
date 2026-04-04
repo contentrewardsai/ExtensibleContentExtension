@@ -10,6 +10,7 @@ Layered approach (unit → optional RPC smoke → local fork → devnet → cana
 - **[CRYPTO_TEST_MATRIX.md](./CRYPTO_TEST_MATRIX.md)** — run `npm run report:crypto-matrix` after changing `shared/crypto-workflow-step-ids.js`
 - **[CRYPTO_CANARY_CHECKLIST.md](./CRYPTO_CANARY_CHECKLIST.md)** — manual L5 smoke after releases
 - **`npm run test:crypto`** — static crypto checks (matrix, smoke addr sync, Pancake doc pins, manifest hosts, wiring)
+- **[CRYPTO_TESTING_QUICKREF.md](./CRYPTO_TESTING_QUICKREF.md)** — one-page command table
 
 ## Unit Tests (Zero Setup)
 
