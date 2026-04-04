@@ -730,6 +730,7 @@ function mergeActions(actions) {
     merged.fallbackSelectors = mergeSelectors(valid.flatMap(a => a.fallbackSelectors || []));
     merged.pageStateBefore = mergePageState(valid.map(a => a.pageStateBefore).filter(Boolean));
     merged.pageStateAfter = mergePageState(valid.map(a => a.pageStateAfter).filter(Boolean));
+    if (valid.some((a) => a.submitIntent)) merged.submitIntent = true;
   }
 
   if (first.type === 'type') {
@@ -789,6 +790,49 @@ function mergeActions(actions) {
 
   if (first.type === 'download') {
     merged.variableKey = first.variableKey || 'downloadTarget';
+  }
+
+  if (first.type === 'goToUrl') {
+    merged.url = first.url;
+    merged.urlRecordedFrom = first.urlRecordedFrom;
+    merged.selectors = [];
+  }
+
+  if (first.type === 'openTab') {
+    merged.url = first.url;
+    merged.urlRecordedFrom = first.urlRecordedFrom;
+    merged.andSwitchToTab = first.andSwitchToTab;
+    merged.openInNewWindow = first.openInNewWindow;
+    merged.selectors = [];
+  }
+
+  if (first.type === 'key') {
+    merged.key = first.key;
+    merged.count = valid.reduce((sum, a) => sum + Math.max(1, parseInt(a.count, 10) || 1), 0);
+    merged.selectors = [];
+  }
+
+  if (first.type === 'scroll') {
+    merged.mode = first.mode;
+    merged.deltaX = Math.round(valid.reduce((s, a) => s + (Number(a.deltaX) || 0), 0));
+    merged.deltaY = Math.round(valid.reduce((s, a) => s + (Number(a.deltaY) || 0), 0));
+    merged.behavior = first.behavior;
+    merged.settleMs = first.settleMs;
+    merged.containerSelectors = mergeSelectors(valid.flatMap((a) => a.containerSelectors || []));
+    merged.containerFallbackSelectors = mergeSelectors(valid.flatMap((a) => a.containerFallbackSelectors || []));
+    merged.pageStateBefore = mergePageState(valid.map((a) => a.pageStateBefore).filter(Boolean));
+    merged.pageStateAfter = mergePageState(valid.map((a) => a.pageStateAfter).filter(Boolean));
+  }
+
+  if (first.type === 'dragDrop') {
+    merged.sourceSelectors = mergeSelectors(valid.flatMap((a) => a.sourceSelectors || []));
+    merged.targetSelectors = mergeSelectors(valid.flatMap((a) => a.targetSelectors || []));
+    merged.sourceFallbackSelectors = mergeSelectors(valid.flatMap((a) => a.sourceFallbackSelectors || []));
+    merged.targetFallbackSelectors = mergeSelectors(valid.flatMap((a) => a.targetFallbackSelectors || []));
+    merged.steps = first.steps;
+    merged.stepDelayMs = first.stepDelayMs;
+    merged.pageStateBefore = mergePageState(valid.map((a) => a.pageStateBefore).filter(Boolean));
+    merged.pageStateAfter = mergePageState(valid.map((a) => a.pageStateAfter).filter(Boolean));
   }
 
   merged.waitAfter = inferWaitAfter(valid);

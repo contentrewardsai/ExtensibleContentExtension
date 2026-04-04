@@ -641,6 +641,23 @@
     '[onclick], [data-action], [data-testid], [data-cy], [data-test], [data-test-id], ' +
     'label[for], input[type="checkbox"], input[type="radio"]';
 
+  /** First submit control in document order (for implicit Enter submit in forms). */
+  function findImplicitSubmitTarget(form) {
+    if (!form || form.nodeType !== 1 || String(form.tagName || '').toLowerCase() !== 'form') return null;
+    try {
+      const list = form.querySelectorAll(
+        'input[type="submit"], input[type="image"], button:not([type]), button[type="submit"]'
+      );
+      for (let i = 0; i < list.length; i++) {
+        const n = list[i];
+        if (n.disabled) continue;
+        if (n.closest('fieldset[disabled]')) continue;
+        return n;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function findClickableTarget(el) {
     if (!el || el.nodeType !== 1) return el;
     let clickable = el.closest(CLICKABLE_SELECTOR);
@@ -1217,6 +1234,16 @@
       action.downloadUrl = el.href;
       action.variableKey = 'downloadTarget';
     }
+    const tag = (target.tagName || '').toLowerCase();
+    const inpType = tag === 'input' ? String(target.type || 'text').toLowerCase() : '';
+    const btnType = tag === 'button' ? String(target.getAttribute('type') || 'submit').toLowerCase() : '';
+    if (
+      inpType === 'submit' ||
+      (tag === 'button' && (btnType === 'submit' || btnType === '')) ||
+      (tag === 'input' && inpType === 'image')
+    ) {
+      action.submitIntent = true;
+    }
     attachPageStateToAction(action);
     attachRecordedResolutionMeta(action, target);
     pushRecordedAction(action);
@@ -1493,6 +1520,48 @@
         typingEnterFlushTimeoutId = null;
         flushTypingAction();
       }, 100);
+      const form = target.closest('form');
+      const tag = targetTag;
+      const isSingleLineText =
+        tag === 'input' &&
+        target &&
+        !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(
+          String(target.type || 'text').toLowerCase()
+        );
+      if (isSingleLineText && form && !e.repeat && !e.isComposing) {
+        const sub = findImplicitSubmitTarget(form);
+        if (sub && sub !== target) {
+          maybeInsertWait();
+          const cap = capturePrimaryAndFallbacks(sub);
+          const rawText = (sub.textContent || sub.innerText || sub.value || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 100);
+          const action = {
+            type: 'click',
+            selectors: cap.primary.length ? cap.primary : captureSelectors(sub),
+            tagName: sub.tagName?.toLowerCase(),
+            text: (sub.textContent || '').trim().slice(0, 100),
+            displayedValue: rawText || undefined,
+            submitIntent: true,
+            implicitSubmitFromEnter: true,
+            isDropdownLike: isDropdownLike(sub),
+            isDropdownOption: false,
+            url: window.location.href,
+            timestamp: Date.now(),
+          };
+          const al = sub.getAttribute('aria-label');
+          if (al) action.ariaLabel = al.trim().slice(0, 120);
+          if (cap.fallbacks?.length) action.fallbackSelectors = cap.fallbacks;
+          const fb = buildFallbackTexts(rawText);
+          if (fb.length) action.fallbackTexts = fb;
+          attachPageStateToAction(action);
+          attachRecordedResolutionMeta(action, sub);
+          pushRecordedAction(action);
+          if (domChangeTimeoutId) clearTimeout(domChangeTimeoutId);
+          domChangeTimeoutId = setTimeout(attachDomChangesToLastAction, DOM_CHANGE_DELAY_MS);
+        }
+      }
     }
     if (e.key === 'Enter' && target && !e.repeat && !isEditableTarget) {
       const linkEl = target.closest && target.closest('a[href]');
