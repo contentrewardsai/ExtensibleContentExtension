@@ -11,6 +11,11 @@ const keys = [
   'CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY',
   'CRYPTO_HTTP_SMOKE_BSCSCAN_NETWORK',
   'CRYPTO_HTTP_SMOKE_RUGCHECK_MINT',
+  'CRYPTO_HTTP_SMOKE_JUPITER_API_KEY',
+  'CRYPTO_HTTP_SMOKE_JUPITER_INPUT_MINT',
+  'CRYPTO_HTTP_SMOKE_JUPITER_OUTPUT_MINT',
+  'CRYPTO_HTTP_SMOKE_JUPITER_AMOUNT_RAW',
+  'CRYPTO_HTTP_SMOKE_JUPITER_SLIPPAGE_BPS',
   'SOLANA_RPC_SMOKE_URL',
   'SOLANA_EXPECTED_GENESIS_HASH',
   'CRYPTO_SOLANA_TX_RPC_URL',
@@ -37,7 +42,9 @@ for (const k of keys) {
   const v = process.env[k];
   const set = v != null && String(v).trim() !== '';
   const display =
-    k === 'CRYPTO_SOLANA_TX_SECRET_KEY' || k === 'CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY'
+    k === 'CRYPTO_SOLANA_TX_SECRET_KEY' ||
+    k === 'CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY' ||
+    k === 'CRYPTO_HTTP_SMOKE_JUPITER_API_KEY'
       ? set
         ? '(set — value hidden)'
         : '(not set)'

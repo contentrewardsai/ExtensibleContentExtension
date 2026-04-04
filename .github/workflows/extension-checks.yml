@@ -98,10 +98,11 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: HTTP API smoke (Rugcheck, Aster public, optional BscScan)
+      - name: HTTP API smoke (Rugcheck, Aster, Jupiter quote, optional BscScan)
         env:
           CRYPTO_HTTP_SMOKE_RUN: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN }}
           CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY }}
+          CRYPTO_HTTP_SMOKE_JUPITER_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_JUPITER_API_KEY }}
         run: npm run test:crypto-http-smoke
 
   optional-crypto-evm-fork-smoke:
