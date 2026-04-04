@@ -3,8 +3,8 @@
  * EVM JSON-RPC smoke: Anvil fork, public BSC/Chapel, or any eth_* endpoint.
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
- * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, then
- * eth_gasPrice + eth_getCode: chain 56 router + WBNB + Infinity Vault mainnet (+ eth_call WBNB.decimals);
+ * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, eth_gasPrice, eth_syncing, then
+ * eth_getCode: chain 56 router + WBNB + Infinity Vault mainnet (+ eth_call WBNB.decimals);
  * chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
  */
@@ -62,6 +62,11 @@ async function main() {
     throw new Error(`eth_gasPrice unexpected ${JSON.stringify(gasPrice)}`);
   }
   console.log('[crypto-evm-fork-smoke] eth_gasPrice:', gasPrice);
+  const syncing = await rpc('eth_syncing', []);
+  if (syncing !== false) {
+    throw new Error(`eth_syncing expected false, got ${JSON.stringify(syncing)}`);
+  }
+  console.log('[crypto-evm-fork-smoke] eth_syncing: false');
 
   const cid = parseChainIdHex(chainId);
   const probes =
