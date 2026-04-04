@@ -23,6 +23,20 @@ npm run report:crypto-matrix   # refresh after editing shared/crypto-workflow-st
 npm run verify:crypto-matrix   # CI — fails if matrix is stale
 ```
 
+## Static guards
+
+```bash
+npm run verify:crypto-smoke-addrs-sync   # fork smoke Pancake router must match background/bsc-evm.js (CI)
+```
+
+## One-shot local bundle
+
+Runs matrix check, smoke-address sync, and existing crypto wiring verifiers (no unit tests):
+
+```bash
+npm run test:crypto
+```
+
 ## Local infrastructure (optional)
 
 ### Wait for RPC
