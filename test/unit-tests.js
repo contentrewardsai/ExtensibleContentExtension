@@ -3292,6 +3292,17 @@
     assertDeepEqual(m.cssStringsFromAction(action), ['#a', 'div.b']);
   }
 
+  /** Recorder emits hover steps; analyze merge should feed their selectors into discovery like click/type. */
+  function testDiscoveryFromAnalyzeHoverExtract() {
+    var m = global.CFS_discoveryFromAnalyze;
+    var action = {
+      type: 'hover',
+      selectors: [{ type: 'cssPath', value: 'button.menu' }],
+      fallbackSelectors: [{ type: 'class', value: '.alt' }],
+    };
+    assertDeepEqual(m.cssStringsFromAction(action), ['button.menu', '.alt']);
+  }
+
   function testDiscoveryMergeAppendOnly() {
     var m = global.CFS_discoveryFromAnalyze;
     var wf = {
@@ -4128,6 +4139,7 @@
     testDiscoverySelectorFiltersEmptyOrHuge,
     testDiscoveryFromAnalyzeHostKey,
     testDiscoveryFromAnalyzeCssExtract,
+    testDiscoveryFromAnalyzeHoverExtract,
     testDiscoveryMergeAppendOnly,
     testDiscoveryMergeUsesFallbackHostWhenNoOrigin,
     testDiscoveryOutputMergeAppendOnly,
