@@ -4,7 +4,8 @@
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
  * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, then
- * eth_getCode on pinned contracts: chain 56 Pancake V2 router + WBNB; chain 97 Infinity Vault + BinPoolManager Chapel.
+ * eth_getCode on pinned contracts: chain 56 Pancake V2 router + WBNB (+ eth_call WBNB.decimals);
+ * chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
  */
 import process from 'node:process';
@@ -19,6 +20,9 @@ const WBNB_BSC = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
 const INFI_VAULT_CHAPEL = '0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD';
 /** Same as background/bsc-evm.js INFI_BIN_POOL_MANAGER_CHAPEL. */
 const INFI_BIN_POOL_MANAGER_CHAPEL = '0xe71d2e0230cE0765be53A8A1ee05bdACF30F296B';
+
+/** ERC20 decimals() selector */
+const ERC20_DECIMALS_DATA = '0x313ce567';
 
 async function rpc(method, params = []) {
   const res = await fetch(url, {
@@ -75,6 +79,16 @@ async function main() {
     }
   } else {
     console.log('[crypto-evm-fork-smoke] skip eth_getCode probe (chain not 56 or 97)');
+  }
+
+  if (cid === 56) {
+    const raw = await rpc('eth_call', [{ to: WBNB_BSC, data: ERC20_DECIMALS_DATA }, 'latest']);
+    if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]+$/.test(raw) || raw.length < 66) {
+      throw new Error(`eth_call WBNB.decimals unexpected ${JSON.stringify(raw)}`);
+    }
+    const dec = parseInt(raw.slice(-64), 16);
+    if (dec !== 18) throw new Error(`WBNB decimals expected 18, got ${dec}`);
+    console.log('[crypto-evm-fork-smoke] eth_call WBNB.decimals: 18');
   }
 }
 
