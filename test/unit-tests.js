@@ -2024,6 +2024,15 @@
     assertTrue(r.submitIntent === true);
   }
 
+  function testMergeActionsClickKeyboardActivation() {
+    var fn = global.mergeActions;
+    var r = fn([
+      { type: 'click', selectors: [{ type: 'id', value: '#b', score: 10 }], keyboardActivation: 'Space', timestamp: 1 },
+      { type: 'click', selectors: [{ type: 'id', value: '#b', score: 9 }], keyboardActivation: 'Space', timestamp: 2 },
+    ]);
+    assertEqual(r.keyboardActivation, 'Space');
+  }
+
   function testMergeActionsEnsureSelect() {
     var fn = global.mergeActions;
     var a = { type: 'ensureSelect', expectedText: 'Option A', selectors: [], checkSelectors: [{ type: 'id', value: '#sel', score: 10 }], openSelectors: [], optionSelectors: [] };
@@ -4091,6 +4100,7 @@
     testMergeActionsGoToUrlOpenTabKey,
     testMergeActionsScrollDragDrop,
     testMergeActionsClickSubmitIntent,
+    testMergeActionsClickKeyboardActivation,
     testMergeActionsEnsureSelect,
     testDeduplicateByField,
     testDeduplicateByFieldNoKey,

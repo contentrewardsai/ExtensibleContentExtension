@@ -731,6 +731,8 @@ function mergeActions(actions) {
     merged.pageStateBefore = mergePageState(valid.map(a => a.pageStateBefore).filter(Boolean));
     merged.pageStateAfter = mergePageState(valid.map(a => a.pageStateAfter).filter(Boolean));
     if (valid.some((a) => a.submitIntent)) merged.submitIntent = true;
+    const ka = valid.map((a) => a.keyboardActivation).filter(Boolean);
+    if (ka.length) merged.keyboardActivation = ka[0];
   }
 
   if (first.type === 'type') {
