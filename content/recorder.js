@@ -844,6 +844,7 @@
   function setupListeners() {
     patchHistoryForRecording();
     document.addEventListener('click', onClick, true);
+    document.addEventListener('auxclick', onAuxClick, true);
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('mousedown', onMouseDown, true);
     document.addEventListener('mouseover', onMouseOver, true);
@@ -860,6 +861,7 @@
   function removeListeners() {
     unpatchHistoryForRecording();
     document.removeEventListener('click', onClick, true);
+    document.removeEventListener('auxclick', onAuxClick, true);
     document.removeEventListener('pointerdown', onPointerDown, true);
     document.removeEventListener('mousedown', onMouseDown, true);
     document.removeEventListener('mouseover', onMouseOver, true);
@@ -1163,7 +1165,15 @@
     lastPointerDownForLinkHref = null;
     skipClickAfterNavUntilTs = 0;
     const linkEl = el.closest && el.closest('a[href]');
-    if (linkEl && linkEl.href && !String(linkEl.href).startsWith('javascript:') && !String(linkEl.href).startsWith('#')) {
+    /** Right button opens context menu, not navigation — do not record goToUrl/openTab. */
+    const isRightButton = e.button === 2;
+    if (
+      linkEl &&
+      linkEl.href &&
+      !isRightButton &&
+      !String(linkEl.href).startsWith('javascript:') &&
+      !String(linkEl.href).startsWith('#')
+    ) {
       lastPointerDownForLinkHref = String(linkEl.href);
       const isDl =
         linkEl.hasAttribute('download') ||
@@ -1195,6 +1205,30 @@
     maybeInsertWait();
     pushClickAction(clickable, false, clickable);
     lastPointerDownRecordedTime = Date.now();
+  }
+
+  /**
+   * Middle-click fires `auxclick`, not always `pointerdown` (e.g. some browsers / shadow paths).
+   * Record openTab here as a fallback; dedupe is handled by NAV_DEDUPE_MS in recordOpenTab.
+   */
+  function onAuxClick(e) {
+    if (!isRecording || qualityCheckMode) return;
+    if (e.button !== 1) return;
+    let el = e.target;
+    if (el.nodeType !== 1) el = el.parentElement;
+    if (!el || !el.tagName) return;
+    const linkEl = el.closest && el.closest('a[href]');
+    if (!linkEl || !linkEl.href) return;
+    const href = String(linkEl.href);
+    if (href.startsWith('javascript:') || href.startsWith('#')) return;
+    if (!/^https?:\/\//i.test(href.trim())) return;
+    const isDl =
+      linkEl.hasAttribute('download') ||
+      !!String(linkEl.getAttribute('href') || '').match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i);
+    if (isDl) return;
+    lastPointerDownForLinkHref = href;
+    recordOpenTab(href, false);
+    skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
   }
 
   function onClick(e) {
