@@ -72,7 +72,9 @@ In another shell:
 CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke
 ```
 
-On **chain 56** the script **`eth_getCode`** on the PancakeSwap V2 router (`0x10ED43C71…`). On **chain 97** it probes **Infinity Vault** and **BinPoolManager** (`INFI_VAULT_CHAPEL`, `INFI_BIN_POOL_MANAGER_CHAPEL` in `bsc-evm.js`).
+On **chain 56** the script **`eth_getCode`** on the PancakeSwap V2 router and **WBNB** (`WBNB_BSC` in `bsc-evm.js`). On **chain 97** it probes **Infinity Vault** and **BinPoolManager** (`INFI_VAULT_CHAPEL`, `INFI_BIN_POOL_MANAGER_CHAPEL`).
+
+Use **`npm run report:crypto-env`** to see which optional smoke/fork variables are set (no RPC calls).
 
 Extension **BSC automation** uses **mainnet contract addresses** in `background/bsc-evm.js`; a **mainnet fork** is the closest automated match for swap/stake paths. **BSC testnet (chain 97)** needs separate deployed addresses for full DEX parity (not in-repo today).
 
