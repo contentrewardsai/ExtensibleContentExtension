@@ -21,6 +21,18 @@ These **on-chain constants** are compiled into `background/bsc-evm.js`. Verify a
 | Infinity farm CampaignManager | `0x26Bde0AC5b77b65A402778448eCac2aCaa9c9115` |
 | Uniswap Permit2 (BSC) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 
+### BSC Chapel (chain 97) — Infinity pins in `bsc-evm.js`
+
+Used when `chainId === 97` for Infinity query/execute paths (not the same as mainnet table above).
+
+| Contract | Chapel address |
+|----------|----------------|
+| Infinity BinPoolManager | `0xe71d2e0230cE0765be53A8A1ee05bdACF30F296B` |
+| Infinity BinPositionManager | `0x68B834232da911c787bcF782CED84ec5d36909a7` |
+| Infinity BinQuoter | `0x82E7741E3DE763692785cfDB536D168B1226c4d5` |
+| Infinity Vault | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
+| Infinity farm Distributor | `0xFBb5B0B69f89B75E18c37A8211C1f2Fa3B7D2728` |
+
 Minimal ABIs are embedded in `bsc-evm.js`: ERC20 `approve`, **`transfer`**, `balanceOf`, `allowance`, `totalSupply`, `decimals`, `symbol`, `name`; WBNB **`deposit`** / **`withdraw`** (`wrapBnb` / `unwrapWbnb`); factory V2 **`getPair`** (`CFS_BSC_QUERY` → `v2FactoryGetPair`); factory V3 **`getPool`** (`v3FactoryGetPool`); V3 **QuoterV2** **`quoteExactInputSingle`** / **`quoteExactOutputSingle`** / **`quoteExactInput`** / **`quoteExactOutput`** (`v3Quoter*` query operations); V3 pool read **`slot0`**, **`liquidity`**, **`token0`**, **`token1`**, **`fee`** (`v3PoolState`); V3 **SwapRouter** **`exactInputSingle`** / **`exactOutputSingle`** / **`exactInput`** / **`exactOutput`** (`bscPancake` execute); V3 **NonfungiblePositionManager** **`mint`** / **`increaseLiquidity`** / **`decreaseLiquidity`** / **`collect`** / **`burn`** / **`positions`** view; **Infinity BinPoolManager** read **`getSlot0`**, **`getBin`**, **`getPosition`**, **`getNextNonEmptyBin`**, **`poolIdToPoolKey`** (`CFS_BSC_QUERY` → `infiBin*`); **Infinity BinQuoter** **`quoteExactInputSingle`** / **`quoteExactOutputSingle`** via SDK **`BinQuoterAbi`** + **`staticCall`** (`infiBinQuoteExactInputSingle` / `infiBinQuoteExactOutputSingle`); **Infinity BinPositionManager** **`modifyLiquidities`** (payload bundles **BIN_SWAP_EXACT_IN_SINGLE** / **BIN_SWAP_EXACT_OUT_SINGLE** + settle/take for **`infiBinSwapExactInSingle`** / **`infiBinSwapExactOutSingle`**, add/remove liquidity, etc.), **`multicall`**, **`positions`**, **`ownerOf`** (execute + `infiBinNpmPosition` query); **Permit2** **`approve`**; **CampaignManager** **`campaignLength`**, **`campaignInfo`**; **Farming Distributor** `claim` calldata via `@pancakeswap/infinity-sdk` (`encodeClaimCalldata`); pair `getReserves` / `token0` / `token1`; V2 router swaps + liquidity + **SupportingFeeOnTransferTokens** swap variants as listed in **docs/BSC_AUTOMATION.md**, plus read-only **`getAmountsOut`** / **`getAmountsIn`** (`CFS_BSC_QUERY`); MasterChef `deposit` / `withdraw` / `enterStaking` / `leaveStaking`, plus read-only **`pendingCake`** / **`userInfo`** / **`poolInfo`** / **`poolLength`** (`CFS_BSC_QUERY` → `farm*` query operations).
 
 Liquidity Book **pool id** encoding and **add/remove** calldata use **`@pancakeswap/infinity-sdk`** in **`background/infinity-sdk.bundle.js`** (build: `npm run build:infinity`).

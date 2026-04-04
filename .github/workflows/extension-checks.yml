@@ -36,6 +36,7 @@ jobs:
       - run: npm run test:crypto-workflow-step-types
       - run: npm run verify:crypto-matrix
       - run: npm run verify:crypto-smoke-addrs-sync
+      - run: npm run verify:bsc-pancake-docs-sync
       - run: npm run test:crypto-manifest-hosts
       - run: npm run test:crypto-observability-wired
       - run: npm run test:sellability-probe-wired
