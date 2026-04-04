@@ -10,6 +10,8 @@ const keys = [
   'SOLANA_EXPECTED_GENESIS_HASH',
   'BSC_RPC_SMOKE_URL',
   'CRYPTO_EVM_FORK_RPC_URL',
+  'CRYPTO_EVM_FORK_TX_RPC_URL',
+  'CRYPTO_EVM_FORK_TX_FORCE',
   'BSC_FORK_URL',
   'ANVIL_PORT',
   'ANVIL_BLOCK',
@@ -28,5 +30,7 @@ for (const k of keys) {
   const set = v != null && String(v).trim() !== '';
   console.log(`  ${k}: ${set ? mask(String(v)) : '(not set)'}`);
 }
-console.log('\nCommands: npm run test:crypto-rpc-smoke | npm run test:crypto-evm-fork-smoke');
+console.log(
+  '\nCommands: npm run test:crypto-rpc-smoke | npm run test:crypto-evm-fork-smoke | npm run test:crypto-evm-fork-tx-smoke'
+);
 console.log('Docs: docs/CRYPTO_TESTING_QUICKREF.md');
