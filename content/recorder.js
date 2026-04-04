@@ -86,8 +86,8 @@
   const SCROLL_MIN_ABS = 0.5;
   /** Dedupe navigation steps (SPA + link clicks). */
   const NAV_DEDUPE_MS = 800;
-  /** Same-tab link: skip duplicate click when we record goToUrl shortly after pointerdown. */
-  const SAME_TAB_LINK_NAV_MS = 600;
+  /** After recording link navigation on pointerdown, suppress matching click (same href). */
+  const LINK_NAV_SKIP_CLICK_MS = 450;
 
   let mutationBuffer = [];
   let mutationObserver = null;
@@ -101,16 +101,14 @@
   let pendingScroll = null;
   /** @type {{ href: string, t: number }|null} */
   let lastRecordedNav = null;
-  /** @type {number|null} */
-  let lastPointerDownForLinkTs = null;
   /** @type {string|null} */
   let lastPointerDownForLinkHref = null;
-  let lastPointerDownOpenTab = false;
+  /** Suppress click steps for the same link as last pointerdown until this time (see LINK_NAV_SKIP_CLICK_MS). */
+  let skipClickAfterNavUntilTs = 0;
   /** @type {{ primary: unknown[], fallbacks?: unknown[], ts: number }|null} */
   let dragDropPendingSource = null;
-  let origHistoryPushState = null;
-  let origHistoryReplaceState = null;
-  let onPopStateWrapped = null;
+  /** Global refcount so nested RECORDER_START / iframes restore history only when last stops. */
+  const HISTORY_PATCH_KEY = '__CFS_recorderHistoryPatch';
 
   let syncRecordingToBgTimer = null;
 
@@ -313,6 +311,7 @@
 
   function onWheel(e) {
     if (!isRecording || qualityCheckMode) return;
+    if (e.ctrlKey || e.metaKey) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el) return;
@@ -386,41 +385,65 @@
   }
 
   function patchHistoryForRecording() {
-    if (origHistoryPushState) return;
+    const g = typeof globalThis !== 'undefined' ? globalThis : window;
     const hist = window.history;
     if (!hist || typeof hist.pushState !== 'function') return;
-    origHistoryPushState = hist.pushState.bind(hist);
-    origHistoryReplaceState = hist.replaceState.bind(hist);
-    hist.pushState = function statePush() {
-      const r = origHistoryPushState.apply(hist, arguments);
-      onHistoryNavigation();
-      return r;
-    };
-    hist.replaceState = function stateReplace() {
-      const r = origHistoryReplaceState.apply(hist, arguments);
-      onHistoryNavigation();
-      return r;
-    };
-    onPopStateWrapped = function () {
-      onHistoryNavigation();
-    };
-    window.addEventListener('popstate', onPopStateWrapped);
+    let st = g[HISTORY_PATCH_KEY];
+    if (!st) {
+      st = {
+        ref: 0,
+        origPush: null,
+        origReplace: null,
+        onPop: null,
+      };
+      g[HISTORY_PATCH_KEY] = st;
+    }
+    if (st.ref === 0) {
+      st.origPush = hist.pushState.bind(hist);
+      st.origReplace = hist.replaceState.bind(hist);
+      hist.pushState = function recorderPushState() {
+        const r = st.origPush.apply(hist, arguments);
+        onHistoryNavigation();
+        return r;
+      };
+      hist.replaceState = function recorderReplaceState() {
+        const r = st.origReplace.apply(hist, arguments);
+        onHistoryNavigation();
+        return r;
+      };
+      st.onPop = function () {
+        onHistoryNavigation();
+      };
+      window.addEventListener('popstate', st.onPop);
+    }
+    st.ref++;
   }
 
   function unpatchHistoryForRecording() {
-    if (origHistoryPushState && window.history) {
+    const g = typeof globalThis !== 'undefined' ? globalThis : window;
+    const st = g[HISTORY_PATCH_KEY];
+    if (!st || st.ref <= 0) return;
+    st.ref--;
+    if (st.ref > 0) return;
+    const hist = window.history;
+    if (st.origPush && st.origReplace && hist) {
       try {
-        window.history.pushState = origHistoryPushState;
-        window.history.replaceState = origHistoryReplaceState;
+        hist.pushState = st.origPush;
+        hist.replaceState = st.origReplace;
       } catch (_) {}
     }
-    origHistoryPushState = null;
-    origHistoryReplaceState = null;
-    if (onPopStateWrapped) {
+    if (st.onPop) {
       try {
-        window.removeEventListener('popstate', onPopStateWrapped);
+        window.removeEventListener('popstate', st.onPop);
       } catch (_) {}
-      onPopStateWrapped = null;
+    }
+    st.origPush = null;
+    st.origReplace = null;
+    st.onPop = null;
+    try {
+      delete g[HISTORY_PATCH_KEY];
+    } catch (_) {
+      g[HISTORY_PATCH_KEY] = undefined;
     }
   }
 
@@ -598,6 +621,8 @@
     }
     if (pendingScroll) flushPendingScroll();
     dragDropPendingSource = null;
+    skipClickAfterNavUntilTs = 0;
+    lastPointerDownForLinkHref = null;
     isRecording = false;
     if (typingTimeout) {
       clearTimeout(typingTimeout);
@@ -1081,6 +1106,10 @@
     if (!el) return;
     const target = captureEl || el;
     if (!isOption && shouldSkipNoisePointerTarget(target)) return;
+    if (!isOption && Date.now() < skipClickAfterNavUntilTs) {
+      const link = target.closest && target.closest('a[href]');
+      if (link && lastPointerDownForLinkHref && String(link.href) === lastPointerDownForLinkHref) return;
+    }
     const isDownload = el.tagName?.toLowerCase() === 'a' && (el.hasAttribute('download') || el.getAttribute('href')?.match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i));
     const rawText = (el.textContent || el.innerText || el.value || '').replace(/\s+/g, ' ').trim().slice(0, 100);
     const displayedValue = isOption ? (getOptionLabelText(target) || rawText) : rawText;
@@ -1131,29 +1160,38 @@
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
-    lastPointerDownForLinkTs = null;
     lastPointerDownForLinkHref = null;
-    lastPointerDownOpenTab = false;
+    skipClickAfterNavUntilTs = 0;
     const linkEl = el.closest && el.closest('a[href]');
     if (linkEl && linkEl.href && !String(linkEl.href).startsWith('javascript:') && !String(linkEl.href).startsWith('#')) {
-      lastPointerDownForLinkTs = Date.now();
       lastPointerDownForLinkHref = String(linkEl.href);
-      lastPointerDownOpenTab = String(linkEl.target || '').toLowerCase() === '_blank';
       const isDl =
         linkEl.hasAttribute('download') ||
         !!String(linkEl.getAttribute('href') || '').match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i);
       if (!isDl) {
-        if (lastPointerDownOpenTab) {
+        const openNewTab =
+          String(linkEl.target || '').toLowerCase() === '_blank' ||
+          e.button === 1 ||
+          e.ctrlKey ||
+          e.metaKey;
+        if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey) {
+          recordOpenTab(lastPointerDownForLinkHref, true);
+        } else if (openNewTab) {
           recordOpenTab(lastPointerDownForLinkHref, false);
         } else {
           recordGoToUrl(lastPointerDownForLinkHref, 'link');
         }
+        skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
       }
     }
     const isOption = isDropdownOptionClick(el);
     if (isOption) return;
     const clickable = findClickableTarget(el);
     if (shouldSkipNoisePointerTarget(clickable)) return;
+    if (Date.now() < skipClickAfterNavUntilTs) {
+      const link = clickable.closest && clickable.closest('a[href]');
+      if (link && lastPointerDownForLinkHref && String(link.href) === lastPointerDownForLinkHref) return;
+    }
     maybeInsertWait();
     pushClickAction(clickable, false, clickable);
     lastPointerDownRecordedTime = Date.now();
@@ -1224,6 +1262,10 @@
     } else {
       el = findClickableTarget(el);
       if (shouldSkipNoisePointerTarget(el)) return;
+      if (Date.now() < skipClickAfterNavUntilTs) {
+        const link = el.closest && el.closest('a[href]');
+        if (link && lastPointerDownForLinkHref && String(link.href) === lastPointerDownForLinkHref) return;
+      }
       maybeInsertWait();
       pushClickAction(el, false, el);
     }
