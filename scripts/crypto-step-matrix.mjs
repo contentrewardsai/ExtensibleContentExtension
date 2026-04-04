@@ -92,7 +92,7 @@ This table lists steps gated as **crypto or Pulse** (\`shared/crypto-workflow-st
 |-------|-----------|--------|
 | **L1** | Message shapes, pure logic, \`step-tests.js\`, unit tests | Always in CI (\`npm run test:unit\`, step tests) |
 | **L2** | Solana cluster genesis hash when host hints cluster. EVM genesis block hash (56/97) + \`net_version\`/\`eth_chainId\` + sync/gas + block; BSC 56: WBNB \`decimals\`. Fork: same + \`eth_getCode\` | \`npm run test:crypto-rpc-smoke\` — \`docs/CRYPTO_CI_SMOKE.md\` |
-| **L3** | BSC-shaped EVM fork (Anvil) + golden-path txs | Local/self-hosted: \`docker compose\` + \`npm run test:crypto-evm-fork-smoke\` |
+| **L3** | BSC-shaped EVM fork (Anvil); read probes + optional native tx smoke | \`npm run test:crypto-evm-fork-smoke\` · \`npm run test:crypto-evm-fork-tx-smoke\` (Anvil default key; skips if no balance) |
 | **L4** | Solana devnet (wallet + subset of steps) | Manual / staging; \`cluster: devnet\` + faucet |
 | **L5** | Mainnet/API canary (tiny amount or read-only API) | Manual or scheduled; Aster, BscScan, Jupiter, etc. |
 

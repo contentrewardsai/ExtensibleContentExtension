@@ -8,7 +8,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 |-------|---------|-----|
 | **L1** | Payloads, parsing, merge logic, step UI contracts | `npm run test:unit`, `steps/*/step-tests.js`, `npm run test:crypto-workflow-step-types` |
 | **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — genesis hash checks (Solana cluster hint / BSC 56·97), `net_version` ↔ `eth_chainId`, …; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
-| **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` |
+| **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` · optional signed tx: `npm run test:crypto-evm-fork-tx-smoke` (Anvil default key → 1 wei transfer; skips on zero balance) |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
 
@@ -71,6 +71,7 @@ In another shell:
 
 ```bash
 CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke
+CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-tx-smoke
 ```
 
 On **chain 56** it runs **`eth_gasPrice`**, then **`eth_getCode`** on the Pancake V2 router, **WBNB**, and **Infinity Vault mainnet** (`INFI_VAULT_BSC`), then **`eth_call`** WBNB **`decimals()`**. On **chain 97**: **`eth_getCode`** on **Infinity Vault Chapel** and **BinPoolManager Chapel**.

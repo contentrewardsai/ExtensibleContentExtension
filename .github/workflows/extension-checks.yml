@@ -71,7 +71,7 @@ jobs:
 
   optional-crypto-rpc-smoke:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SOLANA_RPC_SMOKE_URL != '' }}
+    if: ${{ secrets.SOLANA_RPC_SMOKE_URL != '' || secrets.BSC_RPC_SMOKE_URL != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,7 +95,9 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: EVM JSON-RPC block smoke (Anvil fork URL or provider)
+      - name: EVM JSON-RPC + optional tx smoke (Anvil fork URL or provider)
         env:
           CRYPTO_EVM_FORK_RPC_URL: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL }}
-        run: npm run test:crypto-evm-fork-smoke
+        run: |
+          npm run test:crypto-evm-fork-smoke
+          npm run test:crypto-evm-fork-tx-smoke
