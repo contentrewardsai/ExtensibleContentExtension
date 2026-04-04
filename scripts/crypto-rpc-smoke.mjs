@@ -53,6 +53,15 @@ async function main() {
       throw new Error(`Solana: getHealth expected "ok", got ${JSON.stringify(status)}`);
     }
     console.log('[crypto-rpc-smoke] Solana getHealth: ok');
+    const slot = await postJson(
+      solUrl,
+      { jsonrpc: '2.0', id: 2, method: 'getSlot' },
+      'Solana getSlot'
+    );
+    if (typeof slot.result !== 'number' && typeof slot.result !== 'string') {
+      throw new Error(`Solana: getSlot unexpected ${JSON.stringify(slot.result)}`);
+    }
+    console.log('[crypto-rpc-smoke] Solana getSlot:', slot.result);
   }
 
   if (bscUrl) {
@@ -66,6 +75,16 @@ async function main() {
       throw new Error(`BSC: unexpected eth_chainId ${JSON.stringify(hex)}`);
     }
     console.log('[crypto-rpc-smoke] BSC eth_chainId:', hex);
+    const bn = await postJson(
+      bscUrl,
+      { jsonrpc: '2.0', id: 2, method: 'eth_blockNumber', params: [] },
+      'BSC eth_blockNumber'
+    );
+    const n = bn.result;
+    if (typeof n !== 'string' || !/^0x[0-9a-fA-F]+$/.test(n)) {
+      throw new Error(`BSC: unexpected eth_blockNumber ${JSON.stringify(n)}`);
+    }
+    console.log('[crypto-rpc-smoke] BSC eth_blockNumber:', n);
   }
 }
 

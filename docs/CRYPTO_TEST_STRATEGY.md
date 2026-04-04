@@ -7,7 +7,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | Layer | Purpose | How |
 |-------|---------|-----|
 | **L1** | Payloads, parsing, merge logic, step UI contracts | `npm run test:unit`, `steps/*/step-tests.js`, `npm run test:crypto-workflow-step-types` |
-| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — optional env vars; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
+| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` + `getSlot`, EVM `eth_chainId` + `eth_blockNumber`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
@@ -56,13 +56,19 @@ In another shell:
 CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke
 ```
 
-Extension **BSC automation** uses **mainnet contract addresses** in `background/bsc-evm.js`; a **mainnet fork** is the closest automated match for swap/stake paths. **BSC testnet (chain 97)** needs separate deployed addresses (not in-repo today).
+On **chain 56** the script also **`eth_getCode`** on the PancakeSwap V2 router (`0x10ED43C71…`) to confirm bytecode is visible (fork or mainnet RPC). On **chain 97** it probes WBNB on Chapel (`0xae13d989…`).
+
+Extension **BSC automation** uses **mainnet contract addresses** in `background/bsc-evm.js`; a **mainnet fork** is the closest automated match for swap/stake paths. **BSC testnet (chain 97)** needs separate deployed addresses for full DEX parity (not in-repo today).
 
 ## What “full coverage” means
 
 - **Not** every step can run on L3/L4: Aster and many indexers are **HTTP-only** (L5).
 - **Solana** DeFi steps often need **mainnet** venues or mocks (L5 or custom harness).
 - Treat the **matrix** as the source of which layer applies per step.
+
+## L5 canary (manual)
+
+- [CRYPTO_CANARY_CHECKLIST.md](./CRYPTO_CANARY_CHECKLIST.md)
 
 ## Related docs
 
