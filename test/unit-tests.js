@@ -1976,6 +1976,63 @@
     assertEqual(result.variableKey, 'myFile');
   }
 
+  function testMergeActionsGoToUrlOpenTabKey() {
+    var fn = global.mergeActions;
+    var g = fn([{ type: 'goToUrl', url: 'https://ex.com/a', urlRecordedFrom: 'link', timestamp: 1 }]);
+    assertEqual(g.type, 'goToUrl');
+    assertEqual(g.url, 'https://ex.com/a');
+    assertEqual(g.urlRecordedFrom, 'link');
+    var o = fn([{ type: 'openTab', url: 'https://ex.com/b', openInNewWindow: true, andSwitchToTab: false, timestamp: 1 }]);
+    assertEqual(o.type, 'openTab');
+    assertEqual(o.openInNewWindow, true);
+    var k = fn([
+      { type: 'key', key: 'Escape', count: 1, timestamp: 1 },
+      { type: 'key', key: 'Escape', count: 2, timestamp: 2 },
+    ]);
+    assertEqual(k.type, 'key');
+    assertEqual(k.key, 'Escape');
+    assertEqual(k.count, 3);
+  }
+
+  function testMergeActionsScrollDragDrop() {
+    var fn = global.mergeActions;
+    var s = fn([
+      { type: 'scroll', mode: 'delta', deltaX: 0, deltaY: 10, behavior: 'auto', settleMs: 100, timestamp: 1 },
+      { type: 'scroll', mode: 'delta', deltaX: 0, deltaY: 5, timestamp: 2 },
+    ]);
+    assertEqual(s.type, 'scroll');
+    assertEqual(s.deltaY, 15);
+    var d = fn([
+      {
+        type: 'dragDrop',
+        sourceSelectors: [{ type: 'id', value: '#a', score: 10 }],
+        targetSelectors: [{ type: 'id', value: '#b', score: 10 }],
+        steps: 12,
+        stepDelayMs: 25,
+        timestamp: 1,
+      },
+    ]);
+    assertEqual(d.type, 'dragDrop');
+    assertTrue(d.sourceSelectors.length >= 1);
+  }
+
+  function testMergeActionsClickSubmitIntent() {
+    var fn = global.mergeActions;
+    var r = fn([
+      { type: 'click', selectors: [{ type: 'id', value: '#go', score: 10 }], submitIntent: true, timestamp: 1 },
+    ]);
+    assertTrue(r.submitIntent === true);
+  }
+
+  function testMergeActionsClickKeyboardActivation() {
+    var fn = global.mergeActions;
+    var r = fn([
+      { type: 'click', selectors: [{ type: 'id', value: '#b', score: 10 }], keyboardActivation: 'Space', timestamp: 1 },
+      { type: 'click', selectors: [{ type: 'id', value: '#b', score: 9 }], keyboardActivation: 'Space', timestamp: 2 },
+    ]);
+    assertEqual(r.keyboardActivation, 'Space');
+  }
+
   function testMergeActionsEnsureSelect() {
     var fn = global.mergeActions;
     var a = { type: 'ensureSelect', expectedText: 'Option A', selectors: [], checkSelectors: [{ type: 'id', value: '#sel', score: 10 }], openSelectors: [], optionSelectors: [] };
@@ -3319,6 +3376,15 @@
     assertDeepEqual(m.cssStringsFromAction(dragAct), ['#src', '#dst']);
   }
 
+  function testDiscoveryFromAnalyzeNavAndKeyExtract() {
+    var m = global.CFS_discoveryFromAnalyze;
+    assertDeepEqual(m.cssStringsFromAction({ type: 'key', key: 'Enter' }), []);
+    var nav = m.cssStringsFromAction({ type: 'goToUrl', url: 'https://app.example.com/dashboard/settings' });
+    assertTrue(nav.indexOf('/dashboard/settings') >= 0, 'pathname from goToUrl');
+    var root = m.cssStringsFromAction({ type: 'openTab', url: 'https://ex.com/' });
+    assertEqual(root.length, 0, 'root path not added as candidate');
+  }
+
   function testDiscoveryMergeAppendOnly() {
     var m = global.CFS_discoveryFromAnalyze;
     var wf = {
@@ -4031,6 +4097,10 @@
     testMergeActionsUpload,
     testMergeActionsSelect,
     testMergeActionsDownload,
+    testMergeActionsGoToUrlOpenTabKey,
+    testMergeActionsScrollDragDrop,
+    testMergeActionsClickSubmitIntent,
+    testMergeActionsClickKeyboardActivation,
     testMergeActionsEnsureSelect,
     testDeduplicateByField,
     testDeduplicateByFieldNoKey,
@@ -4157,6 +4227,7 @@
     testDiscoveryFromAnalyzeCssExtract,
     testDiscoveryFromAnalyzeHoverExtract,
     testDiscoveryFromAnalyzeScrollDragExtract,
+    testDiscoveryFromAnalyzeNavAndKeyExtract,
     testDiscoveryMergeAppendOnly,
     testDiscoveryMergeUsesFallbackHostWhenNoOrigin,
     testDiscoveryOutputMergeAppendOnly,

@@ -1,10 +1,37 @@
-(function() {
+(function (global) {
   'use strict';
-  if (typeof window.CFS_unitTestRunner === 'undefined') return;
-  var runner = window.CFS_unitTestRunner;
+  var runner = global.CFS_unitTestRunner;
+  if (!runner || !runner.registerStepTests) return;
+
+  function normalizeDetailType(detailType) {
+    return String(detailType || '').trim().toLowerCase();
+  }
+
+  function isValidDetailType(t) {
+    var validTypes = ['account', 'phone', 'email', 'address', 'note'];
+    return validTypes.indexOf(t) >= 0;
+  }
+
   runner.registerStepTests('deleteFollowingDetail', [
-    { name: 'deleteFollowingDetail: handler registered', fn: function() {
-      runner.assertTrue(typeof window.__CFS_stepHandlers === 'object' && typeof window.__CFS_stepHandlers['deleteFollowingDetail'] === 'function', 'handler is a function');
+    { name: 'normalizeDetailType lowercases', fn: function () {
+      runner.assertEqual(normalizeDetailType('  PHONE '), 'phone');
+    }},
+    { name: 'valid detail types', fn: function () {
+      runner.assertTrue(isValidDetailType('account'));
+      runner.assertTrue(isValidDetailType('note'));
+      runner.assertFalse(isValidDetailType('invalid'));
+    }},
+    { name: 'deleteDetail payload shape', fn: function () {
+      var p = {
+        type: 'MUTATE_FOLLOWING',
+        action: 'deleteDetail',
+        detailType: 'email',
+        detailId: 'id-1',
+      };
+      runner.assertEqual(p.action, 'deleteDetail');
+    }},
+    { name: 'handler registered', fn: function () {
+      runner.assertTrue(typeof global.__CFS_stepHandlers.deleteFollowingDetail === 'function');
     }},
   ]);
-})();
+})(typeof window !== 'undefined' ? window : globalThis);

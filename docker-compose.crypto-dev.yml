@@ -1,0 +1,18 @@
+# Optional local nodes for crypto integration testing (not started by default CI).
+#
+# Solana: public devnet-equivalent RPC is usually enough (no container).
+# For a local ledger:
+#   docker compose -f docker-compose.crypto-dev.yml up -d solana-test-validator
+#
+# EVM fork (Anvil) is not in this file — install Foundry and run:
+#   anvil --fork-url $BSC_MAINNET_HTTPS_RPC --port 8545
+#
+# See docs/CRYPTO_TEST_STRATEGY.md
+
+services:
+  solana-test-validator:
+    image: solanalabs/solana:v1.18.26
+    command: solana-test-validator --reset --limit-ledger-size 50000000
+    ports:
+      - '8899:8899'
+      - '8900:8900'
