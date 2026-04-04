@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Guard: BSC addresses in crypto-evm-fork-smoke.mjs match background/bsc-evm.js:
- * Pancake V2 router (chain 56 probe) and Infinity Vault Chapel (chain 97 probe).
+ * Pancake V2 router (56), Infinity Vault + BinPoolManager Chapel (97).
  *
  * Run: node scripts/verify-crypto-smoke-addrs-sync.cjs
  */
@@ -75,5 +75,30 @@ if (vaultEvm !== vaultSmoke) {
   process.exit(1);
 }
 
-console.log('verify-crypto-smoke-addrs-sync: OK (router + Chapel vault match bsc-evm.js)');
+const evmPm = evm.match(/var\s+INFI_BIN_POOL_MANAGER_CHAPEL\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
+if (!evmPm) {
+  console.error('verify-crypto-smoke-addrs-sync: could not parse INFI_BIN_POOL_MANAGER_CHAPEL from bsc-evm.js');
+  process.exit(1);
+}
+const pmEvm = evmPm[1].toLowerCase();
+
+const smokePmM = smoke.match(/const\s+INFI_BIN_POOL_MANAGER_CHAPEL\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
+if (!smokePmM) {
+  console.error('verify-crypto-smoke-addrs-sync: could not parse INFI_BIN_POOL_MANAGER_CHAPEL in crypto-evm-fork-smoke.mjs');
+  process.exit(1);
+}
+const pmSmoke = smokePmM[1].toLowerCase();
+
+if (pmEvm !== pmSmoke) {
+  console.error(
+    'verify-crypto-smoke-addrs-sync: INFI_BIN_POOL_MANAGER_CHAPEL mismatch',
+    '\n  bsc-evm.js:              ',
+    pmEvm,
+    '\n  crypto-evm-fork-smoke:   ',
+    pmSmoke,
+  );
+  process.exit(1);
+}
+
+console.log('verify-crypto-smoke-addrs-sync: OK (router + Chapel Infinity pins match bsc-evm.js)');
 process.exit(0);
