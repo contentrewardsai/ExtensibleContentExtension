@@ -89,5 +89,6 @@ Loads the **unpacked MV3 extension** in Chromium and sends **`chrome.runtime`** 
 | **`E2E_CRYPTO_PLAYWRIGHT`** | Non-empty (e.g. `1`) — enables job **`optional-e2e-crypto-playwright`**. |
 | **`SOLANA_RPC_SMOKE_URL`** | Required for Solana-side tests (same as RPC smoke). |
 | **`BSC_RPC_SMOKE_URL`** | Required for BSC **`CFS_BSC_QUERY`** tests. |
+| **`E2E_CRYPTO_JUPITER_API_KEY`** | Optional: enables **`CFS_JUPITER_PERPS_MARKETS`** in the same job (or reuse **`CRYPTO_HTTP_SMOKE_JUPITER_API_KEY`**). |
 
 Local: `E2E_CRYPTO=1` plus both RPC URLs, then **`npm run test:e2e:crypto`** (after **`npx playwright install chromium`**).
