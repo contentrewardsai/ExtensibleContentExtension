@@ -14,7 +14,7 @@ node scripts/crypto-rpc-smoke.mjs
 
 - If **neither** environment variable below is set, the script **exits 0** immediately and prints `skip`.
 - **Solana:** **`getHealth`**, **`getSlot`**, **`getLatestBlockhash`** (`finalized`), **`getVersion`** (`solana-core` string).
-- **BSC / EVM:** **`eth_chainId`**, **`eth_blockNumber`**. On **chain 56** only: **`eth_call`** to WBNB **`decimals()`** (must return 18).
+- **BSC / EVM:** **`eth_chainId`**, **`eth_blockNumber`**, **`eth_gasPrice`** (positive wei hex). On **chain 56** only: **`eth_call`** WBNB **`decimals()`** → 18.
 
 npm alias:
 

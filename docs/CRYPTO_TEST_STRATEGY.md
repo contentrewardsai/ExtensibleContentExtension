@@ -7,7 +7,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | Layer | Purpose | How |
 |-------|---------|-----|
 | **L1** | Payloads, parsing, merge logic, step UI contracts | `npm run test:unit`, `steps/*/step-tests.js`, `npm run test:crypto-workflow-step-types` |
-| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` / `getSlot` / `getLatestBlockhash` / `getVersion`; EVM `eth_chainId` / `eth_blockNumber`; on BSC **56**, `eth_call` WBNB `decimals()`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
+| **L2** | Read-only RPC reachability | `npm run test:crypto-rpc-smoke` — Solana `getHealth` / `getSlot` / `getLatestBlockhash` / `getVersion`; EVM `eth_chainId` / `eth_blockNumber` / `eth_gasPrice`; BSC **56**: `eth_call` WBNB `decimals()`; see [CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md) |
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
@@ -72,7 +72,7 @@ In another shell:
 CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke
 ```
 
-On **chain 56** the script **`eth_getCode`** on the PancakeSwap V2 router and **WBNB** (`WBNB_BSC` in `bsc-evm.js`). On **chain 97** it probes **Infinity Vault** and **BinPoolManager** (`INFI_VAULT_CHAPEL`, `INFI_BIN_POOL_MANAGER_CHAPEL`).
+On **chain 56** it runs **`eth_gasPrice`**, then **`eth_getCode`** on the Pancake V2 router, **WBNB**, and **Infinity Vault mainnet** (`INFI_VAULT_BSC`), then **`eth_call`** WBNB **`decimals()`**. On **chain 97**: **`eth_getCode`** on **Infinity Vault Chapel** and **BinPoolManager Chapel**.
 
 Use **`npm run report:crypto-env`** to see which optional smoke/fork variables are set (no RPC calls).
 
