@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Guard: BSC addresses in crypto-evm-fork-smoke.mjs match background/bsc-evm.js:
- * Pancake V2 router (56), Infinity Vault + BinPoolManager Chapel (97).
+ * Pancake V2 router + WBNB (56), Infinity Vault + BinPoolManager Chapel (97).
  *
  * Run: node scripts/verify-crypto-smoke-addrs-sync.cjs
  */
@@ -37,6 +37,31 @@ if (!smokeM) {
   process.exit(1);
 }
 const routerSmoke = smokeM[1].toLowerCase();
+
+const evmWbnb = evm.match(/var\s+WBNB_BSC\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
+if (!evmWbnb) {
+  console.error('verify-crypto-smoke-addrs-sync: could not parse WBNB_BSC from bsc-evm.js');
+  process.exit(1);
+}
+const wbnbEvm = evmWbnb[1].toLowerCase();
+
+const smokeWbnbM = smoke.match(/const\s+WBNB_BSC\s*=\s*['"](0x[a-fA-F0-9]{40})['"]/);
+if (!smokeWbnbM) {
+  console.error('verify-crypto-smoke-addrs-sync: could not parse WBNB_BSC in crypto-evm-fork-smoke.mjs');
+  process.exit(1);
+}
+const wbnbSmoke = smokeWbnbM[1].toLowerCase();
+
+if (wbnbEvm !== wbnbSmoke) {
+  console.error(
+    'verify-crypto-smoke-addrs-sync: WBNB_BSC mismatch',
+    '\n  bsc-evm.js:              ',
+    wbnbEvm,
+    '\n  crypto-evm-fork-smoke:   ',
+    wbnbSmoke,
+  );
+  process.exit(1);
+}
 
 if (routerEvm !== routerSmoke) {
   console.error(
@@ -100,5 +125,5 @@ if (pmEvm !== pmSmoke) {
   process.exit(1);
 }
 
-console.log('verify-crypto-smoke-addrs-sync: OK (router + Chapel Infinity pins match bsc-evm.js)');
+console.log('verify-crypto-smoke-addrs-sync: OK (mainnet router+WBNB + Chapel Infinity pins match bsc-evm.js)');
 process.exit(0);

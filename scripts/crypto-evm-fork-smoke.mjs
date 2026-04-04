@@ -4,7 +4,7 @@
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
  * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, then
- * eth_getCode on pinned contracts: chain 56 Pancake V2 router; chain 97 Infinity Vault + BinPoolManager Chapel.
+ * eth_getCode on pinned contracts: chain 56 Pancake V2 router + WBNB; chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
  */
 import process from 'node:process';
@@ -13,6 +13,8 @@ const url = (process.env.CRYPTO_EVM_FORK_RPC_URL || 'http://127.0.0.1:8545').tri
 
 /** Same as background/bsc-evm.js PANCAKE_ROUTER_V2 — proves mainnet/fork sees DEX bytecode. */
 const PANCAKE_V2_ROUTER_BSC = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
+/** Same as background/bsc-evm.js WBNB_BSC. */
+const WBNB_BSC = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
 /** Same as background/bsc-evm.js INFI_VAULT_CHAPEL — extension uses this on chain 97. */
 const INFI_VAULT_CHAPEL = '0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD';
 /** Same as background/bsc-evm.js INFI_BIN_POOL_MANAGER_CHAPEL. */
@@ -53,7 +55,10 @@ async function main() {
   const cid = parseChainIdHex(chainId);
   const probes =
     cid === 56
-      ? [[PANCAKE_V2_ROUTER_BSC, 'Pancake V2 router (mainnet)']]
+      ? [
+          [PANCAKE_V2_ROUTER_BSC, 'Pancake V2 router (mainnet)'],
+          [WBNB_BSC, 'WBNB (mainnet)'],
+        ]
       : cid === 97
         ? [
             [INFI_VAULT_CHAPEL, 'Infinity Vault (Chapel)'],

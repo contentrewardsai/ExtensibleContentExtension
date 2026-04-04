@@ -7,6 +7,7 @@
 | `npm run report:crypto-matrix` | After editing `shared/crypto-workflow-step-ids.js` — then commit `docs/CRYPTO_TEST_MATRIX.md` |
 | `npm run test:crypto-rpc-smoke` | Needs `SOLANA_RPC_SMOKE_URL` and/or `BSC_RPC_SMOKE_URL` (else skips) |
 | `CRYPTO_EVM_FORK_RPC_URL=… npm run test:crypto-evm-fork-smoke` | Anvil fork or public BSC/Chapel RPC |
+| `npm run report:crypto-env` | Print which optional env vars are set (masked; no network) |
 | `./scripts/run-anvil-bsc-fork.sh` | Start fork (`BSC_FORK_URL` required) |
 
 **CI (default PR):** `verify:crypto-matrix`, `verify:crypto-smoke-addrs-sync`, `verify:bsc-pancake-docs-sync`, plus existing crypto wiring scripts.
