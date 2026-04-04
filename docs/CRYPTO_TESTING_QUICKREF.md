@@ -2,7 +2,7 @@
 
 | Command | When |
 |---------|------|
-| `npm run test:crypto` | Local: all **static** crypto guards (matrix, addr sync, Pancake doc pins, wiring) |
+| `npm run test:crypto` | Static guards: matrix, smoke addrs, **BSC genesis literal sync**, Pancake docs, wiring |
 | `npm run test:unit` | Full browser unit suite + `step-tests.js` |
 | `npm run report:crypto-matrix` | After editing `shared/crypto-workflow-step-ids.js` — then commit `docs/CRYPTO_TEST_MATRIX.md` |
 | `npm run test:crypto-rpc-smoke` | Optional URLs — genesis checks; BSC 56: WBNB `decimals`; `SOLANA_EXPECTED_GENESIS_HASH` for custom RPC hosts |
