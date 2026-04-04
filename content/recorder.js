@@ -341,6 +341,86 @@
     }, SCROLL_COALESCE_MS);
   }
 
+  function resolveAnchorHref(linkEl) {
+    try {
+      if (!linkEl || !linkEl.getAttribute || linkEl.getAttribute('href') == null || linkEl.getAttribute('href') === '') return '';
+      const h = linkEl.href;
+      return h ? String(h).trim() : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function isJavascriptHref(href) {
+    return String(href).toLowerCase().startsWith('javascript:');
+  }
+
+  /**
+   * Same page, different hash only — record goToUrl so playback jumps the fragment without full navigation noise.
+   * @returns {string|null} full URL to record, or null if not a same-document hash jump
+   */
+  function sameDocumentHashNavigateUrl(href) {
+    const h = String(href || '').trim();
+    if (!/^https?:\/\//i.test(h) || h.indexOf('#') < 0) return null;
+    let cur;
+    let next;
+    try {
+      cur = new URL(window.location.href);
+      next = new URL(h);
+    } catch (_) {
+      return null;
+    }
+    if (cur.origin !== next.origin) return null;
+    const curPath = cur.pathname + cur.search;
+    const nextPath = next.pathname + next.search;
+    if (curPath !== nextPath) return null;
+    const nh = next.hash || '';
+    if (!nh || nh === '#') return null;
+    if (nh === (cur.hash || '')) return null;
+    return h;
+  }
+
+  function isLinkDownloadNavigation(linkEl) {
+    return (
+      linkEl.hasAttribute('download') ||
+      !!String(linkEl.getAttribute('href') || '').match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i)
+    );
+  }
+
+  /**
+   * @param {'pointer'|'enter'} sourceTag
+   * @returns {boolean} true if a navigation step was recorded (caller may set skipClickAfterNavUntilTs)
+   */
+  function recordLinkActivationNavigation(linkEl, e, sourceTag) {
+    const href = resolveAnchorHref(linkEl);
+    if (!href || isJavascriptHref(href)) return false;
+    if (isLinkDownloadNavigation(linkEl)) return false;
+
+    const hashNav = sameDocumentHashNavigateUrl(href);
+    if (hashNav) {
+      recordGoToUrl(hashNav, sourceTag === 'enter' ? 'link-enter' : 'link-hash');
+      return true;
+    }
+
+    if (!/^https?:\/\//i.test(href)) return false;
+
+    const isPointer = e && e.type === 'pointerdown';
+    const openNewTab =
+      String(linkEl.target || '').toLowerCase() === '_blank' ||
+      (isPointer && e.button === 1) ||
+      (isPointer && (e.ctrlKey || e.metaKey)) ||
+      (!isPointer && e && (e.ctrlKey || e.metaKey));
+    const shiftNewWindow = isPointer && e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey;
+    if (shiftNewWindow) {
+      recordOpenTab(href, true);
+    } else if (openNewTab) {
+      recordOpenTab(href, false);
+    } else {
+      recordGoToUrl(href, sourceTag === 'enter' ? 'link-enter' : 'link');
+    }
+    return true;
+  }
+
   function recordGoToUrl(href, source) {
     const h = String(href || '').trim();
     if (!h || !/^https?:\/\//i.test(h)) return;
@@ -1167,32 +1247,9 @@
     const linkEl = el.closest && el.closest('a[href]');
     /** Right button opens context menu, not navigation — do not record goToUrl/openTab. */
     const isRightButton = e.button === 2;
-    if (
-      linkEl &&
-      linkEl.href &&
-      !isRightButton &&
-      !String(linkEl.href).startsWith('javascript:') &&
-      !String(linkEl.href).startsWith('#')
-    ) {
-      lastPointerDownForLinkHref = String(linkEl.href);
-      const isDl =
-        linkEl.hasAttribute('download') ||
-        !!String(linkEl.getAttribute('href') || '').match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i);
-      if (!isDl) {
-        const openNewTab =
-          String(linkEl.target || '').toLowerCase() === '_blank' ||
-          e.button === 1 ||
-          e.ctrlKey ||
-          e.metaKey;
-        if (e.shiftKey && e.button === 0 && !e.ctrlKey && !e.metaKey) {
-          recordOpenTab(lastPointerDownForLinkHref, true);
-        } else if (openNewTab) {
-          recordOpenTab(lastPointerDownForLinkHref, false);
-        } else {
-          recordGoToUrl(lastPointerDownForLinkHref, 'link');
-        }
-        skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
-      }
+    if (linkEl && !isRightButton && recordLinkActivationNavigation(linkEl, e, 'pointer')) {
+      lastPointerDownForLinkHref = resolveAnchorHref(linkEl);
+      skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
     }
     const isOption = isDropdownOptionClick(el);
     if (isOption) return;
@@ -1218,14 +1275,11 @@
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
     const linkEl = el.closest && el.closest('a[href]');
-    if (!linkEl || !linkEl.href) return;
-    const href = String(linkEl.href);
-    if (href.startsWith('javascript:') || href.startsWith('#')) return;
-    if (!/^https?:\/\//i.test(href.trim())) return;
-    const isDl =
-      linkEl.hasAttribute('download') ||
-      !!String(linkEl.getAttribute('href') || '').match(/\.(pdf|csv|xlsx?|zip|docx?)(\?|$)/i);
-    if (isDl) return;
+    if (!linkEl) return;
+    const href = resolveAnchorHref(linkEl);
+    if (!href || isJavascriptHref(href)) return;
+    if (isLinkDownloadNavigation(linkEl)) return;
+    if (!/^https?:\/\//i.test(href)) return;
     lastPointerDownForLinkHref = href;
     recordOpenTab(href, false);
     skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
@@ -1426,6 +1480,13 @@
   function onKeyDown(e) {
     if (!isRecording || qualityCheckMode) return;
     const target = e.target && e.target.nodeType === 1 ? e.target : null;
+    const targetTag = target ? target.tagName && target.tagName.toLowerCase() : '';
+    const isEditableTarget =
+      target &&
+      (targetTag === 'input' ||
+        targetTag === 'textarea' ||
+        target.isContentEditable ||
+        (target.getAttribute && target.getAttribute('contenteditable') === 'true'));
     if (e.key === 'Enter' && target && typeof target.closest === 'function' && target.closest('form')) {
       if (typingEnterFlushTimeoutId) clearTimeout(typingEnterFlushTimeoutId);
       typingEnterFlushTimeoutId = setTimeout(() => {
@@ -1433,16 +1494,17 @@
         flushTypingAction();
       }, 100);
     }
+    if (e.key === 'Enter' && target && !e.repeat && !isEditableTarget) {
+      const linkEl = target.closest && target.closest('a[href]');
+      if (linkEl && recordLinkActivationNavigation(linkEl, e, 'enter')) {
+        lastPointerDownForLinkHref = resolveAnchorHref(linkEl);
+        skipClickAfterNavUntilTs = Date.now() + LINK_NAV_SKIP_CLICK_MS;
+        return;
+      }
+    }
     if (e.repeat) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const tag = target ? target.tagName && target.tagName.toLowerCase() : '';
-    const editable =
-      target &&
-      (tag === 'input' ||
-        tag === 'textarea' ||
-        target.isContentEditable ||
-        (target.getAttribute && target.getAttribute('contenteditable') === 'true'));
-    if (editable) return;
+    if (isEditableTarget) return;
     const k = e.key;
     if (!KEY_RECORDABLE[k]) return;
     maybeInsertWait();
