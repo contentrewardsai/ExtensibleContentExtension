@@ -33,10 +33,17 @@ function parseChainIdHex(hex) {
 }
 
 async function main() {
+  let client = '';
+  try {
+    client = await rpc('web3_clientVersion', []);
+  } catch {
+    /* optional */
+  }
   const chainId = await rpc('eth_chainId');
   const block = await rpc('eth_getBlockByNumber', ['latest', false]);
   const blockNum = await rpc('eth_blockNumber', []);
   console.log('[crypto-evm-fork-smoke] url:', url);
+  if (client) console.log('[crypto-evm-fork-smoke] client:', client);
   console.log('[crypto-evm-fork-smoke] eth_chainId:', chainId);
   console.log('[crypto-evm-fork-smoke] latest block:', block?.number ?? '(null)');
   console.log('[crypto-evm-fork-smoke] eth_blockNumber:', blockNum);
