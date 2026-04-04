@@ -3,7 +3,7 @@
  * EVM JSON-RPC smoke: Anvil fork, public BSC/Chapel, or any eth_* endpoint.
  * Env: CRYPTO_EVM_FORK_RPC_URL — default http://127.0.0.1:8545
  *
- * Runs eth_chainId, eth_getBlockByNumber("latest"), eth_blockNumber, eth_gasPrice, eth_syncing, then
+ * Runs eth_chainId + net_version (must agree), eth_getBlockByNumber("latest"), eth_blockNumber, eth_gasPrice, eth_syncing, then
  * eth_getCode: chain 56 router + WBNB + Infinity Vault mainnet (+ eth_call WBNB.decimals);
  * chain 97 Infinity Vault + BinPoolManager Chapel.
  * Exit 0 on success; does not send transactions.
@@ -50,6 +50,19 @@ async function main() {
     /* optional */
   }
   const chainId = await rpc('eth_chainId');
+  const cidEarly = parseChainIdHex(chainId);
+  if (cidEarly == null || cidEarly <= 0) {
+    throw new Error(`eth_chainId invalid ${JSON.stringify(chainId)}`);
+  }
+  const netVerRaw = await rpc('net_version', []);
+  const netVid = parseInt(String(netVerRaw != null ? netVerRaw : ''), 10);
+  if (!Number.isFinite(netVid) || netVid <= 0) {
+    throw new Error(`net_version unexpected ${JSON.stringify(netVerRaw)}`);
+  }
+  if (netVid !== cidEarly) {
+    throw new Error(`net_version ${netVid} does not match eth_chainId ${cidEarly} (${chainId})`);
+  }
+  console.log('[crypto-evm-fork-smoke] net_version:', String(netVerRaw), '(matches chainId)');
   const block = await rpc('eth_getBlockByNumber', ['latest', false]);
   const blockNum = await rpc('eth_blockNumber', []);
   console.log('[crypto-evm-fork-smoke] url:', url);
