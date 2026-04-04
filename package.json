@@ -22,6 +22,7 @@
     "test:e2e": "npm run build:step-tests && node scripts/build-step-e2e.cjs && npx playwright test",
     "test:e2e:ci": "npm run build:step-tests && node scripts/build-step-e2e.cjs && CI=1 npx playwright test",
     "test:e2e:ci-smoke": "npm run build:step-tests && node scripts/build-step-e2e.cjs && CI=1 PW_WORKERS=1 npx playwright test test/e2e/api.spec.mjs test/e2e/content.spec.mjs",
+    "test:e2e:crypto": "npm run build:step-tests && node scripts/build-step-e2e.cjs && E2E_CRYPTO=1 npx playwright test test/e2e/crypto-e2e-playwright.spec.mjs",
     "test:e2e:install-browsers": "npx playwright install chromium",
     "test:e2e:puppeteer": "node scripts/run-e2e-puppeteer.mjs",
     "test:evm-bundle": "node scripts/verify-evm-bundle.mjs",

@@ -11,6 +11,7 @@ Layered approach (unit → optional RPC smoke → local fork → devnet → cana
 - **[CRYPTO_CANARY_CHECKLIST.md](./CRYPTO_CANARY_CHECKLIST.md)** — manual L5 smoke after releases
 - **`npm run test:crypto`** — static crypto checks (matrix, smoke addr sync, Pancake doc pins, manifest hosts, wiring)
 - **[CRYPTO_TESTING_QUICKREF.md](./CRYPTO_TESTING_QUICKREF.md)** — one-page command table
+- **Playwright crypto E2E (opt-in):** `npm run test:e2e:crypto` with **`E2E_CRYPTO=1`** — loads the unpacked extension and sends **`CFS_SOLANA_RPC_READ`**, **`CFS_BSC_QUERY`**, **`CFS_ASTER_FUTURES`**, **`CFS_RUGCHECK_TOKEN_REPORT`** over **`chrome.runtime`** (see **`test/e2e/crypto-e2e-playwright.spec.mjs`**). Set **`SOLANA_RPC_SMOKE_URL`** / **`BSC_RPC_SMOKE_URL`** (or **`E2E_CRYPTO_*_RPC_URL`**) for on-chain reads.
 
 ## Unit Tests (Zero Setup)
 
