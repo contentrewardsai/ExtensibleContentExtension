@@ -55,8 +55,9 @@
     "report:crypto-matrix": "node scripts/crypto-step-matrix.mjs --write",
     "verify:crypto-matrix": "node scripts/crypto-step-matrix.mjs --check",
     "test:crypto-evm-fork-smoke": "node scripts/crypto-evm-fork-smoke.mjs",
-    "test:crypto": "npm run verify:crypto-matrix && npm run verify:crypto-smoke-addrs-sync && npm run test:crypto-workflow-step-types && npm run test:crypto-manifest-hosts && npm run test:crypto-observability-wired && npm run test:crypto-rate-limit-wired",
+    "test:crypto": "npm run verify:crypto-matrix && npm run verify:crypto-smoke-addrs-sync && npm run verify:bsc-pancake-docs-sync && npm run test:crypto-workflow-step-types && npm run test:crypto-manifest-hosts && npm run test:crypto-observability-wired && npm run test:crypto-rate-limit-wired",
     "verify:crypto-smoke-addrs-sync": "node scripts/verify-crypto-smoke-addrs-sync.cjs",
+    "verify:bsc-pancake-docs-sync": "node scripts/verify-bsc-pancake-docs-sync.cjs",
     "test:crypto-manifest-hosts": "node scripts/verify-crypto-manifest-hosts.cjs",
     "test:crypto-observability-wired": "node scripts/verify-crypto-observability-wired.cjs"
   },

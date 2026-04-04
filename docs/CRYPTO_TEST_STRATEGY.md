@@ -27,6 +27,7 @@ npm run verify:crypto-matrix   # CI — fails if matrix is stale
 
 ```bash
 npm run verify:crypto-smoke-addrs-sync   # fork smoke Pancake router must match background/bsc-evm.js (CI)
+npm run verify:bsc-pancake-docs-sync     # docs/BSC_PANCAKE_ADDRESSES.md matches bsc-evm.js pins (CI)
 ```
 
 ## One-shot local bundle
@@ -61,7 +62,8 @@ Install [Foundry](https://book.getfoundry.sh/), then:
 
 ```bash
 export BSC_FORK_URL='https://bsc-dataseed.binance.org'   # or your provider HTTPS
-anvil --fork-url "$BSC_FORK_URL" --port 8545
+./scripts/run-anvil-bsc-fork.sh
+# or: anvil --fork-url "$BSC_FORK_URL" --port 8545
 ```
 
 In another shell:
