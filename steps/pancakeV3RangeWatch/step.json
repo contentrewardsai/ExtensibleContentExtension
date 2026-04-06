@@ -1,0 +1,73 @@
+{
+  "id": "pancakeV3RangeWatch",
+  "label": "PancakeSwap V3 range watch",
+  "category": "data",
+  "description": "Poll a PancakeSwap V3 pool's current tick and compare to your position's tick range. The step **completes** when the current tick moves **outside** the position range (i.e. concentrated liquidity is no longer active). Save the drift direction ('above' or 'below') to a variable for downstream branching. Use in always-on workflows to trigger rebalancing or exit logic. Works with any V3-style (Uniswap fork) concentrated liquidity pool on BSC.",
+  "defaultAction": {
+    "type": "pancakeV3RangeWatch",
+    "runIf": "",
+    "v3PositionTokenId": "",
+    "pollIntervalMs": 30000,
+    "timeoutMs": 0,
+    "saveDriftDirection": "driftDirection",
+    "saveCurrentTick": "currentTick",
+    "savePositionRange": "positionRange"
+  },
+  "inputs": [
+    { "key": "v3PositionTokenId", "description": "V3 position NFT token ID. Template vars supported." },
+    { "key": "pollIntervalMs", "description": "How often to check the current tick (default 30s)." },
+    { "key": "timeoutMs", "description": "Maximum wait time (0 = wait forever until out of range)." }
+  ],
+  "outputs": [
+    { "key": "saveDriftDirection", "description": "Row variable: 'above' (tick rose past tickUpper) or 'below' (tick fell past tickLower)." },
+    { "key": "saveCurrentTick", "description": "Row variable: current tick at the time drift was detected." },
+    { "key": "savePositionRange", "description": "Row variable: JSON with tickLower, tickUpper, currentTick, direction, pool, token0, token1, fee." }
+  ],
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text",
+      "placeholder": "{{var}} or variable name"
+    },
+    {
+      "key": "v3PositionTokenId",
+      "label": "V3 position NFT token ID",
+      "inputType": "text",
+      "placeholder": "{{v3PositionTokenId}} or paste ID",
+      "hint": "The token ID from a previous v3PositionMint step."
+    },
+    {
+      "key": "pollIntervalMs",
+      "label": "Poll interval (ms)",
+      "inputType": "number",
+      "placeholder": "30000",
+      "min": 5000
+    },
+    {
+      "key": "timeoutMs",
+      "label": "Timeout (ms, 0 = no limit)",
+      "inputType": "number",
+      "placeholder": "0",
+      "min": 0
+    },
+    {
+      "key": "saveDriftDirection",
+      "label": "Save drift direction to variable",
+      "inputType": "text",
+      "placeholder": "driftDirection"
+    },
+    {
+      "key": "saveCurrentTick",
+      "label": "Save current tick to variable",
+      "inputType": "text",
+      "placeholder": "currentTick"
+    },
+    {
+      "key": "savePositionRange",
+      "label": "Save position range to variable",
+      "inputType": "text",
+      "placeholder": "positionRange"
+    }
+  ]
+}

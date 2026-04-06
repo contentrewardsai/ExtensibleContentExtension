@@ -1,0 +1,38 @@
+{
+  "id": "jupiterPredictionTrade",
+  "label": "Jupiter Prediction — Trade (Buy/Sell/Close/Claim)",
+  "category": "data",
+  "description": "Trade on Jupiter Prediction Markets. Buy YES/NO contracts on real-world events (crypto, sports, politics). Create orders, sell positions, close all positions, or claim winning payouts. Returns base64 Solana transaction to sign and submit. Base URL: https://api.jup.ag/prediction/v1. Requires x-api-key and automation wallet.",
+  "defaultAction": {
+    "type": "jupiterPredictionTrade",
+    "runIf": "",
+    "operation": "buyOrder",
+    "marketId": "",
+    "isYes": true,
+    "amount": "",
+    "limitPrice": "",
+    "positionPubkey": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "operation", "label": "Operation", "inputType": "select", "options": [
+      { "value": "buyOrder", "label": "Buy YES/NO contracts" },
+      { "value": "sellOrder", "label": "Sell contracts (partial)" },
+      { "value": "closePosition", "label": "Close entire position" },
+      { "value": "closeAllPositions", "label": "Close all positions" },
+      { "value": "claimPayout", "label": "Claim winning payout" }
+    ] },
+    { "key": "marketId", "label": "Market ID", "inputType": "text" },
+    { "key": "isYes", "label": "Buy YES (true) or NO (false)", "inputType": "select", "options": [
+      { "value": "true", "label": "YES" },
+      { "value": "false", "label": "NO" }
+    ] },
+    { "key": "amount", "label": "Amount (USDC micro units, e.g. 1000000 = $1)", "inputType": "text" },
+    { "key": "limitPrice", "label": "Limit price (micro USD, optional)", "inputType": "text" },
+    { "key": "positionPubkey", "label": "Position pubkey (for close/claim)", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

@@ -7,6 +7,8 @@
     defaultAction: {
       type: 'solanaJupiterSwap',
       runIf: '',
+      jupiterApiVersion: 'v2',
+      jupiterSwapPath: 'order',
       inputMint: 'So11111111111111111111111111111111111111112',
       outputMint: '',
       amountRaw: '',
@@ -25,12 +27,17 @@
       jupiterCrossCheckOptional: false,
       saveSignatureVariable: 'solanaTxSignature',
       saveExplorerUrlVariable: 'solanaExplorerUrl',
+      saveRouterVariable: '',
+      saveOutputAmountVariable: '',
     },
     getSummary: function(action) {
       var a = (action.amountRaw || '').toString().trim();
       var o = (action.outputMint || '').toString().trim();
-      if (o) return 'Jupiter swap → ' + o.slice(0, 8) + '…' + (a ? ' amount ' + a.slice(0, 12) : '');
-      return 'Solana Jupiter swap';
+      var ver = (action.jupiterApiVersion || 'v2').toString().trim();
+      var path = (action.jupiterSwapPath || 'order').toString().trim();
+      var tag = ver !== 'v6' ? ' [V2/' + path + ']' : ' [V6]';
+      if (o) return 'Jupiter swap → ' + o.slice(0, 8) + '…' + (a ? ' amt ' + a.slice(0, 12) : '') + tag;
+      return 'Solana Jupiter swap' + tag;
     },
     getVariableKey: function() { return ''; },
     getVariableHint: function() { return ''; },
@@ -40,11 +47,17 @@
       if (s1) out.push({ rowKey: s1, label: s1, hint: 'tx signature' });
       var s2 = (action.saveExplorerUrlVariable || '').trim();
       if (s2) out.push({ rowKey: s2, label: s2, hint: 'explorer' });
+      var s3 = (action.saveRouterVariable || '').trim();
+      if (s3) out.push({ rowKey: s3, label: s3, hint: 'router used (V2)' });
+      var s4 = (action.saveOutputAmountVariable || '').trim();
+      if (s4) out.push({ rowKey: s4, label: s4, hint: 'output amount (V2)' });
       return out;
     },
     renderBody: function(action, i, wfId, totalCount, helpers) {
-      var escapeHtml = helpers.escapeHtml;
+      var e = helpers.escapeHtml;
       var runIf = (action.runIf || '').trim();
+      var apiVer = (action.jupiterApiVersion || 'v2').toString().trim();
+      var swapPath = (action.jupiterSwapPath || 'order').toString().trim();
       var inputMint = (action.inputMint || '').toString().trim();
       var outputMint = (action.outputMint || '').toString().trim();
       var amountRaw = (action.amountRaw != null ? String(action.amountRaw) : '').trim();
@@ -63,31 +76,53 @@
       var crossOpt = action.jupiterCrossCheckOptional === true;
       var saveSig = (action.saveSignatureVariable || '').trim();
       var saveExp = (action.saveExplorerUrlVariable || '').trim();
+      var saveRouter = (action.saveRouterVariable || '').trim();
+      var saveOutAmt = (action.saveOutputAmountVariable || '').trim();
 
       var body =
         '<p class="step-hint" style="margin-bottom:10px;">Configure the automation wallet and optional RPC in <strong>Extension Settings → Solana automation</strong>. This step does not use Phantom. See <code>docs/SOLANA_AUTOMATION.md</code>.</p>' +
-        '<div class="step-field"><label>Run only if (optional)</label><input type="text" data-field="runIf" data-step="' + i + '" value="' + escapeHtml(runIf) + '"></div>' +
-        '<div class="step-field"><label>Input mint</label><input type="text" data-field="inputMint" data-step="' + i + '" value="' + escapeHtml(inputMint) + '" placeholder="SOL wrapped mint or token mint"></div>' +
-        '<div class="step-field"><label>Output mint</label><input type="text" data-field="outputMint" data-step="' + i + '" value="' + escapeHtml(outputMint) + '"></div>' +
-        '<div class="step-field"><label>Amount (raw smallest units)</label><input type="text" data-field="amountRaw" data-step="' + i + '" value="' + escapeHtml(amountRaw) + '" placeholder="{{lamports}} or literal"></div>' +
+        '<div class="step-field"><label>Run only if (optional)</label><input type="text" data-field="runIf" data-step="' + i + '" value="' + e(runIf) + '"></div>' +
+
+        /* ── V2 controls ── */
+        '<fieldset style="border:1px solid var(--border-color,#444);border-radius:6px;padding:8px 12px;margin:8px 0"><legend style="font-size:0.85em;font-weight:600;color:var(--accent-color,#7c5cff)">Jupiter API</legend>' +
+        '<div class="step-field"><label>API Version</label><select data-field="jupiterApiVersion" data-step="' + i + '">' +
+        '<option value="v2"' + (apiVer === 'v2' ? ' selected' : '') + '>V2 (recommended)</option>' +
+        '<option value="v6"' + (apiVer === 'v6' ? ' selected' : '') + '>V6 (legacy)</option>' +
+        '</select><span class="step-hint"> V2 uses all routers (Metis, RFQ, Dflow, OKX) for best prices.</span></div>' +
+        '<div class="step-field"><label>Swap Path (V2 only)</label><select data-field="jupiterSwapPath" data-step="' + i + '">' +
+        '<option value="order"' + (swapPath === 'order' ? ' selected' : '') + '>Order + Execute (managed landing)</option>' +
+        '<option value="build"' + (swapPath === 'build' ? ' selected' : '') + '>Build (custom tx, self-managed)</option>' +
+        '</select><span class="step-hint"> Order + Execute: Jupiter handles optimal tx landing. Build: full control.</span></div>' +
+        '</fieldset>' +
+
+        '<div class="step-field"><label>Input mint</label><input type="text" data-field="inputMint" data-step="' + i + '" value="' + e(inputMint) + '" placeholder="SOL wrapped mint or token mint"></div>' +
+        '<div class="step-field"><label>Output mint</label><input type="text" data-field="outputMint" data-step="' + i + '" value="' + e(outputMint) + '"></div>' +
+        '<div class="step-field"><label>Amount (raw smallest units)</label><input type="text" data-field="amountRaw" data-step="' + i + '" value="' + e(amountRaw) + '" placeholder="{{lamports}} or literal"></div>' +
         '<div class="step-field"><label>Slippage (bps)</label><input type="number" data-field="slippageBps" data-step="' + i + '" value="' + (isNaN(slippageBps) ? 50 : slippageBps) + '" min="0" max="10000"></div>' +
         '<div class="step-field"><label>Cluster</label><select data-field="cluster" data-step="' + i + '">' +
         '<option value="mainnet-beta"' + (cluster === 'mainnet-beta' ? ' selected' : '') + '>mainnet-beta</option>' +
         '<option value="devnet"' + (cluster === 'devnet' ? ' selected' : '') + '>devnet</option>' +
         '</select></div>' +
-        '<div class="step-field"><label>RPC URL override (optional)</label><input type="text" data-field="rpcUrl" data-step="' + i + '" value="' + escapeHtml(rpcUrl) + '"></div>' +
+        '<div class="step-field"><label>RPC URL override (optional)</label><input type="text" data-field="rpcUrl" data-step="' + i + '" value="' + e(rpcUrl) + '"></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="skipSimulation" data-step="' + i + '"' + (skipSim ? ' checked' : '') + '> Skip simulation</label></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="skipPreflight" data-step="' + i + '"' + (skipPre ? ' checked' : '') + '> Skip preflight on send</label></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="onlyDirectRoutes" data-step="' + i + '"' + (onlyDir ? ' checked' : '') + '> Direct liquidity routes only (Jupiter)</label><span class="step-hint"> May fail if no single-pool path exists.</span></div>' +
-        '<div class="step-field"><label>Include DEXes only (Jupiter)</label><input type="text" data-field="jupiterDexes" data-step="' + i + '" value="' + escapeHtml(jDex) + '" placeholder="Raydium,Orca — optional"></div>' +
-        '<div class="step-field"><label>Exclude DEXes (Jupiter)</label><input type="text" data-field="jupiterExcludeDexes" data-step="' + i + '" value="' + escapeHtml(jEx) + '"></div>' +
-        '<div class="step-field"><label>Prioritization fee (lamports)</label><input type="text" data-field="jupiterPrioritizationFeeLamports" data-step="' + i + '" value="' + escapeHtml(jPrio) + '" placeholder="empty = auto"></div>' +
+        '<div class="step-field"><label>Include DEXes only (Jupiter)</label><input type="text" data-field="jupiterDexes" data-step="' + i + '" value="' + e(jDex) + '" placeholder="Raydium,Orca — optional"></div>' +
+        '<div class="step-field"><label>Exclude DEXes (Jupiter)</label><input type="text" data-field="jupiterExcludeDexes" data-step="' + i + '" value="' + e(jEx) + '"></div>' +
+        '<div class="step-field"><label>Prioritization fee (lamports)</label><input type="text" data-field="jupiterPrioritizationFeeLamports" data-step="' + i + '" value="' + e(jPrio) + '" placeholder="empty = auto"></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="jupiterDynamicComputeUnitLimit" data-step="' + i + '"' + (jDynCu ? ' checked' : '') + '> Jupiter dynamic compute unit limit</label></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="jupiterWrapAndUnwrapSol" data-step="' + i + '"' + (jWrapSol ? ' checked' : '') + '> Jupiter auto wrap/unwrap native SOL</label><span class="step-hint"> Uncheck if you use WSOL mint + <strong>solanaWrapSol</strong>.</span></div>' +
         '<div class="step-field"><label>Cross-check max deviation (bps, 0=off)</label><input type="number" data-field="jupiterCrossCheckMaxDeviationBps" data-step="' + i + '" value="' + (isNaN(crossBps) ? 0 : Math.min(10000, Math.max(0, crossBps))) + '" min="0" max="10000"></div>' +
         '<div class="step-field"><label><input type="checkbox" data-field="jupiterCrossCheckOptional" data-step="' + i + '"' + (crossOpt ? ' checked' : '') + '> Cross-check optional (no fail if alt quote missing)</label></div>' +
-        '<div class="step-field"><label>Save signature to variable</label><input type="text" data-field="saveSignatureVariable" data-step="' + i + '" value="' + escapeHtml(saveSig) + '"></div>' +
-        '<div class="step-field"><label>Save explorer URL to variable</label><input type="text" data-field="saveExplorerUrlVariable" data-step="' + i + '" value="' + escapeHtml(saveExp) + '"></div>' +
+
+        /* ── Output variable fields ── */
+        '<fieldset style="border:1px solid var(--border-color,#444);border-radius:6px;padding:8px 12px;margin:8px 0"><legend style="font-size:0.85em;font-weight:600;color:var(--accent-color,#7c5cff)">Output Variables</legend>' +
+        '<div class="step-field"><label>Save signature</label><input type="text" data-field="saveSignatureVariable" data-step="' + i + '" value="' + e(saveSig) + '"></div>' +
+        '<div class="step-field"><label>Save explorer URL</label><input type="text" data-field="saveExplorerUrlVariable" data-step="' + i + '" value="' + e(saveExp) + '"></div>' +
+        '<div class="step-field"><label>Save router used (V2 only)</label><input type="text" data-field="saveRouterVariable" data-step="' + i + '" value="' + e(saveRouter) + '" placeholder="e.g. jupiterRouter"></div>' +
+        '<div class="step-field"><label>Save output amount (V2 only)</label><input type="text" data-field="saveOutputAmountVariable" data-step="' + i + '" value="' + e(saveOutAmt) + '" placeholder="e.g. swapOutputAmount"></div>' +
+        '</fieldset>' +
+
         '<div class="step-actions"><button class="btn btn-primary" data-save-step="' + i + '">Save</button></div>';
 
       return window.__CFS_buildStepItemShell('solanaJupiterSwap', action, i, totalCount, helpers, body);
@@ -102,6 +137,8 @@
       var out = { type: 'solanaJupiterSwap' };
       var r = (getVal('runIf') || '').trim();
       if (r) out.runIf = r;
+      out.jupiterApiVersion = (getVal('jupiterApiVersion') || 'v2').trim();
+      out.jupiterSwapPath = (getVal('jupiterSwapPath') || 'order').trim();
       out.inputMint = (getVal('inputMint') || '').trim();
       out.outputMint = (getVal('outputMint') || '').trim();
       out.amountRaw = (getVal('amountRaw') || '').trim();
@@ -122,6 +159,8 @@
       out.jupiterCrossCheckOptional = getVal('jupiterCrossCheckOptional') === true;
       out.saveSignatureVariable = (getVal('saveSignatureVariable') || '').trim();
       out.saveExplorerUrlVariable = (getVal('saveExplorerUrlVariable') || '').trim();
+      out.saveRouterVariable = (getVal('saveRouterVariable') || '').trim();
+      out.saveOutputAmountVariable = (getVal('saveOutputAmountVariable') || '').trim();
       return out;
     },
   });

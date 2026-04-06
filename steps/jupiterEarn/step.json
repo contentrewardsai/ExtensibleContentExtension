@@ -1,0 +1,33 @@
+{
+  "id": "jupiterEarn",
+  "label": "Jupiter Earn (Deposit/Withdraw)",
+  "category": "data",
+  "description": "Deposit to or withdraw from Jupiter Earn vaults via the Lend API. Earn yield on deposited assets. Supports both deposit and withdraw operations. Requires Solana automation wallet.",
+  "defaultAction": {
+    "type": "jupiterEarn",
+    "runIf": "",
+    "earnOperation": "deposit",
+    "mint": "",
+    "amount": "",
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "earnOperation", "label": "Operation", "inputType": "select", "options": [
+      { "value": "deposit", "label": "Deposit (earn yield)" },
+      { "value": "withdraw", "label": "Withdraw" }
+    ] },
+    { "key": "mint", "label": "Token mint", "inputType": "text", "placeholder": "e.g. USDC mint or SOL" },
+    { "key": "amount", "label": "Amount (raw, smallest units)", "inputType": "text" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+  ]
+}

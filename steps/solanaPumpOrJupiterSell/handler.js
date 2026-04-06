@@ -112,6 +112,8 @@
     } else {
       const swapPayload = {
         type: 'CFS_SOLANA_EXECUTE_SWAP',
+        jupiterApiVersion: String(action.jupiterApiVersion || 'v2').trim(),
+        jupiterSwapPath: String(action.jupiterSwapPath || 'order').trim(),
         inputMint: mint,
         outputMint: WSOL,
         amountRaw: tokenAmountRaw,

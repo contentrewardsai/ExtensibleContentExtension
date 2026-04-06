@@ -431,6 +431,43 @@
     </div>
   </div>
 
+  <div class="section" id="cryptoTestWalletsSettingsSection">
+    <h2>Crypto test wallets</h2>
+    <p class="hint">Creates or reuses labeled Solana devnet + BSC Chapel wallets (same service worker as <strong>Run crypto tests</strong> on <code>test/unit-tests.html</code>). For ensure + crypto-only step tests in one click, use <strong>Settings → Tests → Open unit tests page</strong>. Not for mainnet funds.</p>
+    <div class="form-row" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+      <button type="button" id="cryptoTestEnsureSettingsBtn" class="btn btn-primary btn-small" data-testid="cfs-settings-crypto-ensure">Ensure devnet / Chapel test wallets</button>
+      <button type="button" id="cryptoTestFundOnlySettingsBtn" class="btn btn-small" data-testid="cfs-settings-crypto-fund-only">Request test tokens again</button>
+      <button type="button" id="cryptoTestReplaceSettingsBtn" class="btn btn-small" data-testid="cfs-settings-crypto-replace">Replace crypto test wallets</button>
+    </div>
+    <p id="cryptoTestEnsureSettingsMsg" class="status-msg" style="display:none;"></p>
+    <div id="cryptoTestWalletInfo" style="display:none;margin-top:12px;" class="jwt-section">
+      <h3 style="margin-top:0;">Test wallet addresses</h3>
+      <p class="hint" style="margin-top:0;">Copy an address below and fund it manually via the faucet link if automatic funding failed.</p>
+      <div id="cryptoTestSolanaRow" style="margin-bottom:10px;display:none;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:0.82rem;">Solana (devnet):</strong>
+          <code id="cryptoTestSolanaAddr" style="font-size:0.82rem;word-break:break-all;flex:1;min-width:200px;"></code>
+          <button type="button" id="cryptoTestCopySolBtn" class="btn btn-small" title="Copy Solana address">Copy</button>
+        </div>
+        <div style="margin-top:4px;font-size:0.82rem;">
+          <span id="cryptoTestSolanaFunded" class="hint"></span>
+          · <a href="https://faucet.solana.com/" target="_blank" rel="noopener noreferrer">Solana devnet faucet ↗</a>
+        </div>
+      </div>
+      <div id="cryptoTestBscRow" style="display:none;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:0.82rem;">BSC (Chapel):</strong>
+          <code id="cryptoTestBscAddr" style="font-size:0.82rem;word-break:break-all;flex:1;min-width:200px;"></code>
+          <button type="button" id="cryptoTestCopyBscBtn" class="btn btn-small" title="Copy BSC address">Copy</button>
+        </div>
+        <div style="margin-top:4px;font-size:0.82rem;">
+          <span id="cryptoTestBscFunded" class="hint"></span>
+          · <a href="https://www.bnbchain.org/en/testnet-faucet" target="_blank" rel="noopener noreferrer">BNB Chain testnet faucet ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="section" id="bscWalletSection">
     <h2>BSC / EVM automation wallet</h2>
     <p class="hint">Hot wallet for BSC workflow steps. Keys stay local; workflows must not contain secrets. <a href="#" id="bscDocLink">BSC wallet storage</a> · <a href="#" id="bscAutomationDocLink">BSC automation</a>.</p>
@@ -531,6 +568,191 @@
     </div>
   </div>
 
+  <div class="section" id="mcpServerSection">
+    <h2 id="cfs-mcp-server">MCP Server</h2>
+    <p class="hint">Expose the extension's capabilities as MCP tools for AI clients like Claude Desktop, Cursor, or VS Code Copilot.</p>
+
+    <!-- Hidden inputs: auto-managed by health poll, kept for JS compat -->
+    <input type="hidden" id="cfsMcpEnabled" data-testid="cfs-mcp-enabled" value="1">
+    <input type="hidden" id="cfsMcpPortInput" value="3100" data-testid="cfs-mcp-port">
+    <input type="hidden" id="cfsMcpTokenInput" data-testid="cfs-mcp-token">
+    <span id="cfsMcpSaveStatus" style="display:none"></span>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Server Status</h3>
+      <div class="form-row" style="display:flex;align-items:center;gap:8px;">
+        <button type="button" id="cfsMcpStartBtn" class="btn btn-primary btn-small" data-testid="cfs-mcp-start">▶ Start</button>
+        <button type="button" id="cfsMcpStopBtn" class="btn btn-small" style="background:#dc2626;color:#fff;" data-testid="cfs-mcp-stop">■ Stop</button>
+        <span id="cfsMcpConnectionStatus" style="display:inline-flex;align-items:center;gap:6px;font-size:0.88rem;margin-left:8px;">
+          <span id="cfsMcpStatusDot" style="width:10px;height:10px;border-radius:50%;background:var(--error);display:inline-block;"></span>
+          <span id="cfsMcpStatusText">Checking…</span>
+        </span>
+      </div>
+      <p id="cfsMcpStartStopStatus" class="status-msg" style="display:none"></p>
+      <div class="form-row" style="margin-top:8px;">
+        <button type="button" id="cfsMcpBrowseBinary" class="btn btn-small">📂 Find MCP Server binary</button>
+      </div>
+      <ol class="hint" style="margin:6px 0 0;padding-left:20px;line-height:1.7;font-size:0.82rem;">
+        <li>Click the button above — a file picker opens in <code>mcp-server/dist/</code></li>
+        <li>Find the binary for your OS: <strong>StartMacMCPServer</strong> (Apple Silicon), <strong>StartMacIntelMCPServer</strong> (Intel Mac), <strong>StartWindowsMCPServer.exe</strong>, or <strong>StartLinuxMCPServer</strong></li>
+        <li>Right-click → <strong>Show in Finder</strong> (or Explorer), then double-click to run</li>
+        <li>macOS first time: right-click → <strong>Open</strong>, then click <strong>Open</strong> in the Gatekeeper dialog</li>
+      </ol>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Client Config</h3>
+      <p class="hint" style="margin-top:0;">Copy this JSON into your AI client's MCP configuration file. The token auto-syncs when the server is running.</p>
+      <pre id="cfsMcpClientConfig" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:10px;font-size:0.82rem;overflow-x:auto;white-space:pre-wrap;word-break:break-all;"></pre>
+      <div class="form-row" style="margin-top:6px;">
+        <button type="button" id="cfsMcpCopyConfig" class="btn btn-primary btn-small" data-testid="cfs-mcp-copy-config">Copy Config</button>
+      </div>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="cfsMcpDryRunConfirmation" checked data-testid="cfs-mcp-dryrun"> Require dry-run confirmation for MCP write operations (recommended)</label>
+      </div>
+      <p class="hint" style="margin-top:6px;color:var(--error);">⚠️ MCP tools can execute real financial transactions through your extension wallets. Do not use large amounts of funds or funds you are concerned about losing. Review all tool calls in your AI client before approving.</p>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <h3 style="margin-top:0;display:flex;align-items:center;gap:8px;">
+        MCP Streams
+        <span id="cfsMcpSubHealthDot" style="font-size:1.1rem;" title="Subscription health">⚪</span>
+        <span id="cfsMcpSubCount" style="font-size:0.82rem;color:var(--hint-fg,#888);">0 active</span>
+      </h3>
+      <p class="hint" style="margin-top:0;">Real-time data subscriptions created by your AI client. View and manage active streams.</p>
+      <div id="cfsMcpSubList" style="margin-top:8px;">
+        <p class="hint" style="font-style:italic;">No active subscriptions.</p>
+      </div>
+      <div class="form-row" style="margin-top:8px;gap:8px;">
+        <button type="button" id="cfsMcpRefreshSubs" class="btn btn-small" data-testid="cfs-mcp-refresh-subs">↻ Refresh</button>
+        <button type="button" id="cfsMcpKillAllSubs" class="btn btn-small" style="background:#dc2626;color:#fff;" data-testid="cfs-mcp-kill-subs">Stop All</button>
+      </div>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <h3 style="margin-top:0;display:flex;align-items:center;gap:8px;">
+        🌐 Remote Access (Tunnel)
+        <span id="cfsMcpTunnelStatusDot" style="width:10px;height:10px;border-radius:50%;background:var(--hint-fg,#888);display:inline-block;" title="Tunnel status"></span>
+        <span id="cfsMcpTunnelStatusLabel" style="font-size:0.82rem;font-weight:400;color:var(--hint-fg,#888);">Not running</span>
+      </h3>
+      <p class="hint" style="margin-top:0;">Expose your local MCP server to the internet so AI clients (Claude, Cursor, etc.) can reach it remotely. The tunnel creates a public HTTPS URL backed by your local server.</p>
+
+      <div class="form-row" style="margin-bottom:8px;">
+        <label for="cfsMcpTunnelProvider">Tunnel provider</label>
+        <select id="cfsMcpTunnelProvider" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;" data-testid="cfs-mcp-tunnel-provider">
+          <option value="">Disabled</option>
+          <option value="cloudflare">Cloudflare Tunnel (free, no account)</option>
+          <option value="ngrok">ngrok (free tier, account needed)</option>
+        </select>
+      </div>
+
+      <div id="cfsMcpTunnelNgrokFields" style="display:none;">
+        <div class="form-row">
+          <label for="cfsMcpNgrokAuthtoken">ngrok auth token</label>
+          <input type="password" id="cfsMcpNgrokAuthtoken" placeholder="tok_xxx (from ngrok.com dashboard)" autocomplete="off" data-testid="cfs-mcp-ngrok-authtoken">
+          <button type="button" id="cfsMcpNgrokToggle" class="btn btn-small">Show</button>
+        </div>
+        <p class="hint" style="margin-top:2px;">Free at <a href="https://dashboard.ngrok.com/signup" target="_blank" rel="noopener noreferrer">ngrok.com/signup</a>. Required for ngrok tunnels.</p>
+      </div>
+
+      <div id="cfsMcpTunnelCfFields" style="display:none;">
+        <div class="form-row">
+          <label for="cfsMcpTunnelDomain">Custom domain (optional)</label>
+          <input type="text" id="cfsMcpTunnelDomain" placeholder="mcp.yourdomain.com" autocomplete="off" data-testid="cfs-mcp-tunnel-domain">
+        </div>
+        <p class="hint" style="margin-top:2px;">Leave blank for a free random <code>*.trycloudflare.com</code> URL (no account needed). Set a domain for a stable URL (requires Cloudflare account + <code>cloudflared tunnel login</code>).</p>
+      </div>
+
+      <div class="form-row" style="margin-top:8px;gap:8px;">
+        <button type="button" id="cfsMcpTunnelSaveBtn" class="btn btn-primary btn-small" data-testid="cfs-mcp-tunnel-save">Save tunnel settings</button>
+        <button type="button" id="cfsMcpTunnelStartBtn" class="btn btn-small" style="background:#16a34a;color:#fff;" data-testid="cfs-mcp-tunnel-start">▶ Start Tunnel</button>
+        <button type="button" id="cfsMcpTunnelStopBtn" class="btn btn-small" style="background:#dc2626;color:#fff;" data-testid="cfs-mcp-tunnel-stop">■ Stop Tunnel</button>
+      </div>
+      <p id="cfsMcpTunnelStatus" class="status-msg" style="display:none"></p>
+
+      <div id="cfsMcpTunnelUrlPanel" style="display:none;margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;">
+        <p style="margin:0 0 4px;font-size:0.82rem;font-weight:600;color:var(--accent,#7c5cff);">🔗 Public MCP Endpoint</p>
+        <code id="cfsMcpTunnelUrlDisplay" style="font-size:0.88rem;word-break:break-all;display:block;margin-bottom:6px;"></code>
+        <div class="form-row" style="gap:8px;margin:0;">
+          <button type="button" id="cfsMcpTunnelCopyUrl" class="btn btn-primary btn-small">Copy MCP URL</button>
+          <button type="button" id="cfsMcpTunnelCopyConfig" class="btn btn-small">Copy remote config</button>
+        </div>
+      </div>
+
+      <details style="margin-top:10px;font-size:0.82rem;">
+        <summary style="cursor:pointer;font-weight:600;color:var(--hint-fg,#888);">Installing cloudflared / ngrok (if not bundled)</summary>
+        <div style="margin-top:6px;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
+          <p style="margin:0 0 4px;"><strong>Cloudflare (macOS):</strong> <code>brew install cloudflared</code></p>
+          <p style="margin:0 0 4px;"><strong>Cloudflare (other):</strong> <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" rel="noopener noreferrer">Download cloudflared ↗</a></p>
+          <p style="margin:0 0 4px;"><strong>ngrok (macOS):</strong> <code>brew install ngrok</code></p>
+          <p style="margin:0;"><strong>ngrok (other):</strong> <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer">Download ngrok ↗</a></p>
+        </div>
+      </details>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <h3 style="margin-top:0;">🔗 External MCP Endpoints</h3>
+      <p class="hint" style="margin-top:0;">Connect to additional MCP servers (e.g., another team member's server, a third-party AI service). Tool calls can be proxied through these endpoints.</p>
+
+      <div id="cfsMcpExternalList" style="margin-bottom:10px;">
+        <p class="hint" style="font-style:italic;">No external endpoints configured.</p>
+      </div>
+
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;">
+        <div class="form-row" style="margin-bottom:6px;">
+          <label for="cfsMcpExtUrl" style="min-width:60px;">URL</label>
+          <input type="text" id="cfsMcpExtUrl" placeholder="https://remote-server.example.com/mcp" autocomplete="off" data-testid="cfs-mcp-ext-url" style="flex:1;">
+        </div>
+        <div class="form-row" style="margin-bottom:6px;">
+          <label for="cfsMcpExtToken" style="min-width:60px;">Token</label>
+          <input type="password" id="cfsMcpExtToken" placeholder="Bearer token (optional)" autocomplete="off" data-testid="cfs-mcp-ext-token" style="flex:1;">
+        </div>
+        <div class="form-row" style="margin-bottom:6px;">
+          <label for="cfsMcpExtName" style="min-width:60px;">Name</label>
+          <input type="text" id="cfsMcpExtName" placeholder="My remote MCP" autocomplete="off" data-testid="cfs-mcp-ext-name" style="flex:1;">
+        </div>
+        <div class="form-row" style="gap:8px;">
+          <button type="button" id="cfsMcpExtAddBtn" class="btn btn-primary btn-small" data-testid="cfs-mcp-ext-add">Add Endpoint</button>
+          <button type="button" id="cfsMcpExtRefreshBtn" class="btn btn-small" data-testid="cfs-mcp-ext-refresh">↻ Refresh</button>
+        </div>
+      </div>
+      <p id="cfsMcpExtStatus" class="status-msg" style="display:none"></p>
+    </div>
+  </div>
+
+  <div class="section" id="walletInjectionSection">
+    <h2>Wallet injection</h2>
+    <p class="hint">Inject the extension's wallet into DeFi websites so they can discover and use it for signing transactions. Both your existing wallets (MetaMask, Phantom) and the CFS wallet will be available on these sites.</p>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Domain allowlist</h3>
+      <p class="hint" style="margin-top:0;">One domain per line. The wallet proxy will only be injected on these sites. Remove a domain to stop injecting on that site.</p>
+      <textarea id="walletInjectionAllowlist" rows="10" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.85rem;background:var(--bg);color:var(--fg);font-family:ui-monospace,monospace;resize:vertical;box-sizing:border-box;" placeholder="app.raydium.io&#10;pancakeswap.finance&#10;jup.ag"></textarea>
+      <div class="form-row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
+        <button type="button" id="walletInjectionSaveBtn" class="btn btn-primary btn-small">Save allowlist</button>
+        <button type="button" id="walletInjectionResetBtn" class="btn btn-small">Reset to defaults</button>
+      </div>
+      <p id="walletInjectionStatus" class="status-msg" style="display:none"></p>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Injection settings</h3>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="walletInjectionEnabled" checked> Enable wallet injection on allowlisted sites</label>
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="walletInjectionAutoApprove"> Auto-approve transactions during workflow playback</label>
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <button type="button" id="walletInjectionSaveSettingsBtn" class="btn btn-primary btn-small">Save injection settings</button>
+      </div>
+      <p id="walletInjectionSettingsStatus" class="status-msg" style="display:none"></p>
+    </div>
+  </div>
+
   <div class="section" id="workflowsSection">
     <div class="form-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
       <h2 class="h2-no-rule" style="margin:0;">Workflows</h2>
@@ -577,6 +799,10 @@
 
   <div class="section" id="testsSection">
     <h2>Tests</h2>
+    <p class="hint" style="margin-top:0;">Full unit suite runs on this page when it loads. <strong>Run crypto tests</strong> (consent, ensure wallets, crypto/Pulse/watch <code>step-tests.js</code> only) lives on the dedicated tab.</p>
+    <div class="form-row" style="margin-bottom:10px;">
+      <button type="button" id="settingsOpenUnitTestsPageBtn" class="btn btn-small" data-testid="cfs-settings-open-unit-tests-page" title="Opens test/unit-tests.html in a new tab">Open unit tests page (Run crypto tests)</button>
+    </div>
     <div id="unitTestResults"></div>
     <div id="testModePanel">
       <h3>E2E Test Checklist</h3>
@@ -615,7 +841,14 @@
   <script src="../shared/run-if-condition.js"></script>
   <script src="../shared/row-list-normalize.js"></script>
   <script src="../shared/project-id-resolve.js"></script>
+  <script src="../shared/defi-action-patterns.js"></script>
+  <script src="../shared/social-action-patterns.js"></script>
+  <script src="../shared/data-action-patterns.js"></script>
+  <script src="../shared/action-patterns-registry.js"></script>
+  <script src="../shared/download-xenova-lamini.js"></script>
+  <script src="../shared/download-mcp-server.js"></script>
   <script src="../test/unit-tests.js"></script>
+  <script src="../test/tunnel-tests.js"></script>
   <script src="../steps/registry.js"></script>
   <!-- STEP_HANDLERS_START -->
   <script src="../steps/click/handler.js"></script>
@@ -688,6 +921,14 @@
   <script src="../steps/deleteFollowingProfile/handler.js"></script>
   <script src="../steps/deleteFollowingDetail/handler.js"></script>
   <script src="../steps/solanaJupiterSwap/handler.js"></script>
+  <script src="../steps/jupiterPriceV3/handler.js"></script>
+  <script src="../steps/jupiterTokenSearch/handler.js"></script>
+  <script src="../steps/jupiterDCA/handler.js"></script>
+  <script src="../steps/jupiterLimitOrder/handler.js"></script>
+  <script src="../steps/jupiterEarn/handler.js"></script>
+  <script src="../steps/jupiterFlashloan/handler.js"></script>
+  <script src="../steps/jupiterPredictionSearch/handler.js"></script>
+  <script src="../steps/jupiterPredictionTrade/handler.js"></script>
   <script src="../steps/solanaTransferSol/handler.js"></script>
   <script src="../steps/solanaTransferSpl/handler.js"></script>
   <script src="../steps/solanaEnsureTokenAccount/handler.js"></script>
@@ -720,11 +961,13 @@
   <script src="../steps/raydiumClmmDecreaseLiquidity/handler.js"></script>
   <script src="../steps/raydiumClmmSwap/handler.js"></script>
   <script src="../steps/raydiumClmmSwapBaseOut/handler.js"></script>
+  <script src="../steps/raydiumClmmRangeWatch/handler.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseIn/handler.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseOut/handler.js"></script>
   <script src="../steps/meteoraDlmmAddLiquidity/handler.js"></script>
   <script src="../steps/meteoraDlmmRemoveLiquidity/handler.js"></script>
   <script src="../steps/meteoraDlmmClaimRewards/handler.js"></script>
+  <script src="../steps/meteoraDlmmRangeWatch/handler.js"></script>
   <script src="../steps/meteoraCpammSwap/handler.js"></script>
   <script src="../steps/meteoraCpammQuoteSwap/handler.js"></script>
   <script src="../steps/meteoraCpammSwapExactOut/handler.js"></script>
@@ -735,6 +978,7 @@
   <script src="../steps/meteoraCpammClaimFees/handler.js"></script>
   <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
   <script src="../steps/bscPancake/handler.js"></script>
+  <script src="../steps/pancakeV3RangeWatch/handler.js"></script>
   <script src="../steps/bscTransferBnb/handler.js"></script>
   <script src="../steps/bscTransferBep20/handler.js"></script>
   <script src="../steps/bscAggregatorSwap/handler.js"></script>
@@ -762,6 +1006,10 @@
   <script src="../steps/apifyRunStart/handler.js"></script>
   <script src="../steps/apifyRunWait/handler.js"></script>
   <script src="../steps/apifyDatasetItems/handler.js"></script>
+  <script src="../steps/walletApprove/handler.js"></script>
+  <script src="../steps/goBack/handler.js"></script>
+  <script src="../steps/goForward/handler.js"></script>
+  <script src="../steps/getConsoleLogs/handler.js"></script>
   <!-- STEP_HANDLERS_END -->
   <!-- STEP_TESTS_START -->
   <script src="../steps/click/step-tests.js"></script>
@@ -834,6 +1082,14 @@
   <script src="../steps/deleteFollowingProfile/step-tests.js"></script>
   <script src="../steps/deleteFollowingDetail/step-tests.js"></script>
   <script src="../steps/solanaJupiterSwap/step-tests.js"></script>
+  <script src="../steps/jupiterPriceV3/step-tests.js"></script>
+  <script src="../steps/jupiterTokenSearch/step-tests.js"></script>
+  <script src="../steps/jupiterDCA/step-tests.js"></script>
+  <script src="../steps/jupiterLimitOrder/step-tests.js"></script>
+  <script src="../steps/jupiterEarn/step-tests.js"></script>
+  <script src="../steps/jupiterFlashloan/step-tests.js"></script>
+  <script src="../steps/jupiterPredictionSearch/step-tests.js"></script>
+  <script src="../steps/jupiterPredictionTrade/step-tests.js"></script>
   <script src="../steps/solanaTransferSol/step-tests.js"></script>
   <script src="../steps/solanaTransferSpl/step-tests.js"></script>
   <script src="../steps/solanaEnsureTokenAccount/step-tests.js"></script>
@@ -866,11 +1122,13 @@
   <script src="../steps/raydiumClmmDecreaseLiquidity/step-tests.js"></script>
   <script src="../steps/raydiumClmmSwap/step-tests.js"></script>
   <script src="../steps/raydiumClmmSwapBaseOut/step-tests.js"></script>
+  <script src="../steps/raydiumClmmRangeWatch/step-tests.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseIn/step-tests.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseOut/step-tests.js"></script>
   <script src="../steps/meteoraDlmmAddLiquidity/step-tests.js"></script>
   <script src="../steps/meteoraDlmmRemoveLiquidity/step-tests.js"></script>
   <script src="../steps/meteoraDlmmClaimRewards/step-tests.js"></script>
+  <script src="../steps/meteoraDlmmRangeWatch/step-tests.js"></script>
   <script src="../steps/meteoraCpammSwap/step-tests.js"></script>
   <script src="../steps/meteoraCpammQuoteSwap/step-tests.js"></script>
   <script src="../steps/meteoraCpammSwapExactOut/step-tests.js"></script>
@@ -881,6 +1139,7 @@
   <script src="../steps/meteoraCpammClaimFees/step-tests.js"></script>
   <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
   <script src="../steps/bscPancake/step-tests.js"></script>
+  <script src="../steps/pancakeV3RangeWatch/step-tests.js"></script>
   <script src="../steps/bscTransferBnb/step-tests.js"></script>
   <script src="../steps/bscTransferBep20/step-tests.js"></script>
   <script src="../steps/bscAggregatorSwap/step-tests.js"></script>
@@ -908,6 +1167,10 @@
   <script src="../steps/apifyRunStart/step-tests.js"></script>
   <script src="../steps/apifyRunWait/step-tests.js"></script>
   <script src="../steps/apifyDatasetItems/step-tests.js"></script>
+  <script src="../steps/walletApprove/step-tests.js"></script>
+  <script src="../steps/goBack/step-tests.js"></script>
+  <script src="../steps/goForward/step-tests.js"></script>
+  <script src="../steps/getConsoleLogs/step-tests.js"></script>
   <!-- STEP_TESTS_END -->
   <script src="../generator/core/wrap-text.js"></script>
   <script src="../generator/core/position-from-clip.js"></script>

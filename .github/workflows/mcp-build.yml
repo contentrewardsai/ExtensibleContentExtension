@@ -1,0 +1,106 @@
+# Builds MCP server binaries for all platforms and attaches them to a GitHub Release.
+# Triggered when a tag matching mcp-v* is pushed, or manually via workflow_dispatch.
+name: MCP Server Build
+
+on:
+  push:
+    tags:
+      - 'mcp-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. 1.0.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            bun_target: bun-linux-x64
+            ext: ''
+          - os: macos-latest
+            target: darwin-arm64
+            bun_target: bun-darwin-arm64
+            ext: ''
+          - os: macos-13
+            target: darwin-x64
+            bun_target: bun-darwin-x64
+            ext: ''
+          - os: windows-latest
+            target: win-x64
+            bun_target: bun-windows-x64
+            ext: '.exe'
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install MCP server dependencies
+        working-directory: mcp-server
+        run: bun install
+
+      - name: Compile binary
+        working-directory: mcp-server
+        shell: bash
+        run: |
+          mkdir -p dist
+          bun build --compile --target=${{ matrix.bun_target }} server.js \
+            --outfile dist/ec-mcp-server-${{ matrix.target }}${{ matrix.ext }}
+
+      - name: Generate checksum
+        working-directory: mcp-server/dist
+        shell: bash
+        run: |
+          if command -v shasum &>/dev/null; then
+            shasum -a 256 ec-mcp-server-* > checksums-${{ matrix.target }}.txt
+          elif command -v sha256sum &>/dev/null; then
+            sha256sum ec-mcp-server-* > checksums-${{ matrix.target }}.txt
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-binary-${{ matrix.target }}
+          path: |
+            mcp-server/dist/ec-mcp-server-*
+            mcp-server/dist/checksums-*.txt
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/mcp-v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Merge checksums
+        working-directory: artifacts
+        run: cat checksums-*.txt > checksums.txt && rm checksums-*.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MCP Server ${{ github.ref_name }}
+          body: |
+            Pre-compiled MCP server binaries for all platforms.
+
+            ## Quick Setup
+            1. Download the binary for your platform
+            2. macOS: `chmod +x ec-mcp-server-* && xattr -d com.apple.quarantine ec-mcp-server-*`
+            3. Run: `./ec-mcp-server-<platform> --token YOUR_TOKEN --port 3100`
+            4. Open `mcp/mcp-relay.html` in the extension browser
+          files: |
+            artifacts/ec-mcp-server-*
+            artifacts/checksums.txt

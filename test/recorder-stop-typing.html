@@ -169,6 +169,119 @@
           return pass();
         }
 
+        if (caseParam === 'scroll') {
+          var rScroll = sendRecorder({ type: 'RECORDER_START', workflowId: 'tScroll' });
+          if (!rScroll || !rScroll.ok) return fail('RECORDER_START: ' + JSON.stringify(rScroll));
+          var tallDiv = document.createElement('div');
+          tallDiv.style.cssText = 'height:200px;overflow:auto;';
+          var inner = document.createElement('div');
+          inner.style.height = '2000px';
+          inner.textContent = 'scrollable content';
+          tallDiv.appendChild(inner);
+          document.body.appendChild(tallDiv);
+          // Recorder listens for 'wheel' on document (capture), not 'scroll'
+          tallDiv.dispatchEvent(new WheelEvent('wheel', { deltaX: 0, deltaY: 200, bubbles: true }));
+          // Give the recorder's SCROLL_COALESCE_MS (400ms) time to flush
+          setTimeout(function () {
+            var stopScroll = sendRecorder({ type: 'RECORDER_STOP' });
+            if (!stopScroll || !stopScroll.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stopScroll));
+            var scrollActions = (stopScroll.actions || []).filter(function (a) {
+              return a.type === 'scroll';
+            });
+            if (scrollActions.length < 1) {
+              return fail('scroll: expected at least 1 scroll action, got ' + scrollActions.length + ': ' + JSON.stringify(stopScroll.actions));
+            }
+            return pass();
+          }, 600);
+          return;
+        }
+
+        if (caseParam === 'select') {
+          var rSel = sendRecorder({ type: 'RECORDER_START', workflowId: 'tSelect' });
+          if (!rSel || !rSel.ok) return fail('RECORDER_START: ' + JSON.stringify(rSel));
+          var sel = document.createElement('select');
+          sel.name = 'color';
+          var opt1 = document.createElement('option');
+          opt1.value = 'a';
+          opt1.textContent = 'Option A';
+          var opt2 = document.createElement('option');
+          opt2.value = 'b';
+          opt2.textContent = 'Option B';
+          sel.appendChild(opt1);
+          sel.appendChild(opt2);
+          document.body.appendChild(sel);
+          sel.value = 'b';
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          var stopSel = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stopSel || !stopSel.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stopSel));
+          var selActions = (stopSel.actions || []).filter(function (a) {
+            return a.type === 'select';
+          });
+          if (selActions.length !== 1) {
+            return fail('select: expected 1 select action, got ' + selActions.length + ': ' + JSON.stringify(stopSel.actions));
+          }
+          // Recorder sets variableKey from the name attribute, not recordedValue
+          if (selActions[0].variableKey !== 'color') {
+            return fail('select: variableKey expected color, got ' + JSON.stringify(selActions[0].variableKey));
+          }
+          return pass();
+        }
+
+        if (caseParam === 'dragdrop') {
+          var rDrag = sendRecorder({ type: 'RECORDER_START', workflowId: 'tDrag' });
+          if (!rDrag || !rDrag.ok) return fail('RECORDER_START: ' + JSON.stringify(rDrag));
+          var src = document.createElement('div');
+          src.setAttribute('draggable', 'true');
+          src.textContent = 'drag me';
+          src.id = 'drag-src';
+          document.body.appendChild(src);
+          var tgt = document.createElement('div');
+          tgt.id = 'drag-tgt';
+          tgt.textContent = 'drop here';
+          document.body.appendChild(tgt);
+          // Simulate drag start on source
+          src.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
+          // Simulate drop on target
+          tgt.dispatchEvent(new DragEvent('drop', { bubbles: true }));
+          var stopDrag = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stopDrag || !stopDrag.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stopDrag));
+          var dragActions = (stopDrag.actions || []).filter(function (a) {
+            return a.type === 'dragDrop';
+          });
+          if (dragActions.length !== 1) {
+            return fail('dragdrop: expected 1 dragDrop action, got ' + dragActions.length + ': ' + JSON.stringify(stopDrag.actions));
+          }
+          // dragDrop action should have sourceSelectors and targetSelectors
+          if (!dragActions[0].sourceSelectors || !dragActions[0].sourceSelectors.length) {
+            return fail('dragdrop: missing sourceSelectors');
+          }
+          if (!dragActions[0].targetSelectors || !dragActions[0].targetSelectors.length) {
+            return fail('dragdrop: missing targetSelectors');
+          }
+          return pass();
+        }
+
+        if (caseParam === 'linknav') {
+          var rLink = sendRecorder({ type: 'RECORDER_START', workflowId: 'tLink' });
+          if (!rLink || !rLink.ok) return fail('RECORDER_START: ' + JSON.stringify(rLink));
+          // Use a button (not <a>) to test the standard click recording path via pointerdown
+          var btn = document.createElement('button');
+          btn.textContent = 'Click me';
+          btn.id = 'nav-btn';
+          document.body.appendChild(btn);
+          // pointerdown triggers pushClickAction for non-link elements
+          btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+          var stopLink = sendRecorder({ type: 'RECORDER_STOP' });
+          if (!stopLink || !stopLink.ok) return fail('RECORDER_STOP: ' + JSON.stringify(stopLink));
+          var clickActions = (stopLink.actions || []).filter(function (a) {
+            return a.type === 'click';
+          });
+          if (clickActions.length < 1) {
+            return fail('linknav: expected at least 1 click action, got ' + clickActions.length + ': ' + JSON.stringify(stopLink.actions));
+          }
+          return pass();
+        }
+
         fail('unknown case: ' + caseParam);
       } catch (e) {
         fail(e && e.message ? e.message : String(e));

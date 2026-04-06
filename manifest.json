@@ -22,7 +22,8 @@
     "tabCapture",
     "offscreen",
     "clipboardRead",
-    "clipboardWrite"
+    "clipboardWrite",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -126,7 +127,9 @@
         "docs/SOLANA_AUTOMATION.md",
         "test/fixtures/record-playback-test.html",
         "steps/manifest.json",
-        "steps/*/handler.js"
+        "steps/*/handler.js",
+        "content/wallet-provider-proxy.js",
+        "content/wallet-proxy-relay.js"
       ],
       "matches": [
         "<all_urls>"

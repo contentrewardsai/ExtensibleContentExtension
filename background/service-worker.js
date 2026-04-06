@@ -24,6 +24,7 @@ importScripts('../shared/cfs-global-token-blocklist.js');
 importScripts('evm-lib.bundle.js');
 importScripts('infinity-sdk.bundle.js');
 importScripts('bsc-evm.js');
+importScripts('crypto-test-wallets.js');
 importScripts('bsc-sellability-probe.js');
 importScripts('watch-activity-price-filter.js');
 importScripts('following-automation-runner.js');
@@ -40,8 +41,58 @@ importScripts('raydium-clmm-swap.js');
 importScripts('meteora-dlmm.js');
 importScripts('meteora-cpamm.js');
 importScripts('bsc-watch.js');
+importScripts('file-watch.js');
 importScripts('aster-futures.js');
 importScripts('remote-llm.js');
+
+/* ── Wallet Injection: default allowlist + dynamic content script registration ── */
+const _CFS_DEFAULT_WALLET_ALLOWLIST = [
+  'app.raydium.io',
+  'raydium.io',
+  'pancakeswap.finance',
+  'app.meteora.ag',
+  'jup.ag',
+  'app.kamino.finance',
+  'orca.so',
+  'marinade.finance',
+];
+
+async function _cfsRegisterWalletProxyScripts(allowlist) {
+  const domains = Array.isArray(allowlist) && allowlist.length > 0 ? allowlist : _CFS_DEFAULT_WALLET_ALLOWLIST;
+  const matches = domains.map(d => 'https://' + d + '/*');
+  /* Unregister existing first to avoid duplicates */
+  try { await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] }); } catch (_) {}
+  if (matches.length === 0) return;
+  try {
+    await chrome.scripting.registerContentScripts([
+      {
+        id: 'cfs-wallet-proxy',
+        matches: matches,
+        js: ['content/wallet-provider-proxy.js'],
+        runAt: 'document_start',
+        world: 'MAIN',
+      },
+      {
+        id: 'cfs-wallet-relay',
+        matches: matches,
+        js: ['content/wallet-proxy-relay.js'],
+        runAt: 'document_start',
+        world: 'ISOLATED',
+      },
+    ]);
+  } catch (e) {
+    console.warn('[CFS Wallet] Failed to register wallet proxy scripts:', e);
+  }
+}
+
+/* Register on startup */
+(async () => {
+  try {
+    const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
+    const list = data.cfs_wallet_injection_allowlist;
+    await _cfsRegisterWalletProxyScripts(Array.isArray(list) ? list : _CFS_DEFAULT_WALLET_ALLOWLIST);
+  } catch (_) {}
+})();
 
 /** Strip extra fields from side panel chat history (model, qaMatches, …) for vendor APIs. */
 function cfsSanitizeLlmChatMessages(messages) {
@@ -1494,6 +1545,9 @@ chrome.runtime.onInstalled.addListener(() => {
   try {
     if (typeof globalThis.__CFS_bscWatch_setupAlarm === 'function') globalThis.__CFS_bscWatch_setupAlarm();
   } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_fileWatch_setupAlarm === 'function') globalThis.__CFS_fileWatch_setupAlarm();
+  } catch (_) {}
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -1506,6 +1560,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   } else if (alarm.name === 'cfs_bsc_watch_poll') {
     const tick = globalThis.__CFS_bscWatch_tick;
     if (typeof tick === 'function') tick().catch(() => {});
+  } else if (alarm.name === 'cfs_file_watch_poll') {
+    const tick = globalThis.__CFS_fileWatch_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
   }
 });
 
@@ -1517,6 +1574,9 @@ chrome.runtime.onStartup.addListener(() => {
   } catch (_) {}
   try {
     if (typeof globalThis.__CFS_bscWatch_setupAlarm === 'function') globalThis.__CFS_bscWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_fileWatch_setupAlarm === 'function') globalThis.__CFS_fileWatch_setupAlarm();
   } catch (_) {}
 });
 
@@ -1981,6 +2041,39 @@ function validateMessagePayload(type, msg) {
         }
       }
       break;
+    case 'CFS_JUPITER_PRICE_V3':
+      if (!msg.mintAddresses || typeof msg.mintAddresses !== 'string' || !msg.mintAddresses.trim()) return { valid: false, error: 'mintAddresses required' };
+      break;
+    case 'CFS_JUPITER_TOKEN_SEARCH':
+      if (!msg.query || typeof msg.query !== 'string' || !msg.query.trim()) return { valid: false, error: 'query required' };
+      break;
+    case 'CFS_JUPITER_DCA_CREATE':
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (!msg.inAmount || !String(msg.inAmount).trim()) return { valid: false, error: 'inAmount required' };
+      if (!msg.inAmountPerCycle || !String(msg.inAmountPerCycle).trim()) return { valid: false, error: 'inAmountPerCycle required' };
+      if (!msg.cycleSecondsApart || !String(msg.cycleSecondsApart).trim()) return { valid: false, error: 'cycleSecondsApart required' };
+      break;
+    case 'CFS_JUPITER_LIMIT_ORDER':
+      if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
+      if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
+      if (!msg.makingAmount || !String(msg.makingAmount).trim()) return { valid: false, error: 'makingAmount required' };
+      if (!msg.triggerPriceUsd || !String(msg.triggerPriceUsd).trim()) return { valid: false, error: 'triggerPriceUsd required' };
+      break;
+    case 'CFS_JUPITER_EARN':
+      if (!msg.mint || typeof msg.mint !== 'string' || !msg.mint.trim()) return { valid: false, error: 'mint required' };
+      if (!msg.amount || !String(msg.amount).trim()) return { valid: false, error: 'amount required' };
+      break;
+    case 'CFS_JUPITER_FLASHLOAN':
+      if (!msg.borrowMint || typeof msg.borrowMint !== 'string' || !msg.borrowMint.trim()) return { valid: false, error: 'borrowMint required' };
+      if (!msg.borrowAmount || !String(msg.borrowAmount).trim()) return { valid: false, error: 'borrowAmount required' };
+      break;
+    case 'CFS_JUPITER_PREDICTION_SEARCH':
+      if (!msg.operation || typeof msg.operation !== 'string') return { valid: false, error: 'operation required' };
+      break;
+    case 'CFS_JUPITER_PREDICTION_TRADE':
+      if (!msg.operation || typeof msg.operation !== 'string') return { valid: false, error: 'operation required' };
+      break;
     case 'CFS_SOLANA_TRANSFER_SOL':
       if (!msg.toPubkey || typeof msg.toPubkey !== 'string') return { valid: false, error: 'toPubkey required' };
       if (msg.lamports == null || String(msg.lamports).trim() === '') return { valid: false, error: 'lamports required' };
@@ -2070,6 +2163,10 @@ function validateMessagePayload(type, msg) {
       if (!msg.lbPair || typeof msg.lbPair !== 'string') return { valid: false, error: 'lbPair required' };
       if (!msg.position || typeof msg.position !== 'string') return { valid: false, error: 'position required' };
       break;
+    case 'CFS_METEORA_DLMM_RANGE_CHECK':
+      if (!msg.lbPair || typeof msg.lbPair !== 'string') return { valid: false, error: 'lbPair required' };
+      if (!msg.position || typeof msg.position !== 'string') return { valid: false, error: 'position required' };
+      break;
     case 'CFS_METEORA_CPAMM_ADD_LIQUIDITY': {
       const hasPool = msg.pool && typeof msg.pool === 'string' && String(msg.pool).trim() !== '';
       const hasPos = msg.position && typeof msg.position === 'string' && String(msg.position).trim() !== '';
@@ -2118,6 +2215,10 @@ function validateMessagePayload(type, msg) {
       if (!msg.inputMint || typeof msg.inputMint !== 'string') return { valid: false, error: 'inputMint required' };
       if (!msg.outputMint || typeof msg.outputMint !== 'string') return { valid: false, error: 'outputMint required' };
       if (msg.amountInRaw == null || String(msg.amountInRaw).trim() === '') return { valid: false, error: 'amountInRaw required' };
+      break;
+    case 'CFS_RAYDIUM_CLMM_RANGE_CHECK':
+      if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
+      if (!msg.positionNftMint || typeof msg.positionNftMint !== 'string') return { valid: false, error: 'positionNftMint required' };
       break;
     case 'CFS_RAYDIUM_CLMM_SWAP_BASE_IN':
       if (!msg.poolId || typeof msg.poolId !== 'string') return { valid: false, error: 'poolId required' };
@@ -2657,6 +2758,11 @@ function validateMessagePayload(type, msg) {
       }
       return { valid: false, error: 'Unknown BSC query operation' };
     }
+    case 'CFS_BSC_V3_RANGE_CHECK':
+      if (msg.v3PositionTokenId == null || String(msg.v3PositionTokenId).trim() === '') {
+        return { valid: false, error: 'v3PositionTokenId required' };
+      }
+      break;
     case 'CFS_ASTER_FUTURES': {
       const ac = msg.asterCategory != null ? String(msg.asterCategory).trim() : '';
       const ao = msg.operation != null ? String(msg.operation).trim() : '';
@@ -2927,6 +3033,9 @@ function validateMessagePayload(type, msg) {
       break;
     case 'CFS_FOLLOWING_AUTOMATION_STATUS':
       break;
+    case 'CFS_FILE_WATCH_REFRESH_NOW':
+    case 'CFS_FILE_WATCH_GET_STATUS':
+      break;
     case 'CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW':
       break;
     case 'CFS_RUGCHECK_TOKEN_REPORT': {
@@ -2997,6 +3106,34 @@ function validateMessagePayload(type, msg) {
         if (String(id).trim().length > 256) return { valid: false, error: 'id exceeds 256 characters' };
       }
       break;
+    case 'CFS_CRYPTO_TEST_ENSURE_WALLETS':
+      if (msg.fundOnly === true && msg.replaceExisting === true) {
+        return {
+          valid: false,
+          error: 'fundOnly and replaceExisting cannot be used together (replace removes wallets; run full ensure without fundOnly, then fundOnly if needed)',
+        };
+      }
+      break;
+    case 'CFS_RAYDIUM_POOL_SEARCH': {
+      /* At least one search criteria: poolIds OR mint1 */
+      const hasIds = msg.poolIds && typeof msg.poolIds === 'string' && msg.poolIds.trim() !== '';
+      const hasMint1 = (msg.mint1 && typeof msg.mint1 === 'string' && msg.mint1.trim() !== '') ||
+                       (msg.inputMint && typeof msg.inputMint === 'string' && msg.inputMint.trim() !== '');
+      if (!hasIds && !hasMint1) return { valid: false, error: 'poolIds or mint1 required' };
+      break;
+    }
+    case 'CFS_BSC_POOL_SEARCH': {
+      const hasTokenA = msg.tokenA && typeof msg.tokenA === 'string' && msg.tokenA.trim() !== '';
+      const hasMint1 = msg.mint1 && typeof msg.mint1 === 'string' && msg.mint1.trim() !== '';
+      if (!hasTokenA && !hasMint1) return { valid: false, error: 'tokenA or mint1 required' };
+      break;
+    }
+    case 'CFS_METEORA_POOL_SEARCH': {
+      const hasMint = (msg.mint1 && typeof msg.mint1 === 'string' && msg.mint1.trim() !== '') ||
+                      (msg.inputMint && typeof msg.inputMint === 'string' && msg.inputMint.trim() !== '');
+      if (!hasMint) return { valid: false, error: 'mint1 or inputMint required' };
+      break;
+    }
     default:
       break;
   }
@@ -3065,6 +3202,102 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
       }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Price V3 (read-only, no wallet needed) ── */
+  if (type === 'CFS_JUPITER_PRICE_V3') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_price_v3;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Price V3 handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Token Search (read-only, no wallet needed) ── */
+  if (type === 'CFS_JUPITER_TOKEN_SEARCH') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_token_search;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Token Search handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter DCA Create ── */
+  if (type === 'CFS_JUPITER_DCA_CREATE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_dca_create;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter DCA handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Limit Order (Trigger V2) ── */
+  if (type === 'CFS_JUPITER_LIMIT_ORDER') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_limit_order;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Limit Order handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Earn (Deposit/Withdraw) ── */
+  if (type === 'CFS_JUPITER_EARN') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_earn;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Earn handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Flashloan (Borrow → Swap(s) → Repay) ── */
+  if (type === 'CFS_JUPITER_FLASHLOAN') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_flashloan;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Flashloan handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Prediction Search ── */
+  if (type === 'CFS_JUPITER_PREDICTION_SEARCH') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_prediction_search;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Prediction Search handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Prediction Trade ── */
+  if (type === 'CFS_JUPITER_PREDICTION_TRADE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_jupiter_prediction_trade;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Jupiter Prediction Trade handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
   }
@@ -3171,6 +3404,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (type === 'CFS_FILE_WATCH_REFRESH_NOW') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_fileWatch_tick;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'File watch not loaded' });
+          return;
+        }
+        await fn();
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_FILE_WATCH_GET_STATUS') {
+    (async () => {
+      try {
+        const data = await chrome.storage.local.get(['cfsFileWatchLastPoll']);
+        sendResponse({ ok: true, lastPoll: data.cfsFileWatchLastPoll || null });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (type === 'CFS_FOLLOWING_AUTOMATION_STATUS') {
     (async () => {
       try {
@@ -3193,6 +3455,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         );
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_CRYPTO_TEST_ENSURE_WALLETS') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_cryptoTest_ensureWallets;
+        if (typeof fn !== 'function') {
+          sendResponse({
+            ok: false,
+            error: 'Crypto test ensure not loaded',
+            errors: ['Crypto test ensure not loaded'],
+          });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          error: e && e.message ? e.message : String(e),
+          errors: [e && e.message ? e.message : String(e)],
+        });
       }
     })();
     return true;
@@ -3456,6 +3743,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+  if (type === 'CFS_METEORA_DLMM_RANGE_CHECK') {
+    (async () => {
+      try {
+        const L = globalThis.CFS_SOLANA_LIB;
+        const M = globalThis.CFS_METEORA_DLMM;
+        if (!L) { sendResponse({ ok: false, error: 'Solana library not loaded' }); return; }
+        if (!M || !M.DLMM) { sendResponse({ ok: false, error: 'Meteora DLMM SDK not loaded' }); return; }
+
+        const lbPairStr = String(msg.lbPair || '').trim();
+        const posStr = String(msg.position || '').trim();
+        if (!lbPairStr) { sendResponse({ ok: false, error: 'lbPair required' }); return; }
+        if (!posStr) { sendResponse({ ok: false, error: 'position required' }); return; }
+
+        // Resolve RPC
+        const stored = await chrome.storage.local.get(['cfs_solana_rpc_url', 'cfs_solana_cluster']);
+        const cluster = String(msg.cluster || stored.cfs_solana_cluster || 'mainnet-beta').trim();
+        let rpcUrl = String(msg.rpcUrl || stored.cfs_solana_rpc_url || '').trim();
+        if (!rpcUrl) rpcUrl = cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
+
+        const connection = new L.Connection(rpcUrl, 'confirmed');
+        const poolPk = new L.PublicKey(lbPairStr);
+        const positionPk = new L.PublicKey(posStr);
+
+        const dlmm = await M.DLMM.create(connection, poolPk);
+        const activeBin = await dlmm.getActiveBin();
+        const lbPos = await dlmm.getPosition(positionPk);
+
+        const activeBinId = activeBin.binId;
+        const lowerBinId = lbPos.positionData.lowerBinId;
+        const upperBinId = lbPos.positionData.upperBinId;
+        const inRange = activeBinId >= lowerBinId && activeBinId <= upperBinId;
+
+        sendResponse({
+          ok: true,
+          activeBinId,
+          lowerBinId,
+          upperBinId,
+          inRange,
+          activeBinPrice: activeBin.price,
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: 'DLMM range check failed: ' + (e && e.message ? e.message : String(e)) });
+      }
+    })();
+    return true;
+  }
 
   if (type === 'CFS_METEORA_CPAMM_ADD_LIQUIDITY') {
     (async () => {
@@ -3661,6 +3994,88 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (type === 'CFS_RAYDIUM_CLMM_RANGE_CHECK') {
+    (async () => {
+      try {
+        const L = globalThis.CFS_SOLANA_LIB;
+        const R = globalThis.CFS_RAYDIUM_SDK;
+        if (!L) { sendResponse({ ok: false, error: 'Solana library not loaded' }); return; }
+        if (!R || !R.Raydium) { sendResponse({ ok: false, error: 'Raydium SDK not loaded' }); return; }
+
+        const poolId = String(msg.poolId || '').trim();
+        const nftMintStr = String(msg.positionNftMint || '').trim();
+        if (!poolId) { sendResponse({ ok: false, error: 'poolId required' }); return; }
+        if (!nftMintStr) { sendResponse({ ok: false, error: 'positionNftMint required' }); return; }
+
+        // Resolve RPC
+        const stored = await chrome.storage.local.get(['cfs_solana_rpc_url', 'cfs_solana_cluster']);
+        const cluster = String(msg.cluster || stored.cfs_solana_cluster || 'mainnet-beta').trim();
+        let rpcUrl = String(msg.rpcUrl || stored.cfs_solana_rpc_url || '').trim();
+        if (!rpcUrl) rpcUrl = cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
+
+        // Load keypair (needed for Raydium.load)
+        let keypair;
+        try {
+          keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
+        } catch (e) {
+          sendResponse({ ok: false, error: 'Wallet load failed: ' + (e && e.message ? e.message : String(e)) });
+          return;
+        }
+
+        const connection = new L.Connection(rpcUrl, 'confirmed');
+        const raydium = await R.Raydium.load({
+          connection,
+          owner: keypair,
+          cluster: cluster === 'devnet' ? 'devnet' : 'mainnet-beta',
+          disableLoadToken: true,
+        });
+
+        // Get pool info for current tick
+        const poolRes = await raydium.clmm.getPoolInfoFromRpc(poolId);
+        const computePool = poolRes.computePoolInfo;
+        if (!computePool) {
+          sendResponse({ ok: false, error: 'Pool computePoolInfo not available' });
+          return;
+        }
+        const currentTick = computePool.tickCurrent;
+        if (currentTick == null) {
+          sendResponse({ ok: false, error: 'Pool currentTick not available in computePoolInfo' });
+          return;
+        }
+
+        // Get position tick range
+        await raydium.account.fetchWalletTokenAccounts();
+        const positions = await raydium.clmm.getOwnerPositionInfo();
+        let pos = null;
+        for (let i = 0; i < positions.length; i++) {
+          const p = positions[i];
+          const m = p && p.nftMint && p.nftMint.toBase58 ? p.nftMint.toBase58() : '';
+          if (m === nftMintStr) { pos = p; break; }
+        }
+        if (!pos) {
+          sendResponse({ ok: false, error: 'No CLMM position found for positionNftMint: ' + nftMintStr });
+          return;
+        }
+
+        const tickLower = pos.tickLower;
+        const tickUpper = pos.tickUpper;
+        const inRange = currentTick >= tickLower && currentTick <= tickUpper;
+
+        sendResponse({
+          ok: true,
+          currentTick,
+          tickLower,
+          tickUpper,
+          inRange,
+          currentPrice: computePool.currentPrice != null ? String(computePool.currentPrice) : undefined,
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: 'CLMM range check failed: ' + (e && e.message ? e.message : String(e)) });
+      }
+    })();
+    return true;
+  }
+
   if (type === 'CFS_RAYDIUM_CLMM_SWAP_BASE_IN') {
     (async () => {
       try {
@@ -3688,6 +4103,528 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         const out = await fn(msg);
         sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+  /* ══════════════════════════════════════════════════════════════════
+   *  Wallet Injection — Provider Proxy Sign Handlers
+   * ══════════════════════════════════════════════════════════════════ */
+
+  /**
+   * @param {string|undefined} walletId - e.g. "sol:uuid" or "bsc:uuid"
+   * @param {string} chain - "sol" or "bsc"
+   * @returns {string} stripped wallet ID or "" if no match
+   */
+  function _cfsStripWalletPrefix(walletId, chain) {
+    if (!walletId || typeof walletId !== 'string') return '';
+    const prefix = chain + ':';
+    if (walletId.startsWith(prefix)) return walletId.slice(prefix.length);
+    /* Return as-is if no prefix — caller decides whether to use it */
+    return walletId;
+  }
+
+  if (type === 'CFS_WALLET_CONNECT') {
+    (async () => {
+      try {
+        const chain = String(msg.chain || 'solana').trim().toLowerCase();
+        if (chain === 'solana') {
+          const fn = globalThis.__CFS_solana_loadKeypairFromStorage;
+          if (typeof fn !== 'function') {
+            sendResponse({ ok: false, error: 'Solana wallet not loaded' });
+            return;
+          }
+          const solWalletId = _cfsStripWalletPrefix(msg.walletId, 'sol');
+          const kp = await fn(solWalletId || undefined);
+          sendResponse({ ok: true, publicKey: kp.publicKey.toBase58(), chain: 'solana' });
+        } else if (chain === 'bsc' || chain === 'evm') {
+          const fn = globalThis.__CFS_bsc_loadWalletRecord;
+          if (typeof fn !== 'function') {
+            sendResponse({ ok: false, error: 'BSC wallet not loaded' });
+            return;
+          }
+          const rec = await fn();
+          if (!rec || !rec.address) {
+            sendResponse({ ok: false, error: 'No BSC wallet configured' });
+            return;
+          }
+          sendResponse({ ok: true, publicKey: rec.address, chain: 'bsc' });
+        } else {
+          sendResponse({ ok: false, error: 'Unsupported chain: ' + chain });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WALLET_DISCONNECT') {
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (type === 'CFS_WALLET_SIGN_TX') {
+    (async () => {
+      try {
+        const chain = String(msg.chain || 'solana').trim().toLowerCase();
+        if (chain !== 'solana') {
+          sendResponse({ ok: false, error: 'CFS_WALLET_SIGN_TX currently supports solana only; use CFS_WALLET_SIGN_AND_SEND_TX for EVM' });
+          return;
+        }
+        const L = globalThis.CFS_SOLANA_LIB;
+        if (!L) { sendResponse({ ok: false, error: 'Solana library not loaded' }); return; }
+        const fn = globalThis.__CFS_solana_loadKeypairFromStorage;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Wallet not loaded' }); return; }
+        const solWalletId = _cfsStripWalletPrefix(msg.walletId, 'sol');
+        const kp = await fn(solWalletId || undefined);
+        const txBytes = Uint8Array.from(msg.txBytes);
+        let signed;
+        if (msg.isVersioned) {
+          const vtx = L.VersionedTransaction.deserialize(txBytes);
+          vtx.sign([kp]);
+          signed = Array.from(vtx.serialize());
+        } else {
+          const tx = L.Transaction.from(txBytes);
+          tx.sign(kp);
+          signed = Array.from(tx.serialize());
+        }
+        /* Log to wallet activity */
+        console.log('[CFS Wallet] Signed transaction for', msg._pageOrigin || 'unknown origin');
+        sendResponse({ ok: true, signedBytes: signed });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WALLET_SIGN_AND_SEND_TX') {
+    (async () => {
+      try {
+        const chain = String(msg.chain || 'solana').trim().toLowerCase();
+        if (chain !== 'solana') {
+          sendResponse({ ok: false, error: 'EVM signAndSend not yet implemented' });
+          return;
+        }
+        const L = globalThis.CFS_SOLANA_LIB;
+        if (!L) { sendResponse({ ok: false, error: 'Solana library not loaded' }); return; }
+        const fn = globalThis.__CFS_solana_loadKeypairFromStorage;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Wallet not loaded' }); return; }
+        const solWalletId = _cfsStripWalletPrefix(msg.walletId, 'sol');
+        const kp = await fn(solWalletId || undefined);
+        const txBytes = Uint8Array.from(msg.txBytes);
+        /* Sign */
+        let vtx;
+        if (msg.isVersioned) {
+          vtx = L.VersionedTransaction.deserialize(txBytes);
+          vtx.sign([kp]);
+        } else {
+          vtx = L.Transaction.from(txBytes);
+          vtx.sign(kp);
+        }
+        /* Send */
+        const stored = await chrome.storage.local.get(['cfs_solana_rpc_url', 'cfs_solana_cluster']);
+        const cluster = String(stored.cfs_solana_cluster || 'mainnet-beta').trim();
+        let rpcUrl = String(stored.cfs_solana_rpc_url || '').trim();
+        if (!rpcUrl) rpcUrl = cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
+        const connection = new L.Connection(rpcUrl, 'confirmed');
+        const opts = msg.options || {};
+        const sig = await connection.sendRawTransaction(vtx.serialize(), {
+          skipPreflight: opts.skipPreflight || false,
+          maxRetries: 3,
+        });
+        const explorerUrl = cluster === 'devnet'
+          ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
+          : 'https://solscan.io/tx/' + sig;
+        console.log('[CFS Wallet] signAndSend tx:', sig, 'from', msg._pageOrigin || 'unknown');
+        sendResponse({ ok: true, signature: sig, explorerUrl: explorerUrl });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WALLET_SIGN_MESSAGE') {
+    (async () => {
+      try {
+        const chain = String(msg.chain || 'solana').trim().toLowerCase();
+        if (chain !== 'solana') {
+          sendResponse({ ok: false, error: 'Only Solana signMessage supported currently' });
+          return;
+        }
+        const L = globalThis.CFS_SOLANA_LIB;
+        if (!L || !L.nacl) { sendResponse({ ok: false, error: 'Solana library / nacl not loaded' }); return; }
+        const fn = globalThis.__CFS_solana_loadKeypairFromStorage;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Wallet not loaded' }); return; }
+        const solWalletId = _cfsStripWalletPrefix(msg.walletId, 'sol');
+        const kp = await fn(solWalletId || undefined);
+        const messageBytes = Uint8Array.from(msg.messageBytes);
+        const signature = L.nacl.sign.detached(messageBytes, kp.secretKey);
+        sendResponse({ ok: true, signature: Array.from(signature) });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  /* ── EVM (BSC) wallet sign handlers ── */
+
+  if (type === 'CFS_WALLET_EVM_SEND_TX') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_loadWalletRecord;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'BSC wallet not loaded' }); return; }
+        const rec = await fn();
+        if (!rec || !rec.wallet) { sendResponse({ ok: false, error: 'No BSC wallet configured' }); return; }
+        const wallet = rec.wallet;
+        const txParams = msg.txParams || {};
+        /* Build ethers transaction */
+        const tx = {
+          to: txParams.to,
+          value: txParams.value || '0x0',
+          data: txParams.data || '0x',
+        };
+        if (txParams.gas) tx.gasLimit = txParams.gas;
+        if (txParams.gasPrice) tx.gasPrice = txParams.gasPrice;
+        if (txParams.maxFeePerGas) tx.maxFeePerGas = txParams.maxFeePerGas;
+        if (txParams.maxPriorityFeePerGas) tx.maxPriorityFeePerGas = txParams.maxPriorityFeePerGas;
+        if (txParams.nonce !== undefined) tx.nonce = parseInt(txParams.nonce, 16);
+
+        /* Get provider from wallet record or build one */
+        let provider = wallet.provider;
+        if (!provider) {
+          const stored = await chrome.storage.local.get(['cfs_bsc_rpc_url']);
+          const rpcUrl = String(stored.cfs_bsc_rpc_url || 'https://bsc-dataseed1.binance.org').trim();
+          const ethers = globalThis.CFS_EVM_LIB;
+          if (!ethers) { sendResponse({ ok: false, error: 'EVM library not loaded' }); return; }
+          provider = new ethers.JsonRpcProvider(rpcUrl);
+        }
+        const connectedWallet = wallet.connect ? wallet.connect(provider) : wallet;
+        const txResponse = await connectedWallet.sendTransaction(tx);
+        console.log('[CFS Wallet] EVM tx sent:', txResponse.hash, 'from', msg._pageOrigin || 'unknown');
+        sendResponse({ ok: true, txHash: txResponse.hash });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WALLET_EVM_SIGN_MESSAGE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_loadWalletRecord;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'BSC wallet not loaded' }); return; }
+        const rec = await fn();
+        if (!rec || !rec.wallet) { sendResponse({ ok: false, error: 'No BSC wallet configured' }); return; }
+        const wallet = rec.wallet;
+        const message = msg.message || '';
+        /* personal_sign: if hex string, convert to bytes */
+        let msgToSign = message;
+        if (typeof message === 'string' && message.startsWith('0x')) {
+          const ethers = globalThis.CFS_EVM_LIB;
+          if (ethers && ethers.getBytes) msgToSign = ethers.getBytes(message);
+        }
+        const signature = await wallet.signMessage(msgToSign);
+        sendResponse({ ok: true, signature: signature });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WALLET_EVM_SIGN_TYPED_DATA') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_loadWalletRecord;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'BSC wallet not loaded' }); return; }
+        const rec = await fn();
+        if (!rec || !rec.wallet) { sendResponse({ ok: false, error: 'No BSC wallet configured' }); return; }
+        const wallet = rec.wallet;
+        const raw = msg.typedData || '{}';
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const { domain, types, message: typedMsg, primaryType } = parsed;
+        /* Remove EIP712Domain from types if present (ethers handles it) */
+        const cleanTypes = Object.assign({}, types);
+        delete cleanTypes.EIP712Domain;
+        const signature = await wallet.signTypedData(domain || {}, cleanTypes, typedMsg || {});
+        sendResponse({ ok: true, signature: signature });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  /* ── Wallet proxy: allowlist + dynamic content script registration ── */
+  if (type === 'CFS_WALLET_GET_ALLOWLIST') {
+    (async () => {
+      try {
+        const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
+        const list = data.cfs_wallet_injection_allowlist;
+        sendResponse({ ok: true, allowlist: Array.isArray(list) ? list : _CFS_DEFAULT_WALLET_ALLOWLIST.slice() });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_WALLET_SET_ALLOWLIST') {
+    (async () => {
+      try {
+        const raw = Array.isArray(msg.allowlist) ? msg.allowlist.map(d => String(d).trim().toLowerCase()).filter(Boolean) : [];
+        /* Empty list or '__disabled__' sentinel → remove stored key so GET falls back to defaults */
+        if (raw.length === 0 || (raw.length === 1 && raw[0] === '__disabled__')) {
+          await chrome.storage.local.remove('cfs_wallet_injection_allowlist');
+          if (raw.length === 1 && raw[0] === '__disabled__') {
+            /* Unregister scripts when disabled */
+            try { await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] }); } catch (_) {}
+          }
+          sendResponse({ ok: true, allowlist: _CFS_DEFAULT_WALLET_ALLOWLIST.slice() });
+        } else {
+          await chrome.storage.local.set({ cfs_wallet_injection_allowlist: raw });
+          await _cfsRegisterWalletProxyScripts(raw);
+          sendResponse({ ok: true, allowlist: raw });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_DEFI_LIST_POSITIONS') {
+    (async () => {
+      try {
+        /* Read automation wallet addresses from storage */
+        const data = await chrome.storage.local.get(['cfs_crypto_automation_wallets']);
+        const wallets = data.cfs_crypto_automation_wallets;
+        if (!wallets || typeof wallets !== 'object') {
+          sendResponse({ ok: true, positions: [], message: 'No automation wallets configured' });
+          return;
+        }
+        const solWallets = [];
+        for (const [label, w] of Object.entries(wallets)) {
+          if (w && w.solana && w.solana.publicKey) solWallets.push({ label, pubkey: w.solana.publicKey });
+        }
+        if (solWallets.length === 0) {
+          sendResponse({ ok: true, positions: [], message: 'No Solana wallets' });
+          return;
+        }
+        const allPositions = [];
+        const RAYDIUM_API = 'https://api-v3.raydium.io';
+        const METEORA_API = 'https://dlmm-api.meteora.ag';
+        for (const { label, pubkey } of solWallets) {
+          /* ── Raydium CLMM locked positions ── */
+          try {
+            const resp = await fetch(`${RAYDIUM_API}/position/clmm-lock/${encodeURIComponent(pubkey)}`, { headers: { 'Accept': 'application/json' } });
+            if (resp.ok) {
+              const json = await resp.json();
+              const data = json.data || [];
+              const list = Array.isArray(data) ? data : [];
+              list.forEach(p => {
+                allPositions.push({
+                  wallet: label,
+                  walletAddress: pubkey,
+                  protocol: 'Raydium',
+                  type: 'CLMM',
+                  poolId: p.poolId || '',
+                  positionNftMint: p.nftMint || p.positionNftMint || '',
+                  symbolA: p.mintA && p.mintA.symbol ? p.mintA.symbol : '',
+                  symbolB: p.mintB && p.mintB.symbol ? p.mintB.symbol : '',
+                  amountA: p.amountA != null ? String(p.amountA) : '',
+                  amountB: p.amountB != null ? String(p.amountB) : '',
+                  priceLower: p.priceLower != null ? Number(p.priceLower) : null,
+                  priceUpper: p.priceUpper != null ? Number(p.priceUpper) : null,
+                  liquidity: p.liquidity != null ? String(p.liquidity) : '',
+                  rewardAmounts: Array.isArray(p.rewardAmounts) ? p.rewardAmounts : [],
+                });
+              });
+            }
+          } catch (_) { /* skip */ }
+          /* ── Raydium staked farms ── */
+          try {
+            const resp = await fetch(`${RAYDIUM_API}/position/stake/${encodeURIComponent(pubkey)}`, { headers: { 'Accept': 'application/json' } });
+            if (resp.ok) {
+              const json = await resp.json();
+              const data = json.data || [];
+              (Array.isArray(data) ? data : []).forEach(p => {
+                allPositions.push({
+                  wallet: label, walletAddress: pubkey, protocol: 'Raydium', type: 'Farm',
+                  poolId: p.poolId || p.farmId || '',
+                  symbolA: p.mintA && p.mintA.symbol ? p.mintA.symbol : (p.symbol || ''),
+                  symbolB: p.mintB && p.mintB.symbol ? p.mintB.symbol : '',
+                  amountA: p.lpAmount != null ? String(p.lpAmount) : '',
+                  amountB: '', liquidity: '', priceLower: null, priceUpper: null,
+                  rewardAmounts: Array.isArray(p.pendingRewards) ? p.pendingRewards : [],
+                });
+              });
+            }
+          } catch (_) { /* skip */ }
+          /* ── Meteora DLMM positions ── */
+          try {
+            const resp = await fetch(`${METEORA_API}/pair/all_by_groups?wallet=${encodeURIComponent(pubkey)}`, { headers: { 'Accept': 'application/json' } });
+            if (resp.ok) {
+              const json = await resp.json();
+              const groups = json.groups || json.data || [];
+              (Array.isArray(groups) ? groups : []).forEach(g => {
+                const pairs = g.pairs || (g.pair ? [g.pair] : []);
+                pairs.forEach(p => {
+                  if (!p || !p.address) return;
+                  allPositions.push({
+                    wallet: label, walletAddress: pubkey, protocol: 'Meteora', type: 'DLMM',
+                    poolId: p.address || '',
+                    symbolA: p.mint_x_symbol || p.name?.split('-')[0] || '',
+                    symbolB: p.mint_y_symbol || p.name?.split('-')[1] || '',
+                    amountA: '', amountB: '',
+                    liquidity: p.liquidity != null ? String(p.liquidity) : '',
+                    priceLower: null, priceUpper: null, rewardAmounts: [],
+                  });
+                });
+              });
+            }
+          } catch (_) { /* skip */ }
+        }
+        sendResponse({ ok: true, positions: allPositions, total: allPositions.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_RAYDIUM_POOL_SEARCH') {
+    (async () => {
+      try {
+        const RAYDIUM_API = 'https://api-v3.raydium.io';
+        let url;
+        if (msg.poolIds && typeof msg.poolIds === 'string' && msg.poolIds.trim()) {
+          url = `${RAYDIUM_API}/pools/info/ids?ids=${encodeURIComponent(msg.poolIds.trim())}`;
+        } else {
+          const mint1 = String(msg.mint1 || msg.inputMint || '').trim();
+          const mint2 = String(msg.mint2 || msg.outputMint || '').trim();
+          const poolType = String(msg.poolType || 'all').trim();
+          const sortField = String(msg.sortField || 'liquidity').trim();
+          const sortType = String(msg.sortType || 'desc').trim();
+          const pageSize = Math.min(100, Math.max(1, parseInt(msg.pageSize, 10) || 20));
+          url = `${RAYDIUM_API}/pools/info/mint?mint1=${encodeURIComponent(mint1)}${mint2 ? `&mint2=${encodeURIComponent(mint2)}` : ''}&poolType=${poolType}&poolSortField=${sortField}&sortType=${sortType}&pageSize=${pageSize}&page=1`;
+        }
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) {
+          sendResponse({ ok: false, error: `Raydium API ${resp.status}: ${resp.statusText}` });
+          return;
+        }
+        const json = await resp.json();
+        /* Normalize the response: extract the pool list + create concise summaries */
+        const rawPools = json.data || (Array.isArray(json) ? json : []);
+        const list = Array.isArray(rawPools) ? rawPools : (rawPools.data || []);
+        const pools = list.slice(0, 50).map(p => ({
+          poolId: p.id || '',
+          type: p.type || p.pooltype || '',
+          mintA: p.mintA && p.mintA.address ? p.mintA.address : '',
+          mintB: p.mintB && p.mintB.address ? p.mintB.address : '',
+          symbolA: p.mintA && p.mintA.symbol ? p.mintA.symbol : '',
+          symbolB: p.mintB && p.mintB.symbol ? p.mintB.symbol : '',
+          tvl: p.tvl != null ? Number(p.tvl) : 0,
+          volume24h: p.day && p.day.volume != null ? Number(p.day.volume) : 0,
+          feeRate: p.feeRate != null ? Number(p.feeRate) : 0,
+        }));
+        sendResponse({ ok: true, pools, total: pools.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_POOL_SEARCH') {
+    (async () => {
+      try {
+        const PANCAKE_V3_SUBGRAPH = 'https://api.thegraph.com/subgraphs/name/pancakeswap/exchange-v3-bsc';
+        const tokenA = String(msg.tokenA || msg.mint1 || '').trim().toLowerCase();
+        const tokenB = String(msg.tokenB || msg.mint2 || '').trim().toLowerCase();
+        const pageSize = Math.min(50, Math.max(1, parseInt(msg.pageSize, 10) || 20));
+        let whereClause = '';
+        if (tokenA && tokenB) {
+          whereClause = `where: { or: [{ token0: "${tokenA}", token1: "${tokenB}" }, { token0: "${tokenB}", token1: "${tokenA}" }] }`;
+        } else if (tokenA) {
+          whereClause = `where: { or: [{ token0: "${tokenA}" }, { token1: "${tokenA}" }] }`;
+        }
+        const query = `{ pools(first: ${pageSize}, orderBy: totalValueLockedUSD, orderDirection: desc, ${whereClause}) { id token0 { id symbol decimals } token1 { id symbol decimals } feeTier totalValueLockedUSD volumeUSD } }`;
+        const resp = await fetch(PANCAKE_V3_SUBGRAPH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+        if (!resp.ok) {
+          sendResponse({ ok: false, error: `PancakeSwap subgraph ${resp.status}: ${resp.statusText}` });
+          return;
+        }
+        const json = await resp.json();
+        const rawPools = json.data && json.data.pools ? json.data.pools : [];
+        const pools = rawPools.map(p => ({
+          poolId: p.id || '',
+          type: 'V3',
+          mintA: p.token0 ? p.token0.id : '',
+          mintB: p.token1 ? p.token1.id : '',
+          symbolA: p.token0 ? p.token0.symbol : '',
+          symbolB: p.token1 ? p.token1.symbol : '',
+          tvl: p.totalValueLockedUSD != null ? Number(p.totalValueLockedUSD) : 0,
+          volume24h: p.volumeUSD != null ? Number(p.volumeUSD) : 0,
+          feeRate: p.feeTier != null ? Number(p.feeTier) / 1000000 : 0,
+        }));
+        sendResponse({ ok: true, pools, total: pools.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+  if (type === 'CFS_METEORA_POOL_SEARCH') {
+    (async () => {
+      try {
+        const METEORA_API = 'https://dlmm-api.meteora.ag';
+        const mint1 = String(msg.mint1 || msg.inputMint || '').trim();
+        const mint2 = String(msg.mint2 || msg.outputMint || '').trim();
+        const pageSize = Math.min(50, Math.max(1, parseInt(msg.pageSize, 10) || 20));
+        /* Meteora DLMM API: search by token mint */
+        let url;
+        if (mint1 && mint2) {
+          url = `${METEORA_API}/pair/all?page=0&limit=${pageSize}&sort_key=liquidity&order_by=desc&search_term=${encodeURIComponent(mint1)}&includeUnknown=false`;
+        } else {
+          url = `${METEORA_API}/pair/all?page=0&limit=${pageSize}&sort_key=liquidity&order_by=desc&search_term=${encodeURIComponent(mint1)}&includeUnknown=false`;
+        }
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) {
+          sendResponse({ ok: false, error: `Meteora API ${resp.status}: ${resp.statusText}` });
+          return;
+        }
+        const rawPools = await resp.json();
+        const list = Array.isArray(rawPools) ? rawPools : [];
+        /* If both mints provided, filter for pairs containing both */
+        const filtered = mint2 ? list.filter(p => {
+          const mints = [p.mint_x, p.mint_y].map(m => String(m || '').toLowerCase());
+          return mints.includes(mint1.toLowerCase()) && mints.includes(mint2.toLowerCase());
+        }) : list;
+        const pools = filtered.slice(0, pageSize).map(p => ({
+          poolId: p.address || '',
+          type: p.bin_step ? 'DLMM' : 'CPAMM',
+          mintA: p.mint_x || '',
+          mintB: p.mint_y || '',
+          symbolA: p.name ? p.name.split('-')[0].trim() : '',
+          symbolB: p.name ? (p.name.split('-')[1] || '').trim() : '',
+          tvl: p.liquidity != null ? Number(p.liquidity) : 0,
+          volume24h: p.trade_volume_24h != null ? Number(p.trade_volume_24h) : 0,
+          feeRate: p.base_fee_percentage != null ? Number(p.base_fee_percentage) / 100 : 0,
+        }));
+        sendResponse({ ok: true, pools, total: pools.length });
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
       }
@@ -4015,6 +4952,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(out || { ok: false, error: 'No response' });
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_V3_RANGE_CHECK') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_v3_range_check;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC V3 range check handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: 'BSC V3 range check failed: ' + (e && e.message ? e.message : String(e)) });
       }
     })();
     return true;
@@ -5429,12 +6383,67 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'PROJECT_FOLDER_LIST_DIR') {
+    (async () => {
+      let release;
+      try {
+        const pathCheck = cfsValidateProjectRelativePath(msg.relativePath);
+        if (!pathCheck.ok) { sendResponse({ ok: false, error: pathCheck.error }); return; }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'listDir', relativePath: pathCheck.path },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'List dir failed' });
+      } finally { if (release) release(); }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'PROJECT_FOLDER_MOVE_FILE') {
+    (async () => {
+      let release;
+      try {
+        const srcCheck = cfsValidateProjectRelativePath(msg.sourcePath);
+        const dstCheck = cfsValidateProjectRelativePath(msg.destPath);
+        if (!srcCheck.ok) { sendResponse({ ok: false, error: 'source: ' + srcCheck.error }); return; }
+        if (!dstCheck.ok) { sendResponse({ ok: false, error: 'dest: ' + dstCheck.error }); return; }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'moveFile', sourcePath: srcCheck.path, destPath: dstCheck.path },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Move file failed' });
+      } finally { if (release) release(); }
+    })();
+    return true;
+  }
+
   if (msg.type === 'SIDEBAR_STATE_UPDATE') {
     const { windowId, sidebarName } = msg || {};
-    if (windowId != null) {
-      chrome.storage.local.set({ [`sidebarName_${windowId}`]: sidebarName || '' }).catch((e) => console.error('Sidebar name storage failed:', e));
-      chrome.storage.local.set({ lastSidebarUpdate: Date.now() }).catch((e) => console.error('Sidebar update storage failed:', e));
+    const updates = { lastSidebarUpdate: Date.now() };
+    // Store sidebar name keyed by stable device (preferred) and legacy windowId (compat)
+    if (sidebarName != null) {
+      updates.sidebarName_device = sidebarName || '';
+      if (windowId != null) updates[`sidebarName_${windowId}`] = sidebarName || '';
     }
+    chrome.storage.local.set(updates).catch((e) => console.error('Sidebar state storage failed:', e));
     sendResponse({ ok: true });
     return true;
   }
@@ -6275,6 +7284,198 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: e?.message || 'Failed' });
       }
     })();
+    return true;
+  }
+
+  // MCP: create / update / delete workflows programmatically.
+  if (type === 'CFS_MCP_SAVE_WORKFLOW') {
+    (async () => {
+      try {
+        const { id, name, actions, urlPattern, merge } = msg;
+        if (!id || typeof id !== 'string') {
+          sendResponse({ ok: false, error: 'Missing or invalid workflow id' });
+          return;
+        }
+        const store = await chrome.storage.local.get(['workflows']);
+        const workflows = store.workflows || {};
+        const existing = workflows[id];
+        if (existing && merge !== true) {
+          // Full replace
+          const wf = {
+            id,
+            name: name || existing.name || 'Unnamed workflow',
+            initial_version: existing.initial_version || id,
+            version: (existing.version || 0) + 1,
+            runs: existing.runs || [],
+            analyzed: { actions: Array.isArray(actions) ? actions : (existing.analyzed?.actions || []) },
+            csvColumnMapping: existing.csvColumnMapping || {},
+            csvColumnAliases: existing.csvColumnAliases || {},
+            csvColumns: existing.csvColumns || [],
+            published: existing.published || false,
+            created_by: existing.created_by || 'mcp',
+            urlPattern: urlPattern !== undefined ? urlPattern : (existing.urlPattern || null),
+            generationSettings: existing.generationSettings || {},
+          };
+          workflows[id] = wf;
+        } else if (existing && merge === true) {
+          // Merge: update only provided fields
+          if (name != null) existing.name = name;
+          if (Array.isArray(actions)) existing.analyzed = { actions };
+          if (urlPattern !== undefined) existing.urlPattern = urlPattern;
+          existing.version = (existing.version || 0) + 1;
+        } else {
+          // New workflow
+          workflows[id] = {
+            id,
+            name: name || 'Unnamed workflow',
+            initial_version: id,
+            version: 1,
+            runs: [],
+            analyzed: { actions: Array.isArray(actions) ? actions : [] },
+            csvColumnMapping: {},
+            csvColumnAliases: {},
+            csvColumns: [],
+            published: false,
+            created_by: 'mcp',
+            urlPattern: urlPattern || null,
+            generationSettings: {},
+          };
+        }
+        await chrome.storage.local.set({ workflows });
+        sendResponse({ ok: true, workflowId: id, isNew: !existing });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to save workflow' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_DELETE_WORKFLOW') {
+    (async () => {
+      try {
+        const { id } = msg;
+        if (!id) { sendResponse({ ok: false, error: 'Missing workflow id' }); return; }
+        const store = await chrome.storage.local.get(['workflows']);
+        const workflows = store.workflows || {};
+        if (!workflows[id]) { sendResponse({ ok: false, error: 'Workflow not found: ' + id }); return; }
+        delete workflows[id];
+        await chrome.storage.local.set({ workflows });
+        sendResponse({ ok: true, deleted: id });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to delete workflow' });
+      }
+    })();
+    return true;
+  }
+
+  // MCP server: start via Native Messaging.
+  if (type === 'CFS_MCP_START') {
+    try {
+      if (typeof chrome.runtime.connectNative !== 'function') {
+        sendResponse({ ok: false, error: 'Native Messaging not available' });
+        return true;
+      }
+      /* Disconnect any existing port first */
+      if (self._cfsMcpNativePort) {
+        try { self._cfsMcpNativePort.disconnect(); } catch (_) {}
+        self._cfsMcpNativePort = null;
+      }
+      const port = chrome.runtime.connectNative('com.extensiblecontent.mcp');
+      let started = false;
+      const timeout = setTimeout(() => {
+        if (!started) {
+          sendResponse({ ok: false, error: 'Server did not respond within 10s. Make sure you have downloaded the binary and run it once first (double-click) to complete setup.' });
+        }
+      }, 10000);
+
+      port.onMessage.addListener((msg) => {
+        if (msg && msg.type === 'started' && !started) {
+          started = true;
+          clearTimeout(timeout);
+          sendResponse({ ok: true, port: msg.port });
+        }
+      });
+      port.onDisconnect.addListener(() => {
+        const err = chrome.runtime.lastError;
+        if (!started) {
+          clearTimeout(timeout);
+          sendResponse({ ok: false, error: (err && err.message) || 'Native host disconnected. Download the binary in Settings → MCP Server and double-click it once first.' });
+        }
+        self._cfsMcpNativePort = null;
+      });
+      self._cfsMcpNativePort = port;
+    } catch (e) {
+      sendResponse({ ok: false, error: (e && e.message) || 'Failed to start MCP server' });
+    }
+    return true;
+  }
+
+  // MCP server: stop via HTTP shutdown endpoint.
+  if (type === 'CFS_MCP_STOP') {
+    (async () => {
+      try {
+        /* Shutdown is unauthenticated (localhost-only) */
+        const data = await chrome.storage.local.get(['cfsMcpPort']);
+        const port = data.cfsMcpPort || 3100;
+        const resp = await fetch('http://127.0.0.1:' + port + '/shutdown', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (resp.ok) {
+          /* Also disconnect native port if active */
+          if (self._cfsMcpNativePort) {
+            try { self._cfsMcpNativePort.disconnect(); } catch (_) {}
+            self._cfsMcpNativePort = null;
+          }
+          sendResponse({ ok: true });
+        } else if (resp.status === 401) {
+          /* Old binary that still requires auth — get token from /health and retry */
+          try {
+            const hResp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(2000) });
+            const hJson = hResp.ok ? await hResp.json() : {};
+            const token = hJson.token || '';
+            const retry = await fetch('http://127.0.0.1:' + port + '/shutdown', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+              signal: AbortSignal.timeout(5000),
+            });
+            if (retry.ok) {
+              if (self._cfsMcpNativePort) { try { self._cfsMcpNativePort.disconnect(); } catch (_) {} self._cfsMcpNativePort = null; }
+              sendResponse({ ok: true });
+            } else {
+              sendResponse({ ok: false, error: 'Close the server terminal window to stop it, then rebuild with build.sh' });
+            }
+          } catch (_) {
+            sendResponse({ ok: false, error: 'Close the server terminal window to stop it' });
+          }
+        } else {
+          sendResponse({ ok: false, error: 'Server returned ' + resp.status });
+        }
+      } catch (e) {
+        /* If HTTP fails, try disconnecting native port (kills the process) */
+        if (self._cfsMcpNativePort) {
+          try { self._cfsMcpNativePort.disconnect(); } catch (_) {}
+          self._cfsMcpNativePort = null;
+          sendResponse({ ok: true });
+        } else {
+          sendResponse({ ok: false, error: 'Server not reachable and no native port active' });
+        }
+      }
+    })();
+    return true;
+  }
+
+  // MCP relay: read chrome.storage.local keys for the MCP server.
+  if (type === 'STORAGE_READ') {
+    const keys = Array.isArray(msg.keys) ? msg.keys : (msg.keys ? [msg.keys] : []);
+    if (keys.length === 0 || keys.length > 100) {
+      sendResponse({ ok: false, error: 'STORAGE_READ requires 1-100 keys' });
+      return true;
+    }
+    chrome.storage.local.get(keys, (data) => {
+      sendResponse({ ok: true, data: data || {} });
+    });
     return true;
   }
 

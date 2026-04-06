@@ -1,0 +1,35 @@
+{
+  "id": "detectMediaType",
+  "label": "Detect media type",
+  "category": "data",
+  "description": "Classify a file's MIME type and extract basic metadata (size, duration for audio/video). Reads from a row variable containing a data URL or blob URL, saves type category (image/video/audio/text/other), MIME string, size, and duration to row variables.",
+  "defaultAction": {
+    "type": "detectMediaType",
+    "runIf": "",
+    "fileVariableKey": "sourceMedia",
+    "filenameVariableKey": "filename",
+    "saveTypeVariable": "mediaType",
+    "saveMimeVariable": "mediaMime",
+    "saveSizeVariable": "mediaSizeBytes",
+    "saveDurationVariable": "mediaDuration"
+  },
+  "inputs": [
+    { "key": "fileVariableKey", "description": "Row variable holding the file data URL or blob URL." },
+    { "key": "filenameVariableKey", "description": "Row variable with the original filename (for extension-based fallback)." }
+  ],
+  "outputs": [
+    { "key": "saveTypeVariable", "description": "'image', 'video', 'audio', 'text', or 'other'" },
+    { "key": "saveMimeVariable", "description": "Full MIME type string (e.g. 'video/mp4')" },
+    { "key": "saveSizeVariable", "description": "File size in bytes" },
+    { "key": "saveDurationVariable", "description": "Duration in seconds (audio/video only, 0 otherwise)" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}}" },
+    { "key": "fileVariableKey", "label": "Row variable with file (data URL)", "inputType": "text", "placeholder": "sourceMedia" },
+    { "key": "filenameVariableKey", "label": "Row variable with filename (optional)", "inputType": "text", "placeholder": "filename" },
+    { "key": "saveTypeVariable", "label": "Save type to variable", "inputType": "text", "placeholder": "mediaType" },
+    { "key": "saveMimeVariable", "label": "Save MIME to variable", "inputType": "text", "placeholder": "mediaMime" },
+    { "key": "saveSizeVariable", "label": "Save size to variable", "inputType": "text", "placeholder": "mediaSizeBytes" },
+    { "key": "saveDurationVariable", "label": "Save duration to variable", "inputType": "text", "placeholder": "mediaDuration" }
+  ]
+}

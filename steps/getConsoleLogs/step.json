@@ -1,0 +1,19 @@
+{
+  "id": "getConsoleLogs",
+  "label": "Get console logs",
+  "category": "data",
+  "description": "Capture browser console output (log, warn, error, info, debug) and save it to a row variable. Install the interceptor first (the step auto-installs if not present), then read all captured entries. Optionally filter by log level and limit the number of entries.",
+  "defaultAction": {
+    "type": "getConsoleLogs",
+    "saveAsVariable": "consoleLogs",
+    "levels": "log,warn,error",
+    "maxEntries": 100,
+    "clear": true
+  },
+  "formSchema": [
+    { "key": "saveAsVariable", "label": "Save as variable (row key)", "inputType": "text", "placeholder": "consoleLogs" },
+    { "key": "levels", "label": "Levels to capture (comma-separated)", "inputType": "text", "placeholder": "log,warn,error,info,debug" },
+    { "key": "maxEntries", "label": "Max entries", "inputType": "number", "min": 1 },
+    { "key": "clear", "label": "Clear buffer after reading", "inputType": "checkbox" }
+  ]
+}

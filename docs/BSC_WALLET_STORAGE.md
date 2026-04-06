@@ -7,6 +7,7 @@ Data is written only from **Settings → BSC / PancakeSwap automation**. Workflo
 | Key | Purpose |
 |-----|---------|
 | **`cfs_bsc_wallets_v2`** | JSON: `{ v: 2, primaryWalletId, wallets: [...] }`. Each wallet has `id`, optional `label`, `address`, `secretType`, `backupConfirmedAt`, and either **`plainSecret`** or **`encJson`** (per-wallet AES-GCM + PBKDF2, shared vault password). |
+| **`cfs_bsc_practice_wallet_id`** | Optional string wallet `id` for the labeled **Crypto test (devnet/Chapel)** entry created by **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** (Chapel chain 97). Not used for mainnet automation. |
 | **`cfs_bsc_global_settings`** | JSON: `{ rpcUrl, chainId }` shared by all saved wallets. |
 | **`cfs_bscscan_api_key`** | Optional BscScan API key (Following watch). |
 

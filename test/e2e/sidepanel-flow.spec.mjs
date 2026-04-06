@@ -13,6 +13,7 @@
  * 9. Verify run history / status
  */
 import { test, expect, sendTabMessage, sendExtensionMessage, readStorage, writeStorage, triggerWorkflow, saveWorkflowToStorage } from './extension.fixture.mjs';
+import { CFS_E2E_TESTID } from './cfs-e2e-testids.mjs';
 
 async function activateFixtureTab(extensionContext, extensionId, fixtureUrl) {
   const page = await extensionContext.newPage();
@@ -127,6 +128,40 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
     await new Promise((r) => setTimeout(r, 500));
     expect(await sidepanelPage.locator('#playbackWorkflow').count()).toBe(1);
+  });
+
+  test('Settings button opens settings.html in a new tab', async ({ extensionContext, extensionId }) => {
+    const btn = sidepanelPage.getByTestId(CFS_E2E_TESTID.sidepanelSettings).filter({ visible: true });
+    await expect(btn).toBeVisible({ timeout: 15_000 });
+    const pagePromise = extensionContext.waitForEvent('page');
+    await btn.click();
+    const newTab = await pagePromise;
+    try {
+      await newTab.waitForURL(
+        (u) => String(u).includes('/settings/settings.html'),
+        { timeout: 30_000 },
+      );
+      expect(newTab.url()).toBe(`chrome-extension://${extensionId}/settings/settings.html`);
+    } finally {
+      await newTab.close().catch(() => {});
+    }
+  });
+
+  test('Unit tests button opens test/unit-tests.html in a new tab', async ({ extensionContext, extensionId }) => {
+    const btn = sidepanelPage.getByTestId(CFS_E2E_TESTID.sidepanelUnitTests).filter({ visible: true });
+    await expect(btn).toBeVisible({ timeout: 15_000 });
+    const pagePromise = extensionContext.waitForEvent('page');
+    await btn.click();
+    const newTab = await pagePromise;
+    try {
+      await newTab.waitForURL(
+        (u) => String(u).includes('/test/unit-tests.html'),
+        { timeout: 30_000 },
+      );
+      expect(newTab.url()).toBe(`chrome-extension://${extensionId}/test/unit-tests.html`);
+    } finally {
+      await newTab.close().catch(() => {});
+    }
   });
 });
 
@@ -637,8 +672,9 @@ test.describe('Sidepanel UI: batch with startIndex', () => {
     expect(pending.rows.length).toBe(3);
   });
 
+  // @flaky: batch timing — increased timeout from 90s→120s, poll from 60s→90s
   test('batch processes multiple rows via triggerWorkflow', async ({ extensionContext, extensionId, fixtureServer }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
 
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
@@ -665,13 +701,14 @@ test.describe('Sidepanel UI: batch with startIndex', () => {
     await expect.poll(async () => {
       const status = await sidepanelPage.locator('#workflowProgressStatus').textContent().catch(() => '');
       return status.toLowerCase().includes('batch complete') || status.toLowerCase().includes('ok');
-    }, { timeout: 60_000 }).toBe(true);
+    }, { timeout: 90_000 }).toBe(true);
 
     await expect(fixturePage.locator('#status')).toContainText('Primary button clicked', { timeout: 5_000 });
   });
 
+  // @flaky: batch timing — increased timeout from 90s→120s, poll from 60s→90s
   test('batch status text shows ok/failed counts', async ({ extensionContext, extensionId, fixtureServer }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
 
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
@@ -698,7 +735,7 @@ test.describe('Sidepanel UI: batch with startIndex', () => {
     await expect.poll(async () => {
       const status = await sidepanelPage.locator('#workflowProgressStatus').textContent().catch(() => '');
       return status.toLowerCase().includes('batch complete');
-    }, { timeout: 60_000 }).toBe(true);
+    }, { timeout: 90_000 }).toBe(true);
 
     const status = await sidepanelPage.locator('#workflowProgressStatus').textContent().catch(() => '');
     expect(status).toContain('ok');

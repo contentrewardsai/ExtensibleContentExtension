@@ -188,10 +188,17 @@ async function main() {
     ],
   });
 
-  const targets = await browser.targets();
-  const extTarget = targets.find((t) => t.url().startsWith('chrome-extension://'));
+  /** Wait for extension target with retry — service worker may not register immediately. */
+  let extTarget = null;
+  const EXT_POLL_MS = 500;
+  const EXT_MAX_MS = 10000;
+  for (let elapsed = 0; elapsed < EXT_MAX_MS && !extTarget; elapsed += EXT_POLL_MS) {
+    if (elapsed > 0) await new Promise((r) => setTimeout(r, EXT_POLL_MS));
+    const targets = await browser.targets();
+    extTarget = targets.find((t) => t.url().startsWith('chrome-extension://'));
+  }
   if (!extTarget) {
-    console.error('Extension target not found.');
+    console.error('Extension target not found after ' + (EXT_MAX_MS / 1000) + 's. Ensure the extension loads correctly.');
     await browser.close();
     process.exit(1);
   }

@@ -106,7 +106,7 @@ So **generator-specific E2E coverage** is entirely in **`test/e2e/generator.spec
 
 ## 5. E2E checklist (manual) vs Playwright
 
-The **manual E2E checklist** in `test-mode-panel.js` (Tests page, opened in a new tab via the Tests button in the side panel) includes generator-related items that are **not** automated in Playwright:
+The **manual E2E checklist** in `test-mode-panel.js` (rendered under **Settings → Tests**, or on `test/unit-tests.html` after **Open unit tests page**) includes generator-related items that are **not** automated in Playwright:
 
 - **run-generator** – Add Run generator step, pick generator, set input map, run.
 - **run-generator-video** – Video template; Run generator produces WebM URL.

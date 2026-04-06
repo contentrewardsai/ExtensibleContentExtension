@@ -1,6 +1,10 @@
 /**
  * Run test/unit-tests.html in headless Chromium via Puppeteer (no extension context).
  * Exits 1 if any test fails.
+ *
+ * Crypto test wallets (CFS_CRYPTO_TEST_ENSURE_WALLETS) require the MV3 service worker.
+ * Use the in-extension Tests page → Run crypto tests, Settings → Crypto test wallets, or
+ * Playwright with ensureCryptoTestWallets (see docs/TESTING.md). PW_UNIT_CRYPTO_ENSURE uses Playwright, not this script.
  */
 import puppeteer from 'puppeteer';
 import path from 'path';

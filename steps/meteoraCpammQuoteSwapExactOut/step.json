@@ -20,21 +20,86 @@
     "saveSlippageBpsVariable": ""
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "pool", "label": "CP-AMM pool address", "inputType": "text" },
-    { "key": "inputMint", "label": "Input token mint", "inputType": "text" },
-    { "key": "outputMint", "label": "Output token mint", "inputType": "text" },
-    { "key": "amountOutRaw", "label": "Exact amount out (raw)", "inputType": "text" },
-    { "key": "slippagePercent", "label": "Slippage (percent → max in)", "inputType": "number" },
-    { "key": "maximumAmountInRaw", "label": "Cap max input (raw, optional)", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "saveAmountOutVariable", "label": "Save amount out (raw, optional)", "inputType": "text" },
-    { "key": "saveExpectedInVariable", "label": "Save expected in (raw)", "inputType": "text" },
-    { "key": "saveMaxInVariable", "label": "Save max in after slippage (raw)", "inputType": "text" },
-    { "key": "saveSlippageBpsVariable", "label": "Save slippage bps (optional)", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "pool",
+      "label": "CP-AMM pool address",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_METEORA_POOL_SEARCH",
+      "poolSearchDeps": [
+        "inputMint",
+        "outputMint"
+      ],
+      "placeholder": "Paste pool address or search by token pair"
+    },
+    {
+      "key": "inputMint",
+      "label": "Input token mint",
+      "inputType": "text"
+    },
+    {
+      "key": "outputMint",
+      "label": "Output token mint",
+      "inputType": "text"
+    },
+    {
+      "key": "amountOutRaw",
+      "label": "Exact amount out (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "slippagePercent",
+      "label": "Slippage (percent \u2192 max in)",
+      "inputType": "number"
+    },
+    {
+      "key": "maximumAmountInRaw",
+      "label": "Cap max input (raw, optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "saveAmountOutVariable",
+      "label": "Save amount out (raw, optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExpectedInVariable",
+      "label": "Save expected in (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "saveMaxInVariable",
+      "label": "Save max in after slippage (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "saveSlippageBpsVariable",
+      "label": "Save slippage bps (optional)",
+      "inputType": "text"
+    }
   ]
 }

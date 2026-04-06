@@ -53,6 +53,7 @@ Nothing secret belongs in the git repository.
 | Item | Storage |
 |------|---------|
 | **Multi-wallet record** | **`cfs_solana_wallets_v2`** — JSON `{ v: 2, primaryWalletId, wallets: [{ id, label, publicKey, plainSecretB58?, encJson? }] }`. **Signing workflows use the Primary wallet only.** |
+| **Crypto test wallet marker** | **`cfs_solana_practice_wallet_id`** — optional string wallet `id` for the labeled **Crypto test (devnet/Chapel)** entry created by **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** (devnet cluster). Not used for mainnet-only flows. |
 | Legacy single-wallet keys | `cfs_solana_automation_secret_b58`, `cfs_solana_secret_enc_json`, `cfs_solana_public_key_hint` — migrated into **`cfs_solana_wallets_v2`** on load |
 | Session unlock map | **`cfs_solana_session_unlocked_map`** in **`chrome.storage.session`** — JSON `{ walletId: base58Secret }` for all vault-encrypted wallets after **Unlock** (replaces legacy **`cfs_solana_unlocked_b58`**) |
 | Custom RPC URL (optional) | `cfs_solana_rpc_url` |
@@ -77,7 +78,7 @@ If **RPC URL** is empty, steps use the public defaults (**`api.mainnet-beta.sola
 
 ## CI / automated tests
 
-The **Extension checks** workflow (`.github/workflows/extension-checks.yml`) runs **`npm run build:step-tests`** and fails if **`test/unit-tests.html`** or **`settings/settings.html`** drift from **`steps/manifest.json`** (commit regenerated files after adding or reordering steps). It also runs **`validate:steps`** (every **`steps/{id}/step.json`** plus **`handler.js`** / **`sidepanel.js`**), **`test:solana`**, **`test:evm-bundle`**, **`test:bsc-watch-wired`**, **`check:content-bundle`**, **`test:unit`**, **`test:crypto-manifest-hosts`**, **`test:crypto-observability-wired`**, and **`test:apify`**. Optional read-only RPC smoke: **docs/CRYPTO_CI_SMOKE.md**. Bundle upgrades after npm bumps: **docs/CRYPTO_BUNDLE_UPGRADE_RUNBOOK.md**.
+The **Extension checks** workflow (`.github/workflows/extension-checks.yml`) runs **`npm run build:step-tests`** and fails if **`test/unit-tests.html`** or **`settings/settings.html`** drift from **`steps/manifest.json`** (commit regenerated files after adding or reordering steps). It also runs **`validate:steps`** (every **`steps/{id}/step.json`** plus **`handler.js`** / **`sidepanel.js`**), **`test:solana`**, **`test:evm-bundle`**, **`test:bsc-watch-wired`**, **`check:content-bundle`**, **`test:unit`**, **`test:crypto-manifest-hosts`**, **`test:crypto-observability-wired`**, **`test:cfs-e2e-testids-wired`** (Playwright **`data-testid`** hooks vs **`test/e2e/cfs-e2e-testids.mjs`**), and **`test:apify`**. Optional read-only RPC smoke: **docs/CRYPTO_CI_SMOKE.md**. Bundle upgrades after npm bumps: **docs/CRYPTO_BUNDLE_UPGRADE_RUNBOOK.md**.
 
 Use **GitHub Actions secrets** (or another secret store) to inject throwaway devnet keys into a test harness if you add on-chain tests. **`npm run test:solana`** runs all Solana-related service worker bundle checks (web3 + Pump + Raydium + Meteora DLMM + Meteora CP-AMM). You can also run each verify script separately (`test:solana-bundle`, `test:pump-bundle`, etc.). **`npm run validate:steps`** validates every **`steps/{id}/step.json`** (including Solana step definitions). **`npm run test:unit`** includes handler payload tests for workflow steps. None of these hit RPC or sign transactions. Do not commit test keys into the repo.
 

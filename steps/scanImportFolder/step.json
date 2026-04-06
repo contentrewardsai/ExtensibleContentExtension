@@ -1,0 +1,31 @@
+{
+  "id": "scanImportFolder",
+  "label": "Scan import folder",
+  "category": "integrations",
+  "description": "Watch uploads/{projectId}/source/media/import/ for new files. Step completes when one or more new files are found (or times out). Saves file list as JSON array to row variable. Use pollIntervalMs for always-on polling workflows.",
+  "defaultAction": {
+    "type": "scanImportFolder",
+    "runIf": "",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "saveFilesVariable": "importedFiles",
+    "pollIntervalMs": 10000,
+    "timeoutMs": 0
+  },
+  "inputs": [
+    { "key": "projectIdVariableKey", "description": "Row key holding the project ID (or use defaultProjectId)." },
+    { "key": "pollIntervalMs", "description": "How often to check for new files (default 10s)." },
+    { "key": "timeoutMs", "description": "Max wait time (0 = wait forever until files appear)." }
+  ],
+  "outputs": [
+    { "key": "saveFilesVariable", "description": "JSON array of objects: [{ name, size, type, lastModified }]" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}}", "hint": "Skip step when empty/falsy." },
+    { "key": "projectIdVariableKey", "label": "Project ID row key", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID", "inputType": "text", "placeholder": "" },
+    { "key": "saveFilesVariable", "label": "Save file list to variable", "inputType": "text", "placeholder": "importedFiles" },
+    { "key": "pollIntervalMs", "label": "Poll interval (ms)", "inputType": "number", "placeholder": "10000", "min": 1000, "hint": "How often to check. Default 10 seconds." },
+    { "key": "timeoutMs", "label": "Timeout (ms, 0 = no limit)", "inputType": "number", "placeholder": "0", "min": 0, "hint": "Max wait. 0 = wait forever." }
+  ]
+}

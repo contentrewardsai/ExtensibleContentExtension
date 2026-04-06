@@ -68,33 +68,7 @@
     }
   }
 
-  function runTests() {
-    var testNames = [];
-    for (var k in global) {
-      if (typeof global[k] === 'function' && k.indexOf('test') === 0) {
-        testNames.push(k);
-      }
-    }
-    testNames.sort();
-
-    var all = [];
-    for (var i = 0; i < testNames.length; i++) {
-      all.push({ name: testNames[i], fn: global[testNames[i]] });
-    }
-    var reg = global.CFS_unitTestsRegistered;
-    if (Array.isArray(reg)) {
-      for (var ri = 0; ri < reg.length; ri++) {
-        var rf = reg[ri];
-        if (typeof rf === 'function' && rf.name && rf.name.indexOf('test') === 0) {
-          all.push({ name: rf.name, fn: rf });
-        }
-      }
-    }
-    for (var j = 0; j < stepTests.length; j++) {
-      var st = stepTests[j];
-      all.push({ name: st.stepId + ': ' + st.name, fn: st.fn });
-    }
-
+  function runTestEntries(all) {
     var hasAsync = false;
     var syncResults = [];
     var asyncEntries = [];
@@ -122,11 +96,65 @@
     });
   }
 
-  function renderResults(results, container) {
+  function runTests() {
+    var testNames = [];
+    for (var k in global) {
+      if (typeof global[k] === 'function' && k.indexOf('test') === 0) {
+        testNames.push(k);
+      }
+    }
+    testNames.sort();
+
+    var all = [];
+    for (var i = 0; i < testNames.length; i++) {
+      all.push({ name: testNames[i], fn: global[testNames[i]] });
+    }
+    var reg = global.CFS_unitTestsRegistered;
+    if (Array.isArray(reg)) {
+      for (var ri = 0; ri < reg.length; ri++) {
+        var rf = reg[ri];
+        if (typeof rf === 'function' && rf.name && rf.name.indexOf('test') === 0) {
+          all.push({ name: rf.name, fn: rf });
+        }
+      }
+    }
+    for (var j = 0; j < stepTests.length; j++) {
+      var st = stepTests[j];
+      all.push({ name: st.stepId + ': ' + st.name, fn: st.fn });
+    }
+
+    return runTestEntries(all);
+  }
+
+  /** Step tests whose stepId is crypto/Pulse/watch (requires shared/crypto-workflow-step-ids.js). */
+  function runCryptoStepTestsOnly() {
+    var all = [];
+    var isCrypto = global.__CFS_isCryptoOrPulseStepType;
+    for (var j = 0; j < stepTests.length; j++) {
+      var st = stepTests[j];
+      if (typeof isCrypto === 'function' && isCrypto(st.stepId)) {
+        all.push({ name: st.stepId + ': ' + st.name, fn: st.fn });
+      }
+    }
+    if (!all.length) {
+      return Promise.resolve([
+        {
+          name: '(crypto suite)',
+          ok: false,
+          error: 'No crypto step tests or __CFS_isCryptoOrPulseStepType missing (load shared/crypto-workflow-step-ids.js)',
+        },
+      ]);
+    }
+    return runTestEntries(all);
+  }
+
+  function renderResults(results, container, opts) {
     if (!container) return;
+    opts = opts || {};
+    var title = opts.title || 'Unit Tests';
     var passed = results.filter(function (r) { return r.ok; }).length;
     var failed = results.length - passed;
-    var html = '<h2>Unit Tests</h2><p><strong>' + passed + ' passed</strong>, ' + failed + ' failed</p>';
+    var html = '<h2>' + title + '</h2><p><strong>' + passed + ' passed</strong>, ' + failed + ' failed</p>';
     html += '<ul>';
     for (var i = 0; i < results.length; i++) {
       var r = results[i];
@@ -146,6 +174,7 @@
     registerStepTests: registerStepTests,
     registerSuite: registerStepTests,
     runTests: runTests,
+    runCryptoStepTestsOnly: runCryptoStepTestsOnly,
     renderResults: renderResults,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

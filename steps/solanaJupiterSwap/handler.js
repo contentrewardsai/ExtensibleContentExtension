@@ -43,6 +43,8 @@
 
     const payload = {
       type: 'CFS_SOLANA_EXECUTE_SWAP',
+      jupiterApiVersion: String(action.jupiterApiVersion || 'v2').trim(),
+      jupiterSwapPath: String(action.jupiterSwapPath || 'order').trim(),
       inputMint,
       outputMint,
       amountRaw,
@@ -80,6 +82,10 @@
       if (sigVar && response.signature) row[sigVar] = response.signature;
       const expVar = String(action.saveExplorerUrlVariable || '').trim();
       if (expVar && response.explorerUrl) row[expVar] = response.explorerUrl;
+      const routerVar = String(action.saveRouterVariable || '').trim();
+      if (routerVar && response.router) row[routerVar] = response.router;
+      const outAmtVar = String(action.saveOutputAmountVariable || '').trim();
+      if (outAmtVar && response.outputAmountResult) row[outAmtVar] = response.outputAmountResult;
     }
   }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });
 })();

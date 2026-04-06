@@ -124,4 +124,8 @@
 
   global.__CFS_libraryNeedsCryptoOrPulseWatch = libraryNeedsCryptoOrPulseWatch;
   global.__CFS_workflowUsesCryptoOrPulseWatch = workflowUsesCryptoOrPulseWatch;
+  /** Step `type` string → true if crypto/Pulse/watch (for unit test filtering, etc.). */
+  global.__CFS_isCryptoOrPulseStepType = function (t) {
+    return !!(t && TYPE_SET[String(t)]);
+  };
 })(typeof self !== 'undefined' ? self : globalThis);

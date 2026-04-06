@@ -114,7 +114,7 @@ Use the variable key from the recorded step, or `fileUrl`. For a custom filename
 
 Edit files and reload the extension at `chrome://extensions/` to test changes. When adding new step types (or generator templates or workflow folders), set the **project folder** to your extension root (same folder you use for "Load unpacked"), then click **Reload Extension** in the side panel (between username and Sidebar Name)—it rebuilds **steps/manifest.json**, **generator/templates/manifest.json**, and **workflows/manifest.json** from the project folder and reloads. No Node or scripts required.
 
-**Optional:** Run `node scripts/validate-step-definitions.cjs` to validate all `steps/{id}/step.json` files. See **docs/TESTING.md** for unit tests (Tests button in side panel or `npm run test:unit` headless), E2E checklist, and `npm run test:e2e` (Playwright) / `npm run test:e2e:puppeteer`.
+**Optional:** Run `node scripts/validate-step-definitions.cjs` to validate all `steps/{id}/step.json` files. See **docs/TESTING.md** for unit tests (side panel **Settings** → **Tests**, optional **Open unit tests page**, or `npm run test:unit` headless), E2E checklist, and `npm run test:e2e` (Playwright) / `npm run test:e2e:puppeteer`.
 
 ## Advanced Features
 

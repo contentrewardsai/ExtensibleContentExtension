@@ -21,22 +21,91 @@
     "savePositionNftVariable": "clmmPositionNft"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "poolId", "label": "Pool id", "inputType": "text" },
-    { "key": "tickLower", "label": "Tick lower", "inputType": "text" },
-    { "key": "tickUpper", "label": "Tick upper", "inputType": "text" },
-    { "key": "liquidityRaw", "label": "Liquidity (raw)", "inputType": "text" },
-    { "key": "amountMaxARaw", "label": "Max mint A (raw)", "inputType": "text" },
-    { "key": "amountMaxBRaw", "label": "Max mint B (raw)", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" },
-    { "key": "savePositionNftVariable", "label": "Save position NFT variable", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [
+        "inputMint",
+        "outputMint"
+      ],
+      "placeholder": "Paste pool ID or search by token pair"
+    },
+    {
+      "key": "tickLower",
+      "label": "Tick lower",
+      "inputType": "text"
+    },
+    {
+      "key": "tickUpper",
+      "label": "Tick upper",
+      "inputType": "text"
+    },
+    {
+      "key": "liquidityRaw",
+      "label": "Liquidity (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountMaxARaw",
+      "label": "Max mint A (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountMaxBRaw",
+      "label": "Max mint B (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL variable",
+      "inputType": "text"
+    },
+    {
+      "key": "savePositionNftVariable",
+      "label": "Save position NFT variable",
+      "inputType": "text"
+    }
   ]
 }

@@ -122,5 +122,39 @@
       runner.assertEqual(p.jupiterCrossCheckMaxDeviationBps, 150);
       runner.assertEqual(p.jupiterCrossCheckOptional, true);
     }},
+    { name: 'buildJupiterSwapPayload missing inputMint yields empty', fn: function () {
+      var p = buildJupiterSwapPayload({ outputMint: 'O', amountRaw: '1' }, {}, getRowValue);
+      runner.assertEqual(p.inputMint, '');
+      runner.assertEqual(p.type, 'CFS_SOLANA_EXECUTE_SWAP');
+    }},
+    { name: 'buildJupiterSwapPayload missing outputMint yields empty', fn: function () {
+      var p = buildJupiterSwapPayload({ inputMint: WSOL, amountRaw: '1' }, {}, getRowValue);
+      runner.assertEqual(p.outputMint, '');
+    }},
+    { name: 'buildJupiterSwapPayload missing amountRaw yields empty', fn: function () {
+      var p = buildJupiterSwapPayload({ inputMint: WSOL, outputMint: 'O' }, {}, getRowValue);
+      runner.assertEqual(p.amountRaw, '');
+    }},
+    { name: 'buildJupiterSwapPayload slippageBps defaults to 50', fn: function () {
+      var p = buildJupiterSwapPayload({ inputMint: WSOL, outputMint: 'O', amountRaw: '1' }, {}, getRowValue);
+      runner.assertEqual(p.slippageBps, 50);
+    }},
+    { name: 'buildJupiterSwapPayload slippageBps clamped to 0..10000', fn: function () {
+      var lo = buildJupiterSwapPayload({ inputMint: WSOL, outputMint: 'O', amountRaw: '1', slippageBps: -5 }, {}, getRowValue);
+      runner.assertEqual(lo.slippageBps, 0);
+      var hi = buildJupiterSwapPayload({ inputMint: WSOL, outputMint: 'O', amountRaw: '1', slippageBps: 99999 }, {}, getRowValue);
+      runner.assertEqual(hi.slippageBps, 10000);
+    }},
+    { name: 'buildJupiterSwapPayload defaults cluster to mainnet-beta', fn: function () {
+      var p = buildJupiterSwapPayload({ inputMint: WSOL, outputMint: 'O', amountRaw: '1' }, {}, getRowValue);
+      runner.assertEqual(p.cluster, 'mainnet-beta');
+    }},
+    { name: 'buildJupiterSwapPayload cross-check bps negative ignored', fn: function () {
+      var p = buildJupiterSwapPayload({
+        inputMint: WSOL, outputMint: 'O', amountRaw: '1',
+        jupiterCrossCheckMaxDeviationBps: -10,
+      }, {}, getRowValue);
+      runner.assertEqual(p.jupiterCrossCheckMaxDeviationBps, undefined);
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

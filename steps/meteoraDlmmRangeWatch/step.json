@@ -1,0 +1,105 @@
+{
+  "id": "meteoraDlmmRangeWatch",
+  "label": "Meteora DLMM range watch",
+  "category": "data",
+  "description": "Poll a Meteora DLMM pool's active bin and compare to position bin range. The step **completes** when the active price moves **outside** the position range (i.e. the user's liquidity is no longer active). Save the drift direction ('above' or 'below') to a variable for downstream branching. Use in always-on workflows to trigger rebalancing or exit logic.",
+  "defaultAction": {
+    "type": "meteoraDlmmRangeWatch",
+    "runIf": "",
+    "lbPair": "",
+    "position": "",
+    "pollIntervalMs": 30000,
+    "timeoutMs": 0,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "saveDriftDirection": "driftDirection",
+    "saveActiveBin": "activeBin",
+    "savePositionRange": "positionRange"
+  },
+  "inputs": [
+    { "key": "lbPair", "description": "LB pair (pool) address. Template vars supported: {{poolAddress}}." },
+    { "key": "position", "description": "Position address. Template vars supported: {{positionAddress}}." },
+    { "key": "pollIntervalMs", "description": "How often to check the active bin (default 30s)." },
+    { "key": "timeoutMs", "description": "Maximum wait time (0 = wait forever until out of range)." }
+  ],
+  "outputs": [
+    { "key": "saveDriftDirection", "description": "Row variable: 'above' (price rose past upper bin) or 'below' (price fell past lower bin)." },
+    { "key": "saveActiveBin", "description": "Row variable: active bin ID at the time drift was detected." },
+    { "key": "savePositionRange", "description": "Row variable: JSON object with lowerBinId, upperBinId, activeBinId." }
+  ],
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text",
+      "placeholder": "{{var}} or variable name",
+      "hint": "Skip step when empty/falsy."
+    },
+    {
+      "key": "lbPair",
+      "label": "LB pair (pool) address",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_METEORA_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste lbPair address or search"
+    },
+    {
+      "key": "position",
+      "label": "Position address",
+      "inputType": "text",
+      "placeholder": "{{meteoraPosition}} or paste pubkey",
+      "hint": "The DLMM position to monitor. Use a variable from a previous add-liquidity step."
+    },
+    {
+      "key": "pollIntervalMs",
+      "label": "Poll interval (ms)",
+      "inputType": "number",
+      "placeholder": "30000",
+      "min": 5000,
+      "hint": "How often to check the pool's active bin. Default 30 seconds. Min 5 seconds."
+    },
+    {
+      "key": "timeoutMs",
+      "label": "Timeout (ms, 0 = no limit)",
+      "inputType": "number",
+      "placeholder": "0",
+      "min": 0,
+      "hint": "Max wait time. 0 means wait indefinitely until price exits range."
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        { "value": "mainnet-beta", "label": "mainnet-beta" },
+        { "value": "devnet", "label": "devnet" }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text",
+      "placeholder": "Leave empty for default"
+    },
+    {
+      "key": "saveDriftDirection",
+      "label": "Save drift direction to variable",
+      "inputType": "text",
+      "placeholder": "driftDirection",
+      "hint": "'above' or 'below' — use in downstream conditional steps."
+    },
+    {
+      "key": "saveActiveBin",
+      "label": "Save active bin ID to variable",
+      "inputType": "text",
+      "placeholder": "activeBin"
+    },
+    {
+      "key": "savePositionRange",
+      "label": "Save position range to variable",
+      "inputType": "text",
+      "placeholder": "positionRange",
+      "hint": "JSON: { lowerBinId, upperBinId, activeBinId }"
+    }
+  ]
+}

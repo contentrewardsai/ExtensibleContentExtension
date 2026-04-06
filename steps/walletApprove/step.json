@@ -1,0 +1,55 @@
+{
+  "id": "walletApprove",
+  "label": "Wallet approve",
+  "category": "crypto",
+  "description": "Wait for and approve (auto-sign) a wallet sign request from a DeFi site. When the CFS wallet proxy is injected into a page and the dApp calls signTransaction, this step coordinates the approval during workflow playback. With convertToApiCall enabled, the step attempts to convert the dApp's transaction to a headless API call for faster, more reliable execution.",
+  "defaultAction": {
+    "type": "walletApprove",
+    "runIf": "",
+    "autoSign": true,
+    "timeout": "30000",
+    "convertToApiCall": true,
+    "saveSignatureVariable": "txSignature",
+    "saveExplorerUrlVariable": "explorerUrl"
+  },
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run condition (optional)",
+      "inputType": "text",
+      "placeholder": "e.g. {{skipSwap}} != true"
+    },
+    {
+      "key": "autoSign",
+      "label": "Auto-sign (skip confirmation)",
+      "inputType": "checkbox",
+      "default": true
+    },
+    {
+      "key": "timeout",
+      "label": "Timeout (ms)",
+      "inputType": "text",
+      "default": "30000",
+      "placeholder": "30000"
+    },
+    {
+      "key": "convertToApiCall",
+      "label": "Convert to API call if possible",
+      "inputType": "checkbox",
+      "default": true
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save tx signature to variable",
+      "inputType": "text",
+      "placeholder": "e.g. txSignature"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL to variable",
+      "inputType": "text",
+      "placeholder": "e.g. explorerUrl"
+    }
+  ],
+  "serviceWorkerMessages": []
+}

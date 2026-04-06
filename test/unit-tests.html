@@ -19,6 +19,17 @@
 </head>
 <body>
   <div id="unitTestResults"></div>
+  <div id="cryptoTestPanel" style="margin-top:20px;padding:12px;border:1px solid #8c8;border-radius:6px;background:#f8fff8;">
+    <h2 style="margin-top:0;">Crypto step tests</h2>
+    <p class="hint" style="margin-top:0;">Creates or reuses labeled <strong>Crypto test (devnet/Chapel)</strong> wallets, sets Solana to <strong>devnet</strong> and BSC to <strong>Chapel (97)</strong>, then requests test tokens (Solana airdrop; BSC best-effort). Open via side panel <strong>Unit tests</strong>, <strong>Settings → Tests → Open unit tests page</strong>, or this extension URL.</p>
+    <p id="cryptoTestBanner" style="display:none;color:#060;font-size:13px;font-weight:600;"></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button type="button" id="runCryptoTestsBtn" class="btn" data-testid="cfs-run-crypto-tests">Run crypto tests</button>
+      <button type="button" id="cryptoTestFundOnlyBtn" class="btn" data-testid="cfs-crypto-fund-only">Request test tokens again</button>
+      <button type="button" id="cryptoTestReplaceBtn" class="btn" data-testid="cfs-crypto-replace-wallets">Replace crypto test wallets</button>
+    </div>
+    <pre id="cryptoTestEnsureLog" style="margin-top:10px;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
+  </div>
   <div id="testModePanel">
     <h2>E2E Test Checklist</h2>
     <p class="hint">Tick items as you complete them. Progress is saved.</p>
@@ -64,8 +75,38 @@
   <script src="../shared/personal-info-sync.js"></script>
   <script src="../shared/row-list-normalize.js"></script>
   <script src="../shared/project-id-resolve.js"></script>
+  <script src="../shared/defi-action-patterns.js"></script>
+  <script src="../shared/social-action-patterns.js"></script>
+  <script src="../shared/data-action-patterns.js"></script>
+  <script src="../shared/action-patterns-registry.js"></script>
   <script src="unit-tests.js"></script>
+  <!-- Tunnel UI fixture — mirrors settings.html elements for tunnel-tests.js DOM checks -->
+  <div id="tunnelTestFixture" style="display:none;">
+    <select id="cfsMcpTunnelProvider" data-testid="cfs-mcp-tunnel-provider">
+      <option value="">— Disabled —</option>
+      <option value="cloudflare">Cloudflare Tunnel (free, no account)</option>
+      <option value="ngrok">ngrok</option>
+    </select>
+    <div id="cfsMcpTunnelNgrokFields" style="display:none;">
+      <input type="text" id="cfsMcpNgrokAuthtoken" data-testid="cfs-mcp-ngrok-authtoken">
+    </div>
+    <div id="cfsMcpTunnelCfFields" style="display:none;">
+      <input type="text" id="cfsMcpTunnelDomain" data-testid="cfs-mcp-tunnel-domain">
+    </div>
+    <button type="button" id="cfsMcpTunnelSaveBtn" data-testid="cfs-mcp-tunnel-save">Save tunnel settings</button>
+    <button type="button" id="cfsMcpTunnelStartBtn" data-testid="cfs-mcp-tunnel-start">▶ Start Tunnel</button>
+    <button type="button" id="cfsMcpTunnelStopBtn" data-testid="cfs-mcp-tunnel-stop">■ Stop Tunnel</button>
+    <div id="cfsMcpTunnelUrlPanel" style="display:none;">
+      <code id="cfsMcpTunnelUrlDisplay"></code>
+      <button type="button" id="cfsMcpTunnelCopyUrl">Copy MCP URL</button>
+      <button type="button" id="cfsMcpTunnelCopyConfig">Copy remote config</button>
+    </div>
+    <span id="cfsMcpTunnelStatusDot"></span>
+    <span id="cfsMcpTunnelStatusLabel">Not running</span>
+  </div>
+  <script src="tunnel-tests.js"></script>
   <script src="../steps/registry.js"></script>
+  <script src="../shared/crypto-workflow-step-ids.js"></script>
   <!-- STEP_HANDLERS_START -->
   <script src="../steps/click/handler.js"></script>
   <script src="../steps/hover/handler.js"></script>
@@ -137,6 +178,14 @@
   <script src="../steps/deleteFollowingProfile/handler.js"></script>
   <script src="../steps/deleteFollowingDetail/handler.js"></script>
   <script src="../steps/solanaJupiterSwap/handler.js"></script>
+  <script src="../steps/jupiterPriceV3/handler.js"></script>
+  <script src="../steps/jupiterTokenSearch/handler.js"></script>
+  <script src="../steps/jupiterDCA/handler.js"></script>
+  <script src="../steps/jupiterLimitOrder/handler.js"></script>
+  <script src="../steps/jupiterEarn/handler.js"></script>
+  <script src="../steps/jupiterFlashloan/handler.js"></script>
+  <script src="../steps/jupiterPredictionSearch/handler.js"></script>
+  <script src="../steps/jupiterPredictionTrade/handler.js"></script>
   <script src="../steps/solanaTransferSol/handler.js"></script>
   <script src="../steps/solanaTransferSpl/handler.js"></script>
   <script src="../steps/solanaEnsureTokenAccount/handler.js"></script>
@@ -169,11 +218,13 @@
   <script src="../steps/raydiumClmmDecreaseLiquidity/handler.js"></script>
   <script src="../steps/raydiumClmmSwap/handler.js"></script>
   <script src="../steps/raydiumClmmSwapBaseOut/handler.js"></script>
+  <script src="../steps/raydiumClmmRangeWatch/handler.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseIn/handler.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseOut/handler.js"></script>
   <script src="../steps/meteoraDlmmAddLiquidity/handler.js"></script>
   <script src="../steps/meteoraDlmmRemoveLiquidity/handler.js"></script>
   <script src="../steps/meteoraDlmmClaimRewards/handler.js"></script>
+  <script src="../steps/meteoraDlmmRangeWatch/handler.js"></script>
   <script src="../steps/meteoraCpammSwap/handler.js"></script>
   <script src="../steps/meteoraCpammQuoteSwap/handler.js"></script>
   <script src="../steps/meteoraCpammSwapExactOut/handler.js"></script>
@@ -184,6 +235,7 @@
   <script src="../steps/meteoraCpammClaimFees/handler.js"></script>
   <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
   <script src="../steps/bscPancake/handler.js"></script>
+  <script src="../steps/pancakeV3RangeWatch/handler.js"></script>
   <script src="../steps/bscTransferBnb/handler.js"></script>
   <script src="../steps/bscTransferBep20/handler.js"></script>
   <script src="../steps/bscAggregatorSwap/handler.js"></script>
@@ -211,6 +263,10 @@
   <script src="../steps/apifyRunStart/handler.js"></script>
   <script src="../steps/apifyRunWait/handler.js"></script>
   <script src="../steps/apifyDatasetItems/handler.js"></script>
+  <script src="../steps/walletApprove/handler.js"></script>
+  <script src="../steps/goBack/handler.js"></script>
+  <script src="../steps/goForward/handler.js"></script>
+  <script src="../steps/getConsoleLogs/handler.js"></script>
   <!-- STEP_HANDLERS_END -->
   <!-- STEP_TESTS_START -->
   <script src="../steps/click/step-tests.js"></script>
@@ -283,6 +339,14 @@
   <script src="../steps/deleteFollowingProfile/step-tests.js"></script>
   <script src="../steps/deleteFollowingDetail/step-tests.js"></script>
   <script src="../steps/solanaJupiterSwap/step-tests.js"></script>
+  <script src="../steps/jupiterPriceV3/step-tests.js"></script>
+  <script src="../steps/jupiterTokenSearch/step-tests.js"></script>
+  <script src="../steps/jupiterDCA/step-tests.js"></script>
+  <script src="../steps/jupiterLimitOrder/step-tests.js"></script>
+  <script src="../steps/jupiterEarn/step-tests.js"></script>
+  <script src="../steps/jupiterFlashloan/step-tests.js"></script>
+  <script src="../steps/jupiterPredictionSearch/step-tests.js"></script>
+  <script src="../steps/jupiterPredictionTrade/step-tests.js"></script>
   <script src="../steps/solanaTransferSol/step-tests.js"></script>
   <script src="../steps/solanaTransferSpl/step-tests.js"></script>
   <script src="../steps/solanaEnsureTokenAccount/step-tests.js"></script>
@@ -315,11 +379,13 @@
   <script src="../steps/raydiumClmmDecreaseLiquidity/step-tests.js"></script>
   <script src="../steps/raydiumClmmSwap/step-tests.js"></script>
   <script src="../steps/raydiumClmmSwapBaseOut/step-tests.js"></script>
+  <script src="../steps/raydiumClmmRangeWatch/step-tests.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseIn/step-tests.js"></script>
   <script src="../steps/raydiumClmmQuoteBaseOut/step-tests.js"></script>
   <script src="../steps/meteoraDlmmAddLiquidity/step-tests.js"></script>
   <script src="../steps/meteoraDlmmRemoveLiquidity/step-tests.js"></script>
   <script src="../steps/meteoraDlmmClaimRewards/step-tests.js"></script>
+  <script src="../steps/meteoraDlmmRangeWatch/step-tests.js"></script>
   <script src="../steps/meteoraCpammSwap/step-tests.js"></script>
   <script src="../steps/meteoraCpammQuoteSwap/step-tests.js"></script>
   <script src="../steps/meteoraCpammSwapExactOut/step-tests.js"></script>
@@ -330,6 +396,7 @@
   <script src="../steps/meteoraCpammClaimFees/step-tests.js"></script>
   <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
   <script src="../steps/bscPancake/step-tests.js"></script>
+  <script src="../steps/pancakeV3RangeWatch/step-tests.js"></script>
   <script src="../steps/bscTransferBnb/step-tests.js"></script>
   <script src="../steps/bscTransferBep20/step-tests.js"></script>
   <script src="../steps/bscAggregatorSwap/step-tests.js"></script>
@@ -357,6 +424,10 @@
   <script src="../steps/apifyRunStart/step-tests.js"></script>
   <script src="../steps/apifyRunWait/step-tests.js"></script>
   <script src="../steps/apifyDatasetItems/step-tests.js"></script>
+  <script src="../steps/walletApprove/step-tests.js"></script>
+  <script src="../steps/goBack/step-tests.js"></script>
+  <script src="../steps/goForward/step-tests.js"></script>
+  <script src="../steps/getConsoleLogs/step-tests.js"></script>
   <!-- STEP_TESTS_END -->
   <script src="../generator/core/wrap-text.js"></script>
   <script src="../generator/core/position-from-clip.js"></script>
@@ -366,5 +437,6 @@
   <script src="generator-tests.js"></script>
   <script src="test-mode-panel.js"></script>
   <script src="unit-tests-bootstrap.js"></script>
+  <script src="crypto-tests-ui.js"></script>
 </body>
 </html>

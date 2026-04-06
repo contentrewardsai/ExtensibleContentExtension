@@ -19,5 +19,20 @@
       runner.assertEqual({ type: 'CFS_BSC_POOL_EXECUTE', operation: op }.type, 'CFS_BSC_POOL_EXECUTE');
       runner.assertEqual(op, 'swapExactETHForTokens');
     }},
+    { name: 'trimResolved with null yields empty', fn: function () {
+      runner.assertEqual(trimResolved({}, gv, {}, null), '');
+    }},
+    { name: 'trimResolved with undefined yields empty', fn: function () {
+      runner.assertEqual(trimResolved({}, gv, {}, undefined), '');
+    }},
+    { name: 'trimResolved resolves template from row', fn: function () {
+      runner.assertEqual(trimResolved({ op: 'swapExactTokensForTokens' }, gv, {}, '{{op}}'), 'swapExactTokensForTokens');
+    }},
+    { name: 'trimResolved trims whitespace', fn: function () {
+      runner.assertEqual(trimResolved({}, gv, {}, '  swapExactETHForTokens  '), 'swapExactETHForTokens');
+    }},
+    { name: 'trimResolved missing template var yields empty', fn: function () {
+      runner.assertEqual(trimResolved({}, gv, {}, '{{missingKey}}'), '');
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

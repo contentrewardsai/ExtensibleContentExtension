@@ -1,0 +1,30 @@
+{
+  "id": "moveProjectFile",
+  "label": "Move project file",
+  "category": "integrations",
+  "description": "Move (copy + delete source) a file from one path to another within the project folder. Creates destination directories automatically. Saves the destination path to a row variable.",
+  "defaultAction": {
+    "type": "moveProjectFile",
+    "runIf": "",
+    "sourcePath": "",
+    "destPath": "",
+    "projectIdVariableKey": "projectId",
+    "defaultProjectId": "",
+    "saveDestVariable": "movedFilePath"
+  },
+  "inputs": [
+    { "key": "sourcePath", "description": "Source path (relative to project root). Supports {{var}} templates." },
+    { "key": "destPath", "description": "Destination path (relative to project root). Supports {{var}} templates." }
+  ],
+  "outputs": [
+    { "key": "saveDestVariable", "description": "The destination path after move." }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}}" },
+    { "key": "sourcePath", "label": "Source path", "inputType": "text", "placeholder": "uploads/{{projectId}}/source/media/import/{{filename}}" },
+    { "key": "destPath", "label": "Destination path", "inputType": "text", "placeholder": "uploads/{{projectId}}/source/media/library/{{mediaId}}/original{{ext}}" },
+    { "key": "projectIdVariableKey", "label": "Project ID row key", "inputType": "text", "placeholder": "projectId" },
+    { "key": "defaultProjectId", "label": "Default project ID", "inputType": "text" },
+    { "key": "saveDestVariable", "label": "Save destination path to variable", "inputType": "text", "placeholder": "movedFilePath" }
+  ]
+}

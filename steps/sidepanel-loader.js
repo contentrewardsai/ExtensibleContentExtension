@@ -27,7 +27,7 @@
         done();
         return;
       }
-      var pending = steps.length * 2;
+      var pending = steps.length * 3;
       function checkDone() {
         pending--;
         if (pending <= 0) {
@@ -91,7 +91,14 @@
           .then(checkDone);
         var script = document.createElement('script');
         script.src = base + id + '/sidepanel.js';
-        script.onload = script.onerror = checkDone;
+        script.onload = function() {
+          checkDone();
+          var ds = document.createElement('script');
+          ds.src = base + id + '/devnet-smoke.js';
+          ds.onload = ds.onerror = checkDone;
+          document.head.appendChild(ds);
+        };
+        script.onerror = checkDone;
         document.head.appendChild(script);
       });
     })

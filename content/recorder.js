@@ -134,9 +134,213 @@
     }, 80);
   }
 
+  /* ── Lightweight action-pattern URL matcher (for recording hints) ── */
+  /* Only detects whether the current page belongs to a known DeFi/social/data platform.
+     Full pattern matching + auto-replace is done in the sidepanel at analyze time.
+     This is intentionally minimal to avoid bloating the content script. */
+  var _CFS_PATTERN_HINT_URLS = [
+    /* DeFi */
+    { re: /app\.raydium\.io/i, platform: 'Raydium', category: 'defi' },
+    { re: /jup\.ag/i, platform: 'Jupiter', category: 'defi' },
+    { re: /pump\.fun/i, platform: 'Pump.fun', category: 'defi' },
+    { re: /app\.meteora\.ag/i, platform: 'Meteora', category: 'defi' },
+    { re: /orca\.so/i, platform: 'Orca', category: 'defi' },
+    { re: /pancakeswap\.finance/i, platform: 'PancakeSwap', category: 'defi' },
+    { re: /app\.1inch\.io/i, platform: '1inch', category: 'defi' },
+    { re: /app\.paraswap\.(io|xyz)/i, platform: 'ParaSwap', category: 'defi' },
+    { re: /phantom\.app/i, platform: 'Phantom', category: 'defi' },
+    { re: /solflare\.com/i, platform: 'Solflare', category: 'defi' },
+    { re: /asterdex\.com/i, platform: 'Aster', category: 'defi' },
+    /* Social */
+    { re: /creator\.tiktok\.com|tiktok\.com\/creator/i, platform: 'TikTok', category: 'social' },
+    { re: /studio\.youtube\.com/i, platform: 'YouTube', category: 'social' },
+    { re: /instagram\.com\/(create|reels|direct|p\/|reel\/|accounts)/i, platform: 'Instagram', category: 'social' },
+    { re: /business\.facebook\.com|facebook\.com\/(reel|video)/i, platform: 'Facebook', category: 'social' },
+    { re: /linkedin\.com\/(feed|post|share)/i, platform: 'LinkedIn', category: 'social' },
+    { re: /reddit\.com\/(submit|r\/.*\/submit)/i, platform: 'Reddit', category: 'social' },
+    { re: /pinterest\.(com|co\.\w+)\/(pin-creation|pin-builder)/i, platform: 'Pinterest', category: 'social' },
+    { re: /bsky\.app/i, platform: 'Bluesky', category: 'social' },
+    /* Data */
+    { re: /console\.apify\.com\/actors?\//i, platform: 'Apify', category: 'data' },
+    { re: /apify\.com\/(store|actors?\/)/i, platform: 'Apify', category: 'data' },
+  ];
+
+  /** Detect the platform hint for the current page URL. Returns { platform, category } or null. */
+  function _cfsDetectPatternHint(url) {
+    if (!url) return null;
+    for (var i = 0; i < _CFS_PATTERN_HINT_URLS.length; i++) {
+      if (_CFS_PATTERN_HINT_URLS[i].re.test(url)) {
+        return { platform: _CFS_PATTERN_HINT_URLS[i].platform, category: _CFS_PATTERN_HINT_URLS[i].category };
+      }
+    }
+    return null;
+  }
+
+  /** Cached hint for the current page (re-evaluated on navigation). */
+  var _cfsCurrentPageHint = null;
+  var _cfsLastHintUrl = '';
+
+  function _cfsGetPageHint() {
+    var url = window.location.href;
+    if (url !== _cfsLastHintUrl) {
+      _cfsLastHintUrl = url;
+      _cfsCurrentPageHint = _cfsDetectPatternHint(url);
+    }
+    return _cfsCurrentPageHint;
+  }
+
+  /* ── Recording hint badge (floating indicator) ── */
+  var _cfsBadgeEl = null;
+
+  function _cfsShowRecordingHintBadge() {
+    var hint = _cfsGetPageHint();
+    if (!hint) { _cfsRemoveRecordingHintBadge(); return; }
+    if (_cfsBadgeEl) { _cfsUpdateBadgeText(hint); return; }
+    _cfsBadgeEl = document.createElement('div');
+    _cfsBadgeEl.id = 'cfs-recording-hint-badge';
+    var colors = { defi: '#10b981', social: '#6366f1', data: '#f59e0b' };
+    Object.assign(_cfsBadgeEl.style, {
+      position: 'fixed',
+      bottom: '16px',
+      right: '16px',
+      zIndex: '2147483647',
+      padding: '8px 14px',
+      borderRadius: '24px',
+      background: colors[hint.category] || '#6b7280',
+      color: '#fff',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '13px',
+      fontWeight: '600',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+      pointerEvents: 'none',
+      opacity: '0.92',
+      transition: 'opacity 0.3s ease',
+    });
+    _cfsUpdateBadgeText(hint);
+    document.body.appendChild(_cfsBadgeEl);
+    /* Fade out after 4 seconds to not obstruct the page */
+    setTimeout(function () {
+      if (_cfsBadgeEl) _cfsBadgeEl.style.opacity = '0.5';
+    }, 4000);
+  }
+
+  function _cfsUpdateBadgeText(hint) {
+    if (!_cfsBadgeEl) return;
+    var icons = { defi: '⚡', social: '📱', data: '📊' };
+    var labels = { defi: 'API step available', social: 'API step available', data: 'API step suggestion' };
+    _cfsBadgeEl.textContent = (icons[hint.category] || '🔗') + ' ' + hint.platform + ' — ' + (labels[hint.category] || 'Pattern detected');
+  }
+
+  function _cfsRemoveRecordingHintBadge() {
+    if (_cfsBadgeEl && _cfsBadgeEl.parentNode) {
+      _cfsBadgeEl.parentNode.removeChild(_cfsBadgeEl);
+    }
+    _cfsBadgeEl = null;
+  }
+
   function pushRecordedAction(action) {
+    /* Attach pattern hint metadata if on a recognized platform */
+    var hint = _cfsGetPageHint();
+    if (hint) {
+      action._patternHint = hint;
+      /* For DeFi pages, extract contextual field data from the DOM */
+      if (hint.category === 'defi' && (action.type === 'type' || action.type === 'click')) {
+        try {
+          var fieldHints = _cfsExtractDefiFieldHints(hint);
+          if (fieldHints) action._defiFieldHints = fieldHints;
+        } catch (_) {}
+      }
+    }
     recordedActions.push(action);
     if (!qualityCheckMode) scheduleSyncRecordingToBackground();
+  }
+
+  /* ── DeFi field value extraction from DOM ── */
+  /* Reads token symbols, pool IDs, mint addresses, and token pair names from
+     the current page DOM. Attached to recorded actions as _defiFieldHints so
+     the analyzer can pre-fill API step fields during auto-replace. */
+
+  function _cfsExtractDefiFieldHints(hint) {
+    var hints = {};
+    var url = window.location.href;
+
+    /* Extract mint / pool ID from URL path segments */
+    try {
+      var pathname = new URL(url).pathname;
+      /* Pump.fun: /coin/<mint> */
+      if (hint.platform === 'Pump.fun') {
+        var coinMatch = pathname.match(/\/coin\/([A-Za-z0-9]{32,})/);
+        if (coinMatch) hints.mint = coinMatch[1];
+      }
+      /* Raydium: pool IDs in /swap/<poolId>, /liquidity/<poolId>, /clmm/<poolId> */
+      if (hint.platform === 'Raydium') {
+        var poolMatch = pathname.match(/\/(swap|liquidity|clmm)\/([A-Za-z0-9]{20,})/);
+        if (poolMatch) hints.poolId = poolMatch[2];
+      }
+      /* Meteora: /pools/<poolId> or /dlmm/<poolId> */
+      if (hint.platform === 'Meteora') {
+        var meteoraMatch = pathname.match(/\/(pools?|dlmm)\/([A-Za-z0-9]{20,})/);
+        if (meteoraMatch) hints.poolId = meteoraMatch[2];
+      }
+    } catch (_) {}
+
+    /* Extract token symbols from common UI patterns */
+    try {
+      /* Look for token selector buttons (often have data-token, data-symbol, or show a symbol) */
+      var tokenEls = document.querySelectorAll(
+        '[data-token-symbol], [data-symbol], [data-mint], ' +
+        'button[class*="token"] span, ' +
+        '[class*="token-select"] span, ' +
+        '[class*="TokenSelect"] span'
+      );
+      var symbols = [];
+      for (var i = 0; i < tokenEls.length && i < 10; i++) {
+        var sym = tokenEls[i].getAttribute('data-token-symbol') ||
+                  tokenEls[i].getAttribute('data-symbol') ||
+                  (tokenEls[i].textContent || '').trim();
+        if (sym && sym.length <= 12 && /^[A-Z0-9]+$/i.test(sym)) {
+          symbols.push(sym.toUpperCase());
+        }
+        var mintAttr = tokenEls[i].getAttribute('data-mint');
+        if (mintAttr && mintAttr.length >= 32) {
+          if (!hints.inputMint && symbols.length <= 1) hints.inputMint = mintAttr;
+          else if (!hints.outputMint) hints.outputMint = mintAttr;
+        }
+      }
+      /* Dedupe */
+      var seen = {};
+      symbols = symbols.filter(function (s) { return seen[s] ? false : (seen[s] = true); });
+      if (symbols.length >= 1) hints.tokenA = symbols[0];
+      if (symbols.length >= 2) hints.tokenB = symbols[1];
+    } catch (_) {}
+
+    /* Extract swap/amount input values if visible */
+    try {
+      var amountInputs = document.querySelectorAll(
+        'input[class*="amount"], input[class*="swap-input"], ' +
+        'input[placeholder*="0.0"], input[placeholder*="Amount"], ' +
+        'input[data-testid*="amount"], input[aria-label*="amount" i]'
+      );
+      for (var j = 0; j < amountInputs.length && j < 2; j++) {
+        var val = (amountInputs[j].value || '').trim();
+        if (val && !isNaN(parseFloat(val))) {
+          if (!hints.amountIn && j === 0) hints.amountIn = val;
+          else if (!hints.amountOut) hints.amountOut = val;
+        }
+      }
+    } catch (_) {}
+
+    /* Extract token pair from page title (common pattern: "SOL/USDC" or "Swap SOL to USDC") */
+    try {
+      var title = document.title || '';
+      var pairMatch = title.match(/([A-Z0-9]{2,10})\s*[\/\-→]\s*([A-Z0-9]{2,10})/i);
+      if (pairMatch) {
+        if (!hints.tokenA) hints.tokenA = pairMatch[1].toUpperCase();
+        if (!hints.tokenB) hints.tokenB = pairMatch[2].toUpperCase();
+      }
+    } catch (_) {}
+
+    return Object.keys(hints).length > 0 ? hints : null;
   }
 
   window.__CFS_recorderFlushSyncNow = function() {
@@ -861,6 +1065,7 @@
       setupListeners();
       lastPageState = null;
       startMutationObserver();
+      _cfsShowRecordingHintBadge();
       setTimeout(() => {
         runStartState = capturePageState();
         lastPageState = capturePageChangeSnapshot();
@@ -870,6 +1075,7 @@
       return true;
     }
     if (msg.type === 'RECORDER_STOP') {
+      _cfsRemoveRecordingHintBadge();
       sendResponse(finalizeRecordingSession());
       return true;
     }

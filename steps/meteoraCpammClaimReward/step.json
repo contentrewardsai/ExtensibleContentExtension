@@ -2,7 +2,7 @@
   "id": "meteoraCpammClaimReward",
   "label": "Meteora CP-AMM claim incentive",
   "category": "data",
-  "description": "Claim **pool incentive / farming** rewards for a CP-AMM position (separate from trading **fees** — use **meteoraCpammClaimFees** for those). **rewardIndex** is `0` or `1` per pool layout. Fails if that reward slot is inactive. Optional **isSkipReward** matches the SDK flag. Rebuild: `npm run build:meteora-cpamm`.",
+  "description": "Claim **pool incentive / farming** rewards for a CP-AMM position (separate from trading **fees** \u2014 use **meteoraCpammClaimFees** for those). **rewardIndex** is `0` or `1` per pool layout. Fails if that reward slot is inactive. Optional **isSkipReward** matches the SDK flag. Rebuild: `npm run build:meteora-cpamm`.",
   "defaultAction": {
     "type": "meteoraCpammClaimReward",
     "runIf": "",
@@ -20,21 +20,88 @@
     "saveExplorerUrlVariable": "solanaExplorerUrl"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "pool", "label": "Pool address (optional)", "inputType": "text" },
-    { "key": "position", "label": "Position account address", "inputType": "text" },
-    { "key": "rewardIndex", "label": "Reward index (0 or 1)", "inputType": "number" },
-    { "key": "isSkipReward", "label": "Skip reward flag (SDK)", "inputType": "checkbox" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "computeUnitLimit", "label": "Compute unit limit (optional)", "inputType": "text", "placeholder": "e.g. 400000" },
-    { "key": "computeUnitPriceMicroLamports", "label": "Priority: micro-lamports per CU (optional)", "inputType": "text", "placeholder": "e.g. 50000" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "pool",
+      "label": "Pool address (optional)",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_METEORA_POOL_SEARCH",
+      "poolSearchDeps": [
+        "inputMint",
+        "outputMint"
+      ],
+      "placeholder": "Paste pool address or search by token pair"
+    },
+    {
+      "key": "position",
+      "label": "Position account address",
+      "inputType": "text"
+    },
+    {
+      "key": "rewardIndex",
+      "label": "Reward index (0 or 1)",
+      "inputType": "number"
+    },
+    {
+      "key": "isSkipReward",
+      "label": "Skip reward flag (SDK)",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "computeUnitLimit",
+      "label": "Compute unit limit (optional)",
+      "inputType": "text",
+      "placeholder": "e.g. 400000"
+    },
+    {
+      "key": "computeUnitPriceMicroLamports",
+      "label": "Priority: micro-lamports per CU (optional)",
+      "inputType": "text",
+      "placeholder": "e.g. 50000"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save tx signature",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL",
+      "inputType": "text"
+    }
   ]
 }

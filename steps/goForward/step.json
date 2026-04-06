@@ -1,0 +1,10 @@
+{
+  "id": "goForward",
+  "label": "Go forward",
+  "category": "flow",
+  "description": "Navigate the browser forward one page in session history (equivalent to clicking the browser's Forward button).",
+  "defaultAction": {
+    "type": "goForward"
+  },
+  "formSchema": []
+}

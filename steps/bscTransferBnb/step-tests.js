@@ -47,5 +47,24 @@
       runner.assertEqual(p.to, '0xdef0000000000000000000000000000000000002');
       runner.assertEqual(p.ethWei, '1000');
     }},
+    { name: 'buildPayload missing to yields empty string', fn: function() {
+      var p = buildPayload({ ethWei: '100' }, {}, getRowValue);
+      runner.assertEqual(p.to, '');
+      runner.assertEqual(p.operation, 'transferNative');
+    }},
+    { name: 'buildPayload missing ethWei yields empty string', fn: function() {
+      var p = buildPayload({ to: '0xabc0000000000000000000000000000000000001' }, {}, getRowValue);
+      runner.assertEqual(p.ethWei, '');
+    }},
+    { name: 'buildPayload deadline and gasLimit empty by default', fn: function() {
+      var p = buildPayload({ to: '0xabc', ethWei: '1' }, {}, getRowValue);
+      runner.assertEqual(p.deadline, '');
+      runner.assertEqual(p.gasLimit, '');
+    }},
+    { name: 'buildPayload deadline from template', fn: function() {
+      var row = { dl: '300' };
+      var p = buildPayload({ to: '0xabc', ethWei: '1', deadline: '{{dl}}' }, row, getRowValue);
+      runner.assertEqual(p.deadline, '300');
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

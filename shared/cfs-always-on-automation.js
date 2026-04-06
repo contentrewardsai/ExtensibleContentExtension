@@ -52,6 +52,9 @@
       followingBscWatch: false,
       followingAutomationSolana: false,
       followingAutomationBsc: false,
+      fileWatch: false,
+      priceRangeWatch: false,
+      custom: false,
     };
     var w = stored[WORKFLOWS_KEY];
     if (!w || typeof w !== 'object' || Array.isArray(w)) return out;
@@ -92,6 +95,10 @@
           out.followingBscWatch = true;
         }
       }
+      // New universal scopes (no conditions gating — purely opt-in)
+      if (sc.fileWatch) out.fileWatch = true;
+      if (sc.priceRangeWatch) out.priceRangeWatch = true;
+      if (sc.custom) out.custom = true;
     }
     return out;
   }
@@ -115,6 +122,9 @@
         allowBscWatch: false,
         allowFollowingAutomationSolana: false,
         allowFollowingAutomationBsc: false,
+        allowFileWatch: false,
+        allowPriceRangeWatch: false,
+        allowCustom: false,
       };
     }
     if (!anyWorkflowHasAlwaysOnEnabled(stored)) {
@@ -129,12 +139,18 @@
         allowBscWatch: needCrypto,
         allowFollowingAutomationSolana: needCrypto,
         allowFollowingAutomationBsc: needCrypto,
+        allowFileWatch: false,
+        allowPriceRangeWatch: false,
+        allowCustom: false,
       };
     }
     var merged = mergeAlwaysOnScopes(stored);
     var allowSol = !!(merged.followingSolanaWatch || merged.followingAutomationSolana);
     var allowBsc = !!(merged.followingBscWatch || merged.followingAutomationBsc);
-    if (!allowSol && !allowBsc) {
+    var allowFile = !!merged.fileWatch;
+    var allowPrice = !!merged.priceRangeWatch;
+    var allowCustom = !!merged.custom;
+    if (!allowSol && !allowBsc && !allowFile && !allowPrice && !allowCustom) {
       return {
         reason: 'no_always_on_workflow',
         legacy: false,
@@ -142,6 +158,9 @@
         allowBscWatch: false,
         allowFollowingAutomationSolana: false,
         allowFollowingAutomationBsc: false,
+        allowFileWatch: false,
+        allowPriceRangeWatch: false,
+        allowCustom: false,
       };
     }
     return {
@@ -151,9 +170,13 @@
       allowBscWatch: allowBsc,
       allowFollowingAutomationSolana: !!(allowSol && merged.followingAutomationSolana),
       allowFollowingAutomationBsc: !!(allowBsc && merged.followingAutomationBsc),
+      allowFileWatch: allowFile,
+      allowPriceRangeWatch: allowPrice,
+      allowCustom: allowCustom,
     };
   }
 
   global.__CFS_evaluateFollowingAutomation = evaluateFollowingAutomation;
+  global.__CFS_evaluateAlwaysOnAutomation = evaluateFollowingAutomation; // unified alias
   global.__CFS_hasAnyWorkflowsForGate = hasAnyWorkflows;
 })(typeof self !== 'undefined' ? self : globalThis);
