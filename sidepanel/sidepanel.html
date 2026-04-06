@@ -19,7 +19,8 @@
           <button type="button" id="downloadLaminiBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusLoggedOut" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="reloadExtensionBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (chrome.runtime.reload). Rebuilds manifests only if a project folder is set; otherwise reloads code only. Use a normal webpage to record, not chrome://.">Reload Extension</button>
-          <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Open settings, API keys, and tests">Settings</button>
+          <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
+          <button type="button" id="unitTestsPageBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-unit-tests" title="Open test/unit-tests.html: Run crypto tests, full unit suite, E2E checklist">Unit tests</button>
         </div>
       </div>
       <div id="authLoggedIn" class="auth-logged-in" style="display:none">
@@ -33,7 +34,8 @@
           <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root (ideally your extension folder for Load unpacked); workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
           <button type="button" id="downloadLaminiBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
-          <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Open settings, API keys, and tests">Settings</button>
+          <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
+          <button type="button" id="unitTestsPageBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-unit-tests" title="Open test/unit-tests.html: Run crypto tests, full unit suite, E2E checklist">Unit tests</button>
         </div>
         <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Set your project folder so we can read and write workflows, steps, and plugins. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there and new steps/plugins load on reload. You can also choose another folder; we'll import what we can from it.</p>
         <div class="sidebar-name-row form-row">
@@ -69,6 +71,17 @@
           <label class="add-project-platforms-heading">What are you selling?</label>
           <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Select one or more.</p>
           <div id="newProjectMonetizationCheckboxes" class="get-started-checkbox-group"></div>
+        </div>
+        <div id="projectDefaultsSection" class="add-project-defaults" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-color,#e5e5e7);">
+          <label class="add-project-platforms-heading">Project defaults</label>
+          <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Stored in <code>uploads/{projectId}/source/defaults.json</code>. Used by workflows and the media import pipeline.</p>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultDescription" style="min-width:80px;font-size:12px;">Description</label><input type="text" id="projectDefaultDescription" placeholder="Short project description" style="flex:1;min-width:0;"></div>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultColorPrimary" style="min-width:80px;font-size:12px;">Primary color</label><input type="color" id="projectDefaultColorPrimary" value="#4285F4" style="width:40px;height:28px;border:none;padding:0;cursor:pointer;"><input type="text" id="projectDefaultColorPrimaryHex" placeholder="#4285F4" style="flex:1;max-width:90px;font-size:12px;"></div>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultColorSecondary" style="min-width:80px;font-size:12px;">Secondary</label><input type="color" id="projectDefaultColorSecondary" value="#34A853" style="width:40px;height:28px;border:none;padding:0;cursor:pointer;"><input type="text" id="projectDefaultColorSecondaryHex" placeholder="#34A853" style="flex:1;max-width:90px;font-size:12px;"></div>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultLogoDark" style="min-width:80px;font-size:12px;">Logo (dark)</label><select id="projectDefaultLogoDark" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><button type="button" class="btn btn-outline btn-small" id="projectDefaultLogoDarkUpload" title="Upload a logo file to source/logos/" style="margin-left:4px;font-size:11px;">Upload</button></div>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultLogoLight" style="min-width:80px;font-size:12px;">Logo (light)</label><select id="projectDefaultLogoLight" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><button type="button" class="btn btn-outline btn-small" id="projectDefaultLogoLightUpload" title="Upload a logo file to source/logos/" style="margin-left:4px;font-size:11px;">Upload</button></div>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultProfileId" style="min-width:80px;font-size:12px;">Default profile</label><select id="projectDefaultProfileId" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><span id="projectDefaultProfileRefreshBtn" class="hint" style="cursor:pointer;margin-left:4px;font-size:11px;text-decoration:underline;" title="Refresh profile list">↻</span></div>
+          <p id="projectDefaultsStatus" class="hint" style="margin:4px 0 0 0;font-size:11px;display:none;" aria-live="polite"></p>
         </div>
         <div class="add-project-form-actions">
           <button type="button" id="saveNewProjectBtn" class="btn btn-primary">Save</button>
@@ -152,7 +165,7 @@
       </div>
       <div class="pulse-watch-section" id="pulseWatchSection">
         <div class="pulse-watch-heading-row">
-          <h3 class="activity-heading">Crypto Activity</h3>
+          <h3 class="activity-heading">Always-On Activity</h3>
           <div class="pulse-watch-toolbar">
             <button type="button" id="pulseWatchRefreshBtn" class="btn btn-outline btn-small">Refresh poll</button>
             <button type="button" id="pulseWatchClearActivityBtn" class="btn btn-outline btn-small">Clear activity</button>
@@ -163,6 +176,16 @@
         <p id="pulseWatchLastPollLine" class="hint pulse-watch-last-poll" hidden></p>
         <p id="pulseWatchBundleLine" class="hint pulse-watch-last-poll" hidden></p>
         <div id="pulseWatchActivityList" class="pulse-watch-activity-list" aria-live="polite"></div>
+      </div>
+      <div class="defi-positions-section" id="defiPositionsSection" style="display:none">
+        <div class="pulse-watch-heading-row">
+          <h3 class="activity-heading">DeFi Positions</h3>
+          <div class="pulse-watch-toolbar">
+            <button type="button" id="defiPositionsRefreshBtn" class="btn btn-outline btn-small">Refresh</button>
+          </div>
+        </div>
+        <p id="defiPositionsStatus" class="hint" style="display:none"></p>
+        <div id="defiPositionsList" class="defi-positions-list" aria-live="polite"></div>
       </div>
       </div>
     </section>
@@ -374,6 +397,12 @@
             <label>Timezone (optional, for display)</label>
             <input type="text" id="scheduleRunOnceTz" placeholder="America/New_York">
           </div>
+          <div id="scheduleWalletRow" class="step-field" style="display:none">
+            <label for="scheduleCryptoWallet">Crypto wallet</label>
+            <select id="scheduleCryptoWallet" title="Which wallet to use for DeFi steps in this scheduled run">
+              <option value="">— Primary (default) —</option>
+            </select>
+          </div>
           <p class="hint">Scheduled runs appear under Activity → Upcoming. One-time runs at the set date/time; recurring runs at the set time (in that timezone) per pattern, or <strong>Every N minutes</strong> (checked on ~1-minute alarm ticks). Row data is stored with each schedule.</p>
           <button type="button" id="scheduleRunSubmit" class="btn btn-primary">Add to schedule</button>
           <button type="button" id="scheduleRunCancel" class="btn btn-outline">Cancel</button>
@@ -391,6 +420,13 @@
           <input type="number" id="batchDelayMs" value="30000" min="0" style="width:80px" title="Milliseconds between each row (e.g. 30000 = 30 seconds)">
           <div class="batch-config-row">
             <label><input type="checkbox" id="batchStopOnError" checked> Stop on first error</label>
+          </div>
+          <div class="batch-config-row" id="batchWalletRow" style="display:none">
+            <label for="batchCryptoWallet">Crypto wallet:</label>
+            <select id="batchCryptoWallet" title="Which wallet to use for DeFi steps during this batch run">
+              <option value="">— Primary (default) —</option>
+            </select>
+            <span class="hint" style="font-size:10px;margin-left:4px;">For walletApprove and crypto steps</span>
           </div>
         </div>
         </div>
@@ -753,6 +789,10 @@
   <script src="../shared/plan-capture-idb.js"></script>
   <script src="../shared/download-xenova-lamini.js"></script>
   <script src="../shared/github-extension-update.js"></script>
+  <script src="../shared/defi-action-patterns.js"></script>
+  <script src="../shared/social-action-patterns.js"></script>
+  <script src="../shared/data-action-patterns.js"></script>
+  <script src="../shared/action-patterns-registry.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

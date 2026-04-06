@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Extensible Content – MCP Relay</title>
+  <style>
+    :root {
+      --bg: #18181b; --fg: #e4e4e7; --border: #3f3f46;
+      --success: #4ade80; --error: #f87171; --muted: #a1a1aa;
+    }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); padding: 24px; }
+    .status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.connected { background: var(--success); }
+    .dot.disconnected { background: var(--error); }
+    .log { margin-top: 16px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted);
+           max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    h2 { font-size: 16px; margin: 0 0 12px 0; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>MCP Relay</h2>
+  <div class="status">
+    <span class="dot disconnected" id="statusDot"></span>
+    <span id="statusText">Connecting…</span>
+  </div>
+  <p class="hint">This page bridges the MCP server to the Chrome extension. Keep it open while using MCP tools.</p>
+  <div class="log" id="log"></div>
+
+  <script src="mcp-relay.js"></script>
+</body>
+</html>

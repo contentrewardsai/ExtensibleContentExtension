@@ -1,0 +1,66 @@
+{
+  "env": {
+    "browser": true,
+    "es2020": true
+  },
+  "globals": {
+    "chrome": "readonly",
+    "importScripts": "readonly",
+    "globalThis": "readonly",
+    "CFS_selectors": "readonly",
+    "CFS_templateResolver": "readonly",
+    "CFS_runIfCondition": "readonly",
+    "CFS_rowListNormalize": "readonly",
+    "CFS_projectIdResolve": "readonly",
+    "CFS_personalInfoSync": "readonly",
+    "CFS_selectorParity": "readonly",
+    "CFS_stepValidator": "readonly",
+    "CFS_stepComment": "readonly",
+    "CFS_unitTestRunner": "readonly",
+    "CFS_walkthroughExport": "readonly",
+    "CFS_recordingValue": "readonly",
+    "CFS_apifyParseDatasetItemsResponse": "readonly",
+    "CFS_apifyRunQueryParamsValidationError": "readonly",
+    "CFS_apifyExtractRunId": "readonly",
+    "CFS_remoteLlm": "readonly",
+    "CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES": "readonly",
+    "CFS_infiBinPathJsonShape": "readonly",
+    "mergeSelectors": "readonly",
+    "mergeFallbackTexts": "readonly",
+    "analyzeRuns": "readonly",
+    "actionSimilarity": "readonly",
+    "normalStepType": "readonly",
+    "urlToCaptureContext": "readonly"
+  },
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "script"
+  },
+  "rules": {
+    "no-undef": "warn",
+    "no-unused-vars": ["warn", { "args": "none", "varsIgnorePattern": "^_" }],
+    "no-redeclare": "error",
+    "no-dupe-keys": "error",
+    "no-duplicate-case": "error",
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "no-extra-semi": "warn",
+    "no-unreachable": "warn",
+    "eqeqeq": "off",
+    "no-eval": "warn",
+    "no-implied-eval": "warn",
+    "no-new-func": "off",
+    "no-throw-literal": "warn",
+    "no-self-compare": "error",
+    "no-constant-condition": ["warn", { "checkLoops": false }],
+    "valid-typeof": "error"
+  },
+  "ignorePatterns": [
+    "background/*.bundle.js",
+    "node_modules/",
+    "test/",
+    "generator/",
+    "steps/",
+    "sidepanel/",
+    "settings/"
+  ]
+}

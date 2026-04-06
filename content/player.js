@@ -13,6 +13,7 @@
   let currentRowIndex = 0;
   let actionIndex = 0;
   let manualProceedResolver = null;
+  let currentCryptoWalletId = '';
 
   function formatErr(err) {
     return err?.message || String(err);
@@ -69,6 +70,7 @@
       currentWorkflow = { ...w, actions: w.actions || w.analyzed?.actions || [] };
       currentRow = msg.row || {};
       currentRowIndex = msg.rowIndex != null ? Number(msg.rowIndex) : 0;
+      currentCryptoWalletId = msg.cryptoWalletId || '';
       actionIndex = Math.max(0, parseInt(msg.startIndex, 10) || 0);
       executeNext(safeSend).catch(err => safeSend({ ok: false, error: err?.message || String(err), actionIndex, rowFailureAction: err?.rowFailureAction }));
       return true;
@@ -821,6 +823,41 @@
   /** Loader fetches manifest + injects many handler files via background; 3s was too tight on cold SW / large registries. */
   const STEP_HANDLERS_READY_TIMEOUT_MS = 25000;
 
+  /* ── Fallback eligibility: pattern-match error messages ── */
+  /* Errors that indicate the API step can't run but the UI path might work. */
+  const _FB_ELIGIBLE_PATTERNS = [
+    /wallet.*not\s*(configured|found|set)/i,
+    /no\s*(solana|bsc|evm)\s*wallet/i,
+    /api\s*key\s*(not|missing|invalid|required)/i,
+    /unauthorized|token\s*expired|auth.*fail/i,
+    /rate\s*limit|too\s*many\s*requests|429/i,
+    /network\s*error|econnrefused|fetch\s*fail|503|502|504/i,
+    /backend.*unreachable|api.*down|service.*unavailable/i,
+    /credits?\s*(exhausted|insufficient|expired|ran\s*out)/i,
+    /required\s*field.*empty/i,
+    /profile.*not\s*found|no\s*upload.*profile/i,
+  ];
+  /* Errors that should NOT trigger fallback (would fail in UI too). */
+  const _FB_EXCLUDE_PATTERNS = [
+    /insufficient\s*(sol|bnb|funds|balance)/i,
+    /simulation\s*fail/i,
+    /transaction\s*fail/i,
+    /slippage/i,
+    /tab.*closed|disconnected/i,
+  ];
+  function _isFallbackEligible(err, action) {
+    if (!action?._autoReplaced || !action._fallbackActions?.length) return false;
+    const msg = (err?.message || '').toLowerCase();
+    if (!msg) return false;
+    for (let i = 0; i < _FB_EXCLUDE_PATTERNS.length; i++) {
+      if (_FB_EXCLUDE_PATTERNS[i].test(msg)) return false;
+    }
+    for (let i = 0; i < _FB_ELIGIBLE_PATTERNS.length; i++) {
+      if (_FB_ELIGIBLE_PATTERNS[i].test(msg)) return true;
+    }
+    return false;
+  }
+
   async function executeNext(sendResponse) {
     if (!isPlaying || !currentWorkflow?.actions) {
       sendResponse?.({ ok: true, done: true });
@@ -1004,6 +1041,47 @@
           actionIndex++;
           continue;
         }
+
+        /* ── Fallback: try recorded steps if API step failed with eligible error ── */
+        const _fbEligible = err?.fallbackEligible || _isFallbackEligible(err, action);
+        if (_fbEligible && action._fallbackActions?.length && action.fallbackMode !== 'never') {
+          const fallbackUrl = action._fallbackStartUrl || '';
+          const currentUrl = window.location.href || '';
+          const sameOrigin = fallbackUrl && currentUrl && (new URL(fallbackUrl).origin === new URL(currentUrl).origin);
+
+          if (fallbackUrl && !sameOrigin) {
+            /* Need to navigate to the fallback URL first — signal sidepanel */
+            sendResponse?.({
+              ok: true,
+              navigate: true,
+              url: fallbackUrl,
+              nextStepIndex: actionIndex,
+              _useFallback: true,
+              _fallbackActions: action._fallbackActions,
+              _fallbackError: formatErr(err),
+            });
+            return;
+          }
+
+          /* Already on the right page (or same origin) — run fallback inline */
+          try {
+            await runWorkflowActions(action._fallbackActions, currentRow || {});
+            actionIndex++;
+            continue;
+          } catch (fallbackErr) {
+            /* Fallback also failed — report both errors */
+            const rowFailureAction = (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || 'stop';
+            sendResponse?.({
+              ok: false,
+              error: formatErr(err) + ' — fallback also failed: ' + formatErr(fallbackErr),
+              actionIndex,
+              rowFailureAction,
+              _fallbackAttempted: true,
+            });
+            return;
+          }
+        }
+
         const recovered = await tryRecoverByReplayingPriorSteps(actions, actionIndex, err);
         if (recovered) {
           continue;
@@ -2095,11 +2173,16 @@
       executeEnsureSelect,
       captureAudioFromElement: typeof captureAudioFromElement === 'function' ? captureAudioFromElement : null,
       sendMessage: (payload) => new Promise((resolve) => {
-        chrome.runtime.sendMessage(payload, (res) => {
+        /* Auto-inject cryptoWalletId into crypto-related service worker messages */
+        const p = (currentCryptoWalletId && payload && typeof payload === 'object' && !payload.walletId)
+          ? { ...payload, walletId: currentCryptoWalletId }
+          : payload;
+        chrome.runtime.sendMessage(p, (res) => {
           if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
           else resolve(res != null ? res : { ok: false, error: 'No response' });
         });
       }),
+      cryptoWalletId: currentCryptoWalletId || '',
     };
   }
 

@@ -1,0 +1,23 @@
+{
+  "id": "jupiterTokenSearch",
+  "label": "Jupiter Token Search",
+  "category": "data",
+  "description": "Search SPL token metadata via Jupiter Tokens API V2. Returns name, symbol, mint, decimals, verification status, organic score, holder count, market cap, and trading stats. No wallet required — read-only.",
+  "defaultAction": {
+    "type": "jupiterTokenSearch",
+    "runIf": "",
+    "query": "",
+    "verifiedOnly": false,
+    "saveTokenInfoVariable": "jupiterTokenInfo",
+    "saveMintVariable": "",
+    "saveDecimalsVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "query", "label": "Search query (name, symbol, or mint)", "inputType": "text", "placeholder": "SOL or {{tokenSymbol}}" },
+    { "key": "verifiedOnly", "label": "Verified tokens only", "inputType": "checkbox" },
+    { "key": "saveTokenInfoVariable", "label": "Save token info (JSON) to variable", "inputType": "text", "placeholder": "jupiterTokenInfo" },
+    { "key": "saveMintVariable", "label": "Save first mint to variable (optional)", "inputType": "text" },
+    { "key": "saveDecimalsVariable", "label": "Save decimals to variable (optional)", "inputType": "text" }
+  ]
+}

@@ -64,6 +64,8 @@
         '<div class="step-field"><label>Priority fee (micro-lamports/CU)</label><input type="text" data-field="computeUnitPriceMicroLamports" data-step="' + i + '" value="' + escapeHtml(cuPrice) + '" placeholder="50000"></div>' +
         '<div class="step-field"><label>Save signature to variable</label><input type="text" data-field="saveSignatureVariable" data-step="' + i + '" value="' + escapeHtml(saveSig) + '"></div>' +
         '<div class="step-field"><label>Save explorer URL to variable</label><input type="text" data-field="saveExplorerUrlVariable" data-step="' + i + '" value="' + escapeHtml(saveExp) + '"></div>' +
+        '<div class="step-field"><button type="button" class="btn btn-outline btn-small" data-cfs-devnet-test="solanaTransferSol" data-testid="cfs-step-solana-transfer-devnet-test" data-step="' + i + '">Test on devnet (1 lamport)</button>' +
+        '<span class="step-hint" style="margin-left:8px;">Automation wallet; confirm in dialog.</span></div>' +
         '<div class="step-actions"><button class="btn btn-primary" data-save-step="' + i + '">Save</button></div>';
 
       return window.__CFS_buildStepItemShell('solanaTransferSol', action, i, totalCount, helpers, body);

@@ -2,7 +2,7 @@
   "id": "raydiumClmmCollectRewards",
   "label": "Raydium CLMM collect rewards (batch)",
   "category": "data",
-  "description": "Runs **`collectReward` once per mint** for the same **pool** — **rewardMints** is comma-, space-, or semicolon-separated base58 mints (deduplicated). Each mint is a separate transaction (atomic per reward). On success, **saveSignatureVariable** / **saveExplorerUrlVariable** store the **last** tx; optional **saveSignaturesListVariable** stores all signatures comma-separated. Stops on first failure (earlier txs are already confirmed).",
+  "description": "Runs **`collectReward` once per mint** for the same **pool** \u2014 **rewardMints** is comma-, space-, or semicolon-separated base58 mints (deduplicated). Each mint is a separate transaction (atomic per reward). On success, **saveSignatureVariable** / **saveExplorerUrlVariable** store the **last** tx; optional **saveSignaturesListVariable** stores all signatures comma-separated. Stops on first failure (earlier txs are already confirmed).",
   "defaultAction": {
     "type": "raydiumClmmCollectRewards",
     "runIf": "",
@@ -17,18 +17,68 @@
     "saveSignaturesListVariable": ""
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "poolId", "label": "Pool id", "inputType": "text" },
-    { "key": "rewardMints", "label": "Reward mints (separated list)", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save last signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save last explorer URL variable", "inputType": "text" },
-    { "key": "saveSignaturesListVariable", "label": "Save all signatures (optional)", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste pool ID or search"
+    },
+    {
+      "key": "rewardMints",
+      "label": "Reward mints (separated list)",
+      "inputType": "text"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save last signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save last explorer URL variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveSignaturesListVariable",
+      "label": "Save all signatures (optional)",
+      "inputType": "text"
+    }
   ]
 }

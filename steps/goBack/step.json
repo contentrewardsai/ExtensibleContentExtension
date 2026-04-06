@@ -1,0 +1,10 @@
+{
+  "id": "goBack",
+  "label": "Go back",
+  "category": "flow",
+  "description": "Navigate the browser back one page in session history (equivalent to clicking the browser's Back button).",
+  "defaultAction": {
+    "type": "goBack"
+  },
+  "formSchema": []
+}

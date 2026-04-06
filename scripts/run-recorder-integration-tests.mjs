@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const html = path.resolve(root, 'test/recorder-stop-typing.html');
 
-const CASES = ['debounce', 'stable', 'enter', 'contenteditable'];
+const CASES = ['debounce', 'stable', 'enter', 'contenteditable', 'scroll', 'select', 'dragdrop', 'linknav'];
 
 const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
 const errors = [];

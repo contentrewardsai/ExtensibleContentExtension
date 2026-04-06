@@ -8,10 +8,13 @@ Layered approach (unit → optional RPC smoke → local fork → devnet → cana
 
 - **[CRYPTO_TEST_STRATEGY.md](./CRYPTO_TEST_STRATEGY.md)**
 - **[CRYPTO_TEST_MATRIX.md](./CRYPTO_TEST_MATRIX.md)** — run `npm run report:crypto-matrix` after changing `shared/crypto-workflow-step-ids.js`
+- **[CRYPTO_MATRIX_VS_EXEC.md](./CRYPTO_MATRIX_VS_EXEC.md)** — `npm run report:crypto-matrix-vs-exec` (handler `CFS_*` vs opt-in E2E / `devnet-smoke.js`)
+- **[CRYPTO_DEVNET_STEP_SMOKE.md](./CRYPTO_DEVNET_STEP_SMOKE.md)** — optional `steps/{id}/devnet-smoke.js` + side panel **Test on devnet**
 - **[CRYPTO_CANARY_CHECKLIST.md](./CRYPTO_CANARY_CHECKLIST.md)** — manual L5 smoke after releases
 - **`npm run test:crypto`** — static crypto checks (matrix, smoke addr sync, Pancake doc pins, manifest hosts, wiring)
 - **[CRYPTO_TESTING_QUICKREF.md](./CRYPTO_TESTING_QUICKREF.md)** — one-page command table
-- **Playwright crypto E2E (opt-in):** `npm run test:e2e:crypto` with **`E2E_CRYPTO=1`** — loads the unpacked extension and exercises **`CFS_SOLANA_RPC_READ`**, **`CFS_BSC_QUERY`** (incl. **`blockByTag`**), watch activity (**`CFS_*_WATCH_GET_ACTIVITY`**), **`CFS_FOLLOWING_AUTOMATION_STATUS`**, **`CFS_PERPS_AUTOMATION_STATUS`**, optional **`CFS_JUPITER_PERPS_MARKETS`** (if **`E2E_CRYPTO_JUPITER_API_KEY`** or HTTP smoke Jupiter secret is set), **`CFS_ASTER_FUTURES`** (futures + spot public incl. **`exchangeInfo`**), **`CFS_RUGCHECK_TOKEN_REPORT`** (see **`test/e2e/crypto-e2e-playwright.spec.mjs`**). Set **`SOLANA_RPC_SMOKE_URL`** / **`BSC_RPC_SMOKE_URL`** (or **`E2E_CRYPTO_*_RPC_URL`**) for on-chain reads. Optional CI: **`E2E_CRYPTO_PLAYWRIGHT`** + RPC secrets — job **`optional-e2e-crypto-playwright`**.
+- **Playwright crypto E2E (opt-in):** `npm run test:e2e:crypto` with **`E2E_CRYPTO=1`** — loads the unpacked extension and exercises **`CFS_SOLANA_RPC_READ`**, **`CFS_BSC_QUERY`** (incl. **`blockByTag`**), watch activity (**`CFS_*_WATCH_GET_ACTIVITY`**), **`CFS_FOLLOWING_AUTOMATION_STATUS`**, **`CFS_PERPS_AUTOMATION_STATUS`**, optional **`CFS_JUPITER_PERPS_MARKETS`** (if **`E2E_CRYPTO_JUPITER_API_KEY`** or HTTP smoke Jupiter secret is set), **`CFS_ASTER_FUTURES`** (futures + spot public incl. **`exchangeInfo`**), **`CFS_RUGCHECK_TOKEN_REPORT`** (see **`test/e2e/crypto-e2e-playwright.spec.mjs`**). Set **`SOLANA_RPC_SMOKE_URL`** / **`BSC_RPC_SMOKE_URL`** (or **`E2E_CRYPTO_*_RPC_URL`**) for on-chain reads. With **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`**, **`beforeAll`** calls **`ensureCryptoTestWallets`** and **throws** if the result is not **`ok`** (no silent warning). With **`E2E_CRYPTO_SIGNED_DEVNET_SMOKE=1`** (and ensure enabled), one opt-in **devnet** signed **`CFS_SOLANA_TRANSFER_SOL`** self-transfer runs; optional **`E2E_CRYPTO_DEVNET_RPC_URL`** (default **`https://api.devnet.solana.com`**). Further opt-in: **`E2E_CRYPTO_DEVNET_SIGNED_FAMILY=1`** (serial wrap / SPL / unwrap), **`E2E_CRYPTO_NEGATIVE_PATH=1`** (validation **`ok: false`**), **`E2E_ENSURE_CHAPEL_FUNDED=1`** (Chapel native balance must be > 0), **`E2E_CRYPTO_BSC_FORK_RPC_URL`** (Anvil BSC fork + **`v2FactoryGetPair`**). Optional CI: **`E2E_CRYPTO_PLAYWRIGHT`** + RPC secrets — job **`optional-e2e-crypto-playwright`**; see **[CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md)** for **`E2E_CRYPTO_*`** repository secrets.
+- **Crypto test wallets (devnet / Chapel):** Service worker message **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** creates or reuses labeled **Crypto test (devnet/Chapel)** entries in **`cfs_solana_wallets_v2`** / **`cfs_bsc_wallets_v2`**, sets Solana cluster to **devnet** and BSC global settings to **Chapel (97)**, sets those wallets as Primary, then requests test tokens (Solana devnet airdrop; BSC public faucet best-effort — often needs manual **[BNB Chain testnet faucet](https://www.bnbchain.org/en/testnet-faucet)**). Markers: **`cfs_solana_practice_wallet_id`**, **`cfs_bsc_practice_wallet_id`**. Payload flags: **`fundOnly: true`** — airdrop/faucet only (existing test wallets required); **`replaceExisting: true`** — remove labeled test wallets then run a full ensure (new keys). **Do not** combine **`fundOnly`** and **`replaceExisting`** in one message (the service worker rejects it). In **`test/unit-tests.html`**, use **Run crypto tests** (after consent) to run ensure then only crypto/Pulse/watch **`step-tests.js`**. **Settings → Crypto test wallets** offers ensure, **Request test tokens again** (`fundOnly`), and **Replace crypto test wallets** (`replaceExisting`). Playwright **`ensureCryptoTestWallets`** accepts the same options. Playwright: **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`** with **`E2E_CRYPTO=1`** invokes ensure in **`test/e2e/crypto-e2e-playwright.spec.mjs`** `beforeAll` (overrides saved cluster/RPC for automation — individual tests may still pass explicit RPC URLs). **`E2E_CRYPTO_SKIP_FUND=1`** skips airdrop/faucet. Puppeteer **`npm run test:unit`** loads **`unit-tests.html`** over **`file://`** without the extension — it cannot run ensure; use Playwright **`PW_UNIT_CRYPTO_ENSURE=1`** on **`unit-tests.spec.mjs`** or the in-extension Tests UI. Node-only signed Solana smoke remains **`npm run test:crypto-solana-tx-smoke`** with **`CRYPTO_SOLANA_TX_SECRET_KEY`**.
 
 ## Unit Tests (Zero Setup)
 
@@ -20,11 +23,9 @@ Unit tests run directly in the extension—no npm, Node, or command line require
 ### How to run
 
 1. Load the extension (Load unpacked at `chrome://extensions`)
-2. Open the side panel
-3. Click the **Tests** button (next to Reload Extension and Set project folder, above Sidebar Name)
-4. A new tab opens with:
-   - Unit test results (pass/fail for each test)
-   - E2E checklist (tick items as you complete them; progress is saved)
+2. Open the side panel. Either click **Settings** (next to Reload Extension) for the full settings page, or click **Unit tests** to open `test/unit-tests.html` in one step (same page Playwright uses for **`unit-tests.spec.mjs`**)
+3. **From Settings:** scroll to **Tests** — the full unit suite runs automatically; the E2E checklist is below the results. **From `test/unit-tests.html`:** the suite also runs on load; the **Crypto step tests** panel is on that tab
+4. Optional — **Run crypto tests** (ensure devnet/Chapel wallets, then crypto/Pulse/watch `step-tests.js` only): use the **Crypto step tests** section on **`test/unit-tests.html`**, or from Settings click **Open unit tests page (Run crypto tests)**. That flow includes **Run crypto tests**, **Request test tokens again**, and **Replace crypto test wallets** (see *Crypto test wallets* above). The **Crypto test wallets** section on Settings offers ensure / fund / replace without running the crypto step subset
 
 ### Headless (CI / local)
 
@@ -79,7 +80,7 @@ Quick manual checks after code or manifest changes. Run with the extension loade
 
 **Steps that call background/offscreen:** Extract data, LLM step, Run generator, Run generator (video), Generator UI (templates), Unified editor, Save to project folder, Walkthrough output, Bulk create, Book output (multi-page), Ad-generator style variants, TTS/audio export, Screen capture.
 
-**Extension & Dev:** Tests button, Step validation (`node scripts/validate-step-definitions.cjs`).
+**Extension & Dev:** Settings → Tests (unit results + checklist) and optional **Open unit tests page** for the crypto flow; Step validation (`node scripts/validate-step-definitions.cjs`).
 
 **Steps: Send to endpoint, Type, Select:** Send to endpoint, Type step, Select step.
 
@@ -87,7 +88,7 @@ Quick manual checks after code or manifest changes. Run with the extension loade
 
 **Optional:** Schedule run, Quality check.
 
-For the full detailed checklist items, see the interactive E2E checklist on the Tests page (opened via the Tests button in the side panel).
+For the full detailed checklist items, see the interactive E2E checklist under **Settings → Tests** (side panel **Settings** button), or on **`test/unit-tests.html`** after opening it from that section.
 
 ## Optional live RPC smoke (CI secrets)
 
@@ -109,6 +110,8 @@ For contributors who want automated E2E with broader coverage:
 npm run test:e2e
 ```
 
+Faster navigation + unit-tests page checks (side panel **Settings** / **Unit tests**, crypto panel smoke, full in-extension unit pass/fail): **`npm run test:e2e:nav-smoke`**.
+
 For CI:
 
 ```bash
@@ -120,12 +123,15 @@ npm run test:e2e:ci
 - **Headless locally (no window):** `PW_HEADLESS=1 npm run test:e2e` (same as CI behavior for the extension fixture).
 - **Parallel spec files:** `PW_WORKERS=4 npm run test:e2e` (one browser per worker; heavier).
 - **Stuck on “waiting for extension service worker”:** Run `npm run test:e2e:install-browsers`. If it still hangs, remove stale profiles: `rm -rf test/.e2e-user-data-*` (Chrome lock files can block launch). Then try `PW_HEADLESS=1 npm run test:e2e`.
+- **E2E fails with `Unknown message type` for a handler that exists in `background/service-worker.js`:** The persistent Playwright profile may be running an old cached MV3 service worker. Remove **`test/.e2e-user-data-*`** or set **`PW_E2E_USER_DATA_SUFFIX`** to a fresh value, then rerun.
 - **Profile already in use / `SingletonLock`:** Another Chromium instance may hold `test/.e2e-user-data-*`. Close other Playwright runs or set **`PW_E2E_USER_DATA_SUFFIX=myname`** (letters, digits, `_`, `-` only) so this run uses a separate profile directory under **`test/`**.
 - **Nothing opens, terminal quiet for minutes:** The first `npx playwright install chromium` can download a large browser build; you should still see `[playwright e2e] Starting…` from global setup immediately when the test command runs.
 
 Alternatively, `npm run test:e2e:puppeteer` runs a Puppeteer-based suite (unit tests, API, playback); it does not include generator UI tests.
 
 All specs live under `test/e2e/*.spec.mjs` and use the shared fixture in `test/e2e/extension.fixture.mjs`.
+
+**Stable selectors (extension UI):** Canonical names live in **`test/e2e/cfs-e2e-testids.mjs`** (**`CFS_E2E_TESTID`**) — import there and in HTML. CI / **`npm run test:crypto`** runs **`npm run test:cfs-e2e-testids-wired`** so **`data-testid`** strings stay in sync with that module. **`cfs-sidepanel-settings`** and **`cfs-sidepanel-unit-tests`** each appear twice (logged-in / logged-out); use **`.filter({ visible: true })`**. Also: **`cfs-settings-open-unit-tests-page`**, **`cfs-settings-crypto-ensure`** / **`fund-only`** / **`replace`**, **`cfs-run-crypto-tests`** / **`cfs-crypto-fund-only`** / **`cfs-crypto-replace-wallets`** on **`test/unit-tests.html`**.
 
 ### Apify live E2E (opt-in)
 
@@ -140,12 +146,12 @@ Use a dedicated or low-privilege token; remove the variable afterward. **Manual 
 
 | Spec file | What it covers |
 |-----------|---------------|
-| `unit-tests.spec.mjs` | Loads `unit-tests.html`, asserts all pass (includes generator/timeline unit tests) |
+| `unit-tests.spec.mjs` | Smoke: crypto panel **`data-testid`** buttons on `unit-tests.html`; full suite pass/fail; **Settings → Open unit tests page** opens the same URL in a new tab |
 | `api.spec.mjs` | Step handler registration; RUN_WORKFLOW and SET_IMPORTED_ROWS edge cases |
 | `playback.spec.mjs` | Workflow playback from `e2e-step-config.json`; paste workflow |
 | `content.spec.mjs` | Recorder, player, auto-discovery, content-to-background data flow |
-| `sidepanel-flow.spec.mjs` | Sidepanel UI: create, record, batch, loop, failure, ensureSelect, download |
-| `service-worker.spec.mjs` | Service worker message handlers and validation (includes **BSC** and **Solana** wallet import / encrypt / unlock / lock / rewrap), **Apify** (`APIFY_RUN_CANCEL` from a content tab; optional live **`APIFY_TEST_TOKEN`** when **`APIFY_E2E_TOKEN`** is set) |
+| `sidepanel-flow.spec.mjs` | Sidepanel UI: create, record, batch, loop, failure, ensureSelect, download; **Settings** / **Unit tests** buttons open `settings.html` / `test/unit-tests.html` |
+| `service-worker.spec.mjs` | Service worker message handlers and validation (includes **BSC** and **Solana** wallet import / encrypt / unlock / lock / rewrap), **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** invalid-payload guard (**`fundOnly`** + **`replaceExisting`**), **Apify** (`APIFY_RUN_CANCEL` from a content tab; optional live **`APIFY_TEST_TOKEN`** when **`APIFY_E2E_TOKEN`** is set) |
 | `generator.spec.mjs` | Generator UI: templates, layers, export, undo/redo |
 | `offscreen.spec.mjs` | Offscreen document queuing and mutex |
 

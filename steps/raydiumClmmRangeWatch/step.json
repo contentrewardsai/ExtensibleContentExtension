@@ -1,0 +1,99 @@
+{
+  "id": "raydiumClmmRangeWatch",
+  "label": "Raydium CLMM range watch",
+  "category": "data",
+  "description": "Poll a Raydium CLMM pool's current tick and compare to your position's tick range. The step **completes** when the current tick moves **outside** the position range (i.e. concentrated liquidity is no longer active). Save the drift direction ('above' or 'below') to a variable for downstream branching. Use in always-on workflows to trigger rebalancing or exit logic.",
+  "defaultAction": {
+    "type": "raydiumClmmRangeWatch",
+    "runIf": "",
+    "poolId": "",
+    "positionNftMint": "",
+    "pollIntervalMs": 30000,
+    "timeoutMs": 0,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "saveDriftDirection": "driftDirection",
+    "saveCurrentTick": "currentTick",
+    "savePositionRange": "positionRange"
+  },
+  "inputs": [
+    { "key": "poolId", "description": "Raydium CLMM pool ID. Template vars supported: {{poolId}}." },
+    { "key": "positionNftMint", "description": "Position NFT mint. Template vars supported: {{clmmPositionNft}}." },
+    { "key": "pollIntervalMs", "description": "How often to check the current tick (default 30s)." },
+    { "key": "timeoutMs", "description": "Maximum wait time (0 = wait forever until out of range)." }
+  ],
+  "outputs": [
+    { "key": "saveDriftDirection", "description": "Row variable: 'above' (tick rose past tickUpper) or 'below' (tick fell past tickLower)." },
+    { "key": "saveCurrentTick", "description": "Row variable: current tick index at the time drift was detected." },
+    { "key": "savePositionRange", "description": "Row variable: JSON with tickLower, tickUpper, currentTick, direction." }
+  ],
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text",
+      "placeholder": "{{var}} or variable name"
+    },
+    {
+      "key": "poolId",
+      "label": "CLMM pool ID",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste pool ID or search"
+    },
+    {
+      "key": "positionNftMint",
+      "label": "Position NFT mint",
+      "inputType": "text",
+      "placeholder": "{{clmmPositionNft}} or paste mint address",
+      "hint": "The CLMM position NFT. Use a variable from a previous open-position step."
+    },
+    {
+      "key": "pollIntervalMs",
+      "label": "Poll interval (ms)",
+      "inputType": "number",
+      "placeholder": "30000",
+      "min": 5000
+    },
+    {
+      "key": "timeoutMs",
+      "label": "Timeout (ms, 0 = no limit)",
+      "inputType": "number",
+      "placeholder": "0",
+      "min": 0
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        { "value": "mainnet-beta", "label": "mainnet-beta" },
+        { "value": "devnet", "label": "devnet" }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "saveDriftDirection",
+      "label": "Save drift direction to variable",
+      "inputType": "text",
+      "placeholder": "driftDirection"
+    },
+    {
+      "key": "saveCurrentTick",
+      "label": "Save current tick to variable",
+      "inputType": "text",
+      "placeholder": "currentTick"
+    },
+    {
+      "key": "savePositionRange",
+      "label": "Save position range to variable",
+      "inputType": "text",
+      "placeholder": "positionRange"
+    }
+  ]
+}

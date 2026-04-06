@@ -6,6 +6,14 @@ Static guard **`npm run verify:crypto-bsc-genesis-sync`** (CI) ensures canonical
 
 Default **Extension checks** do **not** call live RPCs or require secrets. This path is **opt-in** for maintainers who want a minimal **read-only** check that configured endpoints respond.
 
+### PR vs optional / nightly-style jobs
+
+| Job (in `.github/workflows/extension-checks.yml`) | When it runs | Notes |
+|-----------------------------------------------------|--------------|-------|
+| **`bundle-checks`** | Every PR | Static + unit + recorder; **`check:content-bundle`**. |
+| **`e2e-playwright-smoke`** | Every PR | **`test:e2e:ci-smoke`** then **`test:e2e:nav-smoke`** (extension pages + navigation; no live crypto RPC requirement). |
+| **`optional-crypto-rpc-smoke`**, **`optional-crypto-http-smoke`**, **`optional-crypto-evm-fork-smoke`**, **`optional-e2e-crypto-playwright`** | Only when the matching **repository secrets** are set | Treat as **maintainer / nightly-style** unless you intentionally gate every PR on secrets. |
+
 ## Script
 
 From the repo root (after `npm ci`):
@@ -90,5 +98,15 @@ Loads the **unpacked MV3 extension** in Chromium and sends **`chrome.runtime`** 
 | **`SOLANA_RPC_SMOKE_URL`** | Required for Solana-side tests (same as RPC smoke). |
 | **`BSC_RPC_SMOKE_URL`** | Required for BSC **`CFS_BSC_QUERY`** tests. |
 | **`E2E_CRYPTO_JUPITER_API_KEY`** | Optional: enables **`CFS_JUPITER_PERPS_MARKETS`** in the same job (or reuse **`CRYPTO_HTTP_SMOKE_JUPITER_API_KEY`**). |
+| **`E2E_CRYPTO_ENSURE_TEST_WALLETS`** | Set to **`1`** to run **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** in **`beforeAll`**. If ensure returns **`ok: false`**, the suite **fails** (no silent warn). |
+| **`E2E_CRYPTO_SIGNED_DEVNET_SMOKE`** | Set to **`1`** with **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`** to run one signed **devnet** **`CFS_SOLANA_TRANSFER_SOL`** self-transfer (1 lamport) after provisioning wallets. |
+| **`E2E_CRYPTO_DEVNET_RPC_URL`** | Optional override for that transfer (default **`https://api.devnet.solana.com`**). |
+| **`E2E_CRYPTO_DEVNET_SIGNED_FAMILY`** | Set to **`1`** with **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`** to run a **serial** devnet smoke: **`CFS_SOLANA_WRAP_SOL`** (dust) → **`CFS_SOLANA_TRANSFER_SPL`** (1 raw wSOL to self) → **`CFS_SOLANA_UNWRAP_WSOL`**. |
+| **`E2E_CRYPTO_NEGATIVE_PATH`** | Set to **`1`** to assert **`ok: false`** for a **validation** failure (e.g. empty **`toPubkey`** on **`CFS_SOLANA_TRANSFER_SOL`**). |
+| **`E2E_ENSURE_CHAPEL_FUNDED`** | Set to **`1`** with **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`** to **fail** if **`CFS_BSC_QUERY`** **`nativeBalance`** for the practice wallet on Chapel is zero (public faucet may be empty). |
+| **`E2E_CRYPTO_BSC_FORK_RPC_URL`** | e.g. **`http://127.0.0.1:8545`** (Anvil **fork** of BSC mainnet) — enables **`CFS_BSC_QUERY`** **`v2FactoryGetPair`** (WBNB/USDC) with **`chainId` 56** in **`cfs_bsc_global_settings`**. |
+| **`E2E_CRYPTO_BSC_CHAIN_ID`** | Optional **`56`** or **`97`** when **`BSC_RPC_SMOKE_URL`** is a custom host (Chapel defaults are inferred from `prebsc` / `chapel` in the URL). Must match the RPC’s real chain or **`CFS_BSC_QUERY`** / **`JsonRpcProvider`** will fail. |
 
 Local: `E2E_CRYPTO=1` plus both RPC URLs, then **`npm run test:e2e:crypto`** (after **`npx playwright install chromium`**).
+
+After editing **`background/`** scripts, if crypto E2E still behaves like an old build, clear the Playwright profile (**`test/.e2e-user-data-*`**) or reload the unpacked extension so the service worker picks up changes (see **`docs/TESTING.md`**).

@@ -1,0 +1,48 @@
+{
+  "id": "jupiterPredictionSearch",
+  "label": "Jupiter Prediction — Search Events & Markets",
+  "category": "data",
+  "description": "Search and browse Jupiter Prediction Market events and markets. Aggregates liquidity from Polymarket and Kalshi. Categories: crypto, sports, politics, esports, culture, economics, tech. Returns event details, market pricing (YES/NO prices in micro USD), orderbook depth, and trading status. Base URL: https://api.jup.ag/prediction/v1. Requires x-api-key.",
+  "defaultAction": {
+    "type": "jupiterPredictionSearch",
+    "runIf": "",
+    "operation": "searchEvents",
+    "query": "",
+    "category": "",
+    "filter": "",
+    "eventId": "",
+    "marketId": "",
+    "saveResultVariable": "predictionResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "operation", "label": "Operation", "inputType": "select", "options": [
+      { "value": "searchEvents", "label": "Search events" },
+      { "value": "listEvents", "label": "List events (by category/filter)" },
+      { "value": "getEvent", "label": "Get event details" },
+      { "value": "getMarket", "label": "Get market details" },
+      { "value": "getOrderbook", "label": "Get orderbook" },
+      { "value": "tradingStatus", "label": "Check trading status" }
+    ] },
+    { "key": "query", "label": "Search query (for searchEvents)", "inputType": "text", "placeholder": "e.g. nba, bitcoin, election" },
+    { "key": "category", "label": "Category (for listEvents)", "inputType": "select", "options": [
+      { "value": "", "label": "All" },
+      { "value": "crypto", "label": "Crypto" },
+      { "value": "sports", "label": "Sports" },
+      { "value": "politics", "label": "Politics" },
+      { "value": "esports", "label": "Esports" },
+      { "value": "culture", "label": "Culture" },
+      { "value": "economics", "label": "Economics" },
+      { "value": "tech", "label": "Tech" }
+    ] },
+    { "key": "filter", "label": "Filter (for listEvents)", "inputType": "select", "options": [
+      { "value": "", "label": "All" },
+      { "value": "new", "label": "New" },
+      { "value": "live", "label": "Live" },
+      { "value": "trending", "label": "Trending" }
+    ] },
+    { "key": "eventId", "label": "Event ID (for getEvent)", "inputType": "text" },
+    { "key": "marketId", "label": "Market ID (for getMarket/getOrderbook)", "inputType": "text" },
+    { "key": "saveResultVariable", "label": "Save result to variable", "inputType": "text" }
+  ]
+}

@@ -282,6 +282,25 @@ export async function sendExtensionMessage(extensionContext, extensionId, messag
   }, message);
 }
 
+/**
+ * Create or reuse Solana devnet + BSC Chapel test wallets (CFS_CRYPTO_TEST_ENSURE_WALLETS).
+ * Opt-in flags: skipFund, solanaOnly, bscOnly, fundOnly, replaceExisting.
+ * Do not pass fundOnly and replaceExisting together (service worker rejects).
+ */
+export async function ensureCryptoTestWallets(extensionContext, extensionId, opts = {}) {
+  if (opts.fundOnly === true && opts.replaceExisting === true) {
+    throw new Error('ensureCryptoTestWallets: fundOnly and replaceExisting cannot be used together');
+  }
+  return sendExtensionMessage(extensionContext, extensionId, {
+    type: 'CFS_CRYPTO_TEST_ENSURE_WALLETS',
+    skipFund: opts.skipFund === true,
+    solanaOnly: opts.solanaOnly === true,
+    bscOnly: opts.bscOnly === true,
+    replaceExisting: opts.replaceExisting === true,
+    fundOnly: opts.fundOnly === true,
+  });
+}
+
 /** Trigger a workflow via RUN_WORKFLOW and wait for the fixture page to reflect the result. */
 export async function triggerWorkflow(extensionContext, extensionId, fixturePage, sidepanelPage, workflowId, rows) {
   const resp = await sendExtensionMessage(extensionContext, extensionId, {
@@ -321,7 +340,12 @@ export async function readStorage(extensionContext, extensionId, key) {
   }), key);
 }
 
-/** Write key-value pairs to chrome.storage.local. */
+/**
+ * Write key-value pairs to chrome.storage.local.
+ * For keys the service worker parses with JSON.parse (e.g. cfs_bsc_global_settings), prefer
+ * JSON.stringify in the caller so values match Settings saves; object values are also supported
+ * after load-side handling in the SW.
+ */
 export async function writeStorage(extensionContext, extensionId, data) {
   const page = await getExtensionHelperPage(extensionContext, extensionId);
   await page.evaluate((d) => new Promise((resolve) => {

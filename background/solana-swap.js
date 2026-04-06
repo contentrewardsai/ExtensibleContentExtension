@@ -424,14 +424,17 @@
     return getSecretForWalletEntry(L, entry, mapObj);
   }
 
-  globalThis.__CFS_solana_loadKeypairFromStorage = function () {
+  globalThis.__CFS_solana_loadKeypairFromStorage = function (walletId) {
     return new Promise(function (resolve, reject) {
       var L = getLib();
       if (!L) {
         reject(new Error('Solana library not loaded'));
         return;
       }
-      getEffectiveSecretB58()
+      var secretPromise = (walletId && typeof walletId === 'string' && walletId.trim())
+        ? getSecretB58ForWalletId(walletId.trim())
+        : getEffectiveSecretB58();
+      secretPromise
         .then(function (s) {
           try {
             resolve(keypairFromSecretB58(L, s));
@@ -485,7 +488,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -513,40 +516,230 @@
     var jupHeaders = {};
     if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
 
+    /* ── Determine API version: v2 (default) or v6 (legacy) ── */
+    var apiVersion = String(msg.jupiterApiVersion || 'v2').trim().toLowerCase();
+    var swapPath = String(msg.jupiterSwapPath || 'order').trim().toLowerCase();
+
+    if (apiVersion === 'v2') {
+      return executeSwapV2(L, keypair, {
+        inputMint: inputMint, outputMint: outputMint, amountRaw: amountRaw,
+        slippageBps: slippageBps, cluster: cluster, rpcUrl: rpcUrl,
+        onlyDirect: onlyDirect, jupiterDexes: jupiterDexes,
+        jupiterExcludeDexes: jupiterExcludeDexes, skipSimulation: skipSimulation,
+        skipPreflight: skipPreflight, swapPath: swapPath,
+        jupiterWrapAndUnwrapSol: msg.jupiterWrapAndUnwrapSol,
+        jupiterPrioritizationFeeLamports: msg.jupiterPrioritizationFeeLamports,
+        jupiterDynamicComputeUnitLimit: msg.jupiterDynamicComputeUnitLimit,
+      }, jupHeaders);
+    }
+
+    /* ── V6 legacy path (existing) ── */
+    return executeSwapV6(L, keypair, {
+      inputMint: inputMint, outputMint: outputMint, amountRaw: amountRaw,
+      slippageBps: slippageBps, cluster: cluster, rpcUrl: rpcUrl,
+      onlyDirect: onlyDirect, jupiterDexes: jupiterDexes,
+      jupiterExcludeDexes: jupiterExcludeDexes, skipSimulation: skipSimulation,
+      skipPreflight: skipPreflight,
+      jupiterWrapAndUnwrapSol: msg.jupiterWrapAndUnwrapSol,
+      jupiterDynamicComputeUnitLimit: msg.jupiterDynamicComputeUnitLimit,
+      jupiterPrioritizationFeeLamports: msg.jupiterPrioritizationFeeLamports,
+      jupiterCrossCheckMaxDeviationBps: msg.jupiterCrossCheckMaxDeviationBps,
+      jupiterCrossCheckOptional: msg.jupiterCrossCheckOptional,
+    }, jupHeaders);
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter Swap V2  —  /order + /execute  (managed landing)
+   *                  or /build             (raw instructions)
+   * Base URL: https://api.jup.ag/swap/v2
+   * ══════════════════════════════════════════════════════════════ */
+  async function executeSwapV2(L, keypair, p, jupHeaders) {
+    var V2_BASE = 'https://api.jup.ag/swap/v2';
+    var taker = keypair.publicKey.toBase58();
+
+    /* ── /order path (default, recommended) ── */
+    if (p.swapPath !== 'build') {
+      var orderParams = new URLSearchParams({
+        inputMint: p.inputMint,
+        outputMint: p.outputMint,
+        amount: p.amountRaw,
+        taker: taker,
+        slippageBps: String(p.slippageBps),
+      });
+      if (p.onlyDirect) orderParams.set('onlyDirectRoutes', 'true');
+      if (p.jupiterDexes) orderParams.set('dexes', p.jupiterDexes);
+      if (p.jupiterExcludeDexes) orderParams.set('excludeDexes', p.jupiterExcludeDexes);
+      if (p.jupiterWrapAndUnwrapSol === false) orderParams.set('wrapAndUnwrapSol', 'false');
+
+      var orderRes = await jupiterFetch(V2_BASE + '/order?' + orderParams.toString(), { method: 'GET' }, jupHeaders);
+      if (!orderRes.ok) {
+        var ot = await orderRes.text();
+        return { ok: false, error: 'Jupiter V2 /order failed HTTP ' + orderRes.status + ': ' + ot.slice(0, 300) };
+      }
+      var orderJson = await orderRes.json();
+      var txB64 = orderJson.transaction;
+      if (!txB64 || typeof txB64 !== 'string') {
+        return { ok: false, error: 'Jupiter V2 /order: no transaction returned. ' + JSON.stringify(orderJson).slice(0, 200) };
+      }
+
+      /* Sign */
+      var txBytes = Uint8Array.from(atob(txB64), function (c) { return c.charCodeAt(0); });
+      var vtx = L.VersionedTransaction.deserialize(txBytes);
+      vtx.sign([keypair]);
+      var signedB64 = btoa(String.fromCharCode.apply(null, vtx.serialize()));
+
+      /* Execute */
+      var execRes = await jupiterFetch(V2_BASE + '/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signedTransaction: signedB64,
+          requestId: orderJson.requestId,
+        }),
+      }, jupHeaders);
+      if (!execRes.ok) {
+        var et = await execRes.text();
+        return { ok: false, error: 'Jupiter V2 /execute failed HTTP ' + execRes.status + ': ' + et.slice(0, 300) };
+      }
+      var execJson = await execRes.json();
+      if (execJson.status === 'Failed') {
+        return {
+          ok: false,
+          error: 'Jupiter V2 swap failed: ' + (execJson.error || 'code ' + execJson.code),
+          signature: execJson.signature || '',
+        };
+      }
+
+      var explorerUrl = p.cluster === 'devnet'
+        ? 'https://solscan.io/tx/' + execJson.signature + '?cluster=devnet'
+        : 'https://solscan.io/tx/' + execJson.signature;
+
+      return {
+        ok: true,
+        signature: execJson.signature,
+        explorerUrl: explorerUrl,
+        router: orderJson.router || '',
+        outAmount: orderJson.outAmount || '',
+        inputAmountResult: execJson.inputAmountResult || '',
+        outputAmountResult: execJson.outputAmountResult || '',
+        jupiterApiVersion: 'v2',
+        jupiterSwapPath: 'order',
+      };
+    }
+
+    /* ── /build path (advanced, raw instructions) ── */
+    var buildParams = new URLSearchParams({
+      inputMint: p.inputMint,
+      outputMint: p.outputMint,
+      amount: p.amountRaw,
+      taker: taker,
+      slippageBps: String(p.slippageBps),
+    });
+    if (p.onlyDirect) buildParams.set('onlyDirectRoutes', 'true');
+    if (p.jupiterDexes) buildParams.set('dexes', p.jupiterDexes);
+    if (p.jupiterExcludeDexes) buildParams.set('excludeDexes', p.jupiterExcludeDexes);
+    if (p.jupiterWrapAndUnwrapSol === false) buildParams.set('wrapAndUnwrapSol', 'false');
+
+    var buildRes = await jupiterFetch(V2_BASE + '/build?' + buildParams.toString(), { method: 'GET' }, jupHeaders);
+    if (!buildRes.ok) {
+      var bt = await buildRes.text();
+      return { ok: false, error: 'Jupiter V2 /build failed HTTP ' + buildRes.status + ': ' + bt.slice(0, 300) };
+    }
+    var buildJson = await buildRes.json();
+
+    /* Reconstruct tx from instructions */
+    var connection = new L.Connection(p.rpcUrl, 'confirmed');
+    var bh = buildJson.blockhashWithMetadata
+      ? buildJson.blockhashWithMetadata.blockhash
+      : (await connection.getLatestBlockhash('confirmed')).blockhash;
+
+    function deserializeIx(ixObj) {
+      return new L.TransactionInstruction({
+        programId: new L.PublicKey(ixObj.programId),
+        keys: (ixObj.accounts || []).map(function (a) {
+          return { pubkey: new L.PublicKey(a.pubkey), isSigner: a.isSigner, isWritable: a.isWritable };
+        }),
+        data: Buffer.from(ixObj.data, 'base64'),
+      });
+    }
+    var ixs = [];
+    (buildJson.computeBudgetInstructions || []).forEach(function (ix) { ixs.push(deserializeIx(ix)); });
+    (buildJson.setupInstructions || []).forEach(function (ix) { ixs.push(deserializeIx(ix)); });
+    if (buildJson.swapInstruction) ixs.push(deserializeIx(buildJson.swapInstruction));
+    if (buildJson.cleanupInstruction) ixs.push(deserializeIx(buildJson.cleanupInstruction));
+    (buildJson.otherInstructions || []).forEach(function (ix) { ixs.push(deserializeIx(ix)); });
+
+    /* Resolve address lookup tables */
+    var altMap = buildJson.addressesByLookupTableAddress || {};
+    var altAddrs = Object.keys(altMap);
+    var lookupTables = [];
+    for (var li = 0; li < altAddrs.length; li++) {
+      var altAddr = altAddrs[li];
+      var addresses = altMap[altAddr].map(function (a) { return new L.PublicKey(a); });
+      lookupTables.push(new L.AddressLookupTableAccount({
+        key: new L.PublicKey(altAddr),
+        state: { addresses: addresses },
+      }));
+    }
+
+    var messageV0 = new L.TransactionMessage({
+      payerKey: keypair.publicKey,
+      recentBlockhash: bh,
+      instructions: ixs,
+    }).compileToV0Message(lookupTables);
+    var vtxB = new L.VersionedTransaction(messageV0);
+    vtxB.sign([keypair]);
+
+    if (!p.skipSimulation) {
+      var sim = await connection.simulateTransaction(vtxB, { sigVerify: false, commitment: 'confirmed' });
+      if (sim.value.err) {
+        return { ok: false, error: 'Simulation failed: ' + JSON.stringify(sim.value.err), simulationLogs: sim.value.logs || [] };
+      }
+    }
+
+    var sig = await connection.sendRawTransaction(vtxB.serialize(), { skipPreflight: p.skipPreflight, maxRetries: 3 });
+    var explorerUrlB = p.cluster === 'devnet'
+      ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
+      : 'https://solscan.io/tx/' + sig;
+    return {
+      ok: true, signature: sig, explorerUrl: explorerUrlB,
+      outAmount: buildJson.outAmount || '', router: 'metis',
+      jupiterApiVersion: 'v2', jupiterSwapPath: 'build',
+    };
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter Swap V6  —  legacy /quote + /swap path
+   * ══════════════════════════════════════════════════════════════ */
+  async function executeSwapV6(L, keypair, p, jupHeaders) {
     function buildQuoteUrl(onlyDirectFlag) {
       return (
         'https://quote-api.jup.ag/v6/quote?inputMint=' +
-        encodeURIComponent(inputMint) +
-        '&outputMint=' +
-        encodeURIComponent(outputMint) +
-        '&amount=' +
-        encodeURIComponent(amountRaw) +
-        '&slippageBps=' +
-        slippageBps +
+        encodeURIComponent(p.inputMint) +
+        '&outputMint=' + encodeURIComponent(p.outputMint) +
+        '&amount=' + encodeURIComponent(p.amountRaw) +
+        '&slippageBps=' + p.slippageBps +
         (onlyDirectFlag ? '&onlyDirectRoutes=true' : '') +
-        (jupiterDexes ? '&dexes=' + encodeURIComponent(jupiterDexes) : '') +
-        (jupiterExcludeDexes ? '&excludeDexes=' + encodeURIComponent(jupiterExcludeDexes) : '')
+        (p.jupiterDexes ? '&dexes=' + encodeURIComponent(p.jupiterDexes) : '') +
+        (p.jupiterExcludeDexes ? '&excludeDexes=' + encodeURIComponent(p.jupiterExcludeDexes) : '')
       );
     }
 
-    var quoteRes = await jupiterFetch(buildQuoteUrl(onlyDirect), { method: 'GET' }, jupHeaders);
+    var quoteRes = await jupiterFetch(buildQuoteUrl(p.onlyDirect), { method: 'GET' }, jupHeaders);
     if (!quoteRes.ok) {
       var qt = await quoteRes.text();
       return { ok: false, error: 'Jupiter quote failed HTTP ' + quoteRes.status + ': ' + qt.slice(0, 240) };
     }
     var quoteJson = await quoteRes.json();
 
-    var crossBps = Math.min(10000, Math.max(0, parseInt(msg.jupiterCrossCheckMaxDeviationBps, 10) || 0));
+    var crossBps = Math.min(10000, Math.max(0, parseInt(p.jupiterCrossCheckMaxDeviationBps, 10) || 0));
     if (crossBps > 0) {
-      var altOnlyDirect = !onlyDirect;
+      var altOnlyDirect = !p.onlyDirect;
       var altRes = await jupiterFetch(buildQuoteUrl(altOnlyDirect), { method: 'GET' }, jupHeaders);
       if (!altRes.ok) {
-        if (msg.jupiterCrossCheckOptional !== true) {
+        if (p.jupiterCrossCheckOptional !== true) {
           var qt2 = await altRes.text();
-          return {
-            ok: false,
-            error: 'Jupiter cross-check quote failed HTTP ' + altRes.status + ': ' + qt2.slice(0, 240),
-          };
+          return { ok: false, error: 'Jupiter cross-check quote failed HTTP ' + altRes.status + ': ' + qt2.slice(0, 240) };
         }
       } else {
         var altJson = await altRes.json();
@@ -558,25 +751,14 @@
             var lo = o1 > o2 ? o2 : o1;
             var devBps = Number(((hi - lo) * 10000n) / hi);
             if (devBps > crossBps) {
-              return {
-                ok: false,
-                error:
-                  'Jupiter cross-check: outAmount differs by ' +
-                  devBps +
-                  ' bps vs alternate route (max ' +
-                  crossBps +
-                  ')',
-              };
+              return { ok: false, error: 'Jupiter cross-check: outAmount differs by ' + devBps + ' bps vs alternate route (max ' + crossBps + ')' };
             }
-          } else if (msg.jupiterCrossCheckOptional !== true) {
+          } else if (p.jupiterCrossCheckOptional !== true) {
             return { ok: false, error: 'Jupiter cross-check: invalid outAmount on primary or alternate quote' };
           }
         } catch (crossErr) {
-          if (msg.jupiterCrossCheckOptional !== true) {
-            return {
-              ok: false,
-              error: 'Jupiter cross-check: ' + (crossErr && crossErr.message ? crossErr.message : String(crossErr)),
-            };
+          if (p.jupiterCrossCheckOptional !== true) {
+            return { ok: false, error: 'Jupiter cross-check: ' + (crossErr && crossErr.message ? crossErr.message : String(crossErr)) };
           }
         }
       }
@@ -585,12 +767,11 @@
     var swapBody = {
       quoteResponse: quoteJson,
       userPublicKey: keypair.publicKey.toBase58(),
-      wrapAndUnwrapSol: msg.jupiterWrapAndUnwrapSol !== false,
-      dynamicComputeUnitLimit: msg.jupiterDynamicComputeUnitLimit !== false,
+      wrapAndUnwrapSol: p.jupiterWrapAndUnwrapSol !== false,
+      dynamicComputeUnitLimit: p.jupiterDynamicComputeUnitLimit !== false,
       prioritizationFeeLamports: 'auto',
     };
-
-    var pfl = msg.jupiterPrioritizationFeeLamports;
+    var pfl = p.jupiterPrioritizationFeeLamports;
     if (pfl !== undefined && pfl !== null && String(pfl).trim() !== '') {
       var pfs = String(pfl).trim();
       if (pfs === 'auto') {
@@ -598,24 +779,15 @@
       } else {
         var pflNum = parseInt(pfs, 10);
         if (!Number.isFinite(pflNum) || pflNum < 0) {
-          return {
-            ok: false,
-            error: 'jupiterPrioritizationFeeLamports must be "auto" or a non-negative integer (lamports)',
-          };
+          return { ok: false, error: 'jupiterPrioritizationFeeLamports must be "auto" or a non-negative integer (lamports)' };
         }
         swapBody.prioritizationFeeLamports = pflNum;
       }
     }
 
-    var swapRes = await jupiterFetch(
-      'https://quote-api.jup.ag/v6/swap',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(swapBody),
-      },
-      jupHeaders,
-    );
+    var swapRes = await jupiterFetch('https://quote-api.jup.ag/v6/swap', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(swapBody),
+    }, jupHeaders);
     if (!swapRes.ok) {
       var st = await swapRes.text();
       return { ok: false, error: 'Jupiter swap failed HTTP ' + swapRes.status + ': ' + st.slice(0, 240) };
@@ -626,39 +798,759 @@
       return { ok: false, error: 'Jupiter response missing swapTransaction' };
     }
 
-    var txBytes = Uint8Array.from(atob(b64), function (c) {
-      return c.charCodeAt(0);
-    });
+    var txBytes = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
     var vtx = L.VersionedTransaction.deserialize(txBytes);
     vtx.sign([keypair]);
 
-    var connection = new L.Connection(rpcUrl, 'confirmed');
-
-    if (!skipSimulation) {
-      var sim = await connection.simulateTransaction(vtx, {
-        sigVerify: false,
-        commitment: 'confirmed',
-      });
+    var connection = new L.Connection(p.rpcUrl, 'confirmed');
+    if (!p.skipSimulation) {
+      var sim = await connection.simulateTransaction(vtx, { sigVerify: false, commitment: 'confirmed' });
       if (sim.value.err) {
-        return {
-          ok: false,
-          error: 'Simulation failed: ' + JSON.stringify(sim.value.err),
-          simulationLogs: sim.value.logs || [],
-        };
+        return { ok: false, error: 'Simulation failed: ' + JSON.stringify(sim.value.err), simulationLogs: sim.value.logs || [] };
       }
     }
 
-    var sig = await connection.sendRawTransaction(vtx.serialize(), {
-      skipPreflight: skipPreflight,
-      maxRetries: 3,
+    var sig = await connection.sendRawTransaction(vtx.serialize(), { skipPreflight: p.skipPreflight, maxRetries: 3 });
+    var explorerUrl = p.cluster === 'devnet'
+      ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
+      : 'https://solscan.io/tx/' + sig;
+    return { ok: true, signature: sig, explorerUrl: explorerUrl, jupiterApiVersion: 'v6' };
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter Price V3  —  read-only USD prices
+   * GET https://api.jup.ag/price/v3?ids={mints}
+   * ══════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_price_v3 = async function (msg) {
+    var ids = String(msg.mintAddresses || '').trim();
+    if (!ids) return { ok: false, error: 'mintAddresses required (comma-separated)' };
+    var stored = await storageLocalGet([STORAGE_JUP_KEY]);
+    var jupHeaders = {};
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+    var url = 'https://api.jup.ag/price/v3?ids=' + encodeURIComponent(ids);
+    var res = await jupiterFetch(url, { method: 'GET' }, jupHeaders);
+    if (!res.ok) {
+      var t = await res.text();
+      return { ok: false, error: 'Jupiter Price V3 failed HTTP ' + res.status + ': ' + t.slice(0, 300) };
+    }
+    var body = await res.json();
+    return { ok: true, prices: body };
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter Token Search  —  read-only token metadata
+   * GET https://api.jup.ag/tokens/v2/search?query={q}
+   * ══════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_token_search = async function (msg) {
+    var query = String(msg.query || '').trim();
+    if (!query) return { ok: false, error: 'query required (name, symbol, or mint)' };
+    var stored = await storageLocalGet([STORAGE_JUP_KEY]);
+    var jupHeaders = {};
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+    var url = 'https://api.jup.ag/tokens/v2/search?query=' + encodeURIComponent(query);
+    var res = await jupiterFetch(url, { method: 'GET' }, jupHeaders);
+    if (!res.ok) {
+      var t = await res.text();
+      return { ok: false, error: 'Jupiter Token Search failed HTTP ' + res.status + ': ' + t.slice(0, 300) };
+    }
+    var body = await res.json();
+    return { ok: true, tokens: body };
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter DCA (Recurring) — create recurring order
+   * POST https://api.jup.ag/recurring/v1/createOrder
+   * ══════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_dca_create = async function (msg) {
+    var L = getLib();
+    if (!L) return { ok: false, error: 'Solana library not loaded' };
+    var keypair;
+    try {
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER, STORAGE_JUP_KEY]);
+    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
+    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
+    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
+    var jupHeaders = {};
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+
+    var body = {
+      userPublicKey: keypair.publicKey.toBase58(),
+      inputMint: String(msg.inputMint || '').trim(),
+      outputMint: String(msg.outputMint || '').trim(),
+      inAmount: String(msg.inAmount || '').trim(),
+      inAmountPerCycle: String(msg.inAmountPerCycle || '').trim(),
+      cycleSecondsApart: String(msg.cycleSecondsApart || '').trim(),
+    };
+    if (msg.minOutAmountPerCycle) body.minOutAmountPerCycle = String(msg.minOutAmountPerCycle).trim();
+    if (msg.maxOutAmountPerCycle) body.maxOutAmountPerCycle = String(msg.maxOutAmountPerCycle).trim();
+    if (msg.startAt) body.startAt = String(msg.startAt).trim();
+
+    var res = await jupiterFetch('https://api.jup.ag/recurring/v1/createOrder', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, jupHeaders);
+    if (!res.ok) {
+      var t = await res.text();
+      return { ok: false, error: 'Jupiter DCA createOrder failed HTTP ' + res.status + ': ' + t.slice(0, 300) };
+    }
+    var dcaJson = await res.json();
+    var txB64 = dcaJson.transaction || dcaJson.serializedTransaction;
+    if (!txB64) return { ok: false, error: 'Jupiter DCA: no transaction returned' };
+
+    /* Sign and send */
+    var txBytes = Uint8Array.from(atob(txB64), function (c) { return c.charCodeAt(0); });
+    var vtx = L.VersionedTransaction.deserialize(txBytes);
+    vtx.sign([keypair]);
+    var connection = new L.Connection(rpcUrl, 'confirmed');
+    var sig = await connection.sendRawTransaction(vtx.serialize(), { skipPreflight: false, maxRetries: 3 });
+    var explorerUrl = cluster === 'devnet'
+      ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
+      : 'https://solscan.io/tx/' + sig;
+    return {
+      ok: true, signature: sig, explorerUrl: explorerUrl,
+      dcaOrderKey: dcaJson.orderKey || dcaJson.dcaKey || '',
+    };
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter Limit Order (Trigger V2) — vault-based limit orders
+   * Auth: POST /trigger/v2/auth/challenge → sign → /auth/verify → JWT
+   * Order: POST /trigger/v2/deposit/craft → sign+send → POST /trigger/v2/orders/price
+   * ══════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_limit_order = async function (msg) {
+    var L = getLib();
+    if (!L) return { ok: false, error: 'Solana library not loaded' };
+    var keypair;
+    try {
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER, STORAGE_JUP_KEY]);
+    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
+    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
+    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
+    var jupHeaders = {};
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+
+    var T2_BASE = 'https://api.jup.ag/trigger/v2';
+    var wallet = keypair.publicKey.toBase58();
+
+    /* Step 1: Authenticate — get challenge, sign, get JWT */
+    var chalRes = await jupiterFetch(T2_BASE + '/auth/challenge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet: wallet }),
+    }, jupHeaders);
+    if (!chalRes.ok) {
+      var ct = await chalRes.text();
+      return { ok: false, error: 'Trigger auth challenge failed: ' + ct.slice(0, 200) };
+    }
+    var chalJson = await chalRes.json();
+    var chalMsg = chalJson.message || chalJson.challenge || '';
+    if (!chalMsg) return { ok: false, error: 'No challenge message returned' };
+
+    /* Sign the challenge message */
+    var msgBytes = new TextEncoder().encode(String(chalMsg));
+    var signed = L.tweetnacl
+      ? L.tweetnacl.sign.detached(msgBytes, keypair.secretKey)
+      : L.nacl.sign.detached(msgBytes, keypair.secretKey);
+    var sigB58 = L.bs58.encode(signed);
+
+    /* Verify to get JWT */
+    var verifyRes = await jupiterFetch(T2_BASE + '/auth/verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet: wallet, signature: sigB58 }),
+    }, jupHeaders);
+    if (!verifyRes.ok) {
+      var vt = await verifyRes.text();
+      return { ok: false, error: 'Trigger auth verify failed: ' + vt.slice(0, 200) };
+    }
+    var verifyJson = await verifyRes.json();
+    var jwt = verifyJson.token || verifyJson.jwt || '';
+    if (!jwt) return { ok: false, error: 'No JWT returned from trigger auth' };
+
+    var authHeaders = Object.assign({}, jupHeaders, { 'Authorization': 'Bearer ' + jwt });
+
+    /* Step 2: Get or register vault */
+    var vaultRes = await jupiterFetch(T2_BASE + '/vault?wallet=' + encodeURIComponent(wallet), {
+      method: 'GET',
+    }, authHeaders);
+    var vaultJson = vaultRes.ok ? await vaultRes.json() : null;
+    if (!vaultJson || !vaultJson.vault) {
+      /* Register vault */
+      var regRes = await jupiterFetch(T2_BASE + '/vault', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: wallet }),
+      }, authHeaders);
+      if (!regRes.ok) {
+        var rt = await regRes.text();
+        return { ok: false, error: 'Trigger vault registration failed: ' + rt.slice(0, 200) };
+      }
+      vaultJson = await regRes.json();
+    }
+    var vault = vaultJson.vault || vaultJson.address || '';
+
+    /* Step 3: Craft deposit tx */
+    var inputMint = String(msg.inputMint || '').trim();
+    var makingAmount = String(msg.makingAmount || '').trim();
+    if (!inputMint || !makingAmount) {
+      return { ok: false, error: 'inputMint and makingAmount required' };
+    }
+
+    var depositRes = await jupiterFetch(T2_BASE + '/deposit/craft', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet: wallet, inputMint: inputMint, amount: makingAmount }),
+    }, authHeaders);
+    if (!depositRes.ok) {
+      var dt = await depositRes.text();
+      return { ok: false, error: 'Trigger deposit craft failed: ' + dt.slice(0, 200) };
+    }
+    var depositJson = await depositRes.json();
+    var depTxB64 = depositJson.transaction || '';
+    if (!depTxB64) return { ok: false, error: 'No deposit transaction returned' };
+
+    /* Sign and send deposit */
+    var depTxBytes = Uint8Array.from(atob(depTxB64), function (c) { return c.charCodeAt(0); });
+    var depVtx = L.VersionedTransaction.deserialize(depTxBytes);
+    depVtx.sign([keypair]);
+    var connection = new L.Connection(rpcUrl, 'confirmed');
+    var depSig = await connection.sendRawTransaction(depVtx.serialize(), { skipPreflight: false, maxRetries: 3 });
+
+    /* Wait for confirmation */
+    await connection.confirmTransaction(depSig, 'confirmed');
+
+    /* Step 4: Create the order */
+    var orderBody = {
+      wallet: wallet,
+      inputMint: inputMint,
+      outputMint: String(msg.outputMint || '').trim(),
+      makingAmount: makingAmount,
+      triggerPriceUsd: String(msg.triggerPriceUsd || '').trim(),
+    };
+
+    var orderType = String(msg.orderType || 'single').trim().toLowerCase();
+    if (orderType === 'oco') {
+      orderBody.orderType = 'oco';
+      if (msg.takeProfitPriceUsd) orderBody.takeProfitPriceUsd = String(msg.takeProfitPriceUsd).trim();
+      if (msg.stopLossPriceUsd) orderBody.stopLossPriceUsd = String(msg.stopLossPriceUsd).trim();
+    }
+
+    if (msg.expireInSeconds) orderBody.expireInSeconds = parseInt(msg.expireInSeconds, 10);
+    if (msg.slippageBps) orderBody.slippageBps = parseInt(msg.slippageBps, 10);
+
+    var orderRes2 = await jupiterFetch(T2_BASE + '/orders/price', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderBody),
+    }, authHeaders);
+    if (!orderRes2.ok) {
+      var ot2 = await orderRes2.text();
+      return { ok: false, error: 'Trigger order creation failed: ' + ot2.slice(0, 300) };
+    }
+    var orderResult = await orderRes2.json();
+
+    return {
+      ok: true,
+      orderId: orderResult.orderId || orderResult.id || '',
+      vault: vault,
+      depositSignature: depSig,
+      explorerUrl: cluster === 'devnet'
+        ? 'https://solscan.io/tx/' + depSig + '?cluster=devnet'
+        : 'https://solscan.io/tx/' + depSig,
+    };
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+   * Jupiter Earn — deposit to / withdraw from Earn vaults
+   * REST API at https://api.jup.ag/lend/v1/earn/
+   * ══════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_earn = async function (msg) {
+    var L = getLib();
+    if (!L) return { ok: false, error: 'Solana library not loaded' };
+    var keypair;
+    try { keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId); }
+    catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER, STORAGE_JUP_KEY]);
+    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
+    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
+    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
+    var jupHeaders = {};
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+
+    var op = String(msg.earnOperation || 'deposit').trim().toLowerCase();
+    var mint = String(msg.mint || '').trim();
+    var amount = String(msg.amount || '').trim();
+    var owner = keypair.publicKey.toBase58();
+    if (!mint || !amount) return { ok: false, error: 'mint and amount required' };
+
+    var endpoint = (op === 'withdraw') ? 'withdraw' : 'deposit';
+    var res = await jupiterFetch('https://api.jup.ag/lend/v1/earn/' + endpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner: owner, mint: mint, amount: amount }),
+    }, jupHeaders);
+    if (!res.ok) {
+      var t = await res.text();
+      return { ok: false, error: 'Jupiter Earn ' + endpoint + ' failed: ' + t.slice(0, 300) };
+    }
+    var earnJson = await res.json();
+    var txB64 = earnJson.transaction || '';
+    if (!txB64) return { ok: false, error: 'No transaction returned from Earn ' + endpoint };
+
+    var txBytes = Uint8Array.from(atob(txB64), function (c) { return c.charCodeAt(0); });
+    var vtx = L.VersionedTransaction.deserialize(txBytes);
+    vtx.sign([keypair]);
+    var connection = new L.Connection(rpcUrl, 'confirmed');
+    var sig = await connection.sendRawTransaction(vtx.serialize(), { skipPreflight: false, maxRetries: 3 });
+    return {
+      ok: true, signature: sig,
+      explorerUrl: (cluster === 'devnet' ? 'https://solscan.io/tx/' + sig + '?cluster=devnet' : 'https://solscan.io/tx/' + sig),
+    };
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * Jupiter Flashloan — Atomic borrow → swap(s) → repay
+   *
+   * Uses Jupiter Lend program (jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9)
+   * to construct borrow and payback instructions, sandwiching intermediary
+   * swap instructions from Jupiter V2 /build.
+   *
+   * The entire transaction is atomic — if payback fails, everything reverts.
+   * ══════════════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_flashloan = async function (msg) {
+    var L = getLib();
+    if (!L) return { ok: false, error: 'Solana library not loaded' };
+
+    var keypair;
+    try {
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER, STORAGE_JUP_KEY]);
+    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
+    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
+    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
+    var jupHeaders = {};
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+
+    var wallet = keypair.publicKey.toBase58();
+    var borrowMint = String(msg.borrowMint || '').trim();
+    var borrowAmount = String(msg.borrowAmount || '').trim();
+    var intermediaryOps = Array.isArray(msg.intermediaryOps) ? msg.intermediaryOps : [];
+    var swapOutputMint = String(msg.swapOutputMint || '').trim();
+    var slippageBps = parseInt(msg.slippageBps, 10) || 50;
+
+    if (!borrowMint || !borrowAmount) return { ok: false, error: 'borrowMint and borrowAmount required' };
+
+    /* If called from the monolithic step (no intermediaryOps), build a default A→B, B→A round-trip */
+    if (intermediaryOps.length === 0 && swapOutputMint) {
+      intermediaryOps = [
+        { type: 'swap', inputMint: borrowMint, outputMint: swapOutputMint, amount: borrowAmount, slippageBps: slippageBps },
+        { type: 'swap', inputMint: swapOutputMint, outputMint: borrowMint, amount: '0', slippageBps: slippageBps, useFullBalance: true },
+      ];
+    }
+    if (intermediaryOps.length === 0) return { ok: false, error: 'No intermediary operations — add swaps or provide swapOutputMint' };
+
+    var connection = new L.Connection(rpcUrl, 'confirmed');
+
+    /* ── 1. Jupiter Lend program constants ── */
+    var LEND_PROGRAM = new L.PublicKey('jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9');
+    var TOKEN_PROGRAM = new L.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    var SYSVAR_INSTRUCTIONS = new L.PublicKey('Sysvar1nstructions1111111111111111111111111');
+
+    /* ── 2. Derive PDAs for lend program ── */
+    var borrowMintPk = new L.PublicKey(borrowMint);
+
+    /* lending market and reserve PDAs — derived from program seeds */
+    /* The main lending market PDA */
+    var [lendingMarketPda] = L.PublicKey.findProgramAddressSync(
+      [Buffer.from('lending_market'), Buffer.from('main')],
+      LEND_PROGRAM
+    );
+    /* Reserve PDA for the asset */
+    var [reservePda] = L.PublicKey.findProgramAddressSync(
+      [Buffer.from('reserve'), lendingMarketPda.toBuffer(), borrowMintPk.toBuffer()],
+      LEND_PROGRAM
+    );
+    /* Reserve liquidity supply (the pool's token account) */
+    var [reserveSupplyPda] = L.PublicKey.findProgramAddressSync(
+      [Buffer.from('reserve_liq_supply'), reservePda.toBuffer()],
+      LEND_PROGRAM
+    );
+    /* User's ATA for the borrow mint */
+    var userAta = L.getAssociatedTokenAddressSync
+      ? L.getAssociatedTokenAddressSync(borrowMintPk, keypair.publicKey)
+      : (await L.getAssociatedTokenAddress(borrowMintPk, keypair.publicKey));
+
+    /* ── 3. Construct borrow and payback instruction discriminators ── */
+    /* flash_borrow_reserve_liquidity discriminator (Anchor: first 8 bytes of sha256("global:flash_borrow_reserve_liquidity")) */
+    var flashBorrowDisc = new Uint8Array([57, 152, 20, 216, 184, 183, 87, 12]);
+    /* flash_repay_reserve_liquidity discriminator */
+    var flashRepayDisc = new Uint8Array([185, 117, 0, 98, 201, 107, 140, 249]);
+
+    var amountBn = BigInt(borrowAmount);
+    var amountBytes = new ArrayBuffer(8);
+    var amountView = new DataView(amountBytes);
+    amountView.setBigUint64(0, amountBn, true); // little-endian
+
+    /* Build borrow instruction */
+    var borrowIxData = new Uint8Array(8 + 8);
+    borrowIxData.set(flashBorrowDisc, 0);
+    borrowIxData.set(new Uint8Array(amountBytes), 8);
+
+    var borrowIx = new L.TransactionInstruction({
+      programId: LEND_PROGRAM,
+      keys: [
+        { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
+        { pubkey: userAta, isSigner: false, isWritable: true },
+        { pubkey: reservePda, isSigner: false, isWritable: true },
+        { pubkey: reserveSupplyPda, isSigner: false, isWritable: true },
+        { pubkey: lendingMarketPda, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_INSTRUCTIONS, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.from(borrowIxData),
     });
 
-    var explorerUrl =
-      cluster === 'devnet'
-        ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
-        : 'https://solscan.io/tx/' + sig;
+    /* Build payback instruction */
+    var paybackIxData = new Uint8Array(8 + 8);
+    paybackIxData.set(flashRepayDisc, 0);
+    paybackIxData.set(new Uint8Array(amountBytes), 8);
 
-    return { ok: true, signature: sig, explorerUrl: explorerUrl };
+    var paybackIx = new L.TransactionInstruction({
+      programId: LEND_PROGRAM,
+      keys: [
+        { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
+        { pubkey: userAta, isSigner: false, isWritable: true },
+        { pubkey: reservePda, isSigner: false, isWritable: true },
+        { pubkey: reserveSupplyPda, isSigner: false, isWritable: true },
+        { pubkey: lendingMarketPda, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_INSTRUCTIONS, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.from(paybackIxData),
+    });
+
+    /* ── 4. Get swap instructions via Jupiter V2 /build ── */
+    var swapIxSets = [];
+    for (var i = 0; i < intermediaryOps.length; i++) {
+      var op = intermediaryOps[i];
+      if (op.type !== 'swap') continue;
+
+      var swapAmount = String(op.amount || borrowAmount).trim();
+      var swapSlippage = parseInt(op.slippageBps, 10) || slippageBps;
+
+      var buildBody = {
+        inputMint: String(op.inputMint).trim(),
+        outputMint: String(op.outputMint).trim(),
+        amount: swapAmount,
+        slippageBps: swapSlippage,
+        userPublicKey: wallet,
+        wrapAndUnwrapSol: true,
+      };
+      if (op.dexes) buildBody.dexes = op.dexes;
+      if (op.excludeDexes) buildBody.excludeDexes = op.excludeDexes;
+
+      var buildRes = await fetch('https://api.jup.ag/swap/v2/build', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, jupHeaders),
+        body: JSON.stringify(buildBody),
+      });
+
+      if (!buildRes.ok) {
+        var errText = '';
+        try { errText = await buildRes.text(); } catch (_) {}
+        return { ok: false, error: 'Jupiter V2 /build failed for swap #' + i + ': ' + buildRes.status + ' ' + errText.slice(0, 200) };
+      }
+      var buildJson = await buildRes.json();
+
+      /* Parse instructions from the /build response */
+      if (buildJson.swapTransaction) {
+        /* Full serialized transaction — deserialize to extract instructions */
+        var txBytes = Uint8Array.from(atob(buildJson.swapTransaction), function(c) { return c.charCodeAt(0); });
+        var vtx = L.VersionedTransaction.deserialize(txBytes);
+        swapIxSets.push({ transaction: vtx, type: 'versioned' });
+      } else if (buildJson.instructions && Array.isArray(buildJson.instructions)) {
+        /* Raw instruction set */
+        swapIxSets.push({ instructions: buildJson.instructions, addressLookupTableAddresses: buildJson.addressLookupTableAddresses || [], type: 'raw' });
+      } else {
+        return { ok: false, error: 'Jupiter V2 /build returned no usable instructions for swap #' + i };
+      }
+    }
+
+    /* ── 5. Assemble the atomic transaction ── */
+    try {
+      var computeIx = L.ComputeBudgetProgram.setComputeUnitLimit({ units: 1400000 });
+
+      /* If we got versioned transactions, we need to use the first one and inject borrow/payback */
+      if (swapIxSets.length === 1 && swapIxSets[0].type === 'versioned') {
+        /* For a single versioned swap tx, we need to rebuild with borrow/payback */
+        /* This is the complex path — deserialize, inject, reassemble */
+        var latestBlockhash = await connection.getLatestBlockhash('confirmed');
+        var swapVtx = swapIxSets[0].transaction;
+
+        /* Unfortunately we can't easily inject instructions into a versioned tx,
+         * so we'll re-request using the raw instruction path or assemble from scratch */
+        return { ok: false, error: 'Flashloan with versioned swap tx not yet supported. The V2 /build endpoint should return raw instructions.' };
+      }
+
+      /* Raw instruction path */
+      var allInstructions = [computeIx, borrowIx];
+      var allAltAddresses = [];
+
+      for (var j = 0; j < swapIxSets.length; j++) {
+        var set = swapIxSets[j];
+        if (set.type === 'raw') {
+          /* Convert raw JSON instructions to TransactionInstruction objects */
+          for (var k = 0; k < set.instructions.length; k++) {
+            var rawIx = set.instructions[k];
+            allInstructions.push(new L.TransactionInstruction({
+              programId: new L.PublicKey(rawIx.programId),
+              keys: (rawIx.accounts || []).map(function(acc) {
+                return { pubkey: new L.PublicKey(acc.pubkey), isSigner: acc.isSigner, isWritable: acc.isWritable };
+              }),
+              data: Buffer.from(rawIx.data, 'base64'),
+            }));
+          }
+          if (set.addressLookupTableAddresses) {
+            allAltAddresses = allAltAddresses.concat(set.addressLookupTableAddresses);
+          }
+        }
+      }
+      allInstructions.push(paybackIx);
+
+      /* Fetch ALTs if needed */
+      var lookupTables = [];
+      if (allAltAddresses.length > 0) {
+        var uniqueAlts = Array.from(new Set(allAltAddresses));
+        for (var a = 0; a < uniqueAlts.length; a++) {
+          try {
+            var altResp = await connection.getAddressLookupTable(new L.PublicKey(uniqueAlts[a]));
+            if (altResp && altResp.value) lookupTables.push(altResp.value);
+          } catch (_) {}
+        }
+      }
+
+      var latestBlockhash2 = await connection.getLatestBlockhash('confirmed');
+      var message = new L.TransactionMessage({
+        payerKey: keypair.publicKey,
+        recentBlockhash: latestBlockhash2.blockhash,
+        instructions: allInstructions,
+      }).compileToV0Message(lookupTables.length > 0 ? lookupTables : undefined);
+
+      var vtx2 = new L.VersionedTransaction(message);
+      vtx2.sign([keypair]);
+
+      var sig = await connection.sendRawTransaction(vtx2.serialize(), {
+        skipPreflight: false,
+        maxRetries: 3,
+        preflightCommitment: 'confirmed',
+      });
+
+      return {
+        ok: true,
+        signature: sig,
+        explorerUrl: (cluster === 'devnet'
+          ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
+          : 'https://solscan.io/tx/' + sig),
+        intermediaryOpsCount: intermediaryOps.length,
+      };
+    } catch (e) {
+      return { ok: false, error: 'Flashloan tx failed: ' + (e && e.message ? e.message : String(e)) };
+    }
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * Jupiter Prediction Market — Search / Browse
+   *
+   * Read-only API calls to https://api.jup.ag/prediction/v1
+   * ══════════════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_prediction_search = async function (msg) {
+    var stored = await storageLocalGet([STORAGE_JUP_KEY]);
+    var jupHeaders = { 'Content-Type': 'application/json' };
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+
+    var BASE = 'https://api.jup.ag/prediction/v1';
+    var op = String(msg.operation || 'searchEvents').trim();
+    var url;
+    try {
+      switch (op) {
+        case 'searchEvents': {
+          var params = new URLSearchParams();
+          if (msg.query) params.set('query', String(msg.query).trim());
+          if (msg.limit) params.set('limit', String(msg.limit));
+          url = BASE + '/events/search?' + params.toString();
+          break;
+        }
+        case 'listEvents': {
+          var p2 = new URLSearchParams();
+          if (msg.category) p2.set('category', String(msg.category).trim());
+          if (msg.filter) p2.set('filter', String(msg.filter).trim());
+          p2.set('includeMarkets', 'true');
+          url = BASE + '/events?' + p2.toString();
+          break;
+        }
+        case 'getEvent': {
+          if (!msg.eventId) return { ok: false, error: 'eventId required' };
+          url = BASE + '/events/' + encodeURIComponent(String(msg.eventId).trim());
+          break;
+        }
+        case 'getMarket': {
+          if (!msg.marketId) return { ok: false, error: 'marketId required' };
+          url = BASE + '/markets/' + encodeURIComponent(String(msg.marketId).trim());
+          break;
+        }
+        case 'getOrderbook': {
+          if (!msg.marketId) return { ok: false, error: 'marketId required' };
+          url = BASE + '/orderbook/' + encodeURIComponent(String(msg.marketId).trim());
+          break;
+        }
+        case 'tradingStatus': {
+          url = BASE + '/trading-status';
+          break;
+        }
+        default:
+          return { ok: false, error: 'Unknown prediction operation: ' + op };
+      }
+
+      var res = await fetch(url, { headers: jupHeaders });
+      if (!res.ok) {
+        var t = ''; try { t = await res.text(); } catch (_) {}
+        return { ok: false, error: 'Prediction API ' + res.status + ': ' + t.slice(0, 300) };
+      }
+      var data = await res.json();
+      return { ok: true, operation: op, data: data };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * Jupiter Prediction Market — Trade (buy/sell/close/claim)
+   *
+   * Creates order transactions via POST, signs with wallet, submits.
+   * ══════════════════════════════════════════════════════════════════════ */
+  globalThis.__CFS_jupiter_prediction_trade = async function (msg) {
+    var L = getLib();
+    if (!L) return { ok: false, error: 'Solana library not loaded' };
+
+    var keypair;
+    try {
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER, STORAGE_JUP_KEY]);
+    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
+    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
+    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
+    var jupHeaders = { 'Content-Type': 'application/json' };
+    var jupKey = stored[STORAGE_JUP_KEY];
+    if (jupKey && String(jupKey).trim()) jupHeaders['x-api-key'] = String(jupKey).trim();
+
+    var BASE = 'https://api.jup.ag/prediction/v1';
+    var wallet = keypair.publicKey.toBase58();
+    var op = String(msg.operation || 'buyOrder').trim();
+
+    try {
+      var txB64 = null;
+      switch (op) {
+        case 'buyOrder':
+        case 'sellOrder': {
+          if (!msg.marketId) return { ok: false, error: 'marketId required' };
+          var body = {
+            ownerPubkey: wallet,
+            marketId: String(msg.marketId).trim(),
+            isYes: msg.isYes === true || msg.isYes === 'true',
+            isBuy: op === 'buyOrder',
+          };
+          if (msg.amount) body.amount = String(msg.amount).trim();
+          if (msg.limitPrice) body.limitPrice = String(msg.limitPrice).trim();
+          var res1 = await fetch(BASE + '/orders', {
+            method: 'POST',
+            headers: jupHeaders,
+            body: JSON.stringify(body),
+          });
+          if (!res1.ok) {
+            var t1 = ''; try { t1 = await res1.text(); } catch (_) {}
+            return { ok: false, error: 'Prediction order failed: ' + res1.status + ' ' + t1.slice(0, 300) };
+          }
+          var orderData = await res1.json();
+          txB64 = orderData.transaction || '';
+          break;
+        }
+        case 'closePosition': {
+          if (!msg.positionPubkey) return { ok: false, error: 'positionPubkey required' };
+          var res2 = await fetch(BASE + '/positions/' + encodeURIComponent(String(msg.positionPubkey).trim()), {
+            method: 'DELETE',
+            headers: jupHeaders,
+          });
+          if (!res2.ok) {
+            var t2 = ''; try { t2 = await res2.text(); } catch (_) {}
+            return { ok: false, error: 'Close position failed: ' + res2.status + ' ' + t2.slice(0, 300) };
+          }
+          var closeData = await res2.json();
+          txB64 = closeData.transaction || '';
+          break;
+        }
+        case 'closeAllPositions': {
+          var res3 = await fetch(BASE + '/positions?ownerPubkey=' + wallet, {
+            method: 'DELETE',
+            headers: jupHeaders,
+          });
+          if (!res3.ok) {
+            var t3 = ''; try { t3 = await res3.text(); } catch (_) {}
+            return { ok: false, error: 'Close all failed: ' + res3.status + ' ' + t3.slice(0, 300) };
+          }
+          var closeAllData = await res3.json();
+          /* May return multiple transactions */
+          var txs = closeAllData.transactions || (closeAllData.transaction ? [closeAllData.transaction] : []);
+          if (txs.length === 0) return { ok: true, message: 'No open positions to close' };
+          txB64 = txs[0]; /* Sign first; rest would need separate handling */
+          break;
+        }
+        case 'claimPayout': {
+          if (!msg.positionPubkey) return { ok: false, error: 'positionPubkey required' };
+          var res4 = await fetch(BASE + '/positions/' + encodeURIComponent(String(msg.positionPubkey).trim()) + '/claim', {
+            method: 'POST',
+            headers: jupHeaders,
+          });
+          if (!res4.ok) {
+            var t4 = ''; try { t4 = await res4.text(); } catch (_) {}
+            return { ok: false, error: 'Claim failed: ' + res4.status + ' ' + t4.slice(0, 300) };
+          }
+          var claimData = await res4.json();
+          txB64 = claimData.transaction || '';
+          break;
+        }
+        default:
+          return { ok: false, error: 'Unknown prediction trade operation: ' + op };
+      }
+
+      if (!txB64) return { ok: false, error: 'No transaction returned from prediction API' };
+
+      /* Sign and submit */
+      var txBytes = Uint8Array.from(atob(txB64), function(c) { return c.charCodeAt(0); });
+      var vtx = L.VersionedTransaction.deserialize(txBytes);
+      vtx.sign([keypair]);
+      var connection = new L.Connection(rpcUrl, 'confirmed');
+      var sig = await connection.sendRawTransaction(vtx.serialize(), { skipPreflight: false, maxRetries: 3 });
+      return {
+        ok: true, signature: sig, operation: op,
+        explorerUrl: (cluster === 'devnet' ? 'https://solscan.io/tx/' + sig + '?cluster=devnet' : 'https://solscan.io/tx/' + sig),
+      };
+    } catch (e) {
+      return { ok: false, error: 'Prediction trade failed: ' + (e && e.message ? e.message : String(e)) };
+    }
   };
 
   globalThis.__CFS_solana_transferSol = async function (msg) {
@@ -670,7 +1562,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -758,7 +1650,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -922,7 +1814,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1025,7 +1917,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1141,7 +2033,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1867,7 +2759,10 @@
 
         var encOpt = msg.encryptWithPassword === true;
         var walletPw = msg.walletPassword != null ? String(msg.walletPassword) : '';
-        var appendOpts = { setAsPrimary: msg.setAsPrimary === true };
+        var appendOpts = {
+          setAsPrimary: msg.setAsPrimary === true,
+          label: msg.label != null ? String(msg.label) : '',
+        };
 
         if (type === 'CFS_SOLANA_WALLET_IMPORT_B58') {
           var b58 = (msg.secretB58 && String(msg.secretB58).trim()) || '';

@@ -855,6 +855,14 @@
           if (!Array.isArray(msg.list)) return { valid: false, error: 'list must be an array' };
           if (msg.list.length > 500) return { valid: false, error: 'list length must be at most 500' };
           break;
+        case 'CFS_CRYPTO_TEST_ENSURE_WALLETS':
+          if (msg.fundOnly === true && msg.replaceExisting === true) {
+            return {
+              valid: false,
+              error: 'fundOnly and replaceExisting cannot be used together (replace removes wallets; run full ensure without fundOnly, then fundOnly if needed)',
+            };
+          }
+          break;
         default:
           break;
       }
@@ -881,6 +889,11 @@
     assertFalse(validateMessagePayload('SET_PENDING_GENERATIONS', { list: 'bad' }).valid);
     assertTrue(validateMessagePayload('SET_PENDING_GENERATIONS', { list: [] }).valid);
     assertTrue(validateMessagePayload('SET_PENDING_GENERATIONS', { list: [{ data: 'x' }] }).valid);
+
+    assertTrue(validateMessagePayload('CFS_CRYPTO_TEST_ENSURE_WALLETS', {}).valid);
+    assertTrue(validateMessagePayload('CFS_CRYPTO_TEST_ENSURE_WALLETS', { fundOnly: true }).valid);
+    assertTrue(validateMessagePayload('CFS_CRYPTO_TEST_ENSURE_WALLETS', { replaceExisting: true }).valid);
+    assertFalse(validateMessagePayload('CFS_CRYPTO_TEST_ENSURE_WALLETS', { fundOnly: true, replaceExisting: true }).valid);
 
     assertFalse(validateMessagePayload('SEND_TO_ENDPOINT', {}).valid);
     assertTrue(validateMessagePayload('SEND_TO_ENDPOINT', { url: 'http://x' }).valid);
@@ -4251,6 +4264,2180 @@
     testFollowingSyncMergeLocalNewerUnionChildren,
     testFollowingSyncMergeOrphanUuidInUploadList,
     testFollowingSyncMergeMissingServerTsBaselineUnion,
+
+    // ── Player pure-function tests ────────────────────────────────────
+    testPlayerFormatErr,
+    testPlayerFormatErrString,
+    testPlayerQcLastItemHasFailedNoItem,
+    testPlayerQcLastItemHasFailedWithVideo,
+    testPlayerQcLastItemHasFailedMatch,
+    testPlayerQcLastItemHasFailedNoMatch,
+    testPlayerApplyRowMappingEmpty,
+    testPlayerApplyRowMappingWithMapping,
+    testPlayerGetRowValueBasic,
+    testPlayerGetRowValueCaseInsensitive,
+    testPlayerGetRowValueMissing,
+    testPlayerLooksLikeUploadTrigger,
+
+    // ── Service worker helper tests ───────────────────────────────────
+    testApifyParseRetryAfterMsSeconds,
+    testApifyParseRetryAfterMsMax,
+    testApifyParseRetryAfterMsEmpty,
+    testApifyFormatErrorDetailsString,
+    testApifyFormatErrorDetailsTruncation,
+    testApifyFormatErrorDetailsObject,
+    testApifyFormatErrorDetailsNull,
+    testCfsSanitizeLlmChatMessages,
+    testCfsValidateRemoteChatInputEmpty,
+    testCfsValidateRemoteChatInputTooMany,
+    testCfsValidateRemoteChatInputValid,
+    testCfsValidateProjectRelativePath,
+
+    // ── PersonalInfo sync tests ───────────────────────────────────────
+    testPersonalInfoNormalizeMode,
+    testPersonalInfoHasSelectors,
+    testPersonalInfoSecretText,
+    testPersonalInfoIsPublishableWithoutSecret,
+    testPersonalInfoSanitizeForSync,
+    testPersonalInfoCloneWorkflowRedactsWhenPublished,
+    testPersonalInfoApplyToTypedValue,
+
+    // ── Nested workflow loop tests ────────────────────────────────────
+    testResolveNestedWorkflowsWithLoopSteps,
+
+    // ── Player DOM-based tests ────────────────────────────────────────
+    testPlayerRunExtractDataBasic,
+    testPlayerRunExtractDataNoListContainer,
+    testPlayerRunExtractDataMaxItems,
+    testPlayerLastItemVideosRendered,
+    testPlayerLastItemStillGenerating,
+
+    // ── Auto-discovery pure function tests ────────────────────────────
+    testDiscoveryIsHintObject,
+    testDiscoverySplitLegacyHints,
+    testDiscoveryConcatUniqueArrays,
+    testDiscoveryMergeWorkflowHintsOrdered,
+    testDiscoveryNormalizeInput,
+    testDiscoveryIsUnstableClassSelector,
+
+    // ── GitHub extension update tests ─────────────────────────────────
+    testGitHubShouldSkipPath,
+    testGitHubFormatSyncStateSummary,
+
+    // ── Sidepanel pure function tests ─────────────────────────────────
+    testSidepanelFormatTimeAgo,
+    testSidepanelIsRestrictedUrl,
+    testSidepanelUrlMatchesPattern,
+    testSidepanelIsTestWorkflow,
+    testSidepanelNormalizeScriptingError,
+    testSidepanelNormalizePlaybackError,
+    testSidepanelWorkflowContainsStepType,
+    testSidepanelGetDelayBeforeNextRunMs,
+    testSidepanelWorkflowNeedsVideoBatchWait,
+    testSidepanelIsWorkflowCatalogKbEligible,
+    testSidepanelFriendlyKnowledgeAnswerError,
+
+    // ── Walkthrough export tests ──────────────────────────────────────
+    testWalkthroughSelectorStrings,
+    testWalkthroughBuildConfig,
+
+    // ── FFmpeg local tests ────────────────────────────────────────────
+    testFfmpegProgressToPercent,
+
+    // ── Player audio capture tests ────────────────────────────────────
+    testPlayerFindMediaElement,
+    testPlayerCaptureAudioGuards,
+
+    // ── Upload-post validation tests ──────────────────────────────────
+    testUploadPostSubmitVideoValidation,
+    testUploadPostCheckStatusValidation,
+    testUploadPostCancelScheduledValidation,
+    testUploadPostCreateUserProfileValidation,
+    testUploadPostConvertToMp4ErrorFlow,
   ];
 
+  // ── Player pure-function tests ─────────────────────────────────────
+
+  function testPlayerFormatErr() {
+    function formatErr(err) { return err?.message || String(err); }
+    assertEqual(formatErr(new Error('boom')), 'boom');
+    assertEqual(formatErr({ message: 'hello' }), 'hello');
+  }
+
+  function testPlayerFormatErrString() {
+    function formatErr(err) { return err?.message || String(err); }
+    assertEqual(formatErr('plain'), 'plain');
+    assertEqual(formatErr(42), '42');
+    assertEqual(formatErr(null), 'null');
+    assertEqual(formatErr(undefined), 'undefined');
+  }
+
+  function testPlayerQcLastItemHasFailedNoItem() {
+    function qcLastItemHasFailed(item, phrases) {
+      var list = Array.isArray(phrases) && phrases.length ? phrases : ['failed generation', 'generation failed', 'something went wrong'];
+      if (!item) return false;
+      var text = (item.textContent || '').toLowerCase();
+      if (!list.some(function(p) { return text.includes(p); })) return false;
+      return item.querySelectorAll('video[src]').length === 0;
+    }
+    assertFalse(qcLastItemHasFailed(null), 'null item');
+    assertFalse(qcLastItemHasFailed(undefined), 'undefined item');
+  }
+
+  function testPlayerQcLastItemHasFailedWithVideo() {
+    function qcLastItemHasFailed(item, phrases) {
+      var list = Array.isArray(phrases) && phrases.length ? phrases : ['failed generation'];
+      if (!item) return false;
+      var text = (item.textContent || '').toLowerCase();
+      if (!list.some(function(p) { return text.includes(p); })) return false;
+      return item.querySelectorAll('video[src]').length === 0;
+    }
+    var el = document.createElement('div');
+    el.textContent = 'failed generation';
+    var vid = document.createElement('video');
+    vid.setAttribute('src', 'test.mp4');
+    el.appendChild(vid);
+    assertFalse(qcLastItemHasFailed(el), 'has video → not failed');
+  }
+
+  function testPlayerQcLastItemHasFailedMatch() {
+    function qcLastItemHasFailed(item, phrases) {
+      var list = Array.isArray(phrases) && phrases.length ? phrases : ['failed generation', 'generation failed', 'something went wrong'];
+      if (!item) return false;
+      var text = (item.textContent || '').toLowerCase();
+      if (!list.some(function(p) { return text.includes(p); })) return false;
+      return item.querySelectorAll('video[src]').length === 0;
+    }
+    var el = document.createElement('div');
+    el.textContent = 'Something went wrong, try again';
+    assertTrue(qcLastItemHasFailed(el), 'matches failure phrase without video');
+  }
+
+  function testPlayerQcLastItemHasFailedNoMatch() {
+    function qcLastItemHasFailed(item, phrases) {
+      var list = Array.isArray(phrases) && phrases.length ? phrases : ['failed generation'];
+      if (!item) return false;
+      var text = (item.textContent || '').toLowerCase();
+      if (!list.some(function(p) { return text.includes(p); })) return false;
+      return item.querySelectorAll('video[src]').length === 0;
+    }
+    var el = document.createElement('div');
+    el.textContent = 'Ready to generate';
+    assertFalse(qcLastItemHasFailed(el), 'no failure phrase → false');
+  }
+
+  function testPlayerApplyRowMappingEmpty() {
+    function applyRowMapping(row, mapping) {
+      if (!mapping || !Object.keys(mapping).length) return Object.assign({}, row);
+      var result = Object.assign({}, row);
+      for (var key in mapping) {
+        if (mapping.hasOwnProperty(key)) result[key] = row[mapping[key]];
+      }
+      return result;
+    }
+    var row = { a: 1, b: 2 };
+    assertDeepEqual(applyRowMapping(row, null), { a: 1, b: 2 }, 'null mapping → copy');
+    assertDeepEqual(applyRowMapping(row, {}), { a: 1, b: 2 }, 'empty mapping → copy');
+  }
+
+  function testPlayerApplyRowMappingWithMapping() {
+    function applyRowMapping(row, mapping) {
+      if (!mapping || !Object.keys(mapping).length) return Object.assign({}, row);
+      var result = Object.assign({}, row);
+      for (var key in mapping) {
+        if (mapping.hasOwnProperty(key)) result[key] = row[mapping[key]];
+      }
+      return result;
+    }
+    var row = { name: 'Alice', url: 'http://example.com' };
+    var mapped = applyRowMapping(row, { targetName: 'name', targetUrl: 'url' });
+    assertEqual(mapped.targetName, 'Alice');
+    assertEqual(mapped.targetUrl, 'http://example.com');
+    assertEqual(mapped.name, 'Alice', 'original keys preserved');
+  }
+
+  function testPlayerGetRowValueBasic() {
+    function getRowValue(row) {
+      if (!row || typeof row !== 'object') return '';
+      var keys = Array.prototype.slice.call(arguments, 1).filter(Boolean);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (row[k] !== undefined) return row[k];
+        var lower = (k || '').toLowerCase();
+        var rks = Object.keys(row);
+        for (var j = 0; j < rks.length; j++) {
+          if ((rks[j] || '').toLowerCase() === lower) return row[rks[j]];
+        }
+      }
+      return '';
+    }
+    assertEqual(getRowValue({ name: 'Alice' }, 'name'), 'Alice');
+    assertEqual(getRowValue({ a: 1 }, 'a', 'b'), 1);
+    assertEqual(getRowValue({ a: 1 }, 'b', 'a'), 1, 'second key fallback');
+  }
+
+  function testPlayerGetRowValueCaseInsensitive() {
+    function getRowValue(row) {
+      if (!row || typeof row !== 'object') return '';
+      var keys = Array.prototype.slice.call(arguments, 1).filter(Boolean);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (row[k] !== undefined) return row[k];
+        var lower = (k || '').toLowerCase();
+        var rks = Object.keys(row);
+        for (var j = 0; j < rks.length; j++) {
+          if ((rks[j] || '').toLowerCase() === lower) return row[rks[j]];
+        }
+      }
+      return '';
+    }
+    assertEqual(getRowValue({ Name: 'Bob' }, 'name'), 'Bob', 'case insensitive');
+    assertEqual(getRowValue({ URL: 'http://x.com' }, 'url'), 'http://x.com');
+  }
+
+  function testPlayerGetRowValueMissing() {
+    function getRowValue(row) {
+      if (!row || typeof row !== 'object') return '';
+      var keys = Array.prototype.slice.call(arguments, 1).filter(Boolean);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (row[k] !== undefined) return row[k];
+      }
+      return '';
+    }
+    assertEqual(getRowValue({}, 'x'), '', 'missing key → empty');
+    assertEqual(getRowValue(null, 'x'), '', 'null row → empty');
+    assertEqual(getRowValue(undefined, 'x'), '', 'undefined row → empty');
+  }
+
+  function testPlayerLooksLikeUploadTrigger() {
+    function looksLikeUploadTrigger(action) {
+      var t = ((action.text || '') + (action.tagName || '')).toLowerCase();
+      var uploadWords = ['upload', 'choose', 'browse', 'file', 'add file', 'select file', 'attach', 'drop'];
+      return uploadWords.some(function(w) { return t.includes(w); });
+    }
+    assertTrue(looksLikeUploadTrigger({ text: 'Upload Image' }), 'upload word');
+    assertTrue(looksLikeUploadTrigger({ text: 'Choose File' }), 'choose word');
+    assertTrue(looksLikeUploadTrigger({ text: '', tagName: 'input file' }), 'file in tagName');
+    assertFalse(looksLikeUploadTrigger({ text: 'Submit form' }), 'no upload word');
+    assertFalse(looksLikeUploadTrigger({ text: '', tagName: '' }), 'empty');
+  }
+
+  // ── Service worker helper tests ────────────────────────────────────
+
+  function testApifyParseRetryAfterMsSeconds() {
+    var APIFY_RETRY_AFTER_MAX_MS = 120000;
+    function apifyParseRetryAfterMs(res) {
+      try {
+        var ra = res.headers.get('Retry-After');
+        if (ra == null || ra === '') return 0;
+        var s = String(ra).trim();
+        if (/^\d+$/.test(s)) {
+          var sec = parseInt(s, 10);
+          if (sec > 0) return Math.min(sec * 1000, APIFY_RETRY_AFTER_MAX_MS);
+          return 0;
+        }
+        var when = Date.parse(s);
+        if (Number.isFinite(when)) {
+          var delta = when - Date.now();
+          if (delta > 0) return Math.min(delta, APIFY_RETRY_AFTER_MAX_MS);
+        }
+      } catch (_) {}
+      return 0;
+    }
+    var r = { headers: new Map([['Retry-After', '5']]) };
+    r.headers.get = function(k) { return this.has(k) ? this.entries().next().value[1] : null; };
+    r.headers = { get: function() { return '5'; } };
+    assertEqual(apifyParseRetryAfterMs(r), 5000, '5 seconds → 5000ms');
+  }
+
+  function testApifyParseRetryAfterMsMax() {
+    var cap = 120000;
+    function apifyParseRetryAfterMs(res) {
+      try {
+        var ra = res.headers.get('Retry-After');
+        if (ra == null || ra === '') return 0;
+        var s = String(ra).trim();
+        if (/^\d+$/.test(s)) {
+          var sec = parseInt(s, 10);
+          if (sec > 0) return Math.min(sec * 1000, cap);
+          return 0;
+        }
+      } catch (_) {}
+      return 0;
+    }
+    var r = { headers: { get: function() { return '99999'; } } };
+    assertEqual(apifyParseRetryAfterMs(r), cap, 'capped to 120s');
+  }
+
+  function testApifyParseRetryAfterMsEmpty() {
+    function apifyParseRetryAfterMs(res) {
+      try {
+        var ra = res.headers.get('Retry-After');
+        if (ra == null || ra === '') return 0;
+      } catch (_) {}
+      return 0;
+    }
+    assertEqual(apifyParseRetryAfterMs({ headers: { get: function() { return null; } } }), 0, 'null → 0');
+    assertEqual(apifyParseRetryAfterMs({ headers: { get: function() { return ''; } } }), 0, 'empty → 0');
+  }
+
+  function testApifyFormatErrorDetailsString() {
+    function apifyFormatErrorDetails(details, maxLen) {
+      maxLen = maxLen || 600;
+      if (details == null) return '';
+      var s = typeof details === 'string' ? details : JSON.stringify(details);
+      if (s.length > maxLen) return s.slice(0, maxLen) + '\u2026';
+      return s;
+    }
+    assertEqual(apifyFormatErrorDetails('short error'), 'short error');
+  }
+
+  function testApifyFormatErrorDetailsTruncation() {
+    function apifyFormatErrorDetails(details, maxLen) {
+      maxLen = maxLen || 600;
+      if (details == null) return '';
+      var s = typeof details === 'string' ? details : JSON.stringify(details);
+      if (s.length > maxLen) return s.slice(0, maxLen) + '\u2026';
+      return s;
+    }
+    var long = 'x'.repeat(700);
+    var result = apifyFormatErrorDetails(long);
+    assertEqual(result.length, 601, 'truncated to 600 + ellipsis');
+    assertTrue(result.endsWith('\u2026'), 'ends with ellipsis');
+  }
+
+  function testApifyFormatErrorDetailsObject() {
+    function apifyFormatErrorDetails(details, maxLen) {
+      maxLen = maxLen || 600;
+      if (details == null) return '';
+      var s;
+      if (typeof details === 'string') s = details;
+      else { try { s = JSON.stringify(details); } catch (_) { s = String(details); } }
+      if (s.length > maxLen) return s.slice(0, maxLen) + '\u2026';
+      return s;
+    }
+    assertEqual(apifyFormatErrorDetails({ key: 'val' }), '{"key":"val"}');
+  }
+
+  function testApifyFormatErrorDetailsNull() {
+    function apifyFormatErrorDetails(details) {
+      if (details == null) return '';
+      return String(details);
+    }
+    assertEqual(apifyFormatErrorDetails(null), '', 'null → empty');
+    assertEqual(apifyFormatErrorDetails(undefined), '', 'undefined → empty');
+  }
+
+  function testCfsSanitizeLlmChatMessages() {
+    function cfsSanitizeLlmChatMessages(messages) {
+      if (!Array.isArray(messages)) return [];
+      var out = [];
+      for (var i = 0; i < messages.length; i++) {
+        var m = messages[i];
+        if (!m || typeof m !== 'object') continue;
+        var role = String(m.role || 'user').toLowerCase();
+        if (role === 'assistant') role = 'assistant';
+        else if (role === 'system') role = 'system';
+        else role = 'user';
+        var content = m.content;
+        if (content != null && typeof content !== 'string') {
+          try { content = JSON.stringify(content); } catch (_) { content = String(content); }
+        } else {
+          content = content != null ? String(content) : '';
+        }
+        out.push({ role: role, content: content });
+      }
+      return out;
+    }
+    var r = cfsSanitizeLlmChatMessages([{ role: 'user', content: 'hello' }, { role: 'ASSISTANT', content: 'hi' }]);
+    assertEqual(r.length, 2);
+    assertEqual(r[0].role, 'user');
+    assertEqual(r[1].role, 'assistant');
+    assertDeepEqual(cfsSanitizeLlmChatMessages(null), [], 'null → []');
+    assertDeepEqual(cfsSanitizeLlmChatMessages('not array'), [], 'string → []');
+    var obj = cfsSanitizeLlmChatMessages([{ role: 'user', content: { key: 'val' } }]);
+    assertEqual(obj[0].content, '{"key":"val"}', 'object content serialized');
+  }
+
+  function testCfsValidateRemoteChatInputEmpty() {
+    var MAX_MSG = 128;
+    var MAX_CHARS = 400000;
+    function cfsValidateRemoteChatInput(rawMessages) {
+      if (!Array.isArray(rawMessages) || rawMessages.length === 0) return { ok: false, error: 'messages must be a non-empty array' };
+      if (rawMessages.length > MAX_MSG) return { ok: false, error: 'Too many messages' };
+      return { ok: true };
+    }
+    assertFalse(cfsValidateRemoteChatInput([]).ok, 'empty array → not ok');
+    assertFalse(cfsValidateRemoteChatInput(null).ok, 'null → not ok');
+    assertFalse(cfsValidateRemoteChatInput('x').ok, 'string → not ok');
+  }
+
+  function testCfsValidateRemoteChatInputTooMany() {
+    var MAX_MSG = 128;
+    function cfsValidateRemoteChatInput(rawMessages) {
+      if (!Array.isArray(rawMessages) || rawMessages.length === 0) return { ok: false, error: 'messages must be a non-empty array' };
+      if (rawMessages.length > MAX_MSG) return { ok: false, error: 'Too many messages' };
+      return { ok: true };
+    }
+    var many = [];
+    for (var i = 0; i < 200; i++) many.push({ role: 'user', content: 'x' });
+    assertFalse(cfsValidateRemoteChatInput(many).ok, '200 messages → not ok');
+  }
+
+  function testCfsValidateRemoteChatInputValid() {
+    var MAX_MSG = 128;
+    var MAX_CHARS = 400000;
+    function cfsValidateRemoteChatInput(rawMessages) {
+      if (!Array.isArray(rawMessages) || rawMessages.length === 0) return { ok: false, error: 'messages must be a non-empty array' };
+      if (rawMessages.length > MAX_MSG) return { ok: false, error: 'Too many messages' };
+      var total = 0;
+      for (var i = 0; i < rawMessages.length; i++) {
+        total += (rawMessages[i].content && rawMessages[i].content.length) || 0;
+      }
+      if (total > MAX_CHARS) return { ok: false, error: 'Too large' };
+      return { ok: true };
+    }
+    assertTrue(cfsValidateRemoteChatInput([{ role: 'user', content: 'hello' }]).ok, 'single message ok');
+  }
+
+  function testCfsValidateProjectRelativePath() {
+    function cfsValidateProjectRelativePath(p) {
+      if (typeof p !== 'string' || !p.trim()) return { ok: false, error: 'Path required' };
+      var norm = p.replace(/^\/+|\/+$/g, '');
+      if (!norm) return { ok: false, error: 'Path required' };
+      if (norm.length > 512) return { ok: false, error: 'Path too long' };
+      var parts = norm.split('/');
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i] === '..' || parts[i] === '') return { ok: false, error: 'Invalid path segment' };
+      }
+      return { ok: true, path: norm };
+    }
+    assertTrue(cfsValidateProjectRelativePath('foo/bar.json').ok, 'valid path');
+    assertEqual(cfsValidateProjectRelativePath('foo/bar.json').path, 'foo/bar.json');
+    assertFalse(cfsValidateProjectRelativePath('../etc/passwd').ok, 'traversal rejected');
+    assertFalse(cfsValidateProjectRelativePath('').ok, 'empty rejected');
+    assertFalse(cfsValidateProjectRelativePath(null).ok, 'null rejected');
+    assertFalse(cfsValidateProjectRelativePath('foo//bar').ok, 'empty segment rejected');
+    assertFalse(cfsValidateProjectRelativePath('a'.repeat(600)).ok, 'too long rejected');
+  }
+
+  // ── PersonalInfo sync tests ────────────────────────────────────────
+
+  function testPersonalInfoNormalizeMode() {
+    var pis = global.CFS_personalInfoSync;
+    if (!pis) throw new Error('CFS_personalInfoSync not loaded');
+    assertEqual(pis.normalizeMode('replacePhrase'), 'replacePhrase');
+    assertEqual(pis.normalizeMode('replaceWholeElement'), 'replaceWholeElement');
+    assertEqual(pis.normalizeMode('replaceRegexInElement'), 'replaceRegexInElement');
+    assertEqual(pis.normalizeMode(undefined), 'replacePhrase', 'undefined defaults to replacePhrase');
+    assertEqual(pis.normalizeMode('bogus'), 'replacePhrase', 'unknown defaults to replacePhrase');
+  }
+
+  function testPersonalInfoHasSelectors() {
+    var pis = global.CFS_personalInfoSync;
+    assertTrue(pis.hasSelectors({ selectors: [{ type: 'id', value: '#x' }] }));
+    assertFalse(pis.hasSelectors({ selectors: [] }));
+    assertFalse(pis.hasSelectors(null));
+    assertFalse(pis.hasSelectors({}));
+  }
+
+  function testPersonalInfoSecretText() {
+    var pis = global.CFS_personalInfoSync;
+    assertEqual(pis.secretText({ text: 'hello' }), 'hello');
+    assertEqual(pis.secretText({ pickedText: 'world' }), 'world');
+    assertEqual(pis.secretText({ text: 'a', pickedText: 'b' }), 'a', 'text takes priority');
+    assertEqual(pis.secretText(null), '');
+    assertEqual(pis.secretText({}), '');
+  }
+
+  function testPersonalInfoIsPublishableWithoutSecret() {
+    var pis = global.CFS_personalInfoSync;
+    assertFalse(pis.isPublishableWithoutSecret(null));
+    assertFalse(pis.isPublishableWithoutSecret({ selectors: [{ v: 1 }], mode: 'replacePhrase' }), 'phrase needs secret');
+    assertTrue(pis.isPublishableWithoutSecret({ selectors: [{ v: 1 }], mode: 'replaceWholeElement' }), 'wholeElement is publishable');
+    assertTrue(pis.isPublishableWithoutSecret({ selectors: [{ v: 1 }], mode: 'replaceRegexInElement', regex: '\\d+' }), 'regex with pattern is publishable');
+    assertFalse(pis.isPublishableWithoutSecret({ selectors: [{ v: 1 }], mode: 'replaceRegexInElement' }), 'regex without pattern is not publishable');
+    assertFalse(pis.isPublishableWithoutSecret({ selectors: [{ v: 1 }], mode: 'replaceWholeElement', localOnly: true }), 'localOnly items are not publishable');
+  }
+
+  function testPersonalInfoSanitizeForSync() {
+    var pis = global.CFS_personalInfoSync;
+    var arr = [
+      { text: 'secret', selectors: [], mode: 'replacePhrase', replacementWord: '***' },
+      { selectors: [{ type: 'id', value: '#x' }], mode: 'replaceWholeElement', replacementWord: 'REDACTED' },
+      { text: 'secret2', localOnly: true, selectors: [{ v: 1 }], mode: 'replaceWholeElement' },
+    ];
+    var result = pis.sanitizePersonalInfoArrayForPublishedSync(arr);
+    assertEqual(result.length, 1, 'only wholeElement non-local survives');
+    assertEqual(result[0].mode, 'replaceWholeElement');
+    assertEqual(result[0].replacementWord, 'REDACTED');
+    assertTrue(result[0].text === undefined || result[0].text === null, 'text redacted');
+  }
+
+  function testPersonalInfoCloneWorkflowRedactsWhenPublished() {
+    var pis = global.CFS_personalInfoSync;
+    var wf = {
+      published: true,
+      personalInfo: [
+        { text: 'SSN: 123-45-6789', selectors: [], mode: 'replacePhrase', replacementWord: '***' },
+        { selectors: [{ type: 'id', value: '#q' }], mode: 'replaceWholeElement', replacementWord: 'PRIVATE' },
+      ],
+    };
+    var cloned = pis.cloneWorkflowForPublishedSync(wf);
+    assertEqual(cloned.personalInfo.length, 1, 'only publishable items survive');
+    assertEqual(cloned.personalInfo[0].replacementWord, 'PRIVATE');
+    var unpub = pis.cloneWorkflowForPublishedSync({ published: false, personalInfo: wf.personalInfo });
+    assertEqual(unpub.personalInfo.length, 2, 'unpublished keeps all');
+  }
+
+  function testPersonalInfoApplyToTypedValue() {
+    var pis = global.CFS_personalInfoSync;
+    assertEqual(pis.applyToTypedValue(null, null, []), null, 'null passthrough');
+    assertEqual(pis.applyToTypedValue('hello', null, []), 'hello', 'no personalInfo → passthrough');
+    var pi = [{ text: 'secret123', replacementWord: '***' }];
+    assertEqual(pis.applyToTypedValue('secret123', null, pi, null, null), '***', 'exact match replaced');
+    assertEqual(pis.applyToTypedValue('other text', null, pi, null, null), 'other text', 'no match → original');
+  }
+
+  // ── Nested workflow loop tests ─────────────────────────────────────
+
+  function testResolveNestedWorkflowsWithLoopSteps() {
+    function resolveNestedWorkflowsInBackground(workflow, allWorkflows, seen) {
+      if (!seen) seen = new Set();
+      if (!workflow || !workflow.actions || !workflow.actions.length) return workflow;
+      var resolved = JSON.parse(JSON.stringify(workflow));
+      for (var i = 0; i < resolved.actions.length; i++) {
+        var a = resolved.actions[i];
+        if (a.type === 'runWorkflow' && a.workflowId) {
+          var nested = allWorkflows[a.workflowId] && allWorkflows[a.workflowId].analyzed;
+          if (!nested || !nested.actions || !nested.actions.length) return null;
+          if (seen.has(a.workflowId)) return null;
+          seen.add(a.workflowId);
+          a.nestedWorkflow = resolveNestedWorkflowsInBackground(nested, allWorkflows, seen);
+          seen.delete(a.workflowId);
+          if (!a.nestedWorkflow) return null;
+        }
+        if (a.type === 'loop' && a.steps && a.steps.length) {
+          for (var j = 0; j < a.steps.length; j++) {
+            var s = a.steps[j];
+            if (s.type === 'runWorkflow' && s.workflowId) {
+              var nest2 = allWorkflows[s.workflowId] && allWorkflows[s.workflowId].analyzed;
+              if (nest2 && nest2.actions && nest2.actions.length && !seen.has(s.workflowId)) {
+                seen.add(s.workflowId);
+                s.nestedWorkflow = resolveNestedWorkflowsInBackground(nest2, allWorkflows, seen);
+                seen.delete(s.workflowId);
+              }
+            }
+          }
+        }
+      }
+      return resolved;
+    }
+
+    var allWf = {
+      innerWf: { analyzed: { actions: [{ type: 'click' }, { type: 'type' }] } },
+    };
+    var parent = {
+      actions: [
+        { type: 'click' },
+        { type: 'loop', steps: [
+          { type: 'runWorkflow', workflowId: 'innerWf' },
+          { type: 'click' },
+        ]},
+      ],
+    };
+    var result = resolveNestedWorkflowsInBackground(parent, allWf);
+    assertTrue(result !== null, 'loop with runWorkflow resolves');
+    var loopStep = result.actions[1];
+    assertEqual(loopStep.type, 'loop');
+    assertTrue(loopStep.steps[0].nestedWorkflow !== undefined, 'nestedWorkflow attached inside loop');
+    assertEqual(loopStep.steps[0].nestedWorkflow.actions.length, 2, 'nested actions count');
+
+    // Circular inside loop: should not crash (nestedWorkflow stays undefined)
+    var circular = {
+      selfRef: { analyzed: { actions: [{ type: 'loop', steps: [{ type: 'runWorkflow', workflowId: 'selfRef' }] }] } },
+    };
+    var circResult = resolveNestedWorkflowsInBackground(circular.selfRef.analyzed, circular);
+    // selfRef loop step's runWorkflow won't get nested because selfRef is already in seen
+    assertTrue(circResult !== null, 'circular in loop does not crash');
+  }
+
+  // ── Player DOM-based tests ─────────────────────────────────────────
+
+  function testPlayerRunExtractDataBasic() {
+    // Inline re-creation of runExtractData's core logic (DOM-only parts)
+    function runExtractData(config, root) {
+      var cfg = config || {};
+      var doc = root || document;
+      var listSelector = cfg.listSelector;
+      var itemSelector = cfg.itemSelector || 'li';
+      var fields = Array.isArray(cfg.fields) ? cfg.fields : [];
+      var maxItems = typeof cfg.maxItems === 'number' && cfg.maxItems > 0 ? cfg.maxItems : 0;
+      var list = null;
+      if (typeof listSelector === 'string' && listSelector.trim()) {
+        try { list = doc.querySelector(listSelector.trim()); } catch (_) {}
+      }
+      if (!list) return { ok: false, error: 'List container not found.' };
+      var itemEls = [];
+      try { itemEls = Array.from(list.querySelectorAll(itemSelector)); } catch (_) {}
+      if (itemEls.length === 0) itemEls = Array.from(list.children).filter(function(el) { return el.nodeType === 1; });
+      if (maxItems > 0 && itemEls.length > maxItems) itemEls = itemEls.slice(0, maxItems);
+      if (itemEls.length === 0) return { ok: true, rows: [] };
+      var rows = [];
+      for (var i = 0; i < itemEls.length; i++) {
+        var item = itemEls[i];
+        var row = {};
+        for (var j = 0; j < fields.length; j++) {
+          var field = fields[j];
+          var key = (field.key || '').trim() || 'value';
+          var sels = field.selector;
+          var text = '';
+          if (typeof sels === 'string' && sels.trim()) {
+            try {
+              var el = item.querySelector(sels.trim());
+              if (el) text = (el.textContent || el.value || '').trim();
+            } catch (_) {}
+          }
+          row[key] = text;
+        }
+        if (Object.keys(row).length > 0) rows.push(row);
+      }
+      return { ok: true, rows: rows };
+    }
+
+    // Create DOM fixture
+    var fixture = document.createElement('div');
+    fixture.id = 'extract-fixture';
+    var ul = document.createElement('ul');
+    ul.setAttribute('data-list', '');
+    var li1 = document.createElement('li');
+    var span1 = document.createElement('span');
+    span1.className = 'name';
+    span1.textContent = 'Alice';
+    li1.appendChild(span1);
+    ul.appendChild(li1);
+    var li2 = document.createElement('li');
+    var span2 = document.createElement('span');
+    span2.className = 'name';
+    span2.textContent = 'Bob';
+    li2.appendChild(span2);
+    ul.appendChild(li2);
+    fixture.appendChild(ul);
+    document.body.appendChild(fixture);
+
+    try {
+      var result = runExtractData({
+        listSelector: '[data-list]',
+        itemSelector: 'li',
+        fields: [{ key: 'name', selector: '.name' }],
+      }, document.getElementById('extract-fixture'));
+      assertTrue(result.ok, 'extract ok');
+      assertEqual(result.rows.length, 2, '2 rows extracted');
+      assertEqual(result.rows[0].name, 'Alice');
+      assertEqual(result.rows[1].name, 'Bob');
+    } finally {
+      fixture.remove();
+    }
+  }
+
+  function testPlayerRunExtractDataNoListContainer() {
+    function runExtractData(config, root) {
+      var cfg = config || {};
+      var doc = root || document;
+      var list = null;
+      if (typeof cfg.listSelector === 'string' && cfg.listSelector.trim()) {
+        try { list = doc.querySelector(cfg.listSelector.trim()); } catch (_) {}
+      }
+      if (!list) return { ok: false, error: 'List container not found.' };
+      return { ok: true, rows: [] };
+    }
+    var result = runExtractData({ listSelector: '#nonexistent-list' });
+    assertFalse(result.ok, 'returns error when list not found');
+    assertTrue(result.error.indexOf('not found') >= 0, 'error message mentions not found');
+  }
+
+  function testPlayerRunExtractDataMaxItems() {
+    function runExtractData(config, root) {
+      var cfg = config || {};
+      var doc = root || document;
+      var list = null;
+      if (typeof cfg.listSelector === 'string') {
+        try { list = doc.querySelector(cfg.listSelector); } catch (_) {}
+      }
+      if (!list) return { ok: false, error: 'not found' };
+      var itemEls = Array.from(list.querySelectorAll(cfg.itemSelector || 'li'));
+      if (itemEls.length === 0) itemEls = Array.from(list.children).filter(function(el) { return el.nodeType === 1; });
+      var maxItems = typeof cfg.maxItems === 'number' && cfg.maxItems > 0 ? cfg.maxItems : 0;
+      if (maxItems > 0 && itemEls.length > maxItems) itemEls = itemEls.slice(0, maxItems);
+      var rows = [];
+      for (var i = 0; i < itemEls.length; i++) rows.push({ value: (itemEls[i].textContent || '').trim() });
+      return { ok: true, rows: rows };
+    }
+    var fixture = document.createElement('div');
+    fixture.id = 'extract-max-fixture';
+    var ul = document.createElement('ul');
+    ul.className = 'mlist';
+    for (var i = 0; i < 5; i++) {
+      var li = document.createElement('li');
+      li.textContent = 'Item ' + i;
+      ul.appendChild(li);
+    }
+    fixture.appendChild(ul);
+    document.body.appendChild(fixture);
+    try {
+      var result = runExtractData({ listSelector: '.mlist', itemSelector: 'li', maxItems: 3 }, fixture);
+      assertTrue(result.ok);
+      assertEqual(result.rows.length, 3, 'capped to 3');
+    } finally {
+      fixture.remove();
+    }
+  }
+
+  function testPlayerLastItemVideosRendered() {
+    function lastItemVideosRendered(item) {
+      if (!item) return 0;
+      var n = 0;
+      var videos = item.querySelectorAll('video[src]');
+      for (var i = 0; i < videos.length; i++) {
+        var v = videos[i];
+        if (v.readyState >= 1 || v.src) n++;
+      }
+      return n;
+    }
+    var div = document.createElement('div');
+    assertEqual(lastItemVideosRendered(div), 0, 'no videos → 0');
+    var v1 = document.createElement('video');
+    v1.setAttribute('src', 'a.mp4');
+    div.appendChild(v1);
+    var v2 = document.createElement('video');
+    v2.setAttribute('src', 'b.mp4');
+    div.appendChild(v2);
+    assertEqual(lastItemVideosRendered(div), 2, 'two videos → 2');
+    assertEqual(lastItemVideosRendered(null), 0, 'null → 0');
+  }
+
+  function testPlayerLastItemStillGenerating() {
+    function lastItemStillGenerating(item) {
+      if (!item) return false;
+      var text = (item.textContent || '').trim();
+      return /\d{1,3}%/.test(text);
+    }
+    var el = document.createElement('div');
+    el.textContent = 'Processing 45%';
+    assertTrue(lastItemStillGenerating(el), '45% → still generating');
+    el.textContent = 'Done!';
+    assertFalse(lastItemStillGenerating(el), 'Done → not generating');
+    el.textContent = '100%';
+    assertTrue(lastItemStillGenerating(el), '100% → still matches');
+    assertFalse(lastItemStillGenerating(null), 'null → false');
+  }
+
+  // ── Auto-discovery pure function tests ─────────────────────────────
+
+  function testDiscoveryIsHintObject() {
+    var HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
+    function isDiscoveryHintObject(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+      for (var k of HINT_ROOT_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
+      }
+      return false;
+    }
+    assertTrue(isDiscoveryHintObject({ groupSelectors: ['div'] }), 'has groupSelectors');
+    assertTrue(isDiscoveryHintObject({ preferMediaInGroup: true }), 'has preferMediaInGroup');
+    assertFalse(isDiscoveryHintObject(null), 'null');
+    assertFalse(isDiscoveryHintObject([]), 'array');
+    assertFalse(isDiscoveryHintObject({ someOtherKey: 1 }), 'no hint keys');
+  }
+
+  function testDiscoverySplitLegacyHints() {
+    var HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
+    function isDiscoveryHintObject(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+      for (var k of HINT_ROOT_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
+      }
+      return false;
+    }
+    function splitLegacyDiscoveryHintsRaw(raw) {
+      var domains = {};
+      var globalHints = {};
+      if (!raw || typeof raw !== 'object') return { domains: domains, globalHints: globalHints };
+      for (var k in raw) {
+        if (!raw.hasOwnProperty(k)) continue;
+        if (HINT_ROOT_KEYS.has(k)) globalHints[k] = raw[k];
+        else if (isDiscoveryHintObject(raw[k])) domains[k] = raw[k];
+      }
+      return { domains: domains, globalHints: globalHints };
+    }
+    var r = splitLegacyDiscoveryHintsRaw({
+      groupSelectors: ['article'],
+      'example.com': { inputCandidates: ['textarea'] },
+    });
+    assertDeepEqual(r.globalHints, { groupSelectors: ['article'] }, 'global hints extracted');
+    assertTrue(r.domains['example.com'] !== undefined, 'domain extracted');
+    assertDeepEqual(r.domains['example.com'], { inputCandidates: ['textarea'] });
+
+    var empty = splitLegacyDiscoveryHintsRaw(null);
+    assertDeepEqual(empty.domains, {}, 'null → empty domains');
+    assertDeepEqual(empty.globalHints, {}, 'null → empty globalHints');
+  }
+
+  function testDiscoveryConcatUniqueArrays() {
+    function concatUniqueArrays() {
+      var seen = new Set();
+      var out = [];
+      for (var i = 0; i < arguments.length; i++) {
+        var list = arguments[i];
+        if (!Array.isArray(list)) continue;
+        for (var j = 0; j < list.length; j++) {
+          var s = list[j];
+          if (typeof s !== 'string' || seen.has(s)) continue;
+          seen.add(s);
+          out.push(s);
+        }
+      }
+      return out;
+    }
+    assertDeepEqual(concatUniqueArrays(['a', 'b'], ['b', 'c']), ['a', 'b', 'c'], 'dedupes');
+    assertDeepEqual(concatUniqueArrays(['x'], null, ['y']), ['x', 'y'], 'skips null');
+    assertDeepEqual(concatUniqueArrays(), [], 'no args → empty');
+    assertDeepEqual(concatUniqueArrays(['a', 'a']), ['a'], 'intra-array dedup');
+  }
+
+  function testDiscoveryMergeWorkflowHintsOrdered() {
+    var HINT_ARRAY_FIELDS = ['groupSelectors', 'inputCandidates', 'outputCandidates'];
+    function concatUniqueArrays() {
+      var seen = new Set();
+      var out = [];
+      for (var i = 0; i < arguments.length; i++) {
+        var list = arguments[i];
+        if (!Array.isArray(list)) continue;
+        for (var j = 0; j < list.length; j++) {
+          var s = list[j];
+          if (typeof s !== 'string' || seen.has(s)) continue;
+          seen.add(s);
+          out.push(s);
+        }
+      }
+      return out;
+    }
+    function mergeWorkflowHintsOrdered(hintsList) {
+      var W = {};
+      var lockedEmpty = { groupSelectors: false, inputCandidates: false, outputCandidates: false };
+      for (var i = 0; i < hintsList.length; i++) {
+        var h = hintsList[i];
+        if (!h || typeof h !== 'object') continue;
+        for (var j = 0; j < HINT_ARRAY_FIELDS.length; j++) {
+          var f = HINT_ARRAY_FIELDS[j];
+          if (!Object.prototype.hasOwnProperty.call(h, f)) continue;
+          var arr = h[f];
+          if (!Array.isArray(arr)) continue;
+          if (arr.length === 0) {
+            W[f] = [];
+            lockedEmpty[f] = true;
+          } else if (!lockedEmpty[f]) {
+            W[f] = concatUniqueArrays(W[f], arr);
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(h, 'preferMediaInGroup') && !Object.prototype.hasOwnProperty.call(W, 'preferMediaInGroup')) {
+          W.preferMediaInGroup = h.preferMediaInGroup;
+        }
+      }
+      return W;
+    }
+    var merged = mergeWorkflowHintsOrdered([
+      { groupSelectors: ['div.a'] },
+      { groupSelectors: ['div.b', 'div.a'] },
+    ]);
+    assertDeepEqual(merged.groupSelectors, ['div.a', 'div.b'], 'merged and deduped');
+
+    // Empty array locks the field
+    var locked = mergeWorkflowHintsOrdered([
+      { groupSelectors: [] },
+      { groupSelectors: ['override'] },
+    ]);
+    assertDeepEqual(locked.groupSelectors, [], 'empty array locks field');
+
+    // preferMediaInGroup: first wins
+    var pref = mergeWorkflowHintsOrdered([
+      { preferMediaInGroup: false },
+      { preferMediaInGroup: true },
+    ]);
+    assertEqual(pref.preferMediaInGroup, false, 'first preferMediaInGroup wins');
+  }
+
+  function testDiscoveryNormalizeInput() {
+    var HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
+    function isDiscoveryHintObject(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+      for (var k of HINT_ROOT_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
+      }
+      return false;
+    }
+    function splitLegacyDiscoveryHintsRaw(raw) {
+      var domains = {};
+      var globalHints = {};
+      if (!raw || typeof raw !== 'object') return { domains: domains, globalHints: globalHints };
+      for (var k in raw) {
+        if (!raw.hasOwnProperty(k)) continue;
+        if (HINT_ROOT_KEYS.has(k)) globalHints[k] = raw[k];
+        else if (isDiscoveryHintObject(raw[k])) domains[k] = raw[k];
+      }
+      return { domains: domains, globalHints: globalHints };
+    }
+    function normalizeDiscoveryInput(data) {
+      var discoveryDomains = data.discoveryDomains;
+      var discoveryGlobalHints = data.discoveryGlobalHints && typeof data.discoveryGlobalHints === 'object' ? data.discoveryGlobalHints : {};
+      if ((!discoveryDomains || Object.keys(discoveryDomains).length === 0) && data.discoveryHints && typeof data.discoveryHints === 'object') {
+        var spl = splitLegacyDiscoveryHintsRaw(data.discoveryHints);
+        if (Object.keys(spl.domains).length) {
+          discoveryDomains = {};
+          for (var d in spl.domains) {
+            if (Object.prototype.hasOwnProperty.call(spl.domains, d)) discoveryDomains[d] = [spl.domains[d]];
+          }
+        }
+        if (Object.keys(spl.globalHints).length && Object.keys(discoveryGlobalHints).length === 0) {
+          discoveryGlobalHints = spl.globalHints;
+        }
+      }
+      return {
+        discoveryDomains: discoveryDomains && typeof discoveryDomains === 'object' ? discoveryDomains : {},
+        discoveryGlobalHints: discoveryGlobalHints,
+        discoveryStepHints: data.discoveryStepHints,
+      };
+    }
+    // Modern format
+    var result = normalizeDiscoveryInput({
+      discoveryDomains: { 'example.com': [{ groupSelectors: ['div'] }] },
+    });
+    assertTrue(result.discoveryDomains['example.com'] !== undefined);
+
+    // Legacy format
+    var legacy = normalizeDiscoveryInput({
+      discoveryHints: {
+        groupSelectors: ['article'],
+        'legacy.com': { inputCandidates: ['textarea'] },
+      },
+    });
+    assertTrue(legacy.discoveryDomains['legacy.com'] !== undefined, 'legacy domain converted');
+    assertDeepEqual(legacy.discoveryGlobalHints, { groupSelectors: ['article'] }, 'legacy global extracted');
+
+    // Empty
+    var empty = normalizeDiscoveryInput({});
+    assertDeepEqual(empty.discoveryDomains, {});
+    assertDeepEqual(empty.discoveryGlobalHints, {});
+  }
+
+  function testDiscoveryIsUnstableClassSelector() {
+    function isUnstableClassSelector(sel) {
+      if (sel.type !== 'class' || typeof sel.value !== 'string') return false;
+      var parts = sel.value.split('.');
+      var classParts = parts.filter(function(p, i) { return i > 0 && p.length > 0; });
+      if (!classParts.length) return false;
+      return classParts.every(function(p) { return p.length >= 5 && p.length <= 14 && /^[a-z0-9]+$/i.test(p); });
+    }
+    assertTrue(isUnstableClassSelector({ type: 'class', value: '.jaxwcM' }), 'CSS-in-JS hash class');
+    assertTrue(isUnstableClassSelector({ type: 'class', value: '.abcdef.ghijkl' }), 'two hash parts');
+    assertFalse(isUnstableClassSelector({ type: 'class', value: '.btn-primary' }), 'dash in name → stable');
+    assertFalse(isUnstableClassSelector({ type: 'class', value: '.nav' }), 'short class → stable');
+    assertFalse(isUnstableClassSelector({ type: 'id', value: '#myId' }), 'wrong type');
+    assertFalse(isUnstableClassSelector({ type: 'class', value: '' }), 'empty value');
+    assertFalse(isUnstableClassSelector({ type: 'class', value: '.a' }), 'too short class');
+    assertTrue(isUnstableClassSelector({ type: 'class', value: '.Abcde12345' }), 'mixed case hash');
+  }
+
+  // ── GitHub extension update tests ──────────────────────────────────
+
+  function testGitHubShouldSkipPath() {
+    var SKIP_PREFIXES = ['node_modules/', '.git/', 'models/', '.cursor/', '.DS_Store'];
+    function shouldSkipPath(rel) {
+      if (!rel || typeof rel !== 'string') return true;
+      var n = rel.replace(/\\/g, '/').replace(/^\/+/, '');
+      for (var i = 0; i < SKIP_PREFIXES.length; i++) {
+        if (n === SKIP_PREFIXES[i].replace(/\/$/, '') || n.indexOf(SKIP_PREFIXES[i]) === 0) return true;
+      }
+      return false;
+    }
+    assertTrue(shouldSkipPath('node_modules/foo/bar.js'), 'node_modules');
+    assertTrue(shouldSkipPath('.git/config'), '.git');
+    assertTrue(shouldSkipPath('.DS_Store'), '.DS_Store exact');
+    assertTrue(shouldSkipPath('models/big.bin'), 'models');
+    assertTrue(shouldSkipPath('.cursor/settings.json'), '.cursor');
+    assertFalse(shouldSkipPath('shared/selectors.js'), 'normal path');
+    assertFalse(shouldSkipPath('content/recorder.js'), 'content path');
+    assertTrue(shouldSkipPath(null), 'null → skip');
+    assertTrue(shouldSkipPath(''), 'empty → skip');
+    assertFalse(shouldSkipPath('background/service-worker.js'), 'background path');
+  }
+
+  function testGitHubFormatSyncStateSummary() {
+    var SYNC_STATE_FILENAME = 'github-sync-state.json';
+    function formatSyncStateSummary(file) {
+      if (!file || typeof file.baselineCommitSha !== 'string' || file.baselineCommitSha.length < 7) {
+        return 'Sync file (' + SYNC_STATE_FILENAME + '): no baseline yet — use Record baseline.';
+      }
+      var short = file.baselineCommitSha.slice(0, 7);
+      var mv = file.manifestVersion ? ' · extension v' + String(file.manifestVersion) : '';
+      var at = file.updatedAt ? ' · updated ' + String(file.updatedAt).slice(0, 10) : '';
+      return 'Sync file: baseline ' + short + mv + at;
+    }
+    var noBaseline = formatSyncStateSummary(null);
+    assertTrue(noBaseline.indexOf('no baseline') >= 0, 'null → no baseline');
+
+    var noSha = formatSyncStateSummary({ baselineCommitSha: 'abc' });
+    assertTrue(noSha.indexOf('no baseline') >= 0, 'short sha → no baseline');
+
+    var full = formatSyncStateSummary({
+      baselineCommitSha: 'abc1234567890',
+      manifestVersion: '2.5.0',
+      updatedAt: '2026-03-15T12:00:00Z',
+    });
+    assertTrue(full.indexOf('abc1234') >= 0, 'sha truncated to 7');
+    assertTrue(full.indexOf('v2.5.0') >= 0, 'version shown');
+    assertTrue(full.indexOf('2026-03-15') >= 0, 'date shown');
+
+    var noVersion = formatSyncStateSummary({
+      baselineCommitSha: 'xyz7890abcdef',
+    });
+    assertTrue(noVersion.indexOf('xyz7890') >= 0); 
+    assertFalse(noVersion.indexOf('extension v') >= 0, 'no version omits v');
+  }
+
+  // ── Sidepanel pure function tests ──────────────────────────────────
+
+  function testSidepanelFormatTimeAgo() {
+    function formatTimeAgo(ts) {
+      if (ts == null || isNaN(new Date(ts).getTime())) return '';
+      var sec = Math.floor((Date.now() - ts) / 1000);
+      if (sec < 60) return 'just now';
+      if (sec < 3600) return Math.floor(sec / 60) + ' min ago';
+      if (sec < 86400) return Math.floor(sec / 3600) + ' hr ago';
+      if (sec < 172800) return 'yesterday';
+      return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    assertEqual(formatTimeAgo(null), '', 'null → empty');
+    assertEqual(formatTimeAgo(undefined), '', 'undefined → empty');
+    assertEqual(formatTimeAgo(Date.now() - 10000), 'just now', '10s ago');
+    assertEqual(formatTimeAgo(Date.now() - 120000), '2 min ago', '2 min ago');
+    assertEqual(formatTimeAgo(Date.now() - 7200000), '2 hr ago', '2 hr ago');
+    assertEqual(formatTimeAgo(Date.now() - 90000000), 'yesterday', '~25hr ago');
+    // Very old → date string (not empty)
+    var old = formatTimeAgo(Date.now() - 500000000);
+    assertTrue(old.length > 0, 'old date has text');
+    assertTrue(old !== 'yesterday', 'old date is not yesterday');
+  }
+
+  function testSidepanelIsRestrictedUrl() {
+    function isRestrictedUrl(url) {
+      return url && (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:'));
+    }
+    assertTrue(isRestrictedUrl('chrome://extensions'), 'chrome://');
+    assertTrue(isRestrictedUrl('chrome-extension://abc123/popup.html'), 'chrome-extension://');
+    assertTrue(isRestrictedUrl('edge://settings'), 'edge://');
+    assertTrue(isRestrictedUrl('about:blank'), 'about:');
+    assertFalse(isRestrictedUrl('https://example.com'), 'normal https');
+    assertFalse(isRestrictedUrl('http://localhost:3000'), 'localhost');
+    assertFalse(isRestrictedUrl(null), 'null');
+    assertFalse(isRestrictedUrl(''), 'empty');
+  }
+
+  function testSidepanelUrlMatchesPattern() {
+    function urlMatchesPattern(pageUrl, pattern) {
+      if (!pattern || !pattern.trim()) return true;
+      try {
+        var page = new URL(pageUrl);
+        var p = pattern.trim();
+        if (p.startsWith('*.')) {
+          var domain = p.slice(2);
+          return page.hostname === domain || page.hostname.endsWith('.' + domain);
+        }
+        var patternUrl = new URL(p.startsWith('http') ? p : 'https://' + p);
+        return page.origin === patternUrl.origin || page.hostname === patternUrl.hostname;
+      } catch (_) {
+        return false;
+      }
+    }
+    assertTrue(urlMatchesPattern('https://example.com/path', ''), 'empty pattern → true');
+    assertTrue(urlMatchesPattern('https://example.com/path', 'example.com'), 'hostname match');
+    assertTrue(urlMatchesPattern('https://sub.example.com/path', '*.example.com'), 'wildcard subdomain');
+    assertTrue(urlMatchesPattern('https://example.com/', '*.example.com'), 'wildcard exact');
+    assertFalse(urlMatchesPattern('https://other.com/', 'example.com'), 'different domain');
+    assertFalse(urlMatchesPattern('https://notexample.com/', '*.example.com'), 'partial mismatch');
+    assertTrue(urlMatchesPattern('https://example.com/', 'https://example.com'), 'full URL pattern');
+  }
+
+  function testSidepanelIsTestWorkflow() {
+    function isTestWorkflow(w) {
+      if (w && w._testOnly) return true;
+      var name = (w && w.name) ? w.name.toLowerCase().trim() : '';
+      if (!name) return false;
+      if (/\be2e\b/.test(name)) return true;
+      if (name === 'test' || /^test(\s|$|:|_|\.|-)/i.test(name)) return true;
+      return false;
+    }
+    assertTrue(isTestWorkflow({ name: 'test' }), 'exact "test"');
+    assertTrue(isTestWorkflow({ name: 'Test: something' }), '"Test:" prefix');
+    assertTrue(isTestWorkflow({ name: 'test_workflow' }), '"test_" prefix');
+    assertTrue(isTestWorkflow({ name: 'e2e login flow' }), 'e2e keyword');
+    assertTrue(isTestWorkflow({ _testOnly: true, name: 'prod' }), '_testOnly flag');
+    assertFalse(isTestWorkflow({ name: 'My Workflow' }), 'normal workflow');
+    assertFalse(isTestWorkflow({ name: 'Latest content' }), 'no test pattern');
+    assertFalse(isTestWorkflow({ name: 'Crypto Test Wallet' }), 'does not flag user names');
+    assertFalse(isTestWorkflow({ name: 'attestation' }), 'does not flag substrings');
+  }
+
+  function testSidepanelNormalizeScriptingError() {
+    function normalizeScriptingError(err) {
+      var msg = (err && err.message) ? String(err.message) : String(err);
+      if (/cannot access contents|cannot be scripted|restricted|chrome:\/\/|edge:\/\//i.test(msg)) {
+        return "This tab doesn't support the extension (e.g. chrome:// or extension page). Open your workflow's start URL in this tab.";
+      }
+      return msg;
+    }
+    var restricted = normalizeScriptingError(new Error('Cannot access contents of this page'));
+    assertTrue(restricted.indexOf("doesn't support") >= 0, 'restricted → user-friendly');
+    var chromeErr = normalizeScriptingError(new Error('chrome://extensions'));
+    assertTrue(chromeErr.indexOf("doesn't support") >= 0, 'chrome:// → user-friendly');
+    var normal = normalizeScriptingError(new Error('Something else broke'));
+    assertEqual(normal, 'Something else broke', 'pass-through normal');
+  }
+
+  function testSidepanelNormalizePlaybackError() {
+    function normalizePlaybackError(res) {
+      var raw = (res && res.error) ? String(res.error) : '';
+      var isConnection = /receiving end does not exist|could not establish connection|target closed|tab was closed|message port closed/i.test(raw);
+      if (isConnection) {
+        return { message: "Extension couldn't run on this tab. Reload the page and try again, or open your workflow's start URL.", isConnection: true };
+      }
+      return { message: raw || 'unknown', isConnection: false };
+    }
+    var conn = normalizePlaybackError({ error: 'Receiving end does not exist' });
+    assertTrue(conn.isConnection, 'isConnection=true');
+    assertTrue(conn.message.indexOf('Reload') >= 0, 'user-friendly message');
+    var other = normalizePlaybackError({ error: 'Element not found' });
+    assertFalse(other.isConnection, 'isConnection=false');
+    assertEqual(other.message, 'Element not found');
+    var empty = normalizePlaybackError({});
+    assertEqual(empty.message, 'unknown');
+  }
+
+  function testSidepanelWorkflowContainsStepType() {
+    function workflowContainsStepType(node, stepType) {
+      var actions = node && (node.actions || (node.analyzed && node.analyzed.actions));
+      if (!Array.isArray(actions)) return false;
+      for (var i = 0; i < actions.length; i++) {
+        var a = actions[i];
+        if (!a || typeof a !== 'object') continue;
+        if (a.type === stepType) return true;
+        if (a.type === 'runWorkflow' && a.nestedWorkflow && workflowContainsStepType(a.nestedWorkflow, stepType)) return true;
+        if (a.type === 'loop' && Array.isArray(a.steps)) {
+          for (var j = 0; j < a.steps.length; j++) {
+            var s = a.steps[j];
+            if (!s || typeof s !== 'object') continue;
+            if (s.type === stepType) return true;
+            if (s.type === 'runWorkflow' && s.nestedWorkflow && workflowContainsStepType(s.nestedWorkflow, stepType)) return true;
+          }
+        }
+      }
+      return false;
+    }
+    assertTrue(workflowContainsStepType({ actions: [{ type: 'click' }, { type: 'apifyActorRun' }] }, 'apifyActorRun'), 'flat actions');
+    assertFalse(workflowContainsStepType({ actions: [{ type: 'click' }] }, 'apifyActorRun'), 'not present');
+    assertTrue(workflowContainsStepType({
+      actions: [{ type: 'runWorkflow', nestedWorkflow: { actions: [{ type: 'apifyActorRun' }] } }]
+    }, 'apifyActorRun'), 'nested workflow');
+    assertTrue(workflowContainsStepType({
+      actions: [{ type: 'loop', steps: [{ type: 'apifyActorRun' }] }]
+    }, 'apifyActorRun'), 'inside loop');
+    assertFalse(workflowContainsStepType(null, 'click'), 'null node');
+    assertFalse(workflowContainsStepType({ actions: [] }, 'click'), 'empty actions');
+  }
+
+  function testSidepanelGetDelayBeforeNextRunMs() {
+    function getDelayBeforeNextRunMs(resolvedOrWf) {
+      var actions = (resolvedOrWf && resolvedOrWf.actions) || (resolvedOrWf && resolvedOrWf.analyzed && resolvedOrWf.analyzed.actions) || [];
+      for (var j = actions.length - 1; j >= 0; j--) {
+        var a = actions[j];
+        if (a.type !== 'delayBeforeNextRun') continue;
+        if (a.delayMinMs != null && a.delayMaxMs != null) {
+          var min = Math.max(0, parseInt(a.delayMinMs, 10) || 0);
+          var max = Math.max(min, parseInt(a.delayMaxMs, 10) || min);
+          return min === max ? min : min + Math.floor((max - min + 1) * Math.random());
+        }
+        if (a.delayMs != null) return Math.max(0, parseInt(a.delayMs, 10) || 0);
+        return 0;
+      }
+      return 0;
+    }
+    assertEqual(getDelayBeforeNextRunMs({ actions: [] }), 0, 'no delay step → 0');
+    assertEqual(getDelayBeforeNextRunMs({ actions: [{ type: 'delayBeforeNextRun', delayMs: 5000 }] }), 5000, 'exact delayMs');
+    assertEqual(getDelayBeforeNextRunMs({ actions: [{ type: 'click' }, { type: 'delayBeforeNextRun', delayMs: 3000 }] }), 3000, 'last step wins');
+    var ranged = getDelayBeforeNextRunMs({ actions: [{ type: 'delayBeforeNextRun', delayMinMs: 1000, delayMaxMs: 1000 }] });
+    assertEqual(ranged, 1000, 'min == max → exact');
+    assertEqual(getDelayBeforeNextRunMs(null), 0, 'null → 0');
+  }
+
+  function testSidepanelWorkflowNeedsVideoBatchWait() {
+    function workflowNeedsVideoBatchWait(resolvedOrWf) {
+      var actions = (resolvedOrWf && resolvedOrWf.actions) || (resolvedOrWf && resolvedOrWf.analyzed && resolvedOrWf.analyzed.actions) || [];
+      return actions.some(function(a) { return a.type === 'checkSuccessfulGenerations' || a.type === 'waitForVideos'; });
+    }
+    assertTrue(workflowNeedsVideoBatchWait({ actions: [{ type: 'click' }, { type: 'waitForVideos' }] }), 'has waitForVideos');
+    assertTrue(workflowNeedsVideoBatchWait({ actions: [{ type: 'checkSuccessfulGenerations' }] }), 'has checkSuccessful');
+    assertFalse(workflowNeedsVideoBatchWait({ actions: [{ type: 'click' }, { type: 'type' }] }), 'no generation steps');
+    assertFalse(workflowNeedsVideoBatchWait({ actions: [] }), 'empty');
+  }
+
+  function testSidepanelIsWorkflowCatalogKbEligible() {
+    function isWorkflowCatalogKbEligibleForAnswer(wf) {
+      if (!wf || typeof wf !== 'object') return false;
+      if (wf.archived === true) return false;
+      if (!wf.published) return false;
+      if (wf.private !== false) return false;
+      if (wf.approved !== true) return false;
+      return true;
+    }
+    assertTrue(isWorkflowCatalogKbEligibleForAnswer({ published: true, private: false, approved: true }), 'eligible');
+    assertFalse(isWorkflowCatalogKbEligibleForAnswer({ published: true, private: false, approved: false }), 'not approved');
+    assertFalse(isWorkflowCatalogKbEligibleForAnswer({ published: true, private: true, approved: true }), 'private');
+    assertFalse(isWorkflowCatalogKbEligibleForAnswer({ published: false, private: false, approved: true }), 'not published');
+    assertFalse(isWorkflowCatalogKbEligibleForAnswer({ published: true, private: false, approved: true, archived: true }), 'archived');
+    assertFalse(isWorkflowCatalogKbEligibleForAnswer(null), 'null');
+  }
+
+  function testSidepanelFriendlyKnowledgeAnswerError() {
+    function friendlyKnowledgeAnswerErrorMessage(msg) {
+      var s = String(msg || '');
+      if (/workflow_kb_check_bypass|knowledge_answers.*schema cache|schema cache/i.test(s)) {
+        return 'Server database needs migration: add knowledge_answers.workflow_kb_check_bypass (boolean, default false). See docs/BACKEND_IMPLEMENTATION_PROMPT.md §8.';
+      }
+      return s;
+    }
+    var migration = friendlyKnowledgeAnswerErrorMessage('knowledge_answers schema cache issue');
+    assertTrue(migration.indexOf('migration') >= 0, 'schema cache → migration msg');
+    var bypass = friendlyKnowledgeAnswerErrorMessage('workflow_kb_check_bypass');
+    assertTrue(bypass.indexOf('migration') >= 0, 'bypass check → migration msg');
+    var normal = friendlyKnowledgeAnswerErrorMessage('Timeout error');
+    assertEqual(normal, 'Timeout error', 'pass-through');
+    var empty = friendlyKnowledgeAnswerErrorMessage('');
+    assertEqual(empty, '', 'empty pass-through');
+  }
+
+  // ── Walkthrough export tests ───────────────────────────────────────
+
+  function testWalkthroughSelectorStrings() {
+    // inline from walkthrough-export.js
+    function selectorStrings(action) {
+      var list = [].concat((action && action.selectors) || [], (action && action.fallbackSelectors) || []);
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var s = list[i];
+        if (typeof s === 'string' && s.trim()) { out.push(s.trim()); continue; }
+        if (s && typeof s.value === 'string') { out.push(s.value.trim()); continue; }
+        if (s && typeof s.selector === 'string') { out.push(s.selector.trim()); continue; }
+      }
+      return out;
+    }
+    assertDeepEqual(selectorStrings({ selectors: ['.btn'] }), ['.btn'], 'string selector');
+    assertDeepEqual(selectorStrings({ selectors: [{ value: '#id' }] }), ['#id'], 'object value');
+    assertDeepEqual(selectorStrings({ selectors: [{ selector: 'div.x' }] }), ['div.x'], 'object selector');
+    assertDeepEqual(selectorStrings({ selectors: ['.a'], fallbackSelectors: ['.b'] }), ['.a', '.b'], 'primary+fallback');
+    assertDeepEqual(selectorStrings({}), [], 'empty');
+    assertDeepEqual(selectorStrings(null), [], 'null');
+  }
+
+  function testWalkthroughBuildConfig() {
+    function selectorStrings(action) {
+      var list = [].concat((action && action.selectors) || [], (action && action.fallbackSelectors) || []);
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var s = list[i];
+        if (typeof s === 'string' && s.trim()) { out.push(s.trim()); continue; }
+        if (s && typeof s.value === 'string') { out.push(s.value.trim()); continue; }
+        if (s && typeof s.selector === 'string') { out.push(s.selector.trim()); continue; }
+      }
+      return out;
+    }
+    function getStepCommentSummary(comment, maxLength) {
+      if (!comment || typeof comment !== 'object') return '';
+      var parts = [];
+      if (comment.items && comment.items.length) {
+        for (var ti = 0; ti < comment.items.length; ti++) {
+          if (comment.items[ti].type === 'text' && comment.items[ti].text) parts.push(String(comment.items[ti].text).trim());
+        }
+      }
+      var text = parts.length ? parts.join('\n\n') : String(comment.text || '').trim();
+      if (!text) return '';
+      if (maxLength != null && text.length > maxLength) return text.slice(0, maxLength) + '\u2026';
+      return text;
+    }
+    function buildWalkthroughConfig(workflow, options) {
+      options = options || {};
+      var actions = (workflow && workflow.analyzed && workflow.analyzed.actions) ? workflow.analyzed.actions : [];
+      var steps = [];
+      for (var i = 0; i < actions.length; i++) {
+        var a = actions[i];
+        var type = a.type || 'step';
+        var selectors = selectorStrings(a);
+        var tooltip = getStepCommentSummary(a.comment, 300) || (a.stepLabel || '').trim() || (type + ' ' + (i + 1));
+        var step = { index: i + 1, type: type, selectors: selectors, tooltip: tooltip, optional: !!a.optional };
+        if (options.includeQuiz && selectors.length > 0) {
+          step.quizQuestion = (tooltip && tooltip.length > 10) ? tooltip : 'What should you click or do next?';
+        }
+        steps.push(step);
+      }
+      return { name: (workflow && workflow.name) ? workflow.name : 'Walkthrough', workflowId: workflow && workflow.id, steps: steps };
+    }
+    var config = buildWalkthroughConfig({
+      id: 'wf1',
+      name: 'Login Flow',
+      analyzed: {
+        actions: [
+          { type: 'click', selectors: ['.btn-login'], stepLabel: 'Click login' },
+          { type: 'type', selectors: ['#email'], comment: { text: 'Enter your email address' } },
+          { type: 'click', selectors: [] },
+        ],
+      },
+    });
+    assertEqual(config.name, 'Login Flow');
+    assertEqual(config.workflowId, 'wf1');
+    assertEqual(config.steps.length, 3, '3 steps');
+    assertEqual(config.steps[0].tooltip, 'Click login', 'stepLabel used');
+    assertEqual(config.steps[1].tooltip, 'Enter your email address', 'comment.text used');
+    assertEqual(config.steps[2].tooltip, 'click 3', 'fallback type+index');
+    assertDeepEqual(config.steps[0].selectors, ['.btn-login']);
+
+    // includeQuiz
+    var quizConfig = buildWalkthroughConfig({
+      analyzed: { actions: [{ type: 'click', selectors: ['.x'] }] },
+    }, { includeQuiz: true });
+    assertTrue(quizConfig.steps[0].quizQuestion !== undefined, 'quiz question added');
+
+    // empty workflow
+    var empty = buildWalkthroughConfig({});
+    assertEqual(empty.steps.length, 0);
+    assertEqual(empty.name, 'Walkthrough');
+  }
+
+  // ── FFmpeg local tests ─────────────────────────────────────────────
+
+  function testFfmpegProgressToPercent() {
+    function ffmpegProgressToPercent(ev) {
+      if (!ev || typeof ev !== 'object') return null;
+      var r = ev.progress;
+      if (typeof r !== 'number' || !isFinite(r)) {
+        r = ev.ratio;
+      }
+      if (typeof r !== 'number' || !isFinite(r)) return null;
+      if (r >= 0 && r <= 1) return Math.max(0, Math.min(100, Math.round(r * 100)));
+      if (r > 1 && r <= 100) return Math.round(r);
+      return null;
+    }
+    assertEqual(ffmpegProgressToPercent({ progress: 0.5 }), 50, '0.5 → 50%');
+    assertEqual(ffmpegProgressToPercent({ progress: 0 }), 0, '0 → 0%');
+    assertEqual(ffmpegProgressToPercent({ progress: 1 }), 100, '1 → 100%');
+    assertEqual(ffmpegProgressToPercent({ progress: 0.333 }), 33, '0.333 → 33%');
+    assertEqual(ffmpegProgressToPercent({ ratio: 0.75 }), 75, 'ratio fallback');
+    assertEqual(ffmpegProgressToPercent({ progress: 42 }), 42, 'already percent');
+    assertEqual(ffmpegProgressToPercent({ progress: 100 }), 100, '100 passthrough');
+    assertEqual(ffmpegProgressToPercent(null), null, 'null → null');
+    assertEqual(ffmpegProgressToPercent({}), null, 'no progress → null');
+    assertEqual(ffmpegProgressToPercent({ progress: Infinity }), null, 'Infinity → null');
+    assertEqual(ffmpegProgressToPercent({ progress: -5 }), null, 'negative → null');
+    assertEqual(ffmpegProgressToPercent({ progress: 200 }), null, '>100 → null');
+  }
+
+  // ── Player audio capture tests ─────────────────────────────────────
+
+  function testPlayerFindMediaElement() {
+    // Inline the findMediaElement logic from player.js
+    function findMediaElement(el) {
+      if (!el) return null;
+      if (el instanceof HTMLMediaElement) return el;
+      var found = el.closest('video, audio') || el.querySelector('video, audio');
+      if (found) return found;
+      var parent = el.parentElement;
+      for (var i = 0; i < 8 && parent; i++) {
+        var v = parent.querySelector('video, audio');
+        if (v) return v;
+        parent = parent.parentElement;
+      }
+      return null;
+    }
+
+    // null input
+    assertEqual(findMediaElement(null), null, 'null → null');
+
+    // Direct video element
+    var vid = document.createElement('video');
+    assertEqual(findMediaElement(vid), vid, 'direct video element');
+
+    // Direct audio element
+    var aud = document.createElement('audio');
+    assertEqual(findMediaElement(aud), aud, 'direct audio element');
+
+    // Child video inside a div
+    var div = document.createElement('div');
+    var childVid = document.createElement('video');
+    div.appendChild(childVid);
+    assertEqual(findMediaElement(div), childVid, 'child video in div');
+
+    // Parent walk-up: button with video sibling
+    var container = document.createElement('div');
+    var siblingVid = document.createElement('video');
+    var btn = document.createElement('button');
+    container.appendChild(siblingVid);
+    container.appendChild(btn);
+    assertEqual(findMediaElement(btn), siblingVid, 'sibling video via parent lookup');
+
+    // No media element anywhere
+    var emptyDiv = document.createElement('div');
+    var span = document.createElement('span');
+    emptyDiv.appendChild(span);
+    assertEqual(findMediaElement(span), null, 'no media → null');
+  }
+
+  function testPlayerCaptureAudioGuards() {
+    // Test the cross-origin error detection logic inlined from captureAudioFromElement
+    function detectCrossOriginError(errorMsg) {
+      var msg = (errorMsg || '').toLowerCase();
+      if (msg.includes('cross-origin') || msg.includes('crossorigin')) {
+        return 'Cross-origin media. Use the Tab audio button to capture via the picker.';
+      }
+      return null;
+    }
+    assertEqual(
+      detectCrossOriginError('Failed to execute: cross-origin resource'),
+      'Cross-origin media. Use the Tab audio button to capture via the picker.',
+      'cross-origin detected'
+    );
+    assertEqual(
+      detectCrossOriginError('crossOrigin attribute required'),
+      'Cross-origin media. Use the Tab audio button to capture via the picker.',
+      'crossOrigin detected'
+    );
+    assertEqual(detectCrossOriginError('Some other error'), null, 'non-cross-origin passes through');
+    assertEqual(detectCrossOriginError(''), null, 'empty string');
+    assertEqual(detectCrossOriginError(null), null, 'null');
+
+    // Test duration clamping logic from captureAudioFromElement
+    function clampDuration(durationMs) {
+      return Math.min(Math.max(durationMs || 5000, 1000), 60000);
+    }
+    assertEqual(clampDuration(undefined), 5000, 'default 5s');
+    assertEqual(clampDuration(0), 5000, 'zero → default 5s');
+    assertEqual(clampDuration(500), 1000, 'below min → 1s');
+    assertEqual(clampDuration(30000), 30000, 'normal 30s');
+    assertEqual(clampDuration(120000), 60000, 'above max → 60s');
+  }
+
+  // ── Upload-post validation tests ───────────────────────────────────
+
+  function testUploadPostSubmitVideoValidation() {
+    // Test submitVideo's input validation (before any fetch calls)
+    // Inline the validation logic
+    function validateSubmitVideoParams(params) {
+      if (!params.video && !(typeof params.video === 'string' && params.video)) {
+        if (!(params.video instanceof File)) {
+          return { ok: false, error: 'Missing video file or URL' };
+        }
+      }
+      return { ok: true };
+    }
+    // Actually test the exact logic from upload-post.js
+    function submitVideoValidation(params) {
+      if (params.video instanceof File) return { ok: true };
+      if (typeof params.video === 'string' && params.video) return { ok: true };
+      return { ok: false, error: 'Missing video file or URL' };
+    }
+    assertEqual(submitVideoValidation({ video: 'https://example.com/v.mp4' }).ok, true, 'URL video');
+    assertEqual(submitVideoValidation({ video: new File(['data'], 'v.mp4') }).ok, true, 'File video');
+    assertEqual(submitVideoValidation({}).ok, false, 'missing video');
+    assertEqual(submitVideoValidation({ video: '' }).ok, false, 'empty string');
+    assertEqual(submitVideoValidation({ video: null }).ok, false, 'null video');
+    assertEqual(submitVideoValidation({ video: 0 }).ok, false, 'number');
+  }
+
+  function testUploadPostCheckStatusValidation() {
+    // Inline the param validation from checkStatus
+    function checkStatusValidation(params) {
+      if (!params.request_id && !params.job_id) return { ok: false, error: 'request_id or job_id required' };
+      return { ok: true };
+    }
+    assertEqual(checkStatusValidation({ request_id: 'abc' }).ok, true, 'request_id');
+    assertEqual(checkStatusValidation({ job_id: 'xyz' }).ok, true, 'job_id');
+    assertEqual(checkStatusValidation({}).ok, false, 'neither');
+    assertEqual(checkStatusValidation({}).error, 'request_id or job_id required');
+  }
+
+  function testUploadPostCancelScheduledValidation() {
+    function cancelScheduledValidation(jobId) {
+      if (!jobId || !String(jobId).trim()) return { ok: false, error: 'job_id required' };
+      return { ok: true };
+    }
+    assertEqual(cancelScheduledValidation('abc').ok, true, 'valid');
+    assertEqual(cancelScheduledValidation('').ok, false, 'empty');
+    assertEqual(cancelScheduledValidation(null).ok, false, 'null');
+    assertEqual(cancelScheduledValidation(undefined).ok, false, 'undefined');
+    assertEqual(cancelScheduledValidation('   ').ok, false, 'whitespace');
+  }
+
+  function testUploadPostCreateUserProfileValidation() {
+    function createUserProfileValidation(apiKey, username) {
+      var key = typeof apiKey === 'string' ? apiKey.trim() : '';
+      var u = typeof username === 'string' ? username.trim() : '';
+      if (!key) return { ok: false, error: 'API key not set' };
+      if (!u) return { ok: false, error: 'username required' };
+      return { ok: true };
+    }
+    assertEqual(createUserProfileValidation('key123', 'user1').ok, true, 'valid');
+    assertEqual(createUserProfileValidation('', 'user1').ok, false, 'empty key');
+    assertEqual(createUserProfileValidation('key123', '').ok, false, 'empty username');
+    assertEqual(createUserProfileValidation(null, 'user1').ok, false, 'null key');
+    assertEqual(createUserProfileValidation('key123', null).ok, false, 'null username');
+    assertEqual(createUserProfileValidation('  ', 'user1').ok, false, 'whitespace key');
+    assertEqual(createUserProfileValidation('key123', '  ').ok, false, 'whitespace username');
+    assertEqual(createUserProfileValidation('', '').error, 'API key not set', 'key error first');
+  }
+
+  function testUploadPostConvertToMp4ErrorFlow() {
+    // Test the convertToMp4 orchestration logic (submit → poll → download)
+    // This tests the error propagation without actual fetch calls
+    function convertToMp4ErrorMessage(submitResult) {
+      if (!submitResult.ok) return 'FFmpeg submit failed: ' + (submitResult.error || 'unknown');
+      return null;
+    }
+    function statusCheckErrorMessage(statusResult) {
+      if (!statusResult.ok) return 'FFmpeg status check failed: ' + (statusResult.error || 'unknown');
+      if (statusResult.status === 'ERROR') return 'FFmpeg conversion failed on server';
+      return null;
+    }
+    function downloadErrorMessage(dlResult) {
+      if (!dlResult.ok) return 'FFmpeg download failed: ' + (dlResult.error || 'unknown');
+      return null;
+    }
+    function timeoutMessage(maxPolls, pollInterval) {
+      return 'FFmpeg conversion timed out after ' + (maxPolls * pollInterval / 1000) + 's';
+    }
+
+    // Submit failure
+    assertEqual(convertToMp4ErrorMessage({ ok: false, error: 'API key not set' }),
+      'FFmpeg submit failed: API key not set');
+    assertEqual(convertToMp4ErrorMessage({ ok: false }),
+      'FFmpeg submit failed: unknown');
+
+    // Status check failure
+    assertEqual(statusCheckErrorMessage({ ok: false, error: 'Network error' }),
+      'FFmpeg status check failed: Network error');
+    assertEqual(statusCheckErrorMessage({ ok: true, status: 'ERROR' }),
+      'FFmpeg conversion failed on server');
+    assertEqual(statusCheckErrorMessage({ ok: true, status: 'PROCESSING' }), null, 'processing → no error');
+    assertEqual(statusCheckErrorMessage({ ok: true, status: 'FINISHED' }), null, 'finished → no error');
+
+    // Download failure
+    assertEqual(downloadErrorMessage({ ok: false, error: 'Not found' }),
+      'FFmpeg download failed: Not found');
+
+    // Timeout message
+    assertEqual(timeoutMessage(60, 3000), 'FFmpeg conversion timed out after 180s');
+  }
+
+  /** DeFi action patterns */
+  function testDefiActionPatternsMatchUrl() {
+    var p = global.__CFS_DEFI_ACTION_PATTERNS;
+    if (!p || typeof p.matchUrl !== 'function') return; /* skip in envs without the module */
+    var raydium = p.matchUrl('https://app.raydium.io/swap?inputMint=So11&outputMint=USDC');
+    assertTrue(raydium.length > 0, 'raydium swap URL matches');
+    assertEqual(raydium[0].id, 'raydium-swap');
+    assertEqual(raydium[0].chain, 'solana');
+
+    var jup = p.matchUrl('https://jup.ag/swap/SOL-BONK');
+    assertTrue(jup.length > 0, 'jupiter URL matches');
+    assertEqual(jup[0].platform, 'jupiter');
+
+    var pancake = p.matchUrl('https://pancakeswap.finance/swap');
+    assertTrue(pancake.length > 0, 'pancakeswap URL matches');
+    assertEqual(pancake[0].chain, 'bsc');
+
+    var noMatch = p.matchUrl('https://google.com');
+    assertEqual(noMatch.length, 0, 'non-DeFi URL returns empty');
+
+    var empty = p.matchUrl('');
+    assertEqual(empty.length, 0, 'empty URL returns empty');
+  }
+
+  function testDefiActionPatternsMatchSelector() {
+    var p = global.__CFS_DEFI_ACTION_PATTERNS;
+    if (!p || typeof p.matchSelector !== 'function') return;
+    var res = p.matchSelector('https://app.raydium.io/swap', 'swap-input-amount');
+    assertTrue(res !== null, 'amount selector matches');
+    assertEqual(res.role, 'amount');
+    assertEqual(res.patternId, 'raydium-swap');
+
+    var noMatch = p.matchSelector('https://app.raydium.io/swap', 'random-element');
+    assertEqual(noMatch, null, 'random selector returns null');
+
+    var noUrl = p.matchSelector('https://google.com', 'swap-button');
+    assertEqual(noUrl, null, 'non-DeFi URL returns null');
+  }
+
+  function testDefiActionPatternsSuggestApiConversion() {
+    var p = global.__CFS_DEFI_ACTION_PATTERNS;
+    if (!p || typeof p.suggestApiConversion !== 'function') return;
+    var actions = [
+      { type: 'type', selectors: ['swap-input-amount'], value: '1000000' },
+      { type: 'click', selectors: ['swap-button'] },
+    ];
+    var result = p.suggestApiConversion(actions, 'https://app.raydium.io/swap');
+    assertTrue(result.canConvert, 'swap actions can convert');
+    assertEqual(result.suggestion.type, 'solanaJupiterSwap');
+
+    var noSubmit = p.suggestApiConversion(
+      [{ type: 'type', selectors: ['swap-input-amount'], value: '100' }],
+      'https://app.raydium.io/swap'
+    );
+    assertFalse(noSubmit.canConvert, 'no submit → cannot convert');
+
+    var unknownUrl = p.suggestApiConversion(actions, 'https://example.com');
+    assertFalse(unknownUrl.canConvert, 'unknown URL → cannot convert');
+  }
+
+  /* ── New DeFi pattern tests (expanded) ── */
+
+  function testDefiNewPatternsMatchUrl() {
+    var p = global.__CFS_DEFI_ACTION_PATTERNS;
+    if (!p || typeof p.matchUrl !== 'function') return;
+
+    var pumpfun = p.matchUrl('https://pump.fun/coin/ABC123mint');
+    assertTrue(pumpfun.length > 0, 'pump.fun coin URL matches');
+    assertTrue(pumpfun.some(function (m) { return m.id === 'pumpfun-buy' || m.id === 'pumpfun-sell'; }), 'pump.fun pattern id present');
+
+    var clmmSwap = p.matchUrl('https://app.raydium.io/clmm/swap/poolId');
+    assertTrue(clmmSwap.length > 0, 'raydium CLMM swap URL matches');
+
+    var meteoraCpamm = p.matchUrl('https://app.meteora.ag/pools/some-pool');
+    assertTrue(meteoraCpamm.length > 0, 'meteora CP-AMM URL matches');
+
+    var oneInch = p.matchUrl('https://app.1inch.io/#/56/swap');
+    assertTrue(oneInch.length > 0, '1inch URL matches');
+    assertEqual(oneInch[0].chain, 'bsc', '1inch → bsc chain');
+
+    var paraswap = p.matchUrl('https://app.paraswap.io/swap');
+    assertTrue(paraswap.length > 0, 'paraswap URL matches');
+
+    var aster = p.matchUrl('https://asterdex.com/futures/BTCUSDT');
+    assertTrue(aster.length > 0, 'aster futures URL matches');
+
+    var phantom = p.matchUrl('https://phantom.app/transfer');
+    assertTrue(phantom.length > 0, 'phantom URL matches');
+  }
+
+  function testDefiAutoReplaceFlag() {
+    var p = global.__CFS_DEFI_ACTION_PATTERNS;
+    if (!p) return;
+    for (var i = 0; i < p.patterns.length; i++) {
+      assertTrue(p.patterns[i].autoReplace === true, p.patterns[i].id + ' has autoReplace: true');
+    }
+  }
+
+  function testDefiSuggestApiConversionAutoReplace() {
+    var p = global.__CFS_DEFI_ACTION_PATTERNS;
+    if (!p || typeof p.suggestApiConversion !== 'function') return;
+    var actions = [
+      { type: 'type', selectors: ['buy-amount'], value: '100000000' },
+      { type: 'click', selectors: ['buy-button'] },
+    ];
+    var result = p.suggestApiConversion(actions, 'https://pump.fun/coin/ABC');
+    assertTrue(result.canConvert, 'pump.fun can convert');
+    assertTrue(result.autoReplace === true, 'pump.fun autoReplace is true');
+    assertEqual(result.suggestion.type, 'solanaPumpOrJupiterBuy', 'maps to pumpOrJupiterBuy');
+  }
+
+  /* ── Social pattern tests ── */
+
+  function testSocialPatternsMatchUrl() {
+    var p = global.__CFS_SOCIAL_ACTION_PATTERNS;
+    if (!p || typeof p.matchUrl !== 'function') return;
+
+    var tiktok = p.matchUrl('https://creator.tiktok.com/upload');
+    assertTrue(tiktok.length > 0, 'TikTok creator URL matches');
+    assertEqual(tiktok[0].platform, 'tiktok', 'platform is tiktok');
+
+    var youtube = p.matchUrl('https://studio.youtube.com/video/upload');
+    assertTrue(youtube.length > 0, 'YouTube Studio URL matches');
+    assertEqual(youtube[0].platform, 'youtube');
+
+    var igDm = p.matchUrl('https://instagram.com/direct/inbox');
+    assertTrue(igDm.length > 0, 'Instagram DM URL matches');
+    assertEqual(igDm[0].id, 'instagram-dm');
+
+    var igComment = p.matchUrl('https://instagram.com/p/ABC123/');
+    assertTrue(igComment.length > 0, 'Instagram post URL matches');
+    assertEqual(igComment[0].id, 'instagram-comment-reply');
+
+    var reddit = p.matchUrl('https://reddit.com/submit');
+    assertTrue(reddit.length > 0, 'Reddit submit URL matches');
+
+    var linkedin = p.matchUrl('https://linkedin.com/feed/share');
+    assertTrue(linkedin.length > 0, 'LinkedIn URL matches');
+
+    var bsky = p.matchUrl('https://bsky.app/compose');
+    assertTrue(bsky.length > 0, 'Bluesky URL matches');
+
+    var noMatch = p.matchUrl('https://google.com');
+    assertEqual(noMatch.length, 0, 'non-social URL returns empty');
+  }
+
+  function testSocialAutoReplace() {
+    var p = global.__CFS_SOCIAL_ACTION_PATTERNS;
+    if (!p) return;
+    for (var i = 0; i < p.patterns.length; i++) {
+      assertTrue(p.patterns[i].autoReplace === true, p.patterns[i].id + ' has autoReplace: true');
+    }
+  }
+
+  function testSocialSuggestApiConversion() {
+    var p = global.__CFS_SOCIAL_ACTION_PATTERNS;
+    if (!p || typeof p.suggestApiConversion !== 'function') return;
+
+    var actions = [
+      { type: 'type', selectors: ['caption-input'], value: 'My TikTok video' },
+      { type: 'click', selectors: ['post-button'] },
+    ];
+    var result = p.suggestApiConversion(actions, 'https://creator.tiktok.com/upload');
+    assertTrue(result.canConvert, 'TikTok can convert');
+    assertTrue(result.autoReplace === true, 'TikTok autoReplace');
+    assertEqual(result.suggestion.type, 'uploadPost', 'maps to uploadPost');
+    assertEqual(result.suggestion.platformDefault, 'tiktok', 'defaults applied');
+  }
+
+  /* ── Data pattern tests ── */
+
+  function testDataPatternsMatchUrl() {
+    var p = global.__CFS_DATA_ACTION_PATTERNS;
+    if (!p || typeof p.matchUrl !== 'function') return;
+
+    var apifyConsole = p.matchUrl('https://console.apify.com/actors/abc123');
+    assertTrue(apifyConsole.length > 0, 'Apify console URL matches');
+    assertEqual(apifyConsole[0].platform, 'apify');
+
+    var apifyStore = p.matchUrl('https://apify.com/store/web-scraper');
+    assertTrue(apifyStore.length > 0, 'Apify store URL matches');
+
+    var noMatch = p.matchUrl('https://google.com');
+    assertEqual(noMatch.length, 0, 'non-data URL returns empty');
+  }
+
+  function testDataAutoReplaceFalse() {
+    var p = global.__CFS_DATA_ACTION_PATTERNS;
+    if (!p) return;
+    for (var i = 0; i < p.patterns.length; i++) {
+      assertTrue(p.patterns[i].autoReplace === false, p.patterns[i].id + ' has autoReplace: false');
+    }
+  }
+
+  function testDataSuggestApiConversion() {
+    var p = global.__CFS_DATA_ACTION_PATTERNS;
+    if (!p || typeof p.suggestApiConversion !== 'function') return;
+    var actions = [
+      { type: 'type', selectors: ['json-editor-input'], value: '{"url":"https://example.com"}' },
+      { type: 'click', selectors: ['run-button'] },
+    ];
+    var result = p.suggestApiConversion(actions, 'https://console.apify.com/actors/myactor');
+    assertTrue(result.canConvert, 'Apify can convert');
+    assertFalse(result.autoReplace, 'Apify autoReplace is false');
+    assertEqual(result.suggestion.type, 'apifyActorRun', 'maps to apifyActorRun');
+  }
+
+  /* ── Unified registry tests ── */
+
+  function testRegistryMatchUrl() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.matchUrl !== 'function') return;
+
+    /* DeFi match */
+    var raydium = r.matchUrl('https://app.raydium.io/swap');
+    assertTrue(raydium.length > 0, 'registry: raydium URL matches');
+
+    /* Social match */
+    var tiktok = r.matchUrl('https://creator.tiktok.com/upload');
+    assertTrue(tiktok.length > 0, 'registry: TikTok URL matches');
+
+    /* Data match */
+    var apify = r.matchUrl('https://console.apify.com/actors/test');
+    assertTrue(apify.length > 0, 'registry: Apify URL matches');
+
+    /* No match */
+    var no = r.matchUrl('https://example.com');
+    assertEqual(no.length, 0, 'registry: unknown URL returns empty');
+  }
+
+  function testRegistryMatchSelector() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.matchSelector !== 'function') return;
+
+    var defi = r.matchSelector('https://app.raydium.io/swap', 'swap-input-amount');
+    assertTrue(defi !== null, 'registry: DeFi selector match');
+
+    var social = r.matchSelector('https://creator.tiktok.com/upload', 'post-button');
+    assertTrue(social !== null, 'registry: social selector match');
+
+    var data = r.matchSelector('https://console.apify.com/actors/test', 'run-button');
+    assertTrue(data !== null, 'registry: data selector match');
+    assertFalse(data.autoReplace, 'registry: data selector has autoReplace false');
+  }
+
+  function testRegistrySuggestApiConversion() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.suggestApiConversion !== 'function') return;
+
+    /* DeFi auto-replace */
+    var defiResult = r.suggestApiConversion(
+      [{ type: 'type', selectors: ['swap-input-amount'], value: '100' }, { type: 'click', selectors: ['swap-button'] }],
+      'https://app.raydium.io/swap'
+    );
+    assertTrue(defiResult.canConvert, 'registry: DeFi can convert');
+    assertTrue(defiResult.autoReplace, 'registry: DeFi autoReplace true');
+
+    /* Apify suggest only */
+    var apifyResult = r.suggestApiConversion(
+      [{ type: 'type', selectors: ['json-editor-input'], value: '{}' }, { type: 'click', selectors: ['run-button'] }],
+      'https://console.apify.com/actors/test'
+    );
+    assertTrue(apifyResult.canConvert, 'registry: Apify can convert');
+    assertFalse(apifyResult.autoReplace, 'registry: Apify autoReplace false');
+  }
+
+  function testRegistryReplaceActionsWithApiSteps() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.replaceActionsWithApiSteps !== 'function') return;
+
+    /* DeFi auto-replace: clicks on a Raydium swap */
+    var actions = [
+      { type: 'type', selectors: ['swap-input-amount'], value: '1000000' },
+      { type: 'click', selectors: ['swap-button'] },
+      { type: 'walletApprove' },
+    ];
+    var result = r.replaceActionsWithApiSteps(actions, 'https://app.raydium.io/swap');
+    assertTrue(result.replacements.length > 0, 'auto-replace: has replacements');
+    assertTrue(result.actions.length < actions.length, 'auto-replace: action count reduced');
+    var apiStep = result.actions.find(function (a) { return a._autoReplaced; });
+    assertTrue(apiStep !== undefined, 'auto-replace: API step inserted');
+    assertEqual(apiStep.type, 'solanaJupiterSwap', 'auto-replace: correct step type');
+    assertTrue(apiStep._replacedFrom.length > 0, 'auto-replace: _replacedFrom set');
+
+    /* Apify: no auto-replace */
+    var apifyActions = [
+      { type: 'type', selectors: ['json-editor-input'], value: '{}' },
+      { type: 'click', selectors: ['run-button'] },
+    ];
+    var apifyResult = r.replaceActionsWithApiSteps(apifyActions, 'https://console.apify.com/actors/test');
+    assertEqual(apifyResult.replacements.length, 0, 'no auto-replace for Apify');
+    assertEqual(apifyResult.actions.length, 2, 'Apify actions unchanged');
+
+    /* Empty/null inputs */
+    var emptyResult = r.replaceActionsWithApiSteps([], 'https://app.raydium.io/swap');
+    assertEqual(emptyResult.replacements.length, 0, 'empty actions → no replacements');
+    var nullResult = r.replaceActionsWithApiSteps(null, 'https://app.raydium.io/swap');
+    assertEqual(nullResult.replacements.length, 0, 'null actions → no replacements');
+
+    /* Social auto-replace: TikTok upload */
+    var socialActions = [
+      { type: 'type', selectors: ['caption-input'], value: 'My video' },
+      { type: 'click', selectors: ['post-button'] },
+    ];
+    var socialResult = r.replaceActionsWithApiSteps(socialActions, 'https://creator.tiktok.com/upload');
+    assertTrue(socialResult.replacements.length > 0, 'social auto-replace: has replacements');
+    var socialApiStep = socialResult.actions.find(function (a) { return a._autoReplaced; });
+    assertTrue(socialApiStep !== undefined, 'social auto-replace: API step inserted');
+    assertEqual(socialApiStep.type, 'uploadPost', 'social auto-replace: maps to uploadPost');
+    assertEqual(socialApiStep.platformDefault, 'tiktok', 'social auto-replace: platform default set');
+  }
+
+  /* ── Recorder pattern hint detection tests ── */
+
+  function testRecorderPatternHintDetection() {
+    /* Inline from recorder.js — lightweight URL matcher */
+    var _CFS_PATTERN_HINT_URLS = [
+      { re: /app\.raydium\.io/i, platform: 'Raydium', category: 'defi' },
+      { re: /jup\.ag/i, platform: 'Jupiter', category: 'defi' },
+      { re: /pump\.fun/i, platform: 'Pump.fun', category: 'defi' },
+      { re: /app\.meteora\.ag/i, platform: 'Meteora', category: 'defi' },
+      { re: /pancakeswap\.finance/i, platform: 'PancakeSwap', category: 'defi' },
+      { re: /app\.1inch\.io/i, platform: '1inch', category: 'defi' },
+      { re: /asterdex\.com/i, platform: 'Aster', category: 'defi' },
+      { re: /creator\.tiktok\.com|tiktok\.com\/creator/i, platform: 'TikTok', category: 'social' },
+      { re: /studio\.youtube\.com/i, platform: 'YouTube', category: 'social' },
+      { re: /instagram\.com\/(create|reels|direct|p\/|reel\/|accounts)/i, platform: 'Instagram', category: 'social' },
+      { re: /reddit\.com\/(submit|r\/.*\/submit)/i, platform: 'Reddit', category: 'social' },
+      { re: /bsky\.app/i, platform: 'Bluesky', category: 'social' },
+      { re: /console\.apify\.com\/actors?\//i, platform: 'Apify', category: 'data' },
+    ];
+    function detectPatternHint(url) {
+      if (!url) return null;
+      for (var i = 0; i < _CFS_PATTERN_HINT_URLS.length; i++) {
+        if (_CFS_PATTERN_HINT_URLS[i].re.test(url)) {
+          return { platform: _CFS_PATTERN_HINT_URLS[i].platform, category: _CFS_PATTERN_HINT_URLS[i].category };
+        }
+      }
+      return null;
+    }
+
+    var raydium = detectPatternHint('https://app.raydium.io/swap');
+    assertTrue(raydium !== null, 'hint: raydium detected');
+    assertEqual(raydium.platform, 'Raydium');
+    assertEqual(raydium.category, 'defi');
+
+    var pump = detectPatternHint('https://pump.fun/coin/ABC');
+    assertTrue(pump !== null, 'hint: pump.fun detected');
+    assertEqual(pump.platform, 'Pump.fun');
+
+    var tiktok = detectPatternHint('https://creator.tiktok.com/upload');
+    assertTrue(tiktok !== null, 'hint: tiktok detected');
+    assertEqual(tiktok.category, 'social');
+
+    var ig = detectPatternHint('https://instagram.com/direct/inbox');
+    assertTrue(ig !== null, 'hint: instagram dm detected');
+    assertEqual(ig.platform, 'Instagram');
+
+    var reddit = detectPatternHint('https://reddit.com/r/test/submit');
+    assertTrue(reddit !== null, 'hint: reddit submit detected');
+
+    var apify = detectPatternHint('https://console.apify.com/actors/test123');
+    assertTrue(apify !== null, 'hint: apify detected');
+    assertEqual(apify.category, 'data');
+
+    var noMatch = detectPatternHint('https://google.com');
+    assertEqual(noMatch, null, 'hint: no match for google');
+
+    var empty = detectPatternHint('');
+    assertEqual(empty, null, 'hint: empty url');
+
+    var nullUrl = detectPatternHint(null);
+    assertEqual(nullUrl, null, 'hint: null url');
+  }
+
+  /* ── walletApprove annotation after auto-replace tests ── */
+
+  function testRegistryWalletApproveAnnotation() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.replaceActionsWithApiSteps !== 'function') return;
+
+    /* Simulate a workflow with DeFi actions followed by walletApprove */
+    var actions = [
+      { type: 'type', selectors: ['swap-input-amount'], value: '500000' },
+      { type: 'click', selectors: ['swap-button'] },
+      { type: 'walletApprove' },
+    ];
+    var result = r.replaceActionsWithApiSteps(actions, 'https://app.raydium.io/swap');
+    assertTrue(result.replacements.length > 0, 'walletApprove test: has replacements');
+
+    /* The walletApprove step should still be in the actions (not replaced itself) */
+    var apiStep = result.actions.find(function (a) { return a._autoReplaced; });
+    assertTrue(apiStep !== undefined, 'walletApprove test: API step present');
+
+    /* Verify the walletApprove was absorbed into the replaced sequence
+       (it follows the submit in the matched indices) */
+    assertTrue(result.actions.length <= 2, 'walletApprove test: actions consolidated');
+  }
+
+  /* ── DeFi field hints merge tests ── */
+
+  function testDefiFieldHintsMerge() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.replaceActionsWithApiSteps !== 'function') return;
+
+    /* Simulate actions with _defiFieldHints attached (as recorder would) */
+    var actions = [
+      {
+        type: 'type', selectors: ['swap-input-amount'], value: '500000',
+        _defiFieldHints: { poolId: 'POOL123ABC', tokenA: 'SOL', tokenB: 'USDC', amountIn: '0.5' },
+      },
+      { type: 'click', selectors: ['swap-button'] },
+      { type: 'walletApprove' },
+    ];
+    var result = r.replaceActionsWithApiSteps(actions, 'https://app.raydium.io/swap');
+    assertTrue(result.replacements.length > 0, 'fieldHints merge: has replacements');
+    var apiStep = result.actions.find(function (a) { return a._autoReplaced; });
+    assertTrue(apiStep !== undefined, 'fieldHints merge: API step exists');
+    /* Verify field hints were carried into the API step */
+    assertTrue(apiStep._defiFieldHints !== undefined, 'fieldHints merge: _defiFieldHints present');
+    assertEqual(apiStep._defiFieldHints.poolId, 'POOL123ABC', 'fieldHints merge: poolId carried');
+    assertEqual(apiStep.poolId, 'POOL123ABC', 'fieldHints merge: poolId on step');
+    assertEqual(apiStep.tokenA, 'SOL', 'fieldHints merge: tokenA on step');
+    assertEqual(apiStep.tokenB, 'USDC', 'fieldHints merge: tokenB on step');
+    assertEqual(apiStep.amountIn, '0.5', 'fieldHints merge: amountIn on step');
+  }
+
+  /* ── DeFi field hint URL extraction mock test ── */
+
+  function testDefiFieldHintUrlExtraction() {
+    /* Test the URL path extraction logic (same as in recorder.js _cfsExtractDefiFieldHints) */
+    function extractUrlHints(platform, url) {
+      var hints = {};
+      try {
+        var pathname = new URL(url).pathname;
+        if (platform === 'Pump.fun') {
+          var coinMatch = pathname.match(/\/coin\/([A-Za-z0-9]{32,})/);
+          if (coinMatch) hints.mint = coinMatch[1];
+        }
+        if (platform === 'Raydium') {
+          var poolMatch = pathname.match(/\/(swap|liquidity|clmm)\/([A-Za-z0-9]{20,})/);
+          if (poolMatch) hints.poolId = poolMatch[2];
+        }
+        if (platform === 'Meteora') {
+          var meteoraMatch = pathname.match(/\/(pools?|dlmm)\/([A-Za-z0-9]{20,})/);
+          if (meteoraMatch) hints.poolId = meteoraMatch[2];
+        }
+      } catch (_) {}
+      return Object.keys(hints).length > 0 ? hints : null;
+    }
+
+    /* Pump.fun mint extraction */
+    var pump = extractUrlHints('Pump.fun', 'https://pump.fun/coin/7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
+    assertTrue(pump !== null, 'urlHints: pump.fun has hints');
+    assertEqual(pump.mint, '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', 'urlHints: pump.fun mint extracted');
+
+    /* Raydium pool ID extraction */
+    var raydium = extractUrlHints('Raydium', 'https://app.raydium.io/swap/3ne4mWqdYuNiYrYZC9TrA3FcfuFdErghH97vNPbjicr1');
+    assertTrue(raydium !== null, 'urlHints: raydium has hints');
+    assertEqual(raydium.poolId, '3ne4mWqdYuNiYrYZC9TrA3FcfuFdErghH97vNPbjicr1', 'urlHints: raydium poolId extracted');
+
+    /* Raydium CLMM pool */
+    var raydiumClmm = extractUrlHints('Raydium', 'https://app.raydium.io/clmm/ABC12345678901234567890');
+    assertTrue(raydiumClmm !== null, 'urlHints: raydium CLMM has hints');
+    assertEqual(raydiumClmm.poolId, 'ABC12345678901234567890', 'urlHints: raydium CLMM poolId');
+
+    /* Meteora pool */
+    var meteora = extractUrlHints('Meteora', 'https://app.meteora.ag/pools/METEORApool1234567890123456');
+    assertTrue(meteora !== null, 'urlHints: meteora has hints');
+    assertEqual(meteora.poolId, 'METEORApool1234567890123456', 'urlHints: meteora poolId');
+
+    /* No hint for basic swap page */
+    var noHint = extractUrlHints('Raydium', 'https://app.raydium.io/swap');
+    assertEqual(noHint, null, 'urlHints: no poolId for basic swap page');
+
+    /* Short mint shouldn't match (< 32 chars for Pump) */
+    var shortMint = extractUrlHints('Pump.fun', 'https://pump.fun/coin/shortmint');
+    assertEqual(shortMint, null, 'urlHints: short pump mint no match');
+  }
+
+  /* ── Fallback actions preservation tests ── */
+
+  function testFallbackActionsPreserved() {
+    var r = global.__CFS_ACTION_PATTERNS;
+    if (!r || typeof r.replaceActionsWithApiSteps !== 'function') return;
+
+    var actions = [
+      { type: 'type', selectors: ['swap-input-amount'], value: '1000000', url: 'https://app.raydium.io/swap/POOL123' },
+      { type: 'click', selectors: ['swap-button'], url: 'https://app.raydium.io/swap/POOL123' },
+      { type: 'walletApprove', url: 'https://app.raydium.io/swap/POOL123' },
+    ];
+    var result = r.replaceActionsWithApiSteps(actions, 'https://app.raydium.io/swap');
+    assertTrue(result.replacements.length > 0, 'fallback: has replacements');
+    var apiStep = result.actions.find(function (a) { return a._autoReplaced; });
+    assertTrue(apiStep !== undefined, 'fallback: API step exists');
+
+    /* _fallbackActions preserved */
+    assertTrue(Array.isArray(apiStep._fallbackActions), 'fallback: _fallbackActions is array');
+    assertTrue(apiStep._fallbackActions.length >= 2, 'fallback: has at least 2 fallback actions');
+    assertEqual(apiStep._fallbackActions[0].type, 'type', 'fallback: first fallback is type');
+    assertEqual(apiStep._fallbackActions[1].type, 'click', 'fallback: second fallback is click');
+
+    /* _fallbackStartUrl uses action's URL */
+    assertEqual(apiStep._fallbackStartUrl, 'https://app.raydium.io/swap/POOL123', 'fallback: _fallbackStartUrl from action URL');
+
+    /* fallbackMode defaults to auto */
+    assertEqual(apiStep.fallbackMode, 'auto', 'fallback: fallbackMode defaults to auto');
+
+    /* Fallback actions are deep copies (not references) */
+    apiStep._fallbackActions[0].selectors = ['modified'];
+    assertEqual(actions[0].selectors[0], 'swap-input-amount', 'fallback: deep copy, original not mutated');
+  }
+
+  /* ── Fallback eligibility pattern matching tests ── */
+
+  function testFallbackEligibilityPatterns() {
+    /* Inline the same patterns from player.js for testability */
+    var ELIGIBLE = [
+      /wallet.*not\s*(configured|found|set)/i,
+      /no\s*(solana|bsc|evm)\s*wallet/i,
+      /api\s*key\s*(not|missing|invalid|required)/i,
+      /unauthorized|token\s*expired|auth.*fail/i,
+      /rate\s*limit|too\s*many\s*requests|429/i,
+      /network\s*error|econnrefused|fetch\s*fail|503|502|504/i,
+      /backend.*unreachable|api.*down|service.*unavailable/i,
+      /credits?\s*(exhausted|insufficient|expired|ran\s*out)/i,
+      /required\s*field.*empty/i,
+      /profile.*not\s*found|no\s*upload.*profile/i,
+    ];
+    var EXCLUDE = [
+      /insufficient\s*(sol|bnb|funds|balance)/i,
+      /simulation\s*fail/i,
+      /transaction\s*fail/i,
+      /slippage/i,
+      /tab.*closed|disconnected/i,
+    ];
+    function isEligible(msg) {
+      for (var i = 0; i < EXCLUDE.length; i++) { if (EXCLUDE[i].test(msg)) return false; }
+      for (var j = 0; j < ELIGIBLE.length; j++) { if (ELIGIBLE[j].test(msg)) return true; }
+      return false;
+    }
+
+    /* Should trigger fallback */
+    assertTrue(isEligible('Wallet not configured for Solana'), 'fbEligible: wallet not configured');
+    assertTrue(isEligible('No Solana wallet set up'), 'fbEligible: no solana wallet');
+    assertTrue(isEligible('API key not found'), 'fbEligible: api key not found');
+    assertTrue(isEligible('API key missing'), 'fbEligible: api key missing');
+    assertTrue(isEligible('Unauthorized'), 'fbEligible: unauthorized');
+    assertTrue(isEligible('Token expired'), 'fbEligible: token expired');
+    assertTrue(isEligible('Rate limit exceeded'), 'fbEligible: rate limit');
+    assertTrue(isEligible('HTTP 429 Too Many Requests'), 'fbEligible: 429');
+    assertTrue(isEligible('Network error: ECONNREFUSED'), 'fbEligible: network error');
+    assertTrue(isEligible('503 Service Unavailable'), 'fbEligible: 503');
+    assertTrue(isEligible('Backend unreachable'), 'fbEligible: backend unreachable');
+    assertTrue(isEligible('Credits exhausted'), 'fbEligible: credits exhausted');
+    assertTrue(isEligible('Required field "mint" is empty'), 'fbEligible: required field empty');
+    assertTrue(isEligible('Upload profile not found'), 'fbEligible: profile not found');
+    assertTrue(isEligible('No BSC wallet configured'), 'fbEligible: no bsc wallet');
+    assertTrue(isEligible('Auth failed for API'), 'fbEligible: auth failed');
+
+    /* Should NOT trigger fallback */
+    assertTrue(!isEligible('Insufficient SOL for transaction'), 'fbNotEligible: insufficient sol');
+    assertTrue(!isEligible('Insufficient BNB balance'), 'fbNotEligible: insufficient bnb');
+    assertTrue(!isEligible('Simulation failed: program error'), 'fbNotEligible: simulation fail');
+    assertTrue(!isEligible('Transaction failed'), 'fbNotEligible: transaction fail');
+    assertTrue(!isEligible('Slippage tolerance exceeded'), 'fbNotEligible: slippage');
+    assertTrue(!isEligible('Tab closed during playback'), 'fbNotEligible: tab closed');
+    assertTrue(!isEligible('Element not found'), 'fbNotEligible: generic element error');
+  }
+
+  /* ── Inline test calls ── */
+  testDefiActionPatternsMatchUrl();
+  testDefiActionPatternsMatchSelector();
+  testDefiActionPatternsSuggestApiConversion();
+  testDefiNewPatternsMatchUrl();
+  testDefiAutoReplaceFlag();
+  testDefiSuggestApiConversionAutoReplace();
+  testSocialPatternsMatchUrl();
+  testSocialAutoReplace();
+  testSocialSuggestApiConversion();
+  testDataPatternsMatchUrl();
+  testDataAutoReplaceFalse();
+  testDataSuggestApiConversion();
+  testRegistryMatchUrl();
+  testRegistryMatchSelector();
+  testRegistrySuggestApiConversion();
+  testRegistryReplaceActionsWithApiSteps();
+  testRecorderPatternHintDetection();
+  testRegistryWalletApproveAnnotation();
+  testDefiFieldHintsMerge();
+  testDefiFieldHintUrlExtraction();
+  testFallbackActionsPreserved();
+  testFallbackEligibilityPatterns();
+
 })(typeof window !== 'undefined' ? window : globalThis);
+

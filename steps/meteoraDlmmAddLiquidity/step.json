@@ -2,7 +2,7 @@
   "id": "meteoraDlmmAddLiquidity",
   "label": "Meteora DLMM add liquidity",
   "category": "data",
-  "description": "Open a **new** DLMM position and deposit on a Meteora pool ([meteora.ag/pools](https://www.meteora.ag/pools)). Uses **lb pair** pubkey (pool), **totalXAmountRaw** / **totalYAmountRaw** in smallest units (use `0` on one side for single-sided). Range is **active bin ± binsEachSide**. **spot** / **curve** / **bidAsk** maps to Meteora strategy types. Automation wallet must hold tokens and SOL for rent. Rebuild: `npm run build:meteora`.",
+  "description": "Open a **new** DLMM position and deposit on a Meteora pool ([meteora.ag/pools](https://www.meteora.ag/pools)). Uses **lb pair** pubkey (pool), **totalXAmountRaw** / **totalYAmountRaw** in smallest units (use `0` on one side for single-sided). Range is **active bin \u00b1 binsEachSide**. **spot** / **curve** / **bidAsk** maps to Meteora strategy types. Automation wallet must hold tokens and SOL for rent. Rebuild: `npm run build:meteora`.",
   "defaultAction": {
     "type": "meteoraDlmmAddLiquidity",
     "runIf": "",
@@ -21,26 +21,102 @@
     "savePositionVariable": "meteoraPosition"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "lbPair", "label": "LB pair (pool) address", "inputType": "text" },
-    { "key": "totalXAmountRaw", "label": "Token X amount (raw, 0 if one-sided Y)", "inputType": "text" },
-    { "key": "totalYAmountRaw", "label": "Token Y amount (raw, 0 if one-sided X)", "inputType": "text" },
-    { "key": "strategyType", "label": "Strategy", "inputType": "select", "options": [
-      { "value": "spot", "label": "Spot" },
-      { "value": "curve", "label": "Curve" },
-      { "value": "bidask", "label": "Bid-ask" }
-    ] },
-    { "key": "binsEachSide", "label": "Bins each side of active price", "inputType": "number" },
-    { "key": "slippagePercent", "label": "Slippage (percent, e.g. 1)", "inputType": "number" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save tx signature", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" },
-    { "key": "savePositionVariable", "label": "Save new position address", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "lbPair",
+      "label": "LB pair (pool) address",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_METEORA_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste lbPair address or search"
+    },
+    {
+      "key": "totalXAmountRaw",
+      "label": "Token X amount (raw, 0 if one-sided Y)",
+      "inputType": "text"
+    },
+    {
+      "key": "totalYAmountRaw",
+      "label": "Token Y amount (raw, 0 if one-sided X)",
+      "inputType": "text"
+    },
+    {
+      "key": "strategyType",
+      "label": "Strategy",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "spot",
+          "label": "Spot"
+        },
+        {
+          "value": "curve",
+          "label": "Curve"
+        },
+        {
+          "value": "bidask",
+          "label": "Bid-ask"
+        }
+      ]
+    },
+    {
+      "key": "binsEachSide",
+      "label": "Bins each side of active price",
+      "inputType": "number"
+    },
+    {
+      "key": "slippagePercent",
+      "label": "Slippage (percent, e.g. 1)",
+      "inputType": "number"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save tx signature",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL",
+      "inputType": "text"
+    },
+    {
+      "key": "savePositionVariable",
+      "label": "Save new position address",
+      "inputType": "text"
+    }
   ]
 }

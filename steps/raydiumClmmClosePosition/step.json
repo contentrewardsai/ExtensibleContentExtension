@@ -2,7 +2,7 @@
   "id": "raydiumClmmClosePosition",
   "label": "Raydium CLMM close position",
   "category": "data",
-  "description": "Closes a CLMM position with **zero liquidity** (`closePosition`). Remove liquidity first (**raydiumClmmDecreaseLiquidity** with **max** or full amount), or use **closePosition** on the decrease step. The background rejects non-zero liquidity with a clear error. Optional **poolId** must match the position’s pool if set.",
+  "description": "Closes a CLMM position with **zero liquidity** (`closePosition`). Remove liquidity first (**raydiumClmmDecreaseLiquidity** with **max** or full amount), or use **closePosition** on the decrease step. The background rejects non-zero liquidity with a clear error. Optional **poolId** must match the position\u2019s pool if set.",
   "defaultAction": {
     "type": "raydiumClmmClosePosition",
     "runIf": "",
@@ -16,17 +16,63 @@
     "saveExplorerUrlVariable": "solanaExplorerUrl"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "positionNftMint", "label": "Position NFT mint", "inputType": "text" },
-    { "key": "poolId", "label": "Pool id (optional check)", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "positionNftMint",
+      "label": "Position NFT mint",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id (optional check)",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste pool ID or search"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL variable",
+      "inputType": "text"
+    }
   ]
 }

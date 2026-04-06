@@ -921,6 +921,12 @@
               });
               const versionResults = await Promise.all(versionPromises);
               if (versionResults.some(Boolean)) return { config, id, loaded: true };
+              // Direct workflow (no versionFiles, actions on config itself)
+              if (!versionFiles.length && config && (config.analyzed?.actions || config.actions)) {
+                const wfId = config.id || id;
+                workflows[wfId] = { ...config, id: config.id || wfId, name: config.name || id };
+                return { config, id, loaded: true };
+              }
               if (mergePreset(config)) return { config, id, loaded: true };
               addDiscoveryDomainsFromConfig(config, mergedDomainHints);
               return { config, id, loaded: false };
@@ -1898,11 +1904,16 @@
         followingBscWatch: document.getElementById('wfScopeBscWatch')?.checked === true,
         followingAutomationSolana: document.getElementById('wfScopeFollowingAutoSol')?.checked === true,
         followingAutomationBsc: document.getElementById('wfScopeFollowingAutoBsc')?.checked === true,
+        fileWatch: document.getElementById('wfScopeFileWatch')?.checked === true,
+        priceRangeWatch: document.getElementById('wfScopePriceRange')?.checked === true,
+        custom: document.getElementById('wfScopeCustom')?.checked === true,
       },
       conditions: {
         requireNonEmptyFollowingBundle: document.getElementById('wfCondNonEmpty')?.checked === true,
         requireBscScanKeyForBsc: document.getElementById('wfCondBscKey')?.checked === true,
       },
+      projectId: (document.getElementById('wfAlwaysOnProjectId')?.value || '').trim(),
+      pollIntervalMs: parseInt(document.getElementById('wfAlwaysOnPollInterval')?.value, 10) || 0,
     };
     const sc = wf.alwaysOn.scopes || {};
     if (sc.followingAutomationSolana || sc.followingAutomationBsc) {
@@ -1941,6 +1952,15 @@
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeBscWatch" ${sc.followingBscWatch ? 'checked' : ''}> BSC Following watch</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoSol" ${sc.followingAutomationSolana ? 'checked' : ''}> Following automation (Solana)</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoBsc" ${sc.followingAutomationBsc ? 'checked' : ''}> Following automation (BSC)</label>
+        <span class="hint" style="display:block;margin:8px 0 4px 0;border-top:1px solid var(--border);padding-top:6px;">Universal scopes</span>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFileWatch" ${sc.fileWatch ? 'checked' : ''}> File watch (project import folder)</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopePriceRange" ${sc.priceRangeWatch ? 'checked' : ''}> Price range watch (DeFi position)</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeCustom" ${sc.custom ? 'checked' : ''}> Custom trigger</label>
+      </div>
+      <div id="wfAlwaysOnProjectBind" style="margin-left:8px;margin-bottom:6px;display:${sc.fileWatch ? 'block' : 'none'};">
+        <span class="hint" style="display:block;margin-bottom:4px;">File watch settings</span>
+        <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnProjectId" style="min-width:90px;">Project ID</label><input type="text" id="wfAlwaysOnProjectId" value="${escapeHtml(ao.projectId || '')}" placeholder="Use selected project" style="flex:1;min-width:0;"></div>
+        <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnPollInterval" style="min-width:90px;">Poll ms</label><input type="number" id="wfAlwaysOnPollInterval" value="${ao.pollIntervalMs || ''}" placeholder="60000" min="1000" style="flex:1;max-width:120px;"></div>
       </div>
       <div id="wfAlwaysOnCond" style="margin-left:8px;margin-bottom:8px;">
         <span class="hint" style="display:block;margin-bottom:4px;">Conditions (optional)</span>
@@ -1981,11 +2001,18 @@
       'wfScopeBscWatch',
       'wfScopeFollowingAutoSol',
       'wfScopeFollowingAutoBsc',
+      'wfScopeFileWatch',
+      'wfScopePriceRange',
+      'wfScopeCustom',
       'wfCondNonEmpty',
       'wfCondBscKey',
     ].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', () => {
         if (id === 'wfScopeFollowingAutoSol' || id === 'wfScopeFollowingAutoBsc') toggleFollowingAutomationBox();
+        if (id === 'wfScopeFileWatch') {
+          const box = document.getElementById('wfAlwaysOnProjectBind');
+          if (box) box.style.display = document.getElementById('wfScopeFileWatch')?.checked ? 'block' : 'none';
+        }
         void saveWorkflowAlwaysOnFromUI();
       });
     });
@@ -2008,6 +2035,11 @@
       document.getElementById(id)?.addEventListener('blur', () => {
         void saveWorkflowAlwaysOnFromUI();
       });
+    });
+    // File watch project bind fields
+    ['wfAlwaysOnProjectId', 'wfAlwaysOnPollInterval'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', () => void saveWorkflowAlwaysOnFromUI());
+      document.getElementById(id)?.addEventListener('blur', () => void saveWorkflowAlwaysOnFromUI());
     });
   }
 
@@ -2550,6 +2582,7 @@
           refreshActivityPanel();
           refreshPulseWatchActivityPanel();
           startSidebarsPolling();
+          refreshDefiPositionsPanel();
           if (!isChromeTooOld && typeof checkAndRunOverdueScheduledRuns === 'function') checkAndRunOverdueScheduledRuns();
         }
         if (tabId === 'library') { refreshLibraryPanel(); if (typeof refreshUploadsList === 'function') refreshUploadsList(); }
@@ -2988,8 +3021,30 @@
     const wrap = document.getElementById('pulseWatchSection');
     if (!wrap) return false;
     try {
-      const stored = await chrome.storage.local.get(PULSE_WATCH_VISIBILITY_STORAGE_KEYS);
-      const show = pulseWatchHasCryptoKeysConfigured(stored);
+      const stored = await chrome.storage.local.get([...PULSE_WATCH_VISIBILITY_STORAGE_KEYS, 'workflows']);
+      const hasCrypto = pulseWatchHasCryptoKeysConfigured(stored);
+      // Also show if any workflow has a universal always-on scope (fileWatch, priceRangeWatch, custom)
+      const hasUniversalScope = (() => {
+        const wfs = stored.workflows;
+        if (!wfs || typeof wfs !== 'object') return false;
+        for (const id of Object.keys(wfs)) {
+          const ao = wfs[id]?.alwaysOn;
+          if (ao && ao.enabled && ao.scopes) {
+            if (ao.scopes.fileWatch || ao.scopes.priceRangeWatch || ao.scopes.custom) return true;
+          }
+        }
+        // Also check in-memory workflows (may not yet be in storage)
+        if (typeof workflows === 'object' && workflows) {
+          for (const id of Object.keys(workflows)) {
+            const ao = workflows[id]?.alwaysOn;
+            if (ao && ao.enabled && ao.scopes) {
+              if (ao.scopes.fileWatch || ao.scopes.priceRangeWatch || ao.scopes.custom) return true;
+            }
+          }
+        }
+        return false;
+      })();
+      const show = hasCrypto || hasUniversalScope;
       wrap.style.display = show ? '' : 'none';
       return show;
     } catch (_) {
@@ -3220,12 +3275,14 @@
     const el = document.getElementById('pulseWatchLastPollLine');
     if (!el) return;
     try {
-      const data = await chrome.storage.local.get([PULSE_SOLANA_LAST_POLL_KEY, PULSE_BSC_LAST_POLL_KEY]);
+      const data = await chrome.storage.local.get([PULSE_SOLANA_LAST_POLL_KEY, PULSE_BSC_LAST_POLL_KEY, 'cfsFileWatchLastPoll']);
       const sol = data[PULSE_SOLANA_LAST_POLL_KEY];
       const bsc = data[PULSE_BSC_LAST_POLL_KEY];
+      const fw = data.cfsFileWatchLastPoll;
       const solOk = sol && typeof sol === 'object' && sol.ts != null;
       const bscOk = bsc && typeof bsc === 'object' && bsc.ts != null;
-      if (!solOk && !bscOk) {
+      const fwOk = fw && typeof fw === 'object' && fw.ts != null;
+      if (!solOk && !bscOk && !fwOk) {
         el.hidden = true;
         el.textContent = '';
         return;
@@ -3239,6 +3296,11 @@
       if (bscOk) {
         const t = new Date(bsc.ts).toLocaleString();
         parts.push(`BSC ${t}${pulseWatchPollDetail(bsc)}`);
+      }
+      if (fwOk) {
+        const t = new Date(fw.ts).toLocaleString();
+        const detail = fw.idle ? ` · idle (${fw.reason || 'no projects'})` : (fw.projectCount ? ` · ${fw.projectCount} project(s)` : '');
+        parts.push(`File watch ${t}${detail}`);
       }
       el.textContent = `Last poll — ${parts.join(' · ')}`;
     } catch (_) {
@@ -3290,6 +3352,52 @@
     }
   }
 
+  /* ── DeFi Positions panel (Activity tab bottom) ── */
+  let _defiPositionsLastFetch = 0;
+  async function refreshDefiPositionsPanel(force) {
+    const section = document.getElementById('defiPositionsSection');
+    const listEl = document.getElementById('defiPositionsList');
+    const statusEl = document.getElementById('defiPositionsStatus');
+    if (!section || !listEl) return;
+    /* Throttle — don't re-fetch within 30 s unless force */
+    if (!force && Date.now() - _defiPositionsLastFetch < 30000 && listEl.children.length > 0) return;
+    _defiPositionsLastFetch = Date.now();
+    try {
+      const r = await cfsSendServiceWorkerMessage({ type: 'CFS_DEFI_LIST_POSITIONS' });
+      if (!r || !r.ok || !Array.isArray(r.positions) || r.positions.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = '';
+      if (statusEl) { statusEl.style.display = 'none'; statusEl.textContent = ''; }
+      let html = '';
+      r.positions.forEach(p => {
+        const pair = (p.symbolA || '?') + '/' + (p.symbolB || '?');
+        const liq = p.liquidity ? Number(p.liquidity).toLocaleString() : '';
+        const range = (p.priceLower != null && p.priceUpper != null) ?
+          `${Number(p.priceLower).toFixed(4)} – ${Number(p.priceUpper).toFixed(4)}` : '';
+        const rewards = Array.isArray(p.rewardAmounts) && p.rewardAmounts.length > 0 ?
+          p.rewardAmounts.map(r => typeof r === 'object' ? (r.symbol || '?') + ': ' + (r.amount || '0') : String(r)).join(', ') : '';
+        html += '<div class="defi-position-card" style="padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-color,#e5e5e7);border-radius:6px;font-size:12px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">';
+        html += '<strong>' + escapeHtml(pair) + '</strong>';
+        html += '<span style="font-size:10px;color:var(--gen-muted,#888)">' + escapeHtml(p.protocol + ' ' + p.type) + '</span>';
+        html += '</div>';
+        html += '<div style="font-size:11px;color:var(--gen-muted,#888)">';
+        if (liq) html += 'Liq: ' + escapeHtml(liq) + ' · ';
+        if (range) html += 'Range: ' + escapeHtml(range);
+        if (rewards) html += ' · Rewards: ' + escapeHtml(rewards);
+        html += '</div>';
+        html += '<div style="font-size:10px;color:var(--gen-muted,#aaa);margin-top:2px">' + escapeHtml(p.wallet) + '</div>';
+        html += '</div>';
+      });
+      listEl.innerHTML = html;
+    } catch (e) {
+      if (statusEl) { statusEl.style.display = ''; statusEl.textContent = 'Position fetch failed: ' + (e.message || String(e)); }
+    }
+  }
+  document.getElementById('defiPositionsRefreshBtn')?.addEventListener('click', () => refreshDefiPositionsPanel(true));
+
   async function refreshPulseWatchActivityPanel() {
     const el = document.getElementById('pulseWatchActivityList');
     if (!el) return;
@@ -3298,63 +3406,100 @@
     await updatePulseWatchStatusBanner();
     await updatePulseWatchLastPollLine();
     await updatePulseWatchBundleLine();
+
+    // Build always-on workflow summary banner
+    let alwaysOnHtml = '';
+    try {
+      const aoWorkflows = [];
+      const wfSource = (typeof workflows === 'object' && workflows) ? workflows : {};
+      for (const [id, wf] of Object.entries(wfSource)) {
+        if (!wf?.alwaysOn?.enabled) continue;
+        const sc = wf.alwaysOn.scopes || {};
+        const scopes = [];
+        if (sc.followingSolanaWatch) scopes.push('SOL watch');
+        if (sc.followingBscWatch) scopes.push('BSC watch');
+        if (sc.followingAutomationSolana) scopes.push('SOL auto');
+        if (sc.followingAutomationBsc) scopes.push('BSC auto');
+        if (sc.fileWatch) scopes.push('📁 File watch');
+        if (sc.priceRangeWatch) scopes.push('📊 Price range');
+        if (sc.custom) scopes.push('⚙ Custom');
+        if (scopes.length === 0) continue;
+        const projId = wf.alwaysOn.projectId;
+        const projLabel = projId ? ` · Project: ${escapeHtml(projId)}` : '';
+        const pollLabel = wf.alwaysOn.pollIntervalMs ? ` · Poll: ${Math.round(wf.alwaysOn.pollIntervalMs / 1000)}s` : '';
+        aoWorkflows.push(`<div class="pulse-watch-activity-row" style="background:var(--bg-secondary,#f5f5fa);border-radius:6px;padding:6px 10px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+            <strong style="font-size:12px;">${escapeHtml(wf.name || id)}</strong>
+            <span style="font-size:10px;color:var(--success-color,#34a853);">● Active</span>
+          </div>
+          <div style="font-size:11px;color:var(--gen-muted,#888);">${scopes.join(' · ')}${projLabel}${pollLabel}</div>
+        </div>`);
+      }
+      if (aoWorkflows.length > 0) {
+        alwaysOnHtml = '<div style="margin-bottom:8px;">' + aoWorkflows.join('') + '</div>';
+      }
+    } catch (_) {}
+
     try {
       const clusterStore = await chrome.storage.local.get(PULSE_SOLANA_CLUSTER_STORAGE_KEY);
       const clusterFallback =
         String(clusterStore[PULSE_SOLANA_CLUSTER_STORAGE_KEY] || 'mainnet-beta').trim() || 'mainnet-beta';
-      const [solRes, bscRes] = await Promise.all([
-        cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_GET_ACTIVITY', limit: 30 }),
-        cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_GET_ACTIVITY', limit: 30 }),
-      ]);
-      if ((!solRes || !solRes.ok) && (!bscRes || !bscRes.ok)) {
-        const err = solRes?.error || bscRes?.error || 'Could not load activity.';
-        el.innerHTML = `<p class="hint">${escapeHtml(err)}</p>`;
-        return;
-      }
-      const solRows = solRes && solRes.ok ? solRes.activity || [] : [];
-      const bscRows = bscRes && bscRes.ok ? bscRes.activity || [] : [];
+      let solRows = [];
+      let bscRows = [];
+      try {
+        const [solRes, bscRes] = await Promise.all([
+          cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_GET_ACTIVITY', limit: 30 }),
+          cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_GET_ACTIVITY', limit: 30 }),
+        ]);
+        solRows = solRes && solRes.ok ? solRes.activity || [] : [];
+        bscRows = bscRes && bscRes.ok ? bscRes.activity || [] : [];
+      } catch (_) {}
       const rows = [...solRows, ...bscRows].sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30);
-      if (!rows.length) {
+      if (!rows.length && !alwaysOnHtml) {
         el.innerHTML = '<p class="hint">No events yet.</p>';
         return;
       }
-      el.innerHTML = rows
-        .map((row) => {
-          const t = new Date(row.ts || 0).toLocaleString();
-          const addr = row.address || '';
-          const addrShort = addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
-          const isBsc = row.chain === 'bsc';
-          const chainLabel = isBsc ? 'BSC' : 'Solana';
-          let idShort = '';
-          let idHtml = '';
-          let faPart = '';
-          if (isBsc) {
-            const h = String(row.txHash || '').trim();
-            idShort = h.length > 10 ? `${h.slice(0, 8)}…` : h;
-            const bscHref = pulseBscscanTxHref(h, row.bscNetwork);
-            idHtml = bscHref
-              ? `<a href="${bscHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on BscScan">${escapeHtml(idShort)}</a>`
-              : escapeHtml(idShort);
-            faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, 'mainnet-beta', row.bscNetwork);
-          } else {
-            const sig = row.signature || '';
-            idShort = sig.length > 10 ? `${sig.slice(0, 8)}…` : sig;
-            const cluster = String(row.solanaCluster || clusterFallback || 'mainnet-beta').trim() || 'mainnet-beta';
-            const txHref = pulseSolscanTxHref(sig, cluster);
-            idHtml = txHref
-              ? `<a href="${txHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on Solscan">${escapeHtml(idShort)}</a>`
-              : escapeHtml(idShort);
-            faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, cluster);
-          }
-          const idTitle = isBsc ? String(row.txHash || '') : String(row.signature || '');
-          return `<div class="pulse-watch-activity-row">
-            <div class="pulse-watch-activity-line1"><span class="pulse-watch-activity-meta">${escapeHtml(t)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(chainLabel)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(row.kind || '')}</span>${pulseBscWatchVenueHtml(row)} — ${escapeHtml(row.summary || '')}</div>
-            <div class="pulse-watch-activity-line2"><span title="${escapeHtml(addr)}">${escapeHtml(addrShort)}</span> · <span title="${escapeHtml(idTitle)}">${idHtml}</span>${faPart}</div>
-          </div>`;
-        })
-        .join('');
+      let eventsHtml = '';
+      if (rows.length) {
+        eventsHtml = rows
+          .map((row) => {
+            const t = new Date(row.ts || 0).toLocaleString();
+            const addr = row.address || '';
+            const addrShort = addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
+            const isBsc = row.chain === 'bsc';
+            const chainLabel = isBsc ? 'BSC' : 'Solana';
+            let idShort = '';
+            let idHtml = '';
+            let faPart = '';
+            if (isBsc) {
+              const h = String(row.txHash || '').trim();
+              idShort = h.length > 10 ? `${h.slice(0, 8)}…` : h;
+              const bscHref = pulseBscscanTxHref(h, row.bscNetwork);
+              idHtml = bscHref
+                ? `<a href="${bscHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on BscScan">${escapeHtml(idShort)}</a>`
+                : escapeHtml(idShort);
+              faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, 'mainnet-beta', row.bscNetwork);
+            } else {
+              const sig = row.signature || '';
+              idShort = sig.length > 10 ? `${sig.slice(0, 8)}…` : sig;
+              const cluster = String(row.solanaCluster || clusterFallback || 'mainnet-beta').trim() || 'mainnet-beta';
+              const txHref = pulseSolscanTxHref(sig, cluster);
+              idHtml = txHref
+                ? `<a href="${txHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on Solscan">${escapeHtml(idShort)}</a>`
+                : escapeHtml(idShort);
+              faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, cluster);
+            }
+            const idTitle = isBsc ? String(row.txHash || '') : String(row.signature || '');
+            return `<div class="pulse-watch-activity-row">
+              <div class="pulse-watch-activity-line1"><span class="pulse-watch-activity-meta">${escapeHtml(t)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(chainLabel)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(row.kind || '')}</span>${pulseBscWatchVenueHtml(row)} — ${escapeHtml(row.summary || '')}</div>
+              <div class="pulse-watch-activity-line2"><span title="${escapeHtml(addr)}">${escapeHtml(addrShort)}</span> · <span title="${escapeHtml(idTitle)}">${idHtml}</span>${faPart}</div>
+            </div>`;
+          })
+          .join('');
+      }
+      el.innerHTML = alwaysOnHtml + eventsHtml + (!rows.length && alwaysOnHtml ? '<p class="hint">No crypto events yet. File watch is active above.</p>' : '');
     } catch (e) {
-      el.innerHTML = `<p class="hint">${escapeHtml(e?.message || 'Failed to load activity.')}</p>`;
+      el.innerHTML = alwaysOnHtml + `<p class="hint">${escapeHtml(e?.message || 'Failed to load activity.')}</p>`;
     }
   }
 
@@ -5637,6 +5782,126 @@
     } catch (_) {
       return false;
     }
+  }
+
+  /**
+   * Ensure a project has the required folder structure under uploads/{projectId}/.
+   * Creates: source/, source/logos/, source/media/, source/media/import/, source/media/library/,
+   *          generations/, posts/. Writes defaults.json if not present.
+   * Idempotent — safe to call on every project select/create.
+   */
+  async function ensureProjectFolderStructure(projectRoot, projectId, projectName) {
+    if (!projectRoot || !projectId) return false;
+    try {
+      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return false;
+      const uploadsDir = await projectRoot.getDirectoryHandle('uploads', { create: true });
+      const projDir = await uploadsDir.getDirectoryHandle(projectId, { create: true });
+      // Core folders
+      await projDir.getDirectoryHandle('generations', { create: true });
+      await projDir.getDirectoryHandle('posts', { create: true });
+      // Source structure
+      const sourceDir = await projDir.getDirectoryHandle('source', { create: true });
+      await sourceDir.getDirectoryHandle('logos', { create: true });
+      const mediaDir = await sourceDir.getDirectoryHandle('media', { create: true });
+      await mediaDir.getDirectoryHandle('import', { create: true });
+      await mediaDir.getDirectoryHandle('library', { create: true });
+      // Write defaults.json if not present
+      try {
+        await sourceDir.getFileHandle('defaults.json', { create: false });
+      } catch (_notFound) {
+        const defaults = {
+          schemaVersion: 2,
+          name: projectName || projectId,
+          description: '',
+          colors: { primary: '#6C5CE7', secondary: '#A29BFE', accent: '#FD79A8', background: '#1A1A2E', text: '#FFFFFF' },
+          logoDark: '',
+          logoLight: '',
+          uploadPostProfileId: '',
+          importPollIntervalMs: 10000,
+        };
+        const fh = await sourceDir.getFileHandle('defaults.json', { create: true });
+        const w = await fh.createWritable();
+        await w.write(JSON.stringify(defaults, null, 2));
+        await w.close();
+      }
+      return true;
+    } catch (e) {
+      console.warn('[CFS] ensureProjectFolderStructure failed for', projectId, e?.message || e);
+      return false;
+    }
+  }
+
+  /**
+   * Read defaults.json for a project. Returns parsed object or null.
+   */
+  async function loadProjectDefaults(projectRoot, projectId) {
+    const text = await readFileFromProjectFolder(projectRoot, 'uploads/' + projectId + '/source/defaults.json');
+    if (!text) return null;
+    try { return JSON.parse(text); } catch (_) { return null; }
+  }
+
+  /**
+   * Write defaults.json for a project. Creates intermediate dirs if needed.
+   */
+  async function saveProjectDefaults(projectRoot, projectId, defaults) {
+    return writeJsonToProjectFolder(projectRoot, 'uploads/' + projectId + '/source/defaults.json', defaults);
+  }
+
+  /**
+   * List files in a project's source/logos/ folder. Returns array of filenames.
+   */
+  async function listLogosInProject(projectRoot, projectId) {
+    if (!projectRoot || !projectId) return [];
+    try {
+      const perm = await projectRoot.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') return [];
+      let dir = projectRoot;
+      for (const part of ['uploads', projectId, 'source', 'logos']) {
+        dir = await dir.getDirectoryHandle(part, { create: false });
+      }
+      const files = [];
+      for await (const entry of dir.values()) {
+        if (entry.kind === 'file') files.push(entry.name);
+      }
+      return files;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * Ensure folder structure for all known projects. Called once at init.
+   * Iterates both locally-stored projects AND the merged project dropdown
+   * (which includes backend/remote projects after loadProjects).
+   */
+  async function ensureAllProjectFolderStructures() {
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (!projectRoot) return;
+      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return;
+      // Collect IDs from local projects
+      const seen = new Set();
+      const localProjects = await getLocalProjects();
+      for (const proj of localProjects) {
+        if (proj.id && !seen.has(proj.id)) {
+          seen.add(proj.id);
+          await ensureProjectFolderStructure(projectRoot, proj.id, proj.name);
+        }
+      }
+      // Also collect IDs from the merged dropdown (includes remote/backend projects)
+      const selectEl = document.getElementById('projectSelect');
+      if (selectEl) {
+        for (const opt of selectEl.options) {
+          const id = opt.value;
+          if (id && id !== '__new__' && !seen.has(id)) {
+            seen.add(id);
+            await ensureProjectFolderStructure(projectRoot, id, opt.textContent || id);
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   async function getOrPickProjectFolder(requirePick) {
@@ -8446,6 +8711,11 @@
   document.getElementById('testsBtnLoggedOut')?.addEventListener('click', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html') });
   });
+  const openUnitTestsPage = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('test/unit-tests.html') });
+  };
+  document.getElementById('unitTestsPageBtn')?.addEventListener('click', openUnitTestsPage);
+  document.getElementById('unitTestsPageBtnLoggedOut')?.addEventListener('click', openUnitTestsPage);
 
   processPendingTemplateSave();
   processPendingVersionRequest();
@@ -8798,7 +9068,42 @@
       if (emptyEl) emptyEl.style.display = 'block';
       return;
     }
-    if (pathBar) pathBar.textContent = 'uploads/' + uploadsPathSegments.join('/');
+    if (pathBar) {
+      // Build clickable breadcrumb path bar
+      pathBar.innerHTML = '';
+      const prefix = document.createElement('span');
+      prefix.textContent = 'uploads';
+      prefix.style.cssText = 'color:var(--gen-muted,#888);';
+      pathBar.appendChild(prefix);
+      for (let si = 0; si < uploadsPathSegments.length; si++) {
+        const sep = document.createElement('span');
+        sep.textContent = ' / ';
+        sep.style.color = 'var(--gen-muted,#aaa)';
+        pathBar.appendChild(sep);
+        if (si < uploadsPathSegments.length - 1) {
+          // Clickable ancestor segment
+          const segLink = document.createElement('a');
+          segLink.href = '#';
+          segLink.textContent = uploadsPathSegments[si];
+          segLink.title = 'Navigate to uploads/' + uploadsPathSegments.slice(0, si + 1).join('/');
+          segLink.style.cssText = 'color:var(--link-color,#4285F4);text-decoration:none;cursor:pointer;';
+          segLink.addEventListener('mouseenter', function() { segLink.style.textDecoration = 'underline'; });
+          segLink.addEventListener('mouseleave', function() { segLink.style.textDecoration = 'none'; });
+          const targetDepth = si + 1;
+          segLink.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            uploadsPathSegments = uploadsPathSegments.slice(0, targetDepth);
+            refreshUploadsList();
+          });
+          pathBar.appendChild(segLink);
+        } else {
+          // Current segment (non-clickable)
+          const current = document.createElement('strong');
+          current.textContent = uploadsPathSegments[si];
+          pathBar.appendChild(current);
+        }
+      }
+    }
     if (parentRow) {
       parentRow.style.display = 'block';
       var parentBtn = document.getElementById('uploadsParentBtn');
@@ -8829,8 +9134,29 @@
       row.className = 'uploads-entry';
       row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color,#eee);';
       const label = document.createElement('span');
-      label.textContent = e.name + (e.kind === 'directory' ? '/' : '');
       label.style.flex = '1';
+      label.style.minWidth = '0';
+      label.style.overflow = 'hidden';
+      label.style.textOverflow = 'ellipsis';
+      label.style.whiteSpace = 'nowrap';
+      if (e.kind === 'directory') {
+        // Clickable folder name
+        const folderLink = document.createElement('a');
+        folderLink.href = '#';
+        folderLink.textContent = '📁 ' + e.name;
+        folderLink.title = 'Open ' + e.name + '/';
+        folderLink.style.cssText = 'color:inherit;text-decoration:none;cursor:pointer;font-weight:500;';
+        folderLink.addEventListener('mouseenter', function() { folderLink.style.textDecoration = 'underline'; });
+        folderLink.addEventListener('mouseleave', function() { folderLink.style.textDecoration = 'none'; });
+        folderLink.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          uploadsPathSegments = uploadsPathSegments.concat([e.name]);
+          refreshUploadsList();
+        });
+        label.appendChild(folderLink);
+      } else {
+        label.textContent = '📄 ' + e.name;
+      }
       row.appendChild(label);
       if (e.kind === 'directory') {
         const openBtn = document.createElement('button');
@@ -11156,6 +11482,11 @@
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return false;
+    if (msg.type === 'CFS_FILE_WATCH_SCAN_REQUEST') {
+      // Background file-watch alarm detected fileWatch-scoped workflows — refresh the activity panel
+      refreshPulseWatchActivityPanel().catch(() => {});
+      return false;
+    }
     if (msg.type === 'PICK_ELEMENT_RESULT' && msg.selectors?.length) {
       applyPickElementResultPayload(msg).catch(() => {});
       return false;
@@ -12394,6 +12725,88 @@
         saveStep(wfId, idx);
       });
     });
+    /* ── Pool search button handler ── */
+    list.querySelectorAll('[data-pool-search-msg]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const msgType = btn.getAttribute('data-pool-search-msg') || 'CFS_RAYDIUM_POOL_SEARCH';
+        const depsStr = btn.getAttribute('data-pool-search-deps') || '';
+        const stepIdx = parseInt(btn.getAttribute('data-pool-search-step'), 10);
+        const fieldKey = btn.getAttribute('data-pool-search-field') || 'poolId';
+        const resultsDivId = 'poolResults_' + stepIdx + '_' + fieldKey;
+        const resultsDiv = document.getElementById(resultsDivId);
+        if (!resultsDiv) return;
+        /* Gather dependency values from the step form */
+        const payload = { type: msgType };
+        depsStr.split(',').filter(Boolean).forEach(depKey => {
+          const inp = list.querySelector('[data-field="' + depKey + '"][data-step="' + stepIdx + '"]');
+          if (inp) payload[depKey] = inp.value || '';
+        });
+        /* Show loading state */
+        btn.disabled = true;
+        btn.textContent = 'Searching…';
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = '<div style="padding:6px;color:var(--gen-muted,#888)">Searching pools…</div>';
+        try {
+          const r = await new Promise((resolve) => {
+            chrome.runtime.sendMessage(payload, resolve);
+          });
+          if (!r || !r.ok || !Array.isArray(r.pools) || r.pools.length === 0) {
+            resultsDiv.innerHTML = '<div style="padding:6px;color:var(--gen-muted,#888)">' + (r && r.error ? r.error : 'No pools found') + '</div>';
+            return;
+          }
+          const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          let rows = '';
+          r.pools.forEach(p => {
+            const tvl = p.tvl ? '$' + Number(p.tvl).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '';
+            const vol = p.volume24h ? '$' + Number(p.volume24h).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '';
+            const label = (p.symbolA || '?') + '/' + (p.symbolB || '?');
+            const fee = p.feeRate ? (p.feeRate * 100).toFixed(2) + '%' : '';
+            rows += '<div class="pool-search-row" data-pool-id="' + escHtml(p.poolId) + '" style="padding:4px 6px;cursor:pointer;border-bottom:1px solid var(--border-color,#eee);display:flex;justify-content:space-between;align-items:center" title="Click to select">';
+            rows += '<span><strong>' + escHtml(label) + '</strong> <span style="color:var(--gen-muted,#888)">' + escHtml(p.type) + '</span></span>';
+            rows += '<span style="font-size:10px;color:var(--gen-muted,#888)">' + [tvl && 'TVL ' + tvl, vol && 'Vol ' + vol, fee && 'Fee ' + fee].filter(Boolean).join(' · ') + '</span>';
+            rows += '</div>';
+          });
+          resultsDiv.innerHTML = rows;
+          /* Click a pool row → fill the field */
+          resultsDiv.querySelectorAll('.pool-search-row').forEach(row => {
+            row.addEventListener('click', () => {
+              const pid = row.getAttribute('data-pool-id');
+              const inp = list.querySelector('[data-field="' + fieldKey + '"][data-step="' + stepIdx + '"]');
+              if (inp) inp.value = pid;
+              resultsDiv.style.display = 'none';
+            });
+            row.addEventListener('mouseover', () => { row.style.background = 'var(--bg-secondary,#f5f5f5)'; });
+            row.addEventListener('mouseout', () => { row.style.background = ''; });
+          });
+        } catch (err) {
+          resultsDiv.innerHTML = '<div style="padding:6px;color:var(--error-color,#c00)">' + (err.message || String(err)) + '</div>';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Search pools';
+        }
+      });
+    });
+    list.querySelectorAll('[data-cfs-devnet-test]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const stepType = btn.getAttribute('data-cfs-devnet-test');
+        const sm = window.__CFS_stepDevnetSmoke && window.__CFS_stepDevnetSmoke[stepType];
+        if (!sm || typeof sm.run !== 'function') {
+          setStatus('Devnet test is not registered for this step type.', 'error');
+          return;
+        }
+        if (!confirm('Send a tiny transaction on Solana devnet using your automation wallet?')) return;
+        sm.run(function (r) {
+          if (r && r.ok) {
+            var sig = (r.signature && String(r.signature).slice(0, 20)) || 'ok';
+            setStatus('Devnet test succeeded: ' + sig + '…', 'success');
+          } else {
+            setStatus('Devnet test failed: ' + (r && r.error ? r.error : JSON.stringify(r)), 'error');
+          }
+        });
+      });
+    });
     list.querySelectorAll('[data-delete-step]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -13076,6 +13489,12 @@
             const script = document.createElement('script');
             script.textContent = code;
             document.head.appendChild(script);
+            const codeDs = await readFileFromProjectFolder(projectRoot, 'steps/' + id + '/devnet-smoke.js');
+            if (codeDs) {
+              const scriptDs = document.createElement('script');
+              scriptDs.textContent = codeDs;
+              document.head.appendChild(scriptDs);
+            }
             added.push(id);
           }
         }
@@ -13226,6 +13645,16 @@
             }
           }
           break;
+        case 'poolSearch': {
+          const searchMsg = field.poolSearchMessage || 'CFS_RAYDIUM_POOL_SEARCH';
+          const deps = Array.isArray(field.poolSearchDeps) ? field.poolSearchDeps : [];
+          const searchBtnId = 'poolSearch_' + i + '_' + key;
+          const resultsDivId = 'poolResults_' + i + '_' + key;
+          html += '<input type="text"' + attrs + ' value="' + escapeHtml(strVal) + '"' + (field.placeholder ? ' placeholder="' + escapeHtml(field.placeholder) + '"' : ' placeholder="Paste pool ID or search by token pair"') + ' style="flex:1;min-width:0">';
+          html += '<button type="button" class="btn btn-outline btn-small" id="' + searchBtnId + '" data-pool-search-msg="' + escapeHtml(searchMsg) + '" data-pool-search-deps="' + escapeHtml(deps.join(',')) + '" data-pool-search-step="' + i + '" data-pool-search-field="' + escapeHtml(key) + '" style="margin-left:4px;white-space:nowrap">Search pools</button>';
+          html += '<div id="' + resultsDivId + '" class="pool-search-results" style="display:none;margin-top:4px;max-height:160px;overflow-y:auto;border:1px solid var(--border-color,#e5e5e7);border-radius:4px;font-size:11px"></div>';
+          break;
+        }
         default:
           html += '<input type="text"' + attrs + ' value="' + escapeHtml(strVal) + '"' + (field.placeholder ? ' placeholder="' + escapeHtml(field.placeholder) + '"' : '') + '>';
       }
@@ -13302,6 +13731,16 @@
       '<option value="skipRow"' + (action.onFailure === 'skipRow' ? ' selected' : '') + '>Skip row</option>' +
       '<option value="retry"' + (action.onFailure === 'retry' ? ' selected' : '') + '>Retry row</option>' +
       '</select></div>' +
+      /* fallbackMode: shown only for auto-replaced steps with _fallbackActions */
+      (action._autoReplaced && action._fallbackActions?.length ?
+        '<div class="step-field"><label>If API call fails</label><select data-field="fallbackMode" data-step="' + i + '">' +
+        '<option value="auto"' + ((action.fallbackMode || 'auto') === 'auto' ? ' selected' : '') + '>Fall back to recorded steps</option>' +
+        '<option value="never"' + (action.fallbackMode === 'never' ? ' selected' : '') + '>Fail normally (no fallback)</option>' +
+        '</select></div>' +
+        '<div class="step-field" style="font-size:0.82rem;color:var(--hint-fg,#888);">⚡ ' + (action._fallbackActions.length) + ' recorded step(s) preserved as fallback' +
+        (action._fallbackStartUrl ? ' → <code style="font-size:0.78rem;">' + escapeHtml(action._fallbackStartUrl.replace(/^https?:\/\//, '').slice(0, 40)) + '</code>' : '') +
+        '</div>'
+      : '') +
       (bodyHtml || '') +
       '</div></div>';
   };
@@ -13934,6 +14373,8 @@
     action.waitAfter = getVal('waitAfter') || 'time';
     const onFailureEl = item.querySelector('[data-field="onFailure"]');
     if (onFailureEl) action.onFailure = (onFailureEl.value === 'skipRow' || onFailureEl.value === 'retry') ? onFailureEl.value : 'stop';
+    const fallbackModeEl = item.querySelector('[data-field="fallbackMode"]');
+    if (fallbackModeEl) action.fallbackMode = fallbackModeEl.value === 'never' ? 'never' : 'auto';
     const reactCheck = item.querySelector('[data-field="reactCompat"]');
     if (reactCheck) action.reactCompat = reactCheck.checked;
     const optionalCheck = item.querySelector('[data-field="optional"]');
@@ -15304,8 +15745,52 @@
       analyzeResult.classList.add('visible');
     }
     renderVariationReport(analyzed);
+    /* ── Action pattern detection & auto-replace ── */
+    let defiNote = '';
+    try {
+      const actionPatterns = window.__CFS_ACTION_PATTERNS;
+      if (actionPatterns && typeof actionPatterns.replaceActionsWithApiSteps === 'function') {
+        /* Get the best URL for pattern matching: prefer the full URL from recorded actions,
+           fall back to urlPattern.origin. The full URL includes path info needed for
+           patterns like /clmm/swap or /coin/ */
+        let pageUrl = analyzed.urlPattern?.origin || '';
+        const actionsArr = analyzed.actions || [];
+        for (let ai = 0; ai < actionsArr.length; ai++) {
+          const actUrl = actionsArr[ai].url || (actionsArr[ai]._patternHint ? actionsArr[ai].url : '');
+          if (actUrl && actUrl.startsWith('http')) { pageUrl = actUrl; break; }
+        }
+        if (pageUrl) {
+          /* Auto-replace matched DeFi + Social sequences */
+          const replaceResult = actionPatterns.replaceActionsWithApiSteps(actionsArr, pageUrl);
+          if (replaceResult.replacements && replaceResult.replacements.length > 0) {
+            analyzed.actions = replaceResult.actions;
+            const replaceNotes = replaceResult.replacements.map(function (r) { return r.description; });
+            defiNote = ' ' + replaceNotes.join('; ') + '.';
+            /* Annotate any remaining walletApprove steps that follow the replaced API steps
+               so they know which API step was substituted (for convertToApiCall metadata) */
+            for (let wi = 0; wi < analyzed.actions.length; wi++) {
+              const act = analyzed.actions[wi];
+              if (act && act.type === 'walletApprove' && wi > 0) {
+                const prev = analyzed.actions[wi - 1];
+                if (prev && prev._autoReplaced) {
+                  act._convertedByPattern = prev._replacedFrom;
+                  act._convertedToStepType = prev.type;
+                }
+              }
+            }
+          }
+          /* Suggest-only for data/Apify patterns (autoReplace: false) */
+          if (typeof actionPatterns.suggestApiConversion === 'function') {
+            const suggestion = actionPatterns.suggestApiConversion(analyzed.actions || [], pageUrl);
+            if (suggestion.canConvert && !suggestion.autoReplace) {
+              defiNote += ' Suggestion: consider using "' + (suggestion.suggestion?.type || 'API') + '" step instead of click/type actions for reliability (' + (suggestion.pattern?.platform || 'unknown') + ').';
+            }
+          }
+        }
+      }
+    } catch (_) {}
     setStatus(
-      `Created new version (v${newVersion}). It is selected in the Version dropdown. Use Workflow / Version to switch back to a previous version if needed.${discoveryMergeNote}${mediaClipNote}`,
+      `Created new version (v${newVersion}). It is selected in the Version dropdown. Use Workflow / Version to switch back to a previous version if needed.${discoveryMergeNote}${mediaClipNote}${defiNote}`,
       'success'
     );
     persistWorkflowToProjectFolder(newId);
@@ -15532,7 +16017,70 @@
         if (!delayEl.value || isNaN(parsed)) delayEl.value = String(DEFAULT_BATCH_DELAY_MS);
       }
       if (stopEl && stopEl.checked == null) stopEl.checked = true;
+      /* Show wallet selector if workflow has crypto/walletApprove steps */
+      _updateBatchWalletRow();
     }
+  }
+
+  function _updateBatchWalletRow() {
+    const walletRow = document.getElementById('batchWalletRow');
+    const walletSel = document.getElementById('batchCryptoWallet');
+    if (!walletRow || !walletSel) return;
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    const analyzed = wf?.analyzed || wf;
+    const hasCrypto = analyzed && (
+      workflowContainsStepType(analyzed, 'walletApprove') ||
+      workflowContainsStepType(analyzed, 'solanaJupiterSwap') ||
+      workflowContainsStepType(analyzed, 'solanaPumpOrJupiterBuy') ||
+      workflowContainsStepType(analyzed, 'solanaPumpOrJupiterSell') ||
+      workflowContainsStepType(analyzed, 'bscPancake') ||
+      workflowContainsStepType(analyzed, 'bscAggregatorSwap') ||
+      workflowContainsStepType(analyzed, 'solanaTransferSol') ||
+      workflowContainsStepType(analyzed, 'bscTransferBnb')
+    );
+    walletRow.style.display = hasCrypto ? '' : 'none';
+    if (!hasCrypto) return;
+    /* Populate wallet options from storage */
+    _populateBatchWalletDropdown(walletSel);
+  }
+
+  function _populateBatchWalletDropdown(selectEl) {
+    const prev = selectEl.value;
+    selectEl.innerHTML = '<option value="">— Primary (default) —</option>';
+    chrome.storage.local.get([
+      'cfs_solana_wallets_v2', 'cfs_bsc_wallets_v2',
+    ], function (data) {
+      try {
+        const solRaw = typeof data.cfs_solana_wallets_v2 === 'string'
+          ? JSON.parse(data.cfs_solana_wallets_v2) : data.cfs_solana_wallets_v2;
+        const solWallets = solRaw?.wallets || [];
+        for (const w of solWallets) {
+          if (!w || w.deleted) continue;
+          const label = (w.label || w.publicKey || w.id || '').substring(0, 24);
+          const id = 'sol:' + (w.id || w.publicKey);
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = '☀ ' + label + (w.isPrimary ? ' (Primary)' : '');
+          selectEl.appendChild(opt);
+        }
+      } catch (_) {}
+      try {
+        const bscRaw = typeof data.cfs_bsc_wallets_v2 === 'string'
+          ? JSON.parse(data.cfs_bsc_wallets_v2) : data.cfs_bsc_wallets_v2;
+        const bscWallets = bscRaw?.wallets || [];
+        for (const w of bscWallets) {
+          if (!w || w.deleted) continue;
+          const label = (w.label || w.address || w.id || '').substring(0, 24);
+          const id = 'bsc:' + (w.id || w.address);
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = '⬡ ' + label + (w.isPrimary ? ' (Primary)' : '');
+          selectEl.appendChild(opt);
+        }
+      } catch (_) {}
+      if (prev) selectEl.value = prev;
+    });
   }
 
   function renderExecutionsList() {
@@ -16117,7 +16665,8 @@
     const runBtnText = runBtn?.textContent;
     playbackTabId = tab.id;
     hideRerecordCta();
-    batchRunInfo = { total: activeRows.length, current: 0, workflowId: wfId, workflowName: wf?.name || wfId };
+    const batchCryptoWalletId = document.getElementById('batchCryptoWallet')?.value || '';
+    batchRunInfo = { total: activeRows.length, current: 0, workflowId: wfId, workflowName: wf?.name || wfId, cryptoWalletId: batchCryptoWalletId };
     if (window.refreshActivityPanel) window.refreshActivityPanel();
     try {
       if (runBtn) { runBtn.disabled = true; runBtn.style.display = 'none'; }
@@ -16187,7 +16736,9 @@
             res = await Promise.race([
               new Promise((resolve) => {
                 try {
-                  chrome.tabs.sendMessage(currentTabIdBatch, { type: 'PLAYER_START', workflow: resolved, row: rowForPlayback, rowIndex: i, startIndex: startIndexBatch }, (r) => {
+                  const playerMsg = { type: 'PLAYER_START', workflow: resolved, row: rowForPlayback, rowIndex: i, startIndex: startIndexBatch };
+                  if (batchRunInfo?.cryptoWalletId) playerMsg.cryptoWalletId = batchRunInfo.cryptoWalletId;
+                  chrome.tabs.sendMessage(currentTabIdBatch, playerMsg, (r) => {
                     if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
                     else resolve(r);
                   });
@@ -16202,7 +16753,17 @@
             ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
             if (res?.stopped) break;
             if (res?.navigate && res.url != null) {
-              setStatus('Navigating…', '');
+              if (res._useFallback) {
+                setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
+                /* Temporarily splice fallback actions into the resolved workflow
+                   at the current step index so the player replays them on next iteration */
+                if (res._fallbackActions?.length && resolved?.actions) {
+                  const fi = res.nextStepIndex || 0;
+                  resolved.actions.splice(fi, 1, ...res._fallbackActions);
+                }
+              } else {
+                setStatus('Navigating…', '');
+              }
               chrome.tabs.update(currentTabIdBatch, { url: res.url });
               await waitForTabLoad(currentTabIdBatch);
               startIndexBatch = res.nextStepIndex || 0;
@@ -16446,7 +17007,15 @@
         ]).catch((err) => ({ ok: false, error: err.message }));
         if (res?.stopped) break;
         if (res?.navigate && res.url != null) {
-          setStatus('Navigating…', '');
+          if (res._useFallback) {
+            setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
+            if (res._fallbackActions?.length && resolved?.actions) {
+              const fi = res.nextStepIndex || 0;
+              resolved.actions.splice(fi, 1, ...res._fallbackActions);
+            }
+          } else {
+            setStatus('Navigating…', '');
+          }
           chrome.tabs.update(currentTabIdRunFrom, { url: res.url });
           await waitForTabLoad(currentTabIdRunFrom);
           startIndexRunFrom = res.nextStepIndex || 0;
@@ -16634,7 +17203,15 @@
           ]);
           if (res?.stopped) break;
           if (res?.navigate && res.url != null) {
-            setStatus('Navigating…', '');
+            if (res._useFallback) {
+              setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
+              if (res._fallbackActions?.length && resolved?.actions) {
+                const fi = res.nextStepIndex || 0;
+                resolved.actions.splice(fi, 1, ...res._fallbackActions);
+              }
+            } else {
+              setStatus('Navigating…', '');
+            }
             chrome.tabs.update(currentTabId, { url: res.url });
             await waitForTabLoad(currentTabId);
             startIndex = res.nextStepIndex || 0;
@@ -16774,6 +17351,23 @@
     const pad = (n) => String(n).padStart(2, '0');
     input.min = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     toggleScheduleFormType();
+    /* Show wallet selector for crypto workflows */
+    const schedWalletRow = document.getElementById('scheduleWalletRow');
+    const schedWalletSel = document.getElementById('scheduleCryptoWallet');
+    if (schedWalletRow && schedWalletSel) {
+      const wf = workflows[wfId];
+      const analyzed = wf?.analyzed || wf;
+      const hasCrypto = analyzed && (
+        workflowContainsStepType(analyzed, 'walletApprove') ||
+        workflowContainsStepType(analyzed, 'solanaJupiterSwap') ||
+        workflowContainsStepType(analyzed, 'solanaPumpOrJupiterBuy') ||
+        workflowContainsStepType(analyzed, 'solanaPumpOrJupiterSell') ||
+        workflowContainsStepType(analyzed, 'bscPancake') ||
+        workflowContainsStepType(analyzed, 'bscAggregatorSwap')
+      );
+      schedWalletRow.style.display = hasCrypto ? '' : 'none';
+      if (hasCrypto) _populateBatchWalletDropdown(schedWalletSel);
+    }
     form.style.display = form.style.display === 'none' ? 'block' : 'none';
   });
 
@@ -16797,6 +17391,9 @@
       if (raw) { try { row = JSON.parse(raw); } catch (_) {} }
     }
     entry.row = row;
+    /* Wallet override for crypto workflows */
+    const schedCryptoWallet = document.getElementById('scheduleCryptoWallet')?.value;
+    if (schedCryptoWallet) entry.cryptoWalletId = schedCryptoWallet;
     if (scheduleType === 'recurring') {
       const timezone = (document.getElementById('scheduleRunTimezone')?.value || 'UTC').trim() || 'UTC';
       const time = (document.getElementById('scheduleRunTime')?.value || '09:00').trim();
@@ -17014,7 +17611,10 @@
         const scheduledPlaybackMs = getWorkflowPlaybackTimeoutMs(resolved);
         const res = await Promise.race([
           new Promise((resolve) => {
-            chrome.tabs.sendMessage(tab.id, { type: 'PLAYER_START', workflow: resolved, row: entry.row || {} }, (resp) => {
+            chrome.tabs.sendMessage(tab.id, {
+              type: 'PLAYER_START', workflow: resolved, row: entry.row || {},
+              ...(entry.cryptoWalletId ? { cryptoWalletId: entry.cryptoWalletId } : {}),
+            }, (resp) => {
               if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
               else resolve(resp || {});
             });
@@ -17457,7 +18057,15 @@
             }),
           ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
           if (res?.navigate && res.url != null) {
-            setStatus('Navigating…', '');
+            if (res._useFallback) {
+              setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
+              if (res._fallbackActions?.length && workflow?.actions) {
+                const fi = res.nextStepIndex || 0;
+                workflow.actions.splice(fi, 1, ...res._fallbackActions);
+              }
+            } else {
+              setStatus('Navigating…', '');
+            }
             chrome.tabs.update(tabId, { url: res.url });
             await waitForTabLoad(tabId);
             startIdx = res.nextStepIndex || 0;
@@ -17819,6 +18427,11 @@
     const name = opt ? opt.textContent : '';
     await chrome.storage.local.set({ selectedProjectId: id, selectedProject: { id, name, industries: [], added_by: '' } });
     if (loggedIn && window.reportSidebarInstanceToBackend) window.reportSidebarInstanceToBackend({ projectId: id });
+    // Ensure project folder structure on select
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (projectRoot) await ensureProjectFolderStructure(projectRoot, id, name);
+    } catch (_) {}
     if (isEditing && id) {
       formEl.dataset.editingProjectId = id;
       const deleteBtn = document.getElementById('deleteProjectBtn');
@@ -18000,6 +18613,144 @@
       if (platformCheckboxes) platformCheckboxes.innerHTML = '';
       if (monetizationCheckboxes) monetizationCheckboxes.innerHTML = '';
     }
+    // Load project defaults from project folder
+    const defaultsSection = document.getElementById('projectDefaultsSection');
+    if (defaultsSection) {
+      defaultsSection.style.display = 'block';
+      let savedDefaults = null;
+      let projRoot = null;
+      try {
+        projRoot = await getStoredProjectFolderHandle();
+        if (projRoot) {
+          savedDefaults = await loadProjectDefaults(projRoot, projectId);
+        }
+      } catch (_) {}
+
+      // — Helper: populate a <select> with options and set selected value —
+      const populateSelect = (selectId, items, selectedValue) => {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— none —</option>';
+        for (const item of items) {
+          const opt = document.createElement('option');
+          opt.value = typeof item === 'string' ? item : item.value;
+          opt.textContent = typeof item === 'string' ? item : item.label;
+          sel.appendChild(opt);
+        }
+        if (selectedValue) sel.value = selectedValue;
+      };
+
+      // — Populate logo selects from source/logos/ folder —
+      const populateLogoSelects = async (selectedDark, selectedLight) => {
+        let logoFiles = [];
+        try {
+          if (projRoot) logoFiles = await listLogosInProject(projRoot, projectId);
+        } catch (_) {}
+        populateSelect('projectDefaultLogoDark', logoFiles, selectedDark || '');
+        populateSelect('projectDefaultLogoLight', logoFiles, selectedLight || '');
+      };
+
+      // — Populate profile select from connected profiles —
+      const populateProfileSelect = async (selectedProfileId) => {
+        let profiles = [];
+        try {
+          if (connectedProfilesCache && Array.isArray(connectedProfilesCache) && connectedProfilesCache.length > 0) {
+            profiles = connectedProfilesCache;
+          } else {
+            const data = await chrome.storage.local.get([CONNECTED_PROFILES_STORAGE_KEY]);
+            profiles = Array.isArray(data[CONNECTED_PROFILES_STORAGE_KEY]) ? data[CONNECTED_PROFILES_STORAGE_KEY] : [];
+          }
+        } catch (_) {}
+        const items = profiles.map(p => {
+          const name = p.name || p._username || 'Unnamed';
+          const username = p._username || p.name || '';
+          return { value: username, label: name + (username && username !== name ? ' (' + username + ')' : '') };
+        });
+        populateSelect('projectDefaultProfileId', items, selectedProfileId || '');
+      };
+
+      // Set plain text fields — handle both flat (logoDark) and nested (logos.dark) schema formats
+      if (savedDefaults) {
+        const df = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+        df('projectDefaultDescription', savedDefaults.description);
+        df('projectDefaultColorPrimaryHex', savedDefaults.colors?.primary);
+        df('projectDefaultColorSecondaryHex', savedDefaults.colors?.secondary);
+        // Sync color pickers
+        const pc = document.getElementById('projectDefaultColorPrimary');
+        const sc2 = document.getElementById('projectDefaultColorSecondary');
+        if (pc && savedDefaults.colors?.primary) pc.value = savedDefaults.colors.primary;
+        if (sc2 && savedDefaults.colors?.secondary) sc2.value = savedDefaults.colors.secondary;
+        // Resolve logo/profile from flat or nested keys
+        savedDefaults._resolvedLogoDark = savedDefaults.logoDark || savedDefaults.logos?.dark || '';
+        savedDefaults._resolvedLogoLight = savedDefaults.logoLight || savedDefaults.logos?.light || '';
+        savedDefaults._resolvedProfileId = savedDefaults.uploadPostProfileId || savedDefaults.defaultSocialProfile?.profileId || '';
+      }
+
+      // Populate dropdowns (async, after DOM is ready)
+      await populateLogoSelects(savedDefaults?._resolvedLogoDark, savedDefaults?._resolvedLogoLight);
+      await populateProfileSelect(savedDefaults?._resolvedProfileId);
+
+      // — Logo upload handler —
+      const setupLogoUpload = (btnId, selectId) => {
+        document.getElementById(btnId)?.addEventListener('click', async () => {
+          try {
+            const root = await getStoredProjectFolderHandle();
+            if (!root) { setStatus('Set project folder first.', 'error'); return; }
+            const perm = await root.requestPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') { setStatus('Permission denied.', 'error'); return; }
+            // Get the logos directory handle to use as startIn
+            let logosDir = root;
+            for (const part of ['uploads', projectId, 'source', 'logos']) {
+              logosDir = await logosDir.getDirectoryHandle(part, { create: true });
+            }
+            const fileHandles = await window.showOpenFilePicker({
+              types: [{ description: 'Images', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif'] } }],
+              multiple: false,
+              startIn: logosDir,
+            });
+            if (!fileHandles || !fileHandles.length) return;
+            const fh = fileHandles[0];
+            const file = await fh.getFile();
+            // Write file to logos folder
+            const destHandle = await logosDir.getFileHandle(file.name, { create: true });
+            const writable = await destHandle.createWritable();
+            await writable.write(file);
+            await writable.close();
+            // Refresh logo selects and auto-select the new file
+            await populateLogoSelects(
+              selectId === 'projectDefaultLogoDark' ? file.name : document.getElementById('projectDefaultLogoDark')?.value || '',
+              selectId === 'projectDefaultLogoLight' ? file.name : document.getElementById('projectDefaultLogoLight')?.value || ''
+            );
+            const statusEl = document.getElementById('projectDefaultsStatus');
+            if (statusEl) { statusEl.textContent = 'Uploaded ' + file.name; statusEl.style.display = ''; setTimeout(() => { statusEl.style.display = 'none'; }, 3000); }
+          } catch (e) {
+            if (e?.name === 'AbortError') return; // User cancelled picker
+            setStatus('Upload failed: ' + (e?.message || e), 'error');
+          }
+        });
+      };
+      setupLogoUpload('projectDefaultLogoDarkUpload', 'projectDefaultLogoDark');
+      setupLogoUpload('projectDefaultLogoLightUpload', 'projectDefaultLogoLight');
+
+      // — Profile refresh button —
+      document.getElementById('projectDefaultProfileRefreshBtn')?.addEventListener('click', async () => {
+        const currentVal = document.getElementById('projectDefaultProfileId')?.value || '';
+        try {
+          if (typeof loadConnectedProfiles === 'function') await loadConnectedProfiles();
+        } catch (_) {}
+        await populateProfileSelect(currentVal);
+      });
+
+      // Sync color picker ↔ hex text
+      ['Primary', 'Secondary'].forEach(label => {
+        const picker = document.getElementById('projectDefaultColor' + label);
+        const hex = document.getElementById('projectDefaultColor' + label + 'Hex');
+        if (picker && hex) {
+          picker.addEventListener('input', () => { hex.value = picker.value; });
+          hex.addEventListener('blur', () => { if (/^#[0-9A-Fa-f]{6}$/.test(hex.value)) picker.value = hex.value; });
+        }
+      });
+    }
   });
 
   document.getElementById('saveNewProjectBtn')?.addEventListener('click', async () => {
@@ -18061,6 +18812,37 @@
       await chrome.storage.local.set({ selectedProjectId: id, selectedProject: proj });
       if (whopLoggedIn && window.reportSidebarInstanceToBackend) window.reportSidebarInstanceToBackend({ projectId: id });
     }
+    // Ensure project folder structure (source/, generations/, posts/, etc.)
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (projectRoot) {
+        await ensureProjectFolderStructure(projectRoot, id, name);
+        // Save project defaults if the section was visible (editing existing project)
+        const defaultsSection = document.getElementById('projectDefaultsSection');
+        if (defaultsSection && defaultsSection.style.display !== 'none') {
+          try {
+            const existing = await loadProjectDefaults(projectRoot, id) || {};
+            const updated = Object.assign({}, existing, {
+              description: (document.getElementById('projectDefaultDescription')?.value || '').trim(),
+              colors: {
+                primary: (document.getElementById('projectDefaultColorPrimaryHex')?.value || '').trim() || undefined,
+                secondary: (document.getElementById('projectDefaultColorSecondaryHex')?.value || '').trim() || undefined,
+              },
+              logoDark: (document.getElementById('projectDefaultLogoDark')?.value || '').trim() || undefined,
+              logoLight: (document.getElementById('projectDefaultLogoLight')?.value || '').trim() || undefined,
+              uploadPostProfileId: (document.getElementById('projectDefaultProfileId')?.value || '').trim() || undefined,
+              updatedAt: new Date().toISOString(),
+            });
+            await saveProjectDefaults(projectRoot, id, updated);
+          } catch (defErr) {
+            console.warn('[CFS] Failed to save project defaults:', defErr);
+          }
+        }
+      }
+    } catch (_) {}
+    // Reset defaults section for next open
+    const defaultsSection2 = document.getElementById('projectDefaultsSection');
+    if (defaultsSection2) defaultsSection2.style.display = 'none';
   });
 
   document.getElementById('cancelProjectFormBtn')?.addEventListener('click', () => {
@@ -18173,14 +18955,16 @@
 
     async function getCurrentSidebarName() {
       try {
-        const win = await chrome.windows.getCurrent();
-        const key = `sidebarName_${win?.id ?? 'default'}`;
-        const data = await chrome.storage.local.get([key]);
-        return data[key] || '';
+        const data = await chrome.storage.local.get(['sidebarName_device']);
+        return data.sidebarName_device || '';
       } catch (_) {
         return '';
       }
     }
+
+    /** Heartbeat timer handle for sidebar keep-alive. */
+    let _sidebarHeartbeatTimer = null;
+    const SIDEBAR_HEARTBEAT_MS = 60000; // 60 seconds
 
     async function initSupabaseSidebar() {
       if (window._supabaseSidebarId) return;
@@ -18190,12 +18974,12 @@
           chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => resolve(r || {}));
         });
         if (!tokenRes.ok || !tokenRes.access_token) return;
-        const win = await chrome.windows.getCurrent();
-        // Tab-independent id so register upserts the same row when the active tab changes or the panel reloads.
-        const window_id = String(win?.id ?? 0) + '_sidepanel';
-        const key = `sidebarName_${win?.id ?? 'default'}`;
-        const storage = await chrome.storage.local.get([key, 'selectedProjectId']);
-        const sidebarName = (storage[key] || 'Office PC').trim() || 'Office PC';
+        // Stable device-based ID: same across browser restarts, prevents duplication.
+        const deviceId = await SidebarsApi.getOrCreateDeviceId();
+        const window_id = deviceId + '_sidepanel';
+        const storage = await chrome.storage.local.get(['sidebarName_device', 'selectedProjectId']);
+        const smartDefault = SidebarsApi.generateSmartDefault(deviceId);
+        const sidebarName = (storage.sidebarName_device || smartDefault).trim() || smartDefault;
         const activeProjectId = storage.selectedProjectId || null;
         const sidebar = await SidebarsApi.registerSidebar({ window_id, sidebar_name: sidebarName, active_project_id: activeProjectId });
         const sid = sidebar?.id || sidebar?.sidebar_id;
@@ -18203,6 +18987,18 @@
         window._supabaseSidebarId = sid;
         window._supabaseDisconnectToken = tokenRes.access_token;
         if (typeof setSocketStatus === 'function') setSocketStatus('Connected', 'success');
+
+        // Start heartbeat: keep last_seen fresh on the backend while panel is open
+        if (_sidebarHeartbeatTimer) clearInterval(_sidebarHeartbeatTimer);
+        _sidebarHeartbeatTimer = setInterval(() => {
+          if (document.visibilityState === 'visible' && window._supabaseSidebarId) {
+            SidebarsApi.heartbeatSidebar(window._supabaseSidebarId).catch(() => {});
+          }
+        }, SIDEBAR_HEARTBEAT_MS);
+
+        // One-time cleanup of orphaned old-format rows (numeric window IDs from before stable device ID)
+        SidebarsApi.cleanupOrphanedSidebars(deviceId).catch(() => {});
+
         if (!window._supabasePagehideSetup) {
           window._supabasePagehideSetup = true;
           window.addEventListener('pagehide', () => {
@@ -18211,6 +19007,7 @@
             if (id && token && typeof SidebarsApi !== 'undefined' && SidebarsApi.disconnectSidebar) {
               SidebarsApi.disconnectSidebar(id, token);
             }
+            if (_sidebarHeartbeatTimer) { clearInterval(_sidebarHeartbeatTimer); _sidebarHeartbeatTimer = null; }
           });
         }
       } catch (e) {
@@ -18229,11 +19026,8 @@
       const sid = window._supabaseSidebarId;
       if (!sid || typeof SidebarsApi === 'undefined' || !SidebarsApi.updateSidebar) return;
       try {
-        const win = await chrome.windows.getCurrent();
-        const windowId = overrides.windowId ?? win?.id ?? 'default';
-        const key = `sidebarName_${windowId}`;
-        const storage = await chrome.storage.local.get([key, 'selectedProjectId']);
-        const sidebarName = overrides.sidebarName !== undefined ? overrides.sidebarName : (storage[key] || '');
+        const storage = await chrome.storage.local.get(['sidebarName_device', 'selectedProjectId']);
+        const sidebarName = overrides.sidebarName !== undefined ? overrides.sidebarName : (storage.sidebarName_device || '');
         const projectId = overrides.projectId !== undefined ? overrides.projectId : (storage.selectedProjectId || '');
         await SidebarsApi.updateSidebar(sid, {
           sidebar_name: String(sidebarName || '').trim(),
@@ -18282,7 +19076,7 @@
             sidebarNameInput.placeholder = 'e.g. Office PC';
           }
         }
-        loadProjects();
+        loadProjects().then(() => ensureAllProjectFolderStructures().catch(() => {}));
         if (typeof updateProjectFolderStatus === 'function') updateProjectFolderStatus();
         if (typeof initSupabaseSidebar === 'function') initSupabaseSidebar();
         return;
@@ -18293,7 +19087,7 @@
       if (typeof setSocketStatus === 'function') setSocketStatus('', '');
       loggedOut.style.display = '';
       loggedIn.style.display = 'none';
-      loadProjects();
+      loadProjects().then(() => ensureAllProjectFolderStructures().catch(() => {}));
       if (typeof updateProjectFolderStatus === 'function') updateProjectFolderStatus();
     }
 
@@ -18400,12 +19194,10 @@
     saveSidebarNameBtn?.addEventListener('click', async () => {
       const name = sidebarNameInput?.value?.trim() || '';
       try {
-        const win = await chrome.windows.getCurrent();
-        const windowId = win?.id ?? 'default';
-        const key = `sidebarName_${windowId}`;
-        await chrome.storage.local.set({ [key]: name });
+        // Store name keyed by stable device ID, not ephemeral window ID
+        await chrome.storage.local.set({ sidebarName_device: name });
         setSidebarNameSaveStatus('Sidebar Name Saved.', 'success');
-        chrome.runtime.sendMessage({ type: 'SIDEBAR_STATE_UPDATE', windowId, sidebarName: name }, (r) => {
+        chrome.runtime.sendMessage({ type: 'SIDEBAR_STATE_UPDATE', sidebarName: name }, (r) => {
           if (chrome.runtime.lastError) { /* no response expected */ }
         });
         await reportSidebarInstanceToBackend({ sidebarName: name });
@@ -18557,6 +19349,8 @@
     checkAndRunOverdueScheduledRuns(); applyPendingProgrammaticApi();
     void syncAutoDiscoveryState();
     void initPlanRecordMediaPrefs();
+    // Refresh activity panel now that workflows (including system always-on) are loaded
+    refreshPulseWatchActivityPanel().catch(() => {});
   }).catch(() => {});
   initBackendAuth();
 

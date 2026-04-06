@@ -120,6 +120,17 @@ test.describe('message validation', () => {
     expect(resp?.error).toContain('url required');
   });
 
+  /** If this fails with "Unknown message type", the Playwright profile has a stale MV3 service worker; remove test/.e2e-user-data-* or set PW_E2E_USER_DATA_SUFFIX. */
+  test('CFS_CRYPTO_TEST_ENSURE_WALLETS rejects fundOnly with replaceExisting', async ({ extensionContext, extensionId }) => {
+    const resp = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'CFS_CRYPTO_TEST_ENSURE_WALLETS',
+      fundOnly: true,
+      replaceExisting: true,
+    });
+    expect(resp?.ok).toBe(false);
+    expect(String(resp?.error || '')).toMatch(/fundOnly|replaceExisting|cannot be used together/i);
+  });
+
   test('APIFY_RUN rejects missing resourceId', async ({ extensionContext, extensionId }) => {
     const resp = await sendExtensionMessage(extensionContext, extensionId, {
       type: 'APIFY_RUN',

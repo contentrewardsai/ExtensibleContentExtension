@@ -11,7 +11,7 @@ This repo uses **layered** testing so CI stays fast and secret-free by default, 
 | **L3** | BSC-shaped EVM against forked mainnet state | Run **Anvil** (Foundry) locally, then `CRYPTO_EVM_FORK_RPC_URL=http://127.0.0.1:8545 npm run test:crypto-evm-fork-smoke` · optional signed tx: `npm run test:crypto-evm-fork-tx-smoke` (Anvil default key → 1 wei transfer; skips on zero balance) |
 | **L4** | Solana devnet | Extension settings: `cluster: devnet`, faucet SOL; only steps that support devnet pools/APIs · optional CI: **`test:crypto-solana-tx-smoke`** with **`CRYPTO_SOLANA_TX_SECRET_KEY`** (throwaway key + devnet RPC) |
 | **L5** | Mainnet or signed HTTP canaries | Manual / scheduled; tiny notional; API keys (BscScan, Aster, Jupiter, …) |
-| **E2E (opt-in)** | Real MV3 service worker + live network | **`E2E_CRYPTO=1 npm run test:e2e:crypto`** — Playwright loads the extension and exercises **`CFS_*`** messages (see **`test/e2e/crypto-e2e-playwright.spec.mjs`**). Optional CI: secret **`E2E_CRYPTO_PLAYWRIGHT`** (any non-empty) + **`SOLANA_RPC_SMOKE_URL`** / **`BSC_RPC_SMOKE_URL`** → job **`optional-e2e-crypto-playwright`**. |
+| **E2E (opt-in)** | Real MV3 service worker + live network | **`E2E_CRYPTO=1 npm run test:e2e:crypto`** — Playwright loads the extension and exercises **`CFS_*`** messages (see **`test/e2e/crypto-e2e-playwright.spec.mjs`**). Optional **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`**: **`beforeAll`** runs ensure; **fails the suite** if **`ok` is false**. Optional **`E2E_CRYPTO_SIGNED_DEVNET_SMOKE=1`** (with ensure): one **devnet** **`CFS_SOLANA_TRANSFER_SOL`** self-transfer. Optional **`E2E_CRYPTO_DEVNET_SIGNED_FAMILY`**, **`E2E_CRYPTO_NEGATIVE_PATH`**, **`E2E_ENSURE_CHAPEL_FUNDED`**, **`E2E_CRYPTO_BSC_FORK_RPC_URL`** — see **[CRYPTO_CI_SMOKE.md](./CRYPTO_CI_SMOKE.md)**. CI: **`E2E_CRYPTO_PLAYWRIGHT`** + RPC URL secret(s) → **`optional-e2e-crypto-playwright`**. Default PR job **`e2e-playwright-smoke`** also runs **`test:e2e:nav-smoke`**. |
 
 ## Matrix
 
@@ -23,6 +23,8 @@ Regenerated table of every crypto/Pulse-gated step, primary message type(s), and
 npm run report:crypto-matrix   # refresh after editing shared/crypto-workflow-step-ids.js
 npm run verify:crypto-matrix   # CI — fails if matrix is stale
 ```
+
+Heuristic **matrix → handler `CFS_*` → Playwright / devnet-smoke** mapping (no RPC): **[CRYPTO_MATRIX_VS_EXEC.md](./CRYPTO_MATRIX_VS_EXEC.md)** — `npm run report:crypto-matrix-vs-exec`. Per-step **devnet-smoke** convention: **[CRYPTO_DEVNET_STEP_SMOKE.md](./CRYPTO_DEVNET_STEP_SMOKE.md)**.
 
 ## Static guards
 

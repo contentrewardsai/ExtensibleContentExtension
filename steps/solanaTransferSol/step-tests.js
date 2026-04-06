@@ -70,5 +70,28 @@
       runner.assertEqual(p.computeUnitLimit, '200000');
       runner.assertEqual(p.computeUnitPriceMicroLamports, '50000');
     }},
+    { name: 'buildTransferSolPayload missing toPubkey yields empty string', fn: function () {
+      var p = buildTransferSolPayload({ lamports: '1' }, {}, getRowValue);
+      runner.assertEqual(p.toPubkey, '');
+      runner.assertEqual(p.type, 'CFS_SOLANA_TRANSFER_SOL');
+    }},
+    { name: 'buildTransferSolPayload missing lamports yields empty string', fn: function () {
+      var p = buildTransferSolPayload({ toPubkey: 'Dest' }, {}, getRowValue);
+      runner.assertEqual(p.lamports, '');
+    }},
+    { name: 'buildTransferSolPayload defaults cluster to mainnet-beta', fn: function () {
+      var p = buildTransferSolPayload({ toPubkey: 'D', lamports: '1' }, {}, getRowValue);
+      runner.assertEqual(p.cluster, 'mainnet-beta');
+    }},
+    { name: 'buildTransferSolPayload omits compute budget when empty', fn: function () {
+      var p = buildTransferSolPayload({ toPubkey: 'D', lamports: '1' }, {}, getRowValue);
+      runner.assertEqual(p.computeUnitLimit, undefined);
+      runner.assertEqual(p.computeUnitPriceMicroLamports, undefined);
+    }},
+    { name: 'buildTransferSolPayload skipSimulation defaults false', fn: function () {
+      var p = buildTransferSolPayload({ toPubkey: 'D', lamports: '1' }, {}, getRowValue);
+      runner.assertEqual(p.skipSimulation, false);
+      runner.assertEqual(p.skipPreflight, false);
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

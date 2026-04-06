@@ -18,19 +18,73 @@
     "saveExplorerUrlVariable": "solanaExplorerUrl"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "lbPair", "label": "LB pair (pool) address", "inputType": "text" },
-    { "key": "position", "label": "Position address", "inputType": "text" },
-    { "key": "removeBps", "label": "Remove (basis points, 10000 = 100%)", "inputType": "number" },
-    { "key": "shouldClaimAndClose", "label": "Claim and close (full remove)", "inputType": "checkbox" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save last tx signature", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "lbPair",
+      "label": "LB pair (pool) address",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_METEORA_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste lbPair address or search"
+    },
+    {
+      "key": "position",
+      "label": "Position address",
+      "inputType": "text"
+    },
+    {
+      "key": "removeBps",
+      "label": "Remove (basis points, 10000 = 100%)",
+      "inputType": "number"
+    },
+    {
+      "key": "shouldClaimAndClose",
+      "label": "Claim and close (full remove)",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save last tx signature",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL",
+      "inputType": "text"
+    }
   ]
 }

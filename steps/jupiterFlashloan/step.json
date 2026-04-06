@@ -1,0 +1,34 @@
+{
+  "id": "jupiterFlashloan",
+  "label": "Jupiter Flashloan (Borrow → Swap → Repay)",
+  "category": "data",
+  "description": "Execute a zero-fee flashloan via Jupiter Lend. Borrows an asset, executes a Jupiter swap (arbitrage or collateral swap), then repays — all atomically in one transaction. If the repayment fails, the entire transaction reverts. The Lend program address is jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9. Uses the @jup-ag/lend/flashloan SDK pattern, constructed as raw instructions. Requires Solana automation wallet.",
+  "defaultAction": {
+    "type": "jupiterFlashloan",
+    "runIf": "",
+    "borrowMint": "",
+    "borrowAmount": "",
+    "swapOutputMint": "",
+    "slippageBps": 50,
+    "cluster": "mainnet-beta",
+    "rpcUrl": "",
+    "saveSignatureVariable": "solanaTxSignature",
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "saveProfitVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "borrowMint", "label": "Borrow asset mint", "inputType": "text", "placeholder": "e.g. USDC mint or SOL wrapped" },
+    { "key": "borrowAmount", "label": "Borrow amount (raw, smallest units)", "inputType": "text", "placeholder": "e.g. 100000000 for 100 USDC" },
+    { "key": "swapOutputMint", "label": "Swap to mint (the arbitrage target)", "inputType": "text", "placeholder": "Mint to swap into, then back" },
+    { "key": "slippageBps", "label": "Slippage (bps)", "inputType": "number", "placeholder": "50" },
+    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
+      { "value": "mainnet-beta", "label": "mainnet-beta" },
+      { "value": "devnet", "label": "devnet" }
+    ] },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" },
+    { "key": "saveProfitVariable", "label": "Save estimated profit to variable (optional)", "inputType": "text" }
+  ]
+}

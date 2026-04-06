@@ -2,7 +2,7 @@
   "id": "raydiumClmmCollectReward",
   "label": "Raydium CLMM collect reward",
   "category": "data",
-  "description": "Claims **one** farming reward mint for a CLMM **pool** via `collectReward`. **rewardMint** must appear in that pool’s reward configuration (`rewardDefaultInfos`). One transaction per mint — add multiple steps (or duplicate rows) to claim several rewards. Does not cover lock-position harvest; see Raydium SDK `harvestLockPosition` for locked NFTs.",
+  "description": "Claims **one** farming reward mint for a CLMM **pool** via `collectReward`. **rewardMint** must appear in that pool\u2019s reward configuration (`rewardDefaultInfos`). One transaction per mint \u2014 add multiple steps (or duplicate rows) to claim several rewards. Does not cover lock-position harvest; see Raydium SDK `harvestLockPosition` for locked NFTs.",
   "defaultAction": {
     "type": "raydiumClmmCollectReward",
     "runIf": "",
@@ -16,17 +16,63 @@
     "saveExplorerUrlVariable": "solanaExplorerUrl"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "poolId", "label": "Pool id", "inputType": "text" },
-    { "key": "rewardMint", "label": "Reward mint", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [],
+      "placeholder": "Paste pool ID or search"
+    },
+    {
+      "key": "rewardMint",
+      "label": "Reward mint",
+      "inputType": "text"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL variable",
+      "inputType": "text"
+    }
   ]
 }

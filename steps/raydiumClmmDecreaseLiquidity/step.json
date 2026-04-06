@@ -20,21 +20,86 @@
     "saveExplorerUrlVariable": "solanaExplorerUrl"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "positionNftMint", "label": "Position NFT mint", "inputType": "text" },
-    { "key": "poolId", "label": "Pool id (optional check)", "inputType": "text" },
-    { "key": "liquidityRaw", "label": "Liquidity to remove (raw, empty=max)", "inputType": "text" },
-    { "key": "amountMinARaw", "label": "Min mint A out (raw)", "inputType": "text" },
-    { "key": "amountMinBRaw", "label": "Min mint B out (raw)", "inputType": "text" },
-    { "key": "closePosition", "label": "Close position NFT after", "inputType": "checkbox" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "positionNftMint",
+      "label": "Position NFT mint",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id (optional check)",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [
+        "inputMint",
+        "outputMint"
+      ],
+      "placeholder": "Paste pool ID or search by token pair"
+    },
+    {
+      "key": "liquidityRaw",
+      "label": "Liquidity to remove (raw, empty=max)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountMinARaw",
+      "label": "Min mint A out (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountMinBRaw",
+      "label": "Min mint B out (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "closePosition",
+      "label": "Close position NFT after",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL variable",
+      "inputType": "text"
+    }
   ]
 }

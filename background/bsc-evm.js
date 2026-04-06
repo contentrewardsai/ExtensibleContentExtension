@@ -366,9 +366,14 @@
   async function loadBscGlobalRaw() {
     var d = await storageLocalGet([STORAGE_BSC_GLOBAL]);
     var s = d[STORAGE_BSC_GLOBAL];
-    if (!s || !String(s).trim()) return null;
+    if (s == null) return null;
+    if (typeof s === 'object' && !Array.isArray(s)) {
+      return s;
+    }
+    var str = String(s).trim();
+    if (!str) return null;
     try {
-      return JSON.parse(String(s));
+      return JSON.parse(str);
     } catch (_) {
       return null;
     }
@@ -3407,6 +3412,7 @@
           try {
             await appendBscWallet(ethers, rpcI, chainI, Date.now(), stI, secI, encI, wpI, {
               setAsPrimary: msg.setAsPrimary === true,
+              label: msg.label != null ? String(msg.label) : '',
             });
           } catch (e) {
             sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
@@ -3469,6 +3475,61 @@
     })();
 
     return true;
+  };
+
+
+  /**
+   * CFS_BSC_V3_RANGE_CHECK — Read-only check: is V3 position still in range?
+   * 1. positions(tokenId) from NPM → tickLower, tickUpper, token0, token1, fee
+   * 2. factory.getPool(token0, token1, fee) → pool address
+   * 3. pool.slot0() → current tick
+   * 4. inRange = currentTick >= tickLower && currentTick <= tickUpper
+   */
+  globalThis.__CFS_bsc_v3_range_check = async function (msg) {
+    var ethers = getEthers();
+    var provider = await getReadOnlyProvider();
+
+    var tidStr = String(msg.v3PositionTokenId || '').trim();
+    if (!tidStr) return { ok: false, error: 'v3PositionTokenId required' };
+    var tid = ethers.toBigInt(tidStr);
+
+    // Read position NFT
+    var npm = PANCAKE_NPM_V3;
+    var cNpm = new ethers.Contract(npm, NPM_V3_ABI, provider);
+    var pos = await cNpm.positions(tid);
+
+    var tkLower = Number(pos.tickLower);
+    var tkUpper = Number(pos.tickUpper);
+    var token0 = pos.token0;
+    var token1 = pos.token1;
+    var fee = Number(pos.fee);
+
+    // Derive pool address from factory
+    var cFactory = new ethers.Contract(PANCAKE_FACTORY_V3, FACTORY_V3_ABI, provider);
+    var poolAddr = await cFactory.getPool(token0, token1, fee);
+    if (!poolAddr || poolAddr === ethers.ZeroAddress) {
+      return { ok: false, error: 'V3 pool not found for token0=' + token0 + ' token1=' + token1 + ' fee=' + fee };
+    }
+
+    // Read slot0 for current tick
+    var cPool = new ethers.Contract(poolAddr, POOL_V3_READ_ABI, provider);
+    var s0 = await cPool.slot0();
+    var currentTick = Number(s0.tick);
+    var inRange = currentTick >= tkLower && currentTick <= tkUpper;
+
+    return {
+      ok: true,
+      currentTick: currentTick,
+      tickLower: tkLower,
+      tickUpper: tkUpper,
+      inRange: inRange,
+      pool: poolAddr,
+      token0: token0,
+      token1: token1,
+      fee: String(fee),
+      sqrtPriceX96: s0.sqrtPriceX96.toString(),
+      liquidity: pos.liquidity.toString(),
+    };
   };
 
   globalThis.__CFS_bsc_constants = {

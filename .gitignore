@@ -65,3 +65,10 @@ generator/outputs/*.tmp
 
 # GitHub incremental sync baseline (written by side panel; see github-sync-state.example.json)
 github-sync-state.json
+coverage-report.json
+coverage-baseline.json
+
+# MCP server compiled binaries and config (contains bearer token)
+mcp-server/ec-mcp-server-*
+mcp-server/StartMCPServer*
+ec-mcp-config.json

@@ -23,24 +23,101 @@
     "saveAmountOutVariable": ""
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "poolId", "label": "CLMM pool id (base58)", "inputType": "text" },
-    { "key": "inputMint", "label": "Input mint (leg you spend)", "inputType": "text" },
-    { "key": "outputMint", "label": "Output mint (exact amount)", "inputType": "text" },
-    { "key": "amountOutRaw", "label": "Amount out (raw, exact)", "inputType": "text" },
-    { "key": "slippageBps", "label": "Slippage (basis points, on max in)", "inputType": "number" },
-    { "key": "amountInMaxRaw", "label": "Max in raw (optional override)", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" },
-    { "key": "saveAmountInMaxVariable", "label": "Save max in raw (optional)", "inputType": "text" },
-    { "key": "saveAmountInExpectedVariable", "label": "Save expected in raw (optional)", "inputType": "text" },
-    { "key": "saveAmountOutVariable", "label": "Save amount out raw (optional)", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "CLMM pool id (base58)",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [
+        "inputMint",
+        "outputMint"
+      ],
+      "placeholder": "Paste pool ID or search by token pair"
+    },
+    {
+      "key": "inputMint",
+      "label": "Input mint (leg you spend)",
+      "inputType": "text"
+    },
+    {
+      "key": "outputMint",
+      "label": "Output mint (exact amount)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountOutRaw",
+      "label": "Amount out (raw, exact)",
+      "inputType": "text"
+    },
+    {
+      "key": "slippageBps",
+      "label": "Slippage (basis points, on max in)",
+      "inputType": "number"
+    },
+    {
+      "key": "amountInMaxRaw",
+      "label": "Max in raw (optional override)",
+      "inputType": "text"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveAmountInMaxVariable",
+      "label": "Save max in raw (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "saveAmountInExpectedVariable",
+      "label": "Save expected in raw (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "saveAmountOutVariable",
+      "label": "Save amount out raw (optional)",
+      "inputType": "text"
+    }
   ]
 }

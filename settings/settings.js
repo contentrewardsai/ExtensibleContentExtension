@@ -2001,6 +2001,153 @@
     void refreshSolanaStatus();
   }
 
+  function setupCryptoTestWalletsSettingsSection() {
+    const msgEl = document.getElementById('cryptoTestEnsureSettingsMsg');
+    if (!msgEl) return;
+
+    function formatCryptoTestResult(r) {
+      const parts = [];
+      if (Array.isArray(r.warnings) && r.warnings.length) {
+        parts.push('Warnings: ' + r.warnings.join('; '));
+      }
+      if (Array.isArray(r.errors) && r.errors.length) {
+        parts.push('Errors: ' + r.errors.join('; '));
+      }
+      parts.push(`Solana ${r.solanaAddress || '—'} (funded=${!!r.solanaFunded})`);
+      parts.push(`BSC ${r.bscAddress || '—'} (funded=${!!r.bscFunded})`);
+      if (!r.bscFunded && r.bscFaucetHelpUrl) {
+        parts.push(`BSC faucet help: ${r.bscFaucetHelpUrl}`);
+      }
+      return parts.join(' · ');
+    }
+
+    function updateWalletInfoPanel(r) {
+      const panel = document.getElementById('cryptoTestWalletInfo');
+      const solRow = document.getElementById('cryptoTestSolanaRow');
+      const bscRow = document.getElementById('cryptoTestBscRow');
+      const solAddr = document.getElementById('cryptoTestSolanaAddr');
+      const bscAddr = document.getElementById('cryptoTestBscAddr');
+      const solFunded = document.getElementById('cryptoTestSolanaFunded');
+      const bscFunded = document.getElementById('cryptoTestBscFunded');
+      if (!panel) return;
+      const hasSol = r.solanaAddress && String(r.solanaAddress).trim();
+      const hasBsc = r.bscAddress && String(r.bscAddress).trim();
+      if (!hasSol && !hasBsc) { panel.style.display = 'none'; return; }
+      panel.style.display = '';
+      if (hasSol && solRow && solAddr && solFunded) {
+        solRow.style.display = '';
+        solAddr.textContent = r.solanaAddress;
+        solFunded.textContent = r.solanaFunded ? '✅ Funded' : '⚠️ Not funded — use faucet link';
+        solFunded.style.color = r.solanaFunded ? 'var(--success)' : 'var(--error)';
+      } else if (solRow) {
+        solRow.style.display = 'none';
+      }
+      if (hasBsc && bscRow && bscAddr && bscFunded) {
+        bscRow.style.display = '';
+        bscAddr.textContent = r.bscAddress;
+        bscFunded.textContent = r.bscFunded ? '✅ Funded' : '⚠️ Not funded — use faucet link';
+        bscFunded.style.color = r.bscFunded ? 'var(--success)' : 'var(--error)';
+      } else if (bscRow) {
+        bscRow.style.display = 'none';
+      }
+    }
+
+    function sendCryptoTest(payload) {
+      return new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage(Object.assign({ type: 'CFS_CRYPTO_TEST_ENSURE_WALLETS' }, payload), (out) => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            resolve(out && typeof out === 'object' ? out : { ok: false, error: 'No response' });
+          });
+        } catch (e) {
+          resolve({ ok: false, error: e?.message || String(e) });
+        }
+      });
+    }
+
+    document.getElementById('cryptoTestEnsureSettingsBtn')?.addEventListener('click', async () => {
+      const ok = window.confirm(
+        'Create or reuse Solana devnet + BSC Chapel test wallets and request test tokens where supported? Primary automation wallets will be set to those test keys and networks.',
+      );
+      if (!ok) return;
+      setStatus(msgEl, 'Ensuring test wallets…', 'success');
+      const r = await sendCryptoTest({});
+      setStatus(msgEl, formatCryptoTestResult(r), r.ok ? 'success' : 'error');
+      updateWalletInfoPanel(r);
+    });
+
+    document.getElementById('cryptoTestFundOnlySettingsBtn')?.addEventListener('click', async () => {
+      setStatus(msgEl, 'Requesting test tokens…', 'success');
+      const r = await sendCryptoTest({ fundOnly: true });
+      setStatus(msgEl, formatCryptoTestResult(r), r.ok ? 'success' : 'error');
+      updateWalletInfoPanel(r);
+    });
+
+    document.getElementById('cryptoTestReplaceSettingsBtn')?.addEventListener('click', async () => {
+      const ok = window.confirm(
+        'Remove labeled crypto test wallets from this browser and create new ones? Other saved wallets are kept.',
+      );
+      if (!ok) return;
+      setStatus(msgEl, 'Replacing crypto test wallets…', 'success');
+      const r = await sendCryptoTest({ replaceExisting: true });
+      setStatus(msgEl, formatCryptoTestResult(r), r.ok ? 'success' : 'error');
+      updateWalletInfoPanel(r);
+    });
+
+    document.getElementById('cryptoTestCopySolBtn')?.addEventListener('click', () => {
+      const addr = document.getElementById('cryptoTestSolanaAddr')?.textContent || '';
+      if (addr) navigator.clipboard.writeText(addr).then(() => setStatus(msgEl, 'Solana address copied.', 'success'));
+    });
+
+    document.getElementById('cryptoTestCopyBscBtn')?.addEventListener('click', () => {
+      const addr = document.getElementById('cryptoTestBscAddr')?.textContent || '';
+      if (addr) navigator.clipboard.writeText(addr).then(() => setStatus(msgEl, 'BSC address copied.', 'success'));
+    });
+
+    /* On page load, show existing test wallet addresses if we have them */
+    (async function loadExistingTestWallets() {
+      try {
+        const data = await chrome.storage.local.get([
+          'cfs_solana_practice_wallet_id', 'cfs_solana_wallets_v2',
+          'cfs_bsc_practice_wallet_id', 'cfs_bsc_wallets_v2',
+        ]);
+        const solPid = data.cfs_solana_practice_wallet_id ? String(data.cfs_solana_practice_wallet_id) : '';
+        const bscPid = data.cfs_bsc_practice_wallet_id ? String(data.cfs_bsc_practice_wallet_id) : '';
+        let solAddr = '', bscAddr = '';
+        if (solPid) {
+          try {
+            const v2 = typeof data.cfs_solana_wallets_v2 === 'string'
+              ? JSON.parse(data.cfs_solana_wallets_v2) : data.cfs_solana_wallets_v2;
+            const w = v2?.wallets?.find(x => x && String(x.id) === solPid);
+            if (w?.publicKey) solAddr = String(w.publicKey).trim();
+          } catch (_) {}
+        }
+        if (bscPid) {
+          try {
+            const v2 = typeof data.cfs_bsc_wallets_v2 === 'string'
+              ? JSON.parse(data.cfs_bsc_wallets_v2) : data.cfs_bsc_wallets_v2;
+            const w = v2?.wallets?.find(x => x && String(x.id) === bscPid);
+            if (w?.address) bscAddr = String(w.address).trim();
+          } catch (_) {}
+        }
+        if (solAddr || bscAddr) {
+          updateWalletInfoPanel({
+            solanaAddress: solAddr, bscAddress: bscAddr,
+            solanaFunded: false, bscFunded: false,
+          });
+          /* Update funded labels to neutral */
+          const sf = document.getElementById('cryptoTestSolanaFunded');
+          if (sf && solAddr) { sf.textContent = 'Fund status unknown — click Request test tokens to check'; sf.style.color = ''; }
+          const bf = document.getElementById('cryptoTestBscFunded');
+          if (bf && bscAddr) { bf.textContent = 'Fund status unknown — click Request test tokens to check'; bf.style.color = ''; }
+        }
+      } catch (_) {}
+    })();
+  }
+
   async function initFollowingAutomationGlobalSection() {
     const statusEl = document.getElementById('settingsFollowingAutomationGlobalStatus');
     async function loadFollowingAutomationGlobalForm() {
@@ -2463,6 +2610,79 @@
     void refreshBscStatus();
   }
 
+  function setupWalletInjectionSection() {
+    const allowlistEl = document.getElementById('walletInjectionAllowlist');
+    const statusEl = document.getElementById('walletInjectionStatus');
+    const settingsStatusEl = document.getElementById('walletInjectionSettingsStatus');
+
+    /* Load current allowlist */
+    chrome.runtime.sendMessage({ type: 'CFS_WALLET_GET_ALLOWLIST' }, (r) => {
+      if (chrome.runtime.lastError || !r) return;
+      if (r.ok && Array.isArray(r.allowlist) && allowlistEl) {
+        allowlistEl.value = r.allowlist.join('\n');
+      }
+    });
+
+    /* Load injection settings from storage */
+    chrome.storage.local.get(['cfs_wallet_injection_enabled', 'cfs_wallet_injection_auto_approve'], (data) => {
+      const enabledEl = document.getElementById('walletInjectionEnabled');
+      const autoApproveEl = document.getElementById('walletInjectionAutoApprove');
+      if (enabledEl) enabledEl.checked = data.cfs_wallet_injection_enabled !== false;
+      if (autoApproveEl) autoApproveEl.checked = data.cfs_wallet_injection_auto_approve === true;
+    });
+
+    /* Save allowlist */
+    document.getElementById('walletInjectionSaveBtn')?.addEventListener('click', () => {
+      const raw = allowlistEl?.value || '';
+      const list = raw.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean);
+      chrome.runtime.sendMessage({ type: 'CFS_WALLET_SET_ALLOWLIST', allowlist: list }, (r) => {
+        if (chrome.runtime.lastError) {
+          setStatus(statusEl, chrome.runtime.lastError.message, 'error');
+          return;
+        }
+        if (r?.ok) {
+          setStatus(statusEl, 'Allowlist saved (' + (r.allowlist?.length || 0) + ' domains). Wallet proxy will reload on next page visit.', 'success');
+          if (allowlistEl && Array.isArray(r.allowlist)) allowlistEl.value = r.allowlist.join('\n');
+        } else {
+          setStatus(statusEl, r?.error || 'Failed to save.', 'error');
+        }
+      });
+    });
+
+    /* Reset to defaults */
+    document.getElementById('walletInjectionResetBtn')?.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'CFS_WALLET_SET_ALLOWLIST', allowlist: [] }, (r) => {
+        if (chrome.runtime.lastError) {
+          setStatus(statusEl, chrome.runtime.lastError.message, 'error');
+          return;
+        }
+        /* Reload the defaults */
+        chrome.runtime.sendMessage({ type: 'CFS_WALLET_GET_ALLOWLIST' }, (r2) => {
+          if (r2?.ok && Array.isArray(r2.allowlist) && allowlistEl) {
+            allowlistEl.value = r2.allowlist.join('\n');
+          }
+          setStatus(statusEl, 'Reset to default allowlist.', 'success');
+        });
+      });
+    });
+
+    /* Save injection settings */
+    document.getElementById('walletInjectionSaveSettingsBtn')?.addEventListener('click', () => {
+      const enabled = document.getElementById('walletInjectionEnabled')?.checked !== false;
+      const autoApprove = document.getElementById('walletInjectionAutoApprove')?.checked === true;
+      chrome.storage.local.set({
+        cfs_wallet_injection_enabled: enabled,
+        cfs_wallet_injection_auto_approve: autoApprove,
+      }, () => {
+        setStatus(settingsStatusEl, 'Injection settings saved.', 'success');
+        /* If disabled, unregister content scripts */
+        if (!enabled) {
+          chrome.runtime.sendMessage({ type: 'CFS_WALLET_SET_ALLOWLIST', allowlist: ['__disabled__'] }, () => {});
+        }
+      });
+    });
+  }
+
   function setupWorkflowSection() {
     document.getElementById('settingsWorkflowList')?.addEventListener('click', handleWorkflowListClick);
 
@@ -2659,7 +2879,713 @@
     }
   });
 
+  // --- MCP Server Settings ---
+
+  const CFS_MCP_ENABLED = 'cfsMcpEnabled';
+  const CFS_MCP_PORT = 'cfsMcpPort';
+  const CFS_MCP_BEARER_TOKEN = 'cfsMcpBearerToken';
+  const CFS_MCP_DRY_RUN = 'cfsMcpDryRunConfirmation';
+
+  function cfsMcpGenerateToken() {
+    /* crypto.randomUUID() returns a v4 UUID, perfect as a bearer token */
+    return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+  }
+
+  function cfsMcpUpdateClientConfig() {
+    const portEl = document.getElementById('cfsMcpPortInput');
+    const tokenEl = document.getElementById('cfsMcpTokenInput');
+    const configEl = document.getElementById('cfsMcpClientConfig');
+    if (!configEl) return;
+    const port = (portEl && portEl.value) ? portEl.value.trim() : '3100';
+    const token = (tokenEl && tokenEl.value) ? tokenEl.value : '';
+    const config = {
+      'extensible-content': {
+        url: 'http://127.0.0.1:' + port + '/mcp',
+        headers: {
+          Authorization: 'Bearer ' + token,
+        },
+      },
+    };
+    configEl.textContent = JSON.stringify(config, null, 2);
+  }
+
+  async function loadMcpServerSettings() {
+    const data = await chrome.storage.local.get([CFS_MCP_ENABLED, CFS_MCP_PORT, CFS_MCP_BEARER_TOKEN, CFS_MCP_DRY_RUN]);
+    const enabledCb = document.getElementById('cfsMcpEnabled');
+    const portIn = document.getElementById('cfsMcpPortInput');
+    const tokenIn = document.getElementById('cfsMcpTokenInput');
+    const dryRunCb = document.getElementById('cfsMcpDryRunConfirmation');
+
+    if (enabledCb) enabledCb.value = data[CFS_MCP_ENABLED] ? '1' : '';
+    if (portIn && data[CFS_MCP_PORT]) portIn.value = String(data[CFS_MCP_PORT]);
+    if (dryRunCb) dryRunCb.checked = data[CFS_MCP_DRY_RUN] !== false;
+
+    /* Token is managed by the binary — just display what's in storage.
+       The health poll will auto-sync it from the running server. */
+    const token = data[CFS_MCP_BEARER_TOKEN] || '';
+    if (tokenIn) tokenIn.value = token;
+    cfsMcpUpdateClientConfig();
+
+    /* Poll connection status */
+    cfsMcpPollStatus();
+  }
+
+  async function saveMcpServerSettings() {
+    const statusEl = document.getElementById('cfsMcpSaveStatus');
+    const enabledCb = document.getElementById('cfsMcpEnabled');
+    const portIn = document.getElementById('cfsMcpPortInput');
+    const tokenIn = document.getElementById('cfsMcpTokenInput');
+    const dryRunCb = document.getElementById('cfsMcpDryRunConfirmation');
+
+    const port = parseInt((portIn && portIn.value) || '3100', 10) || 3100;
+    if (port < 1 || port > 65535) {
+      setStatus(statusEl, 'Port must be 1–65535.', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    const token = (tokenIn && tokenIn.value) || '';
+    if (!token) {
+      setStatus(statusEl, 'Bearer token cannot be empty.', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+
+    await chrome.storage.local.set({
+      [CFS_MCP_ENABLED]: !!(enabledCb && enabledCb.value),
+      [CFS_MCP_PORT]: port,
+      [CFS_MCP_BEARER_TOKEN]: token,
+      [CFS_MCP_DRY_RUN]: !!(dryRunCb && dryRunCb.checked),
+    });
+
+
+    cfsMcpUpdateClientConfig();
+    setStatus(statusEl, 'MCP settings saved.', 'success');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
+  }
+
+  let cfsMcpStatusTimer = null;
+
+  function cfsMcpPollStatus() {
+    if (cfsMcpStatusTimer) clearInterval(cfsMcpStatusTimer);
+    cfsMcpCheckHealth();
+    cfsMcpStatusTimer = setInterval(cfsMcpCheckHealth, 10000);
+  }
+
+  async function cfsMcpCheckHealth() {
+    const dot = document.getElementById('cfsMcpStatusDot');
+    const text = document.getElementById('cfsMcpStatusText');
+    const startBtn = document.getElementById('cfsMcpStartBtn');
+    const stopBtn = document.getElementById('cfsMcpStopBtn');
+    if (!dot || !text) return;
+    try {
+      const data = await chrome.storage.local.get([CFS_MCP_PORT]);
+      const port = data[CFS_MCP_PORT] || 3100;
+      const resp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) {
+        const json = await resp.json();
+        dot.style.background = json.relayConnected ? 'var(--success)' : '#f59e0b';
+        text.textContent = json.relayConnected
+          ? 'Running (relay active, uptime ' + Math.floor(json.uptime) + 's)'
+          : 'Running — open MCP Relay page to connect';
+        if (startBtn) startBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = false;
+
+        /* Auto-sync token from server if it differs from what Settings has */
+        if (json.token) {
+          const stored = await new Promise(r => chrome.storage.local.get('cfsMcpBearerToken', r));
+          if (stored.cfsMcpBearerToken !== json.token) {
+            await new Promise(r => chrome.storage.local.set({
+              cfsMcpBearerToken: json.token,
+              cfsMcpPort: json.port || port,
+              cfsMcpEnabled: true,
+            }, r));
+            const tokenIn = document.getElementById('cfsMcpTokenInput');
+            const portIn = document.getElementById('cfsMcpPortInput');
+            const enabledCb = document.getElementById('cfsMcpEnabled');
+            if (tokenIn) tokenIn.value = json.token;
+            if (portIn) portIn.value = json.port || port;
+            if (enabledCb) enabledCb.value = '1';
+            if (typeof cfsMcpUpdateClientConfig === 'function') cfsMcpUpdateClientConfig();
+          }
+        }
+      } else {
+        dot.style.background = 'var(--error)';
+        text.textContent = 'Server returned status ' + resp.status;
+      }
+    } catch (_) {
+      dot.style.background = 'var(--error)';
+      text.textContent = 'Stopped';
+      if (startBtn) startBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
+    }
+  }
+
+  function setupMcpServerSection() {
+    document.getElementById('cfsMcpSaveBtn')?.addEventListener('click', saveMcpServerSettings);
+
+    /* Token visibility toggle */
+    const toggleBtn = document.getElementById('cfsMcpToggleToken');
+    const tokenIn = document.getElementById('cfsMcpTokenInput');
+    if (toggleBtn && tokenIn) {
+      toggleBtn.addEventListener('click', () => {
+        if (tokenIn.type === 'password') { tokenIn.type = 'text'; toggleBtn.textContent = 'Hide'; }
+        else { tokenIn.type = 'password'; toggleBtn.textContent = 'Show'; }
+      });
+    }
+
+    /* Copy token */
+    document.getElementById('cfsMcpCopyToken')?.addEventListener('click', async () => {
+      const t = document.getElementById('cfsMcpTokenInput');
+      if (t && t.value) {
+        try { await navigator.clipboard.writeText(t.value); } catch (_) {}
+      }
+    });
+
+    /* Regenerate token */
+    document.getElementById('cfsMcpRegenToken')?.addEventListener('click', async () => {
+      const t = document.getElementById('cfsMcpTokenInput');
+      if (!t) return;
+      t.value = cfsMcpGenerateToken();
+      cfsMcpUpdateClientConfig();
+    });
+
+    /* Copy client config */
+    document.getElementById('cfsMcpCopyConfig')?.addEventListener('click', async () => {
+      const pre = document.getElementById('cfsMcpClientConfig');
+      if (pre && pre.textContent) {
+        try { await navigator.clipboard.writeText(pre.textContent); } catch (_) {}
+      }
+    });
+
+    /* Browse to StartMCPServer — opens file picker pre-navigated to mcp-server/dist/ */
+    document.getElementById('cfsMcpBrowseBinary')?.addEventListener('click', async () => {
+      try {
+        let startIn = undefined;
+        /* Navigate into mcp-server/dist/ using the stored project folder handle */
+        try {
+          const projectRoot = await getStoredProjectFolderHandle();
+          if (projectRoot) {
+            const mcpDir = await projectRoot.getDirectoryHandle('mcp-server');
+            const distDir = await mcpDir.getDirectoryHandle('dist');
+            startIn = distDir;
+
+            /* While we have FS access, write extensionId into ec-mcp-config.json
+               so native messaging works for Start/Stop */
+            try {
+              let cfg = {};
+              try {
+                const cfgFile = await distDir.getFileHandle('ec-mcp-config.json');
+                const file = await cfgFile.getFile();
+                cfg = JSON.parse(await file.text());
+              } catch (_) {}
+              if (!cfg.extensionId || cfg.extensionId !== chrome.runtime.id) {
+                cfg.extensionId = chrome.runtime.id;
+                const cfgHandle = await distDir.getFileHandle('ec-mcp-config.json', { create: true });
+                const writable = await cfgHandle.createWritable();
+                await writable.write(JSON.stringify(cfg, null, 2));
+                await writable.close();
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+
+        await window.showOpenFilePicker({
+          multiple: false,
+          excludeAcceptAllOption: false,
+          ...(startIn ? { startIn } : {}),
+        });
+      } catch (_) {
+        /* User cancelled — that's fine, they saw the path */
+      }
+    });
+
+    /* Start MCP server */
+    document.getElementById('cfsMcpStartBtn')?.addEventListener('click', async () => {
+      const statusEl = document.getElementById('cfsMcpStartStopStatus');
+      const startBtn = document.getElementById('cfsMcpStartBtn');
+      if (startBtn) startBtn.disabled = true;
+      setStatus(statusEl, 'Checking…', '');
+
+      /* Check if already running */
+      try {
+        const portData = await new Promise(r => chrome.storage.local.get('cfsMcpPort', r));
+        const port = portData.cfsMcpPort || 3100;
+        const resp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(2000) });
+        if (resp.ok) {
+          setStatus(statusEl, '✓ Server is already running!', 'success');
+          setTimeout(() => setStatus(statusEl, '', ''), 3000);
+          if (startBtn) startBtn.disabled = false;
+          cfsMcpCheckHealth();
+          return;
+        }
+      } catch (_) {}
+
+      /* Not running — show brief message, then auto-clear */
+      setStatus(statusEl, 'Server not detected. Use 📂 Find StartMCPServer below to locate and run it.', '');
+      if (startBtn) startBtn.disabled = false;
+      setTimeout(() => setStatus(statusEl, '', ''), 6000);
+      /* Keep polling so status updates automatically once server starts */
+      setTimeout(cfsMcpCheckHealth, 3000);
+    });
+
+    /* Stop MCP server */
+    document.getElementById('cfsMcpStopBtn')?.addEventListener('click', async () => {
+      const statusEl = document.getElementById('cfsMcpStartStopStatus');
+      const stopBtn = document.getElementById('cfsMcpStopBtn');
+      if (stopBtn) stopBtn.disabled = true;
+      setStatus(statusEl, 'Stopping MCP server…', '');
+      try {
+        const result = await chrome.runtime.sendMessage({ type: 'CFS_MCP_STOP' });
+        if (result && result.ok) {
+          setStatus(statusEl, 'MCP server stopped.', 'success');
+          setTimeout(() => setStatus(statusEl, '', ''), 5000);
+        } else {
+          setStatus(statusEl, (result && result.error) || 'Failed to stop server', 'error');
+          if (stopBtn) stopBtn.disabled = false;
+        }
+      } catch (e) {
+        setStatus(statusEl, (e && e.message) || 'Failed to stop server', 'error');
+        if (stopBtn) stopBtn.disabled = false;
+      }
+      /* Refresh status after a short delay */
+      setTimeout(cfsMcpCheckHealth, 1500);
+    });
+
+    /* Update client config when port or token changes */
+    document.getElementById('cfsMcpPortInput')?.addEventListener('input', cfsMcpUpdateClientConfig);
+    document.getElementById('cfsMcpTokenInput')?.addEventListener('input', cfsMcpUpdateClientConfig);
+
+    /* ── MCP Subscriptions UI ── */
+
+    async function cfsMcpRefreshSubs() {
+      const port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
+      const listEl = document.getElementById('cfsMcpSubList');
+      const countEl = document.getElementById('cfsMcpSubCount');
+      const dotEl = document.getElementById('cfsMcpSubHealthDot');
+      try {
+        const resp = await fetch('http://127.0.0.1:' + port + '/subscriptions');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const health = data.health || { level: 'green', label: '⚪', count: 0 };
+        const subs = data.subscriptions || [];
+
+        if (dotEl) {
+          dotEl.textContent = health.count <= 10 ? '🟢' : health.count <= 20 ? '🟡' : '🔴';
+          if (health.count === 0) dotEl.textContent = '⚪';
+        }
+        if (countEl) countEl.textContent = health.count + ' active';
+        if (listEl) {
+          if (subs.length === 0) {
+            listEl.innerHTML = '<p class="hint" style="font-style:italic;">No active subscriptions.</p>';
+          } else {
+            listEl.innerHTML = subs.map(function(s) {
+              var params = Object.keys(s.params || {}).map(function(k) { return k + '=' + String(s.params[k]).slice(0, 30); }).join(', ');
+              return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border,#e5e5e7);font-size:0.82rem;">' +
+                '<span style="font-weight:600;min-width:110px;">' + s.type + '</span>' +
+                '<span style="color:var(--hint-fg,#888);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + params + '">' + params + '</span>' +
+                '<span style="min-width:50px;text-align:right;">' + s.intervalSeconds + 's</span>' +
+                '<span style="color:var(--hint-fg,#888);min-width:70px;text-align:right;">#' + s.pollCount + '</span>' +
+                '</div>';
+            }).join('');
+          }
+        }
+      } catch (_) {
+        if (dotEl) dotEl.textContent = '⚪';
+        if (countEl) countEl.textContent = 'offline';
+        if (listEl) listEl.innerHTML = '<p class="hint" style="font-style:italic;">Server not running.</p>';
+      }
+    }
+
+    document.getElementById('cfsMcpRefreshSubs')?.addEventListener('click', cfsMcpRefreshSubs);
+
+    document.getElementById('cfsMcpKillAllSubs')?.addEventListener('click', async function() {
+      var port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
+      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
+      try {
+        // Use the MCP tool endpoint indirectly — just call unsubscribe all via the subscriptions endpoint
+        // For simplicity, POST to a kill endpoint
+        await fetch('http://127.0.0.1:' + port + '/subscriptions', {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+      } catch (_) {}
+      setTimeout(cfsMcpRefreshSubs, 500);
+    });
+
+    /* Auto-refresh subscriptions when health check runs */
+    var _origHealthCheck = cfsMcpCheckHealth;
+    cfsMcpCheckHealth = async function() {
+      await _origHealthCheck();
+      cfsMcpRefreshSubs();
+    };
+    /* Initial load */
+    cfsMcpRefreshSubs();
+
+    /* ── Tunnel UI ── */
+    const TUNNEL_KEYS = ['cfsMcpTunnelProvider', 'cfsMcpNgrokAuthtoken', 'cfsMcpTunnelDomain'];
+
+    const tunnelProviderEl = document.getElementById('cfsMcpTunnelProvider');
+    const tunnelNgrokFields = document.getElementById('cfsMcpTunnelNgrokFields');
+    const tunnelCfFields = document.getElementById('cfsMcpTunnelCfFields');
+    const tunnelStatusEl = document.getElementById('cfsMcpTunnelStatus');
+    const tunnelUrlPanel = document.getElementById('cfsMcpTunnelUrlPanel');
+    const tunnelUrlDisplay = document.getElementById('cfsMcpTunnelUrlDisplay');
+    const tunnelStatusDot = document.getElementById('cfsMcpTunnelStatusDot');
+    const tunnelStatusLabel = document.getElementById('cfsMcpTunnelStatusLabel');
+
+    function tunnelShowProviderFields() {
+      var v = tunnelProviderEl ? tunnelProviderEl.value : '';
+      if (tunnelNgrokFields) tunnelNgrokFields.style.display = v === 'ngrok' ? '' : 'none';
+      if (tunnelCfFields) tunnelCfFields.style.display = (v === 'cloudflare') ? '' : 'none';
+    }
+    if (tunnelProviderEl) tunnelProviderEl.addEventListener('change', tunnelShowProviderFields);
+
+    /* Load tunnel settings from storage */
+    chrome.storage.local.get(TUNNEL_KEYS, function(data) {
+      if (tunnelProviderEl && data.cfsMcpTunnelProvider) tunnelProviderEl.value = data.cfsMcpTunnelProvider;
+      var ngrokIn = document.getElementById('cfsMcpNgrokAuthtoken');
+      if (ngrokIn && data.cfsMcpNgrokAuthtoken) ngrokIn.value = data.cfsMcpNgrokAuthtoken;
+      var domainIn = document.getElementById('cfsMcpTunnelDomain');
+      if (domainIn && data.cfsMcpTunnelDomain) domainIn.value = data.cfsMcpTunnelDomain;
+      tunnelShowProviderFields();
+    });
+
+    /* ngrok token toggle */
+    document.getElementById('cfsMcpNgrokToggle')?.addEventListener('click', function() {
+      var el = document.getElementById('cfsMcpNgrokAuthtoken');
+      if (!el) return;
+      if (el.type === 'password') { el.type = 'text'; this.textContent = 'Hide'; }
+      else { el.type = 'password'; this.textContent = 'Show'; }
+    });
+
+    /* Save tunnel settings */
+    document.getElementById('cfsMcpTunnelSaveBtn')?.addEventListener('click', function() {
+      var provider = tunnelProviderEl ? tunnelProviderEl.value : '';
+      var ngrokToken = (document.getElementById('cfsMcpNgrokAuthtoken')?.value || '').trim();
+      var domain = (document.getElementById('cfsMcpTunnelDomain')?.value || '').trim();
+      chrome.storage.local.set({
+        cfsMcpTunnelProvider: provider,
+        cfsMcpNgrokAuthtoken: ngrokToken,
+        cfsMcpTunnelDomain: domain,
+      }, function() {
+        setStatus(tunnelStatusEl, 'Tunnel settings saved.', 'success');
+        setTimeout(function() { setStatus(tunnelStatusEl, '', ''); }, 3000);
+      });
+    });
+
+    /* Start tunnel — POST to /tunnel/start */
+    document.getElementById('cfsMcpTunnelStartBtn')?.addEventListener('click', async function() {
+      var port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
+      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
+      var provider = tunnelProviderEl ? tunnelProviderEl.value : '';
+      if (!provider) {
+        setStatus(tunnelStatusEl, 'Select a tunnel provider first.', 'error');
+        return;
+      }
+      setStatus(tunnelStatusEl, 'Starting ' + provider + ' tunnel…', '');
+      if (tunnelStatusDot) tunnelStatusDot.style.background = '#f59e0b';
+      if (tunnelStatusLabel) tunnelStatusLabel.textContent = 'Starting…';
+      try {
+        var payload = {
+          tunnel: provider,
+          ngrokAuthtoken: (document.getElementById('cfsMcpNgrokAuthtoken')?.value || '').trim() || undefined,
+          tunnelDomain: (document.getElementById('cfsMcpTunnelDomain')?.value || '').trim() || undefined,
+        };
+        var resp = await fetch('http://127.0.0.1:' + port + '/tunnel/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(30000),
+        });
+        /* Parse response safely — server may return HTML on unhandled errors */
+        var data;
+        var rawText = await resp.text();
+        try {
+          data = JSON.parse(rawText);
+        } catch (_parseErr) {
+          /* Not JSON — likely Express HTML error page */
+          var snippet = rawText.slice(0, 200).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          data = { ok: false, error: 'Server returned non-JSON response (HTTP ' + resp.status + '): ' + (snippet || 'empty') };
+        }
+        if (data.ok && data.url) {
+          tunnelSetActive(data.url);
+          setStatus(tunnelStatusEl, '✓ Tunnel started!', 'success');
+        } else {
+          setStatus(tunnelStatusEl, data.error || 'Tunnel failed to start (HTTP ' + resp.status + ').', 'error');
+          if (tunnelStatusDot) tunnelStatusDot.style.background = 'var(--error)';
+          if (tunnelStatusLabel) tunnelStatusLabel.textContent = 'Failed';
+        }
+      } catch (e) {
+        setStatus(tunnelStatusEl, 'Failed: ' + (e.message || e), 'error');
+        if (tunnelStatusDot) tunnelStatusDot.style.background = 'var(--error)';
+        if (tunnelStatusLabel) tunnelStatusLabel.textContent = 'Error';
+      }
+    });
+
+    /* Stop tunnel — POST to /tunnel/stop */
+    document.getElementById('cfsMcpTunnelStopBtn')?.addEventListener('click', async function() {
+      var port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
+      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
+      try {
+        await fetch('http://127.0.0.1:' + port + '/tunnel/stop', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+      } catch (_) {}
+      if (tunnelUrlPanel) tunnelUrlPanel.style.display = 'none';
+      if (tunnelStatusDot) tunnelStatusDot.style.background = 'var(--hint-fg,#888)';
+      if (tunnelStatusLabel) tunnelStatusLabel.textContent = 'Not running';
+      setStatus(tunnelStatusEl, 'Tunnel stopped.', 'success');
+      setTimeout(function() { setStatus(tunnelStatusEl, '', ''); }, 3000);
+    });
+
+    function tunnelSetActive(url) {
+      if (tunnelUrlPanel) tunnelUrlPanel.style.display = '';
+      if (tunnelUrlDisplay) tunnelUrlDisplay.textContent = url + '/mcp';
+      if (tunnelStatusDot) tunnelStatusDot.style.background = 'var(--success)';
+      if (tunnelStatusLabel) tunnelStatusLabel.textContent = 'Active';
+    }
+
+    /* Copy URL */
+    document.getElementById('cfsMcpTunnelCopyUrl')?.addEventListener('click', async function() {
+      var text = tunnelUrlDisplay?.textContent || '';
+      if (text) try { await navigator.clipboard.writeText(text); } catch (_) {}
+    });
+
+    /* Copy remote config */
+    document.getElementById('cfsMcpTunnelCopyConfig')?.addEventListener('click', async function() {
+      var tunnelUrl = (tunnelUrlDisplay?.textContent || '').replace(/\/mcp$/, '');
+      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
+      var config = {
+        'extensible-content-remote': {
+          url: tunnelUrl + '/mcp',
+          headers: { Authorization: 'Bearer ' + token },
+        },
+      };
+      try { await navigator.clipboard.writeText(JSON.stringify(config, null, 2)); } catch (_) {}
+    });
+
+    /* Poll tunnel status from /health endpoint */
+    var _origHealth2 = cfsMcpCheckHealth;
+    cfsMcpCheckHealth = async function() {
+      await _origHealth2();
+      /* Also check tunnel from health */
+      try {
+        var port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
+        var resp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(3000) });
+        if (resp.ok) {
+          var json = await resp.json();
+          if (json.tunnelUrl) {
+            tunnelSetActive(json.tunnelUrl);
+          }
+        }
+      } catch (_) {}
+    };
+
+    /* ── External MCP Endpoints UI ── */
+
+    function cfsMcpExtGetBase() {
+      var port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
+      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
+      return { port: port, token: token, base: 'http://127.0.0.1:' + port };
+    }
+
+    async function cfsMcpExtRefreshList() {
+      var listEl = document.getElementById('cfsMcpExternalList');
+      var statusEl = document.getElementById('cfsMcpExtStatus');
+      if (!listEl) return;
+      var conn = cfsMcpExtGetBase();
+      try {
+        var resp = await fetch(conn.base + '/api/mcp-endpoints', {
+          headers: { 'Authorization': 'Bearer ' + conn.token },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var data = await resp.json();
+        var endpoints = data.endpoints || [];
+        if (endpoints.length === 0) {
+          listEl.innerHTML = '<p class="hint" style="font-style:italic;">No external endpoints configured.</p>';
+          return;
+        }
+        listEl.innerHTML = endpoints.map(function(ep) {
+          var dotColor = ep.enabled ? 'var(--success,#16a34a)' : 'var(--hint-fg,#888)';
+          var toggleLabel = ep.enabled ? 'Disable' : 'Enable';
+          var toggleBg = ep.enabled ? '#f59e0b' : 'var(--success,#16a34a)';
+          return '<div data-ext-id="' + escapeHtml(ep.id) + '" style="display:flex;align-items:center;gap:8px;padding:8px;margin-bottom:6px;background:var(--bg);border:1px solid var(--border);border-radius:6px;flex-wrap:wrap;">' +
+            '<span style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';display:inline-block;flex-shrink:0;" title="' + (ep.enabled ? 'Enabled' : 'Disabled') + '"></span>' +
+            '<span style="font-weight:600;font-size:0.88rem;min-width:100px;">' + escapeHtml(ep.name || 'Unnamed') + '</span>' +
+            '<span style="font-size:0.82rem;color:var(--hint-fg,#888);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(ep.url) + '">' + escapeHtml(ep.url) + '</span>' +
+            (ep.hasToken ? '<span style="font-size:0.75rem;padding:2px 6px;border-radius:3px;background:var(--border);color:var(--fg);">🔑</span>' : '') +
+            '<div style="display:flex;gap:4px;flex-shrink:0;">' +
+              '<button type="button" class="btn btn-small" data-ext-test="' + escapeHtml(ep.id) + '" title="Test connection">Test</button>' +
+              '<button type="button" class="btn btn-small" data-ext-tools="' + escapeHtml(ep.id) + '" title="List available tools">Tools</button>' +
+              '<button type="button" class="btn btn-small" data-ext-toggle="' + escapeHtml(ep.id) + '" style="background:' + toggleBg + ';color:#fff;" title="' + toggleLabel + '">' + toggleLabel + '</button>' +
+              '<button type="button" class="btn btn-small" data-ext-delete="' + escapeHtml(ep.id) + '" style="background:#dc2626;color:#fff;" title="Remove">✕</button>' +
+            '</div>' +
+            '<div data-ext-detail="' + escapeHtml(ep.id) + '" style="display:none;width:100%;font-size:0.82rem;margin-top:4px;padding:6px;background:var(--card-bg,#fafafa);border-radius:4px;word-break:break-all;"></div>' +
+          '</div>';
+        }).join('');
+
+        /* Attach event handlers */
+        listEl.querySelectorAll('[data-ext-toggle]').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = btn.dataset.extToggle;
+            var ep = endpoints.find(function(e) { return e.id === id; });
+            if (!ep) return;
+            try {
+              await fetch(conn.base + '/api/mcp-endpoints/' + id, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + conn.token },
+                body: JSON.stringify({ enabled: !ep.enabled }),
+              });
+            } catch (_) {}
+            cfsMcpExtRefreshList();
+          });
+        });
+
+        listEl.querySelectorAll('[data-ext-delete]').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = btn.dataset.extDelete;
+            if (!confirm('Remove this external MCP endpoint?')) return;
+            try {
+              await fetch(conn.base + '/api/mcp-endpoints/' + id, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + conn.token },
+              });
+            } catch (_) {}
+            cfsMcpExtRefreshList();
+          });
+        });
+
+        listEl.querySelectorAll('[data-ext-test]').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = btn.dataset.extTest;
+            var detailEl = listEl.querySelector('[data-ext-detail="' + id + '"]');
+            if (detailEl) {
+              detailEl.style.display = '';
+              detailEl.textContent = 'Testing connection…';
+            }
+            try {
+              var resp = await fetch(conn.base + '/api/mcp-endpoints/' + id + '/test', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + conn.token },
+                signal: AbortSignal.timeout(15000),
+              });
+              var data = await resp.json();
+              if (detailEl) {
+                if (data.ok) {
+                  detailEl.innerHTML = '<span style="color:var(--success);">✓ Connected</span>' +
+                    (data.serverName ? ' — <strong>' + escapeHtml(data.serverName) + '</strong>' : '') +
+                    (data.toolCount != null ? ' · ' + data.toolCount + ' tools available' : '');
+                } else {
+                  detailEl.innerHTML = '<span style="color:var(--error);">✗ ' + escapeHtml(data.error || 'Connection failed') + '</span>';
+                }
+              }
+            } catch (e) {
+              if (detailEl) detailEl.innerHTML = '<span style="color:var(--error);">✗ ' + escapeHtml(e.message || 'Request failed') + '</span>';
+            }
+          });
+        });
+
+        listEl.querySelectorAll('[data-ext-tools]').forEach(function(btn) {
+          btn.addEventListener('click', async function() {
+            var id = btn.dataset.extTools;
+            var detailEl = listEl.querySelector('[data-ext-detail="' + id + '"]');
+            if (detailEl) {
+              detailEl.style.display = '';
+              detailEl.textContent = 'Fetching tools…';
+            }
+            try {
+              var resp = await fetch(conn.base + '/api/mcp-endpoints/' + id + '/tools', {
+                headers: { 'Authorization': 'Bearer ' + conn.token },
+                signal: AbortSignal.timeout(15000),
+              });
+              var data = await resp.json();
+              if (detailEl) {
+                if (data.ok && Array.isArray(data.tools)) {
+                  if (data.tools.length === 0) {
+                    detailEl.innerHTML = '<span style="color:var(--hint-fg);">No tools exposed by this endpoint.</span>';
+                  } else {
+                    detailEl.innerHTML = '<strong>' + data.tools.length + ' tool(s):</strong><br>' +
+                      data.tools.map(function(t) {
+                        return '<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;background:var(--border);border-radius:3px;font-size:0.8rem;">' +
+                          escapeHtml(t.name || t) + '</span>';
+                      }).join('');
+                  }
+                } else {
+                  detailEl.innerHTML = '<span style="color:var(--error);">✗ ' + escapeHtml(data.error || 'Failed to list tools') + '</span>';
+                }
+              }
+            } catch (e) {
+              if (detailEl) detailEl.innerHTML = '<span style="color:var(--error);">✗ ' + escapeHtml(e.message || 'Request failed') + '</span>';
+            }
+          });
+        });
+      } catch (_) {
+        listEl.innerHTML = '<p class="hint" style="font-style:italic;">Server not running — cannot load endpoints.</p>';
+      }
+    }
+
+    /* Add endpoint */
+    document.getElementById('cfsMcpExtAddBtn')?.addEventListener('click', async function() {
+      var statusEl = document.getElementById('cfsMcpExtStatus');
+      var urlIn = document.getElementById('cfsMcpExtUrl');
+      var tokenIn = document.getElementById('cfsMcpExtToken');
+      var nameIn = document.getElementById('cfsMcpExtName');
+      var url = (urlIn?.value || '').trim();
+      var epToken = (tokenIn?.value || '').trim();
+      var name = (nameIn?.value || '').trim();
+      if (!url) {
+        setStatus(statusEl, 'URL is required.', 'error');
+        setTimeout(function() { setStatus(statusEl, '', ''); }, 4000);
+        return;
+      }
+      /* Basic URL validation */
+      try { new URL(url); } catch (_) {
+        setStatus(statusEl, 'Invalid URL format.', 'error');
+        setTimeout(function() { setStatus(statusEl, '', ''); }, 4000);
+        return;
+      }
+      var conn = cfsMcpExtGetBase();
+      setStatus(statusEl, 'Adding endpoint…', '');
+      try {
+        var resp = await fetch(conn.base + '/api/mcp-endpoints', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + conn.token },
+          body: JSON.stringify({ url: url, token: epToken, name: name || url }),
+          signal: AbortSignal.timeout(10000),
+        });
+        var data = await resp.json();
+        if (data.ok) {
+          setStatus(statusEl, '✓ Endpoint added.', 'success');
+          if (urlIn) urlIn.value = '';
+          if (tokenIn) tokenIn.value = '';
+          if (nameIn) nameIn.value = '';
+          cfsMcpExtRefreshList();
+        } else {
+          setStatus(statusEl, data.error || 'Failed to add endpoint.', 'error');
+        }
+      } catch (e) {
+        setStatus(statusEl, 'Failed: ' + (e.message || e), 'error');
+      }
+      setTimeout(function() { setStatus(statusEl, '', ''); }, 4000);
+    });
+
+    /* Refresh */
+    document.getElementById('cfsMcpExtRefreshBtn')?.addEventListener('click', cfsMcpExtRefreshList);
+
+    /* Auto-refresh external endpoints with health poll */
+    var _origHealth3 = cfsMcpCheckHealth;
+    cfsMcpCheckHealth = async function() {
+      await _origHealth3();
+      cfsMcpExtRefreshList();
+    };
+    /* Initial load */
+    cfsMcpExtRefreshList();
+  }
+
   // --- Init ---
+
 
   async function loadCfsLlmKeys() {
     await loadCfsLlmKey(CFS_LLM_OPENAI_KEY, 'cfsLlmOpenaiKeyInput');
@@ -2686,8 +3612,10 @@
     loadProfiles();
 
     setupSolanaSection();
+    setupCryptoTestWalletsSettingsSection();
     await initFollowingAutomationGlobalSection();
     setupBscSection();
+    setupWalletInjectionSection();
 
     // Workflows
     setupWorkflowSection();
@@ -2701,13 +3629,21 @@
     document.getElementById('refreshProfilesBtn')?.addEventListener('click', loadProfiles);
     document.getElementById('saveJwtTimeBtn')?.addEventListener('click', saveJwtTime);
     document.getElementById('refreshJwtNowBtn')?.addEventListener('click', refreshJwtNow);
+    document.getElementById('settingsOpenUnitTestsPageBtn')?.addEventListener('click', () => {
+      try {
+        chrome.tabs.create({ url: chrome.runtime.getURL('test/unit-tests.html') });
+      } catch (_) {}
+    });
     document.getElementById('saveSsStagingKeyBtn')?.addEventListener('click', () => saveShotstackKey(SS_STAGING_KEY, 'shotstackStagingKeyInput'));
     document.getElementById('saveSsProductionKeyBtn')?.addEventListener('click', () => saveShotstackKey(SS_PRODUCTION_KEY, 'shotstackProductionKeyInput'));
+
+    setupMcpServerSection();
+    await loadMcpServerSettings();
 
     (function scrollToCfsLlmHashIfPresent() {
       try {
         const h = (window.location.hash || '').replace(/^#/, '');
-        if (h !== 'cfs-llm-providers' && h !== 'cfs-llm-chat-default' && h !== 'following-automation-global') return;
+        if (h !== 'cfs-llm-providers' && h !== 'cfs-llm-chat-default' && h !== 'following-automation-global' && h !== 'cfs-mcp-server') return;
         const el = document.getElementById(h);
         if (!el) return;
         requestAnimationFrame(function () {

@@ -2,7 +2,7 @@
   "id": "raydiumClmmIncreasePositionFromLiquidity",
   "label": "Raydium CLMM increase position (liquidity)",
   "category": "data",
-  "description": "Adds liquidity to an **existing** CLMM position using **`increasePositionFromLiquidity`**: you supply a **liquidity** delta (same units as the pool SDK) plus **amountMaxARaw** / **amountMaxBRaw** as maximum token spends for mint A and B (set high enough vs expected deposit). Use **raydiumClmmIncreasePosition** when you prefer fixed **base** + **otherAmountMax** instead. Optional **poolId** must match the position’s pool if set.",
+  "description": "Adds liquidity to an **existing** CLMM position using **`increasePositionFromLiquidity`**: you supply a **liquidity** delta (same units as the pool SDK) plus **amountMaxARaw** / **amountMaxBRaw** as maximum token spends for mint A and B (set high enough vs expected deposit). Use **raydiumClmmIncreasePosition** when you prefer fixed **base** + **otherAmountMax** instead. Optional **poolId** must match the position\u2019s pool if set.",
   "defaultAction": {
     "type": "raydiumClmmIncreasePositionFromLiquidity",
     "runIf": "",
@@ -19,20 +19,81 @@
     "saveExplorerUrlVariable": "solanaExplorerUrl"
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "positionNftMint", "label": "Position NFT mint", "inputType": "text" },
-    { "key": "poolId", "label": "Pool id (optional check)", "inputType": "text" },
-    { "key": "liquidityRaw", "label": "Liquidity delta (raw)", "inputType": "text" },
-    { "key": "amountMaxARaw", "label": "Max mint A (raw)", "inputType": "text" },
-    { "key": "amountMaxBRaw", "label": "Max mint B (raw)", "inputType": "text" },
-    { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
-      { "value": "mainnet-beta", "label": "mainnet-beta" },
-      { "value": "devnet", "label": "devnet" }
-    ] },
-    { "key": "rpcUrl", "label": "RPC override", "inputType": "text" },
-    { "key": "skipSimulation", "label": "Skip simulation", "inputType": "checkbox" },
-    { "key": "skipPreflight", "label": "Skip preflight", "inputType": "checkbox" },
-    { "key": "saveSignatureVariable", "label": "Save signature variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL variable", "inputType": "text" }
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text"
+    },
+    {
+      "key": "positionNftMint",
+      "label": "Position NFT mint",
+      "inputType": "text"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id (optional check)",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_RAYDIUM_POOL_SEARCH",
+      "poolSearchDeps": [
+        "inputMint",
+        "outputMint"
+      ],
+      "placeholder": "Paste pool ID or search by token pair"
+    },
+    {
+      "key": "liquidityRaw",
+      "label": "Liquidity delta (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountMaxARaw",
+      "label": "Max mint A (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "amountMaxBRaw",
+      "label": "Max mint B (raw)",
+      "inputType": "text"
+    },
+    {
+      "key": "cluster",
+      "label": "Cluster",
+      "inputType": "select",
+      "options": [
+        {
+          "value": "mainnet-beta",
+          "label": "mainnet-beta"
+        },
+        {
+          "value": "devnet",
+          "label": "devnet"
+        }
+      ]
+    },
+    {
+      "key": "rpcUrl",
+      "label": "RPC override",
+      "inputType": "text"
+    },
+    {
+      "key": "skipSimulation",
+      "label": "Skip simulation",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "skipPreflight",
+      "label": "Skip preflight",
+      "inputType": "checkbox"
+    },
+    {
+      "key": "saveSignatureVariable",
+      "label": "Save signature variable",
+      "inputType": "text"
+    },
+    {
+      "key": "saveExplorerUrlVariable",
+      "label": "Save explorer URL variable",
+      "inputType": "text"
+    }
   ]
 }

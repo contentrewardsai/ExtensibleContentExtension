@@ -67,7 +67,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -206,7 +206,7 @@
 
     var keypair;
     try {
-      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage();
+      keypair = await globalThis.__CFS_solana_loadKeypairFromStorage(msg.walletId);
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }

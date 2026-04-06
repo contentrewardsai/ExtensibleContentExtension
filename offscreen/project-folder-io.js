@@ -184,6 +184,67 @@
         sendResponse(outW);
         return;
       }
+      if (op === 'listDir') {
+        try {
+          var perm = await root.requestPermission({ mode: 'read' });
+          if (perm !== 'granted') { sendResponse({ ok: false, error: 'Permission denied' }); return; }
+          var parts = relativePath.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+          var dir = root;
+          for (var di = 0; di < parts.length; di++) {
+            dir = await dir.getDirectoryHandle(parts[di], { create: false });
+          }
+          var files = [];
+          for await (var entry of dir.values()) {
+            if (entry.kind === 'file') {
+              try {
+                var fileObj = await entry.getFile();
+                files.push({ name: entry.name, size: fileObj.size, type: fileObj.type, lastModified: fileObj.lastModified });
+              } catch (_fe) {
+                files.push({ name: entry.name, size: 0, type: '', lastModified: 0 });
+              }
+            }
+          }
+          sendResponse({ ok: true, files: files });
+        } catch (e) {
+          if (e && e.name === 'NotFoundError') sendResponse({ ok: true, files: [] });
+          else sendResponse({ ok: false, error: (e && e.message) || 'listDir failed' });
+        }
+        return;
+      }
+      if (op === 'moveFile') {
+        try {
+          var perm2 = await root.requestPermission({ mode: 'readwrite' });
+          if (perm2 !== 'granted') { sendResponse({ ok: false, error: 'Permission denied' }); return; }
+          var srcParts = (msg.sourcePath || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+          var dstParts = (msg.destPath || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+          if (srcParts.length < 1 || dstParts.length < 1) { sendResponse({ ok: false, error: 'Invalid path' }); return; }
+          // Navigate to source directory and get file
+          var srcDir = root;
+          for (var si = 0; si < srcParts.length - 1; si++) {
+            srcDir = await srcDir.getDirectoryHandle(srcParts[si], { create: false });
+          }
+          var srcFileName = srcParts[srcParts.length - 1];
+          var srcFileHandle = await srcDir.getFileHandle(srcFileName, { create: false });
+          var srcFile = await srcFileHandle.getFile();
+          var srcBlob = await srcFile.arrayBuffer();
+          // Create destination directories and write file
+          var dstDir = root;
+          for (var dj = 0; dj < dstParts.length - 1; dj++) {
+            dstDir = await dstDir.getDirectoryHandle(dstParts[dj], { create: true });
+          }
+          var dstFileName = dstParts[dstParts.length - 1];
+          var dstFileHandle = await dstDir.getFileHandle(dstFileName, { create: true });
+          var wrt = await dstFileHandle.createWritable();
+          await wrt.write(srcBlob);
+          await wrt.close();
+          // Delete source
+          await srcDir.removeEntry(srcFileName);
+          sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: (e && e.message) || 'moveFile failed' });
+        }
+        return;
+      }
       sendResponse({ ok: false, error: 'Unknown op' });
     })();
     return true;

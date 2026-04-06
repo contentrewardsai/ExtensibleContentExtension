@@ -1,0 +1,21 @@
+{
+  "id": "jupiterPriceV3",
+  "label": "Jupiter Price V3 (USD)",
+  "category": "data",
+  "description": "Fetch real-time USD prices for one or more SPL token mints via Jupiter Price API V3. Returns heuristics-based prices validated against liquidity and trading metrics. Up to 50 mints per call. No wallet required — read-only. Configure Jupiter API key in Settings → Solana for higher rate limits.",
+  "defaultAction": {
+    "type": "jupiterPriceV3",
+    "runIf": "",
+    "mintAddresses": "",
+    "savePriceMapVariable": "jupiterPrices",
+    "saveSinglePriceVariable": "jupiterPrice",
+    "savePriceChange24hVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name" },
+    { "key": "mintAddresses", "label": "Mint address(es)", "inputType": "text", "placeholder": "So111…112 or comma-separated, or {{var}}" },
+    { "key": "savePriceMapVariable", "label": "Save price map (JSON) to variable", "inputType": "text", "placeholder": "jupiterPrices" },
+    { "key": "saveSinglePriceVariable", "label": "Save USD price (single mint) to variable", "inputType": "text", "placeholder": "jupiterPrice" },
+    { "key": "savePriceChange24hVariable", "label": "Save 24h price change to variable (optional)", "inputType": "text", "placeholder": "" }
+  ]
+}
