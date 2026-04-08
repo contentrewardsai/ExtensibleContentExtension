@@ -12,6 +12,8 @@ export const CFS_E2E_TESTID = {
   runCryptoTests: 'cfs-run-crypto-tests',
   cryptoFundOnly: 'cfs-crypto-fund-only',
   cryptoReplaceWallets: 'cfs-crypto-replace-wallets',
+  cryptoRestoreMainnet: 'cfs-crypto-restore-mainnet',
+  cryptoSimulateMainnet: 'cfs-crypto-simulate-mainnet',
   mcpEnabled: 'cfs-mcp-enabled',
   mcpPort: 'cfs-mcp-port',
   mcpToken: 'cfs-mcp-token',

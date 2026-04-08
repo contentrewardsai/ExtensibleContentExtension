@@ -20,29 +20,112 @@
     var banner = document.getElementById('cryptoTestBanner');
     if (!btn || !logEl) return;
 
+    function esc(s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; }
+
+    function copyBtn(address) {
+      return '<button type="button" onclick="navigator.clipboard.writeText(\'' + esc(address) + '\').then(function(){this.textContent=\'Copied!\';var b=this;setTimeout(function(){b.textContent=\'Copy address\'},1500)}.bind(this))" style="font-size:11px;padding:2px 8px;margin-left:6px;cursor:pointer;border:1px solid #8c8;border-radius:3px;background:#f0fff0;">Copy address</button>';
+    }
+
     function showEnsureResult(res, prefix) {
       var lines = [];
-      if (prefix) lines.push(prefix);
+      if (prefix) lines.push(esc(prefix));
+
+      /* Handle playback guard block */
+      if (res && res.playbackBlocked) {
+        lines.push('<b style="color:#c00;">⛔ Blocked:</b> A workflow is currently playing back.\nStop playback before running crypto tests to avoid breaking active automations.\n\n<i>If you must proceed anyway, use the browser console:</i>\n<code>chrome.runtime.sendMessage({ type: "CFS_CRYPTO_TEST_ENSURE_WALLETS", force: true }, console.log)</code>');
+        logEl.innerHTML = lines.join('\n\n');
+        return;
+      }
+
       if (res && Array.isArray(res.warnings) && res.warnings.length) {
-        lines.push('Warnings:\n- ' + res.warnings.join('\n- '));
+        lines.push('<b style="color:#b80;">Warnings:</b>\n- ' + res.warnings.map(esc).join('\n- '));
       }
       if (res && Array.isArray(res.errors) && res.errors.length) {
-        lines.push('Errors:\n- ' + res.errors.join('\n- '));
+        lines.push('<b style="color:#c00;">Errors:</b>\n- ' + res.errors.map(esc).join('\n- '));
       }
       if (res) {
-        lines.push(
-          'Solana: ' + (res.solanaAddress || '—') + '  funded=' + !!res.solanaFunded,
-        );
-        lines.push('BSC: ' + (res.bscAddress || '—') + '  funded=' + !!res.bscFunded);
-        if (!res.bscFunded && res.bscFaucetHelpUrl) {
-          lines.push('If BSC balance is zero, use: ' + res.bscFaucetHelpUrl);
+        var solAddr = res.solanaAddress || '';
+        var solLine = '<b>Solana (devnet):</b> ' + esc(solAddr || '—');
+        if (solAddr) solLine += copyBtn(solAddr);
+        solLine += '\n  Status: ' + (res.solanaFunded ? '✅ Funded' : '⚠️ Not funded');
+        if (!res.solanaFunded && solAddr) {
+          solLine += '\n  <b>To fund manually:</b> 1) Copy address above  2) Open <a href="https://faucet.solana.com/" target="_blank" rel="noopener noreferrer" style="color:#06c;">faucet.solana.com ↗</a>  3) Paste address, select <b>Devnet</b>, click <b>Confirm Airdrop</b>';
+        }
+        lines.push(solLine);
+
+        var bscAddr = res.bscAddress || '';
+        var bscLine = '<b>BSC (Chapel testnet):</b> ' + esc(bscAddr || '—');
+        if (bscAddr) bscLine += copyBtn(bscAddr);
+        bscLine += '\n  Status: ' + (res.bscFunded ? '✅ Funded' : '⚠️ Not funded');
+        if (!res.bscFunded && bscAddr) {
+          bscLine += '\n  <b>To fund manually:</b> 1) Copy address above  2) Open <a href="https://www.bnbchain.org/en/testnet-faucet" target="_blank" rel="noopener noreferrer" style="color:#06c;">bnbchain.org testnet faucet ↗</a>  3) Paste address, complete captcha, claim tBNB';
+        }
+        lines.push(bscLine);
+
+        if (res.snapshotSaved) {
+          lines.push('<i style="color:#666;">📸 Pre-test settings snapshot saved. Click <b>Restore mainnet</b> to revert when done testing.</i>');
         }
       }
-      logEl.textContent = lines.join('\n\n');
+      logEl.innerHTML = lines.join('\n\n');
       if (banner && res && (res.solanaAddress || res.bscAddress)) {
         banner.style.display = 'block';
-        banner.textContent = 'Active test profile: Solana devnet + BSC Chapel (see Settings to change).';
+        banner.textContent = 'Active test profile: Solana devnet + BSC Chapel. The test wallet is set as Primary for both chains.';
       }
+    }
+
+    /* ── Restore mainnet settings button ── */
+    var restoreBtn = document.getElementById('cryptoTestRestoreBtn');
+    if (restoreBtn) {
+      restoreBtn.addEventListener('click', function () {
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+          logEl.textContent = 'chrome.runtime not available.';
+          return;
+        }
+        logEl.textContent = 'Restoring mainnet settings…';
+        chrome.runtime.sendMessage({ type: 'CFS_CRYPTO_TEST_RESTORE' }, function (res) {
+          if (chrome.runtime.lastError) {
+            logEl.textContent = chrome.runtime.lastError.message;
+            return;
+          }
+          if (res && res.restored) {
+            logEl.innerHTML = '<b style="color:#080;">✅ Mainnet settings restored.</b>\nPrimary wallet and cluster/chain settings reverted to pre-test state.';
+            if (banner) banner.style.display = 'none';
+          } else {
+            logEl.textContent = 'No snapshot to restore. ' + (res && res.reason ? res.reason : '');
+          }
+        });
+      });
+    }
+
+    /* ── Simulate on mainnet button ── */
+    var simBtn = document.getElementById('cryptoTestSimulateBtn');
+    if (simBtn) {
+      simBtn.addEventListener('click', function () {
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+          logEl.textContent = 'chrome.runtime not available.';
+          return;
+        }
+        logEl.textContent = 'Running mainnet simulations (no real transactions)…';
+        chrome.runtime.sendMessage({ type: 'CFS_CRYPTO_TEST_SIMULATE' }, function (res) {
+          if (chrome.runtime.lastError) {
+            logEl.textContent = chrome.runtime.lastError.message;
+            return;
+          }
+          if (!res) { logEl.textContent = 'No response'; return; }
+          var lines = [];
+          lines.push('<b>🧪 Mainnet Simulation Results</b> (no transactions sent)');
+          if (res.solana) {
+            var s = res.solana;
+            lines.push('<b>Solana (Jupiter swap simulation):</b>\n  ' + (s.ok ? '✅ Would succeed' : '❌ Would fail: ' + esc(s.error || 'unknown')) + (s.logs ? '\n  Logs: ' + esc(s.logs.slice(0, 3).join('; ')) : ''));
+          }
+          if (res.bsc) {
+            var b = res.bsc;
+            lines.push('<b>BSC (PancakeSwap simulation):</b>\n  ' + (b.ok ? '✅ Would succeed' : '❌ Would fail: ' + esc(b.error || 'unknown')));
+          }
+          if (res.error) lines.push('<b style="color:#c00;">Error:</b> ' + esc(res.error));
+          logEl.innerHTML = lines.join('\n\n');
+        });
+      });
     }
 
     fundBtn?.addEventListener('click', function () {
@@ -79,7 +162,7 @@
         }
         showEnsureResult(res, '');
         if (!res || !res.ok) {
-          logEl.textContent += '\n\nReplace reported ok=false — fix errors above.';
+          logEl.innerHTML += '\n\nReplace reported ok=false — fix errors above.';
         }
       });
     });
@@ -106,16 +189,16 @@
         }
         showEnsureResult(res, '');
         if (!res || !res.ok) {
-          logEl.textContent += '\n\nEnsure reported ok=false — fix errors before relying on signing-related tests.';
+          logEl.innerHTML += '\n\nEnsure reported ok=false — fix errors before relying on signing-related tests.';
         }
 
         var runner = window.CFS_unitTestRunner;
         if (!runner || typeof runner.runCryptoStepTestsOnly !== 'function') {
-          logEl.textContent += '\n\nTest runner missing runCryptoStepTestsOnly.';
+          logEl.innerHTML += '\n\nTest runner missing runCryptoStepTestsOnly.';
           return;
         }
 
-        logEl.textContent += '\n\nRunning crypto step tests…';
+        logEl.innerHTML += '\n\nRunning crypto step tests…';
         var p = runner.runCryptoStepTestsOnly();
         function done(results) {
           runner.renderResults(results, document.getElementById('unitTestResults'), { title: 'Crypto step tests' });

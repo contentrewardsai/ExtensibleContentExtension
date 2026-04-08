@@ -568,6 +568,145 @@
     return { address: addr2, funded: funded2 };
   }
 
+  var SNAPSHOT_KEY = 'cfs_crypto_test_pre_snapshot';
+
+  /**
+   * Check if any tab is currently playing back a workflow.
+   * Queries all tabs for PLAYER_STATUS; if any reports isPlaying=true, return true.
+   */
+  async function isPlaybackActive() {
+    var tabs;
+    try {
+      tabs = await chrome.tabs.query({});
+    } catch (_) {
+      return false;
+    }
+    for (var i = 0; i < tabs.length; i++) {
+      var t = tabs[i];
+      if (!t || !t.id || t.id < 0) continue;
+      try {
+        var resp = await new Promise(function (resolve) {
+          chrome.tabs.sendMessage(t.id, { type: 'PLAYER_STATUS' }, function (r) {
+            if (chrome.runtime.lastError) resolve(null);
+            else resolve(r);
+          });
+        });
+        if (resp && resp.isPlaying) return true;
+      } catch (_) {
+        /* tab doesn't have content script — skip */
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Save a snapshot of the current wallet + cluster settings so they can be
+   * restored after crypto tests finish. Only saves if no snapshot already exists
+   * (prevents overwriting a valid snapshot with test-mode values).
+   */
+  async function savePreTestSnapshot() {
+    var existing = await storageLocalGet([SNAPSHOT_KEY]);
+    if (existing[SNAPSHOT_KEY]) return; /* don't overwrite a valid snapshot */
+
+    var keys = [
+      STORAGE_SOL_V2, STORAGE_SOL_CLUSTER, STORAGE_SOL_RPC,
+      STORAGE_BSC_V2, 'cfs_bsc_rpc_url', 'cfs_bsc_chain_id',
+    ];
+    var data = await storageLocalGet(keys);
+
+    /* We only need to snapshot primaryWalletId, not the full wallet lists */
+    var solV2 = null;
+    try { solV2 = JSON.parse(data[STORAGE_SOL_V2] || 'null'); } catch (_) {}
+    var bscV2 = null;
+    try { bscV2 = JSON.parse(data[STORAGE_BSC_V2] || 'null'); } catch (_) {}
+
+    var snapshot = {
+      ts: Date.now(),
+      solPrimaryWalletId: solV2 ? solV2.primaryWalletId || '' : '',
+      solCluster: data[STORAGE_SOL_CLUSTER] || '',
+      solRpc: data[STORAGE_SOL_RPC] || '',
+      bscPrimaryWalletId: bscV2 ? bscV2.primaryWalletId || '' : '',
+      bscRpc: data['cfs_bsc_rpc_url'] || '',
+      bscChainId: data['cfs_bsc_chain_id'] || '',
+    };
+
+    await storageLocalSet({ [SNAPSHOT_KEY]: JSON.stringify(snapshot) });
+  }
+
+  /**
+   * Restore wallet + cluster settings from a saved snapshot.
+   * Returns { restored: true } or { restored: false, reason }.
+   */
+  async function restoreFromSnapshot() {
+    var data = await storageLocalGet([SNAPSHOT_KEY]);
+    var raw = data[SNAPSHOT_KEY];
+    if (!raw) return { restored: false, reason: 'No snapshot found' };
+
+    var snap;
+    try { snap = JSON.parse(raw); } catch (_) {
+      await storageLocalRemove([SNAPSHOT_KEY]);
+      return { restored: false, reason: 'Corrupt snapshot — removed' };
+    }
+
+    /* Restore Solana primary wallet + cluster */
+    if (snap.solPrimaryWalletId) {
+      await solWalletRoute({ type: 'CFS_SOLANA_WALLET_SET_PRIMARY', walletId: snap.solPrimaryWalletId });
+    }
+    if (snap.solCluster || snap.solRpc) {
+      await solWalletRoute({
+        type: 'CFS_SOLANA_WALLET_SAVE_SETTINGS',
+        cluster: snap.solCluster || 'mainnet-beta',
+        rpcUrl: snap.solRpc || '',
+      });
+    }
+
+    /* Restore BSC primary wallet + chain */
+    if (snap.bscPrimaryWalletId) {
+      await bscWalletRoute({ type: 'CFS_BSC_WALLET_SET_PRIMARY', walletId: snap.bscPrimaryWalletId });
+    }
+    if (snap.bscRpc || snap.bscChainId) {
+      await bscWalletRoute({
+        type: 'CFS_BSC_WALLET_SAVE_SETTINGS',
+        rpcUrl: snap.bscRpc || '',
+        chainId: snap.bscChainId ? Number(snap.bscChainId) : 56,
+      });
+    }
+
+    /* Remove snapshot after successful restore */
+    await storageLocalRemove([SNAPSHOT_KEY]);
+    return { restored: true, snapshot: snap };
+  }
+
+  /**
+   * Auto-restore on startup: if a snapshot exists (meaning tests were interrupted),
+   * restore the original settings automatically.
+   */
+  globalThis.__CFS_cryptoTest_autoRestoreOnStartup = async function () {
+    try {
+      var data = await storageLocalGet([SNAPSHOT_KEY]);
+      if (!data[SNAPSHOT_KEY]) return;
+      console.log('[CFS] Crypto test snapshot detected on startup — auto-restoring mainnet settings…');
+      var result = await restoreFromSnapshot();
+      if (result.restored) {
+        console.log('[CFS] Auto-restore complete. Primary wallets and clusters reverted to pre-test state.');
+      }
+    } catch (e) {
+      console.error('[CFS] Auto-restore failed:', e);
+    }
+  };
+
+  /**
+   * Expose restore as a callable for the service worker message handler.
+   */
+  globalThis.__CFS_cryptoTest_restoreSnapshot = async function () {
+    return restoreFromSnapshot();
+  };
+
+  /**
+   * Expose playback check for the service worker.
+   */
+  globalThis.__CFS_cryptoTest_isPlaybackActive = isPlaybackActive;
+
   globalThis.__CFS_cryptoTest_ensureWallets = async function (msg) {
     msg = msg || {};
     var skipFund = msg.skipFund === true;
@@ -578,6 +717,32 @@
     var warnings = [];
     var sol = { address: '', funded: false };
     var bsc = { address: '', funded: false };
+
+    /* ── Part 1: Playback guard ── */
+    if (msg.force !== true) {
+      try {
+        var busy = await isPlaybackActive();
+        if (busy) {
+          return {
+            ok: false,
+            errors: ['Cannot modify wallet settings while a workflow is playing. Stop playback first, or pass force: true to override.'],
+            warnings: [],
+            solanaAddress: '', bscAddress: '',
+            solanaFunded: false, bscFunded: false,
+            playbackBlocked: true,
+          };
+        }
+      } catch (_) {
+        /* If we can't check, proceed anyway */
+      }
+    }
+
+    /* ── Part 2: Snapshot current settings before mutating ── */
+    try {
+      await savePreTestSnapshot();
+    } catch (e) {
+      warnings.push('Could not save pre-test snapshot: ' + (e && e.message ? e.message : String(e)));
+    }
 
     try {
       if (msg.replaceExisting === true) {
@@ -614,6 +779,8 @@
       bscFaucetHelpUrl: BSC_FAUCET_INFO_URL,
       devnetRpc: DEVNET_RPC_DEFAULT,
       chapelRpc: CHAPEL_RPC_DEFAULT,
+      snapshotSaved: true,
     };
   };
 })();
+

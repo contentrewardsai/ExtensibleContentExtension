@@ -19,7 +19,7 @@
    * GitHub repo where MCP binaries are released.
    * Update this when the repo changes.
    */
-  var MCP_BINARY_REPO = 'extensiblecontent/ExtensibleContentExtension';
+  var MCP_BINARY_REPO = 'contentrewardsai/ExtensibleContentExtension';
   var RELEASES_API = 'https://api.github.com/repos/' + MCP_BINARY_REPO + '/releases';
 
   /**

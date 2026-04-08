@@ -599,6 +599,8 @@
     pendingPreviewCallback = null;
     showEditorAsPreview(extension, template, id);
     loadGenerationHistory();
+    /* Auto-switch to editor tab when template loads */
+    switchTab('editor');
   }
 
   var editorElementsWrap = document.getElementById('editorElementsWrap');
@@ -732,7 +734,11 @@
         }
       }
       var previewToolbar = document.getElementById('previewToolbar');
-      if (previewToolbar) {
+      var sidebarToolbarPanel = document.getElementById('editorToolbarPanel');
+      if (sidebarToolbarPanel) {
+        var oldToolbar = sidebarToolbarPanel.querySelector('.cfs-editor-toolbar');
+        if (oldToolbar) oldToolbar.remove();
+      } else if (previewToolbar) {
         var oldToolbar = previewToolbar.querySelector('.cfs-editor-toolbar');
         if (oldToolbar) oldToolbar.remove();
       }
@@ -744,7 +750,7 @@
         setValue: function (id, value) { setPluginValue(id, value); },
         presetId: extension.outputPresetId,
         refreshPreview: function () { syncPreview(); },
-        toolbarContainer: previewToolbar || undefined,
+        toolbarContainer: sidebarToolbarPanel || previewToolbar || undefined,
         onOutputTypeChange: function (t) { showExportButtons(t); },
         layersContainer: layersContainer || undefined,
         propertyPanelContainer: propertyContainer || undefined,
@@ -920,6 +926,44 @@
         setTimeout(function () { if (el && el.style.display === 'flex') el.style.display = 'none'; }, 10000);
       }
     };
+  }
+
+  /* ---- Tab & Accordion UI ---- */
+
+  function switchTab(tabId) {
+    document.querySelectorAll('.gen-tab-btn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
+    });
+    document.querySelectorAll('.gen-tab-content').forEach(function (content) {
+      content.classList.toggle('active', content.getAttribute('data-tab') === tabId);
+    });
+  }
+
+  function showGenToast(msg) {
+    var toast = document.getElementById('genToast');
+    var text = document.getElementById('genToastText');
+    if (!toast || !text) return;
+    text.textContent = msg;
+    toast.classList.add('visible');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(function () { toast.classList.remove('visible'); }, 2500);
+  }
+
+  function initAccordions() {
+    document.querySelectorAll('.gen-accordion-trigger').forEach(function (trigger) {
+      trigger.addEventListener('click', function () {
+        var accordion = trigger.closest('.gen-accordion');
+        if (accordion) accordion.classList.toggle('open');
+      });
+    });
+  }
+
+  function initTabs() {
+    document.querySelectorAll('.gen-tab-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        switchTab(btn.getAttribute('data-tab'));
+      });
+    });
   }
 
   function init() {
@@ -1223,6 +1267,10 @@
         });
       });
     }
+
+    /* ---- Wire tab & accordion UI ---- */
+    initTabs();
+    initAccordions();
   }
 
   /* ---- Project dropdown ---- */

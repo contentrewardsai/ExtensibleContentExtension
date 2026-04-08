@@ -4,67 +4,236 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Content Generator — Extensible Content</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="generator.css">
   <link rel="stylesheet" href="editor/editor.css">
 </head>
 <body>
   <div class="gen-layout">
+
+    <!-- ═══════════════════════════════════════════════════
+         LEFT SIDEBAR — Generator Panel
+         ═══════════════════════════════════════════════════ -->
     <aside class="gen-sidebar">
       <div class="gen-generator-panel">
-        <h2 class="gen-generator-title">GENERATOR</h2>
-        <div class="gen-template-list">
-          <label for="pluginSelect">Template</label>
-          <select id="pluginSelect">
-            <option value="">— Choose template —</option>
-          </select>
-          <p class="gen-template-hint">From <code>generator/templates/</code>. Bulk create fills data into the selected template.</p>
-          <p class="gen-import-json-wrap" id="importJsonWhenNoTemplateWrap" style="display:none;">
-            <button type="button" id="importJsonWhenNoTemplate" class="gen-add-content-btn">Import JSON</button>
-            <span class="gen-muted" style="font-size:11px;">Create a new template from ShotStack JSON.</span>
-          </p>
-          <p id="pluginDescription" class="gen-plugin-description" style="display:none;"></p>
+
+        <!-- Panel Title -->
+        <h2 class="gen-generator-title">
+          <svg class="gen-title-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>
+          GENERATOR
+        </h2>
+
+        <!-- Tab Navigation -->
+        <div class="gen-sidebar-tabs">
+          <button class="gen-tab-btn active" data-tab="template">
+            <!-- LayoutTemplate icon -->
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+            Template
+          </button>
+          <button class="gen-tab-btn" data-tab="editor">
+            <!-- PenTool icon -->
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.7 21.3 6.573-6.573"/><circle cx="11" cy="11" r="2"/></svg>
+            Editor
+          </button>
+          <button class="gen-tab-btn" data-tab="output">
+            <!-- Upload icon -->
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+            Output
+          </button>
         </div>
-        <div class="gen-variables" id="variablesPanel"></div>
-        <div class="gen-editor-elements" id="editorElementsWrap" style="display:none;">
-          <div class="gen-section-label">Edit & add content</div>
-          <div id="editorAddContent" class="gen-add-content"></div>
-          <div class="gen-section-label">Layers</div>
-          <div id="editorLayersPanel" class="gen-layers-panel"></div>
-          <div id="editorPropertiesPanel" class="gen-properties-panel"></div>
+
+        <!-- Scrollable Sidebar Body -->
+        <div class="gen-sidebar-body">
+
+          <!-- ═══════════════════════════════
+               TAB: TEMPLATE
+               ═══════════════════════════════ -->
+          <div class="gen-tab-content active" data-tab="template">
+
+            <!-- Template Setup Accordion -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                  Template Setup
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div class="gen-template-list">
+                  <label for="pluginSelect">Template</label>
+                  <select id="pluginSelect">
+                    <option value="">— Choose template —</option>
+                  </select>
+                  <p class="gen-template-hint">From <code>generator/templates/</code>. Bulk create fills data into the selected template.</p>
+                  <p class="gen-import-json-wrap" id="importJsonWhenNoTemplateWrap" style="display:none;">
+                    <button type="button" id="importJsonWhenNoTemplate" class="gen-add-content-btn">Import JSON</button>
+                    <span class="gen-muted" style="font-size:11px;">Create a new template from ShotStack JSON.</span>
+                  </p>
+                  <p id="pluginDescription" class="gen-plugin-description" style="display:none;"></p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Variables Accordion -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
+                  Variables
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div class="gen-variables" id="variablesPanel"></div>
+              </div>
+            </div>
+
+            <!-- Step Generator Sections (auto-populated) -->
+            <div id="stepGeneratorSections" class="gen-step-sections"></div>
+
+          </div>
+
+          <!-- ═══════════════════════════════
+               TAB: EDITOR
+               ═══════════════════════════════ -->
+          <div class="gen-tab-content" data-tab="editor">
+
+            <!-- Canvas Configuration Accordion (unified-editor toolbar goes here) -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                  Canvas Configuration
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div id="editorToolbarPanel" class="gen-editor-toolbar-sidebar"></div>
+              </div>
+            </div>
+
+            <!-- Canvas Tools Accordion -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.7 21.3 6.573-6.573"/><circle cx="11" cy="11" r="2"/></svg>
+                  Canvas Tools
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div class="gen-editor-elements" id="editorElementsWrap" style="display:none;">
+                  <div id="editorAddContent" class="gen-add-content"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Layers Accordion -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>
+                  Layers
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div id="editorLayersPanel" class="gen-layers-panel"></div>
+              </div>
+            </div>
+
+            <!-- Properties Accordion -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Properties
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div id="editorPropertiesPanel" class="gen-properties-panel"></div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ═══════════════════════════════
+               TAB: OUTPUT
+               ═══════════════════════════════ -->
+          <div class="gen-tab-content" data-tab="output">
+
+            <!-- Actions Accordion -->
+            <div class="gen-accordion open">
+              <button class="gen-accordion-trigger" type="button">
+                <span class="gen-accordion-left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                  Actions &amp; Export
+                </span>
+                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <div class="gen-accordion-body">
+                <div class="gen-editor-actions" id="genEditorActions" style="display:none;">
+                  <button type="button" id="importShotstackJsonBtn" class="secondary" title="Import a ShotStack JSON template file">Import ShotStack JSON</button>
+                  <button type="button" id="exportShotstackJsonBtn" class="secondary" title="Export the current template as ShotStack JSON">Export ShotStack JSON</button>
+                  <button type="button" id="bulkCreateBtn" class="secondary" title="Create many outputs from this template">Bulk create</button>
+                  <button type="button" id="createFromWorkflowBtn" class="secondary" title="Create from workflow step data">From workflow</button>
+                  <button type="button" id="createFromScheduledBtn" class="secondary" title="Create from scheduled workflow">From scheduled</button>
+                  <button type="button" id="saveTemplateBtn" class="secondary" title="Save changes to the current template in-place (Ctrl+S)">Save</button>
+                  <button type="button" id="versionHistoryBtn" class="secondary" title="View and restore previous versions of this template">Version History</button>
+                  <button type="button" id="saveAsTemplateBtn" class="secondary" title="Save current design as a new template (different name or version)">Save as new template</button>
+                  <button type="button" id="saveToProjectFolderBtn" class="secondary" title="Save template to generator/templates/ in your project folder (set in side panel)">Save to project folder</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div><!-- /.gen-sidebar-body -->
+
+        <!-- Sidebar Footer -->
+        <div class="gen-open-sidepanel" id="openSidepanelWrap" style="display:none;">
+          <a href="#" id="openSidepanelLink">Open sidebar panel</a>
         </div>
-        <div class="gen-editor-actions" id="genEditorActions" style="display:none;">
-          <button type="button" id="importShotstackJsonBtn" class="secondary" title="Import a ShotStack JSON template file">Import ShotStack JSON</button>
-          <button type="button" id="exportShotstackJsonBtn" class="secondary" title="Export the current template as ShotStack JSON">Export ShotStack JSON</button>
-          <button type="button" id="bulkCreateBtn" class="secondary" title="Create many outputs from this template">Bulk create</button>
-          <button type="button" id="createFromWorkflowBtn" class="secondary" title="Create from workflow step data">From workflow</button>
-          <button type="button" id="createFromScheduledBtn" class="secondary" title="Create from scheduled workflow">From scheduled</button>
-          <button type="button" id="saveTemplateBtn" class="secondary" title="Save changes to the current template in-place (Ctrl+S)">Save</button>
-          <button type="button" id="versionHistoryBtn" class="secondary" title="View and restore previous versions of this template">Version History</button>
-          <button type="button" id="saveAsTemplateBtn" class="secondary" title="Save current design as a new template (different name or version)">Save as new template</button>
-          <button type="button" id="saveToProjectFolderBtn" class="secondary" title="Save template to generator/templates/ in your project folder (set in side panel)">Save to project folder</button>
-        </div>
-        <div id="stepGeneratorSections" class="gen-step-sections"></div>
-      </div>
-      <div class="gen-open-sidepanel" id="openSidepanelWrap" style="display:none;">
-        <a href="#" id="openSidepanelLink">Open sidebar panel</a>
+
       </div>
     </aside>
+
+    <!-- ═══════════════════════════════════════════════════
+         RIGHT SIDE — Preview / Canvas / Timeline
+         ═══════════════════════════════════════════════════ -->
     <main class="gen-preview-area">
       <div class="gen-preview-toolbar" id="previewToolbar">
         <select id="genProjectSelect" class="gen-project-select" title="Save generations to this project" style="display:none;">
           <option value="">No project</option>
         </select>
-        <button type="button" id="exportImageBtn" class="secondary" style="display:none;">Export as PNG</button>
-        <button type="button" id="exportVideoBtn" class="secondary" style="display:none;">Export video</button>
-        <button type="button" id="exportAudioBtn" class="secondary" style="display:none;">Download audio</button>
-        <button type="button" id="exportBookBtn" class="secondary" style="display:none;">Export book</button>
+        <span id="previewDimsBadge" class="gen-dims-badge" style="display:none;"></span>
+        <span style="flex:1;"></span>
+        <button type="button" id="exportImageBtn" class="gen-export-primary" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          Export PNG
+        </button>
+        <button type="button" id="exportVideoBtn" class="gen-export-primary" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+          Export Video
+        </button>
+        <button type="button" id="exportAudioBtn" class="gen-export-primary" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 22h.5a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v3"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M2 19a2 2 0 1 1 4 0v1a2 2 0 1 1-4 0v-4a6 6 0 0 1 12 0v4a2 2 0 1 1-4 0v-1a2 2 0 1 1 4 0"/></svg>
+          Download Audio
+        </button>
+        <button type="button" id="exportBookBtn" class="gen-export-primary" style="display:none;">Export Book</button>
       </div>
+
       <div id="exportErrorBanner" class="gen-export-error-banner" style="display:none;" role="alert">
         <span id="exportErrorText"></span>
         <button type="button" id="exportErrorCopy" class="secondary" title="Copy error message">Copy</button>
         <button type="button" id="exportErrorRetry" class="secondary">Retry</button>
         <button type="button" id="exportErrorDismiss" class="secondary">Dismiss</button>
       </div>
+
       <div id="previewContainer" class="gen-preview-plugin-wrap" style="display:none;"></div>
       <div class="gen-preview-frame-wrap" id="previewFrameWrap">
         <div id="previewPlaceholder" style="padding:24px;color:var(--gen-muted);">
@@ -72,7 +241,15 @@
         </div>
       </div>
     </main>
+
   </div>
+
+  <!-- Toast Notification -->
+  <div id="genToast" class="gen-toast">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+    <span id="genToastText"></span>
+  </div>
+
   <script src="../lib/html2canvas.min.js"></script>
   <script src="../lib/fabric.min.js"></script>
   <script src="../lib/fabric-textbaseline-patch.js"></script>

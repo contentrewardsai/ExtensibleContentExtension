@@ -2384,67 +2384,295 @@
     function refreshLayersPanel() {
       layersPanel.innerHTML = '';
       if (!canvas || !canvas.getObjects) return;
-      if (!options.layersContainer) {
-        var heading = document.createElement('div');
-        heading.className = 'cfs-editor-panel-heading';
-        heading.textContent = 'Layers';
-        layersPanel.appendChild(heading);
+      var _iconFolder = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>';
+      var _iconUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+      var _iconDown = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+      var _iconTrash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>';
+      var _iconPlus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+      var _clipTypeIcons = {
+        text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>',
+        image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+        shape: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+        video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+        audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+        caption: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><line x1="9" y1="10" x2="15" y2="10"/></svg>',
+        system: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>'
+      };
+      function getClipTypeIcon(obj) {
+        if (obj.cfsVideoSrc) return _clipTypeIcons.video;
+        if (obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox') return _clipTypeIcons.text;
+        if (obj.type === 'image') return obj.cfsSvgSrc ? _clipTypeIcons.shape : _clipTypeIcons.image;
+        if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'path') return _clipTypeIcons.shape;
+        return '';
       }
+      var container = document.createElement('div');
+      container.className = 'gen-layers-panel';
       var active = canvas.getActiveObject && canvas.getActiveObject();
       var objects = canvas.getObjects();
-      objects.forEach(function (obj, index) {
-        if (obj.visible === false && obj.cfsAudioType) return;
-        var label = getFriendlyLayerName(obj);
-        if (label === 'Object' && (obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox')) {
-          var preview = (obj.text || 'Text').toString().trim().slice(0, 24);
-          if (preview) label = preview + (preview.length >= 24 ? '\u2026' : '');
-        }
-        var row = document.createElement('div');
-        row.className = 'cfs-layer-item' + (obj === active ? ' active' : '');
-        row.textContent = label;
-        row.title = label;
-        row.addEventListener('click', function () {
-          canvas.setActiveObject(obj);
-          canvas.renderAll();
-          refreshLayersPanel();
-          refreshPropertyPanel();
-        });
-        layersPanel.appendChild(row);
-      });
+      /* Build track groups from template.timeline.tracks */
       if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
-        template.timeline.tracks.forEach(function (track, ti) {
-          if (!track || !Array.isArray(track.clips)) return;
-          track.clips.forEach(function (clip, ci) {
-            var a = clip && clip.asset;
-            if (!a) return;
-            var t = (a.type || '').toLowerCase();
-            if (t !== 'audio' && t !== 'text-to-speech') return;
-            var src = a.src || '';
-            var label = t === 'text-to-speech' ? 'TTS' : 'Audio';
-            if (src && src.indexOf('{{') === -1) {
-              var fname = src.split('/').pop().split('?')[0];
-              if (fname) label += ' (' + (fname.length > 20 ? fname.slice(0, 17) + '\u2026' : fname) + ')';
-            }
-            var row = document.createElement('div');
-            row.className = 'cfs-layer-item cfs-layer-audio';
-            var isSelected = selectedAudioClip && selectedAudioClip.templateTrackIndex === ti && selectedAudioClip.templateClipIndex === ci;
-            if (isSelected) row.classList.add('active');
-            row.textContent = '\uD83D\uDD0A ' + label;
-            row.title = label;
-            row.dataset.trackIndex = ti;
-            row.dataset.clipIndex = ci;
-            row.addEventListener('click', function () {
-              if (canvas.discardActiveObject) canvas.discardActiveObject();
-              canvas.renderAll();
-              selectedAudioClip = { templateTrackIndex: ti, templateClipIndex: ci, clip: clip };
-              refreshLayersPanel();
-              refreshPropertyPanel();
+        var tracks = template.timeline.tracks;
+        tracks.forEach(function (track, tIdx) {
+          if (!track) return;
+          var trackGroup = document.createElement('div');
+          trackGroup.className = 'gen-track-group';
+          /* Track header */
+          var header = document.createElement('div');
+          header.className = 'gen-track-header';
+          var headerLeft = document.createElement('div');
+          headerLeft.className = 'gen-track-header-left';
+          headerLeft.innerHTML = _iconFolder;
+          var trackName = document.createElement('span');
+          trackName.className = 'gen-track-header-name';
+          trackName.textContent = 'Track ' + (tracks.length - tIdx);
+          headerLeft.appendChild(trackName);
+          header.appendChild(headerLeft);
+          /* Track controls: up / down / trash */
+          var controls = document.createElement('div');
+          controls.className = 'gen-track-controls';
+          var upBtn = document.createElement('button');
+          upBtn.type = 'button';
+          upBtn.title = 'Move track up';
+          upBtn.innerHTML = _iconUp;
+          upBtn.addEventListener('click', function (e) { e.stopPropagation(); moveTrack(tIdx, -1); });
+          controls.appendChild(upBtn);
+          var downBtn = document.createElement('button');
+          downBtn.type = 'button';
+          downBtn.title = 'Move track down';
+          downBtn.innerHTML = _iconDown;
+          downBtn.addEventListener('click', function (e) { e.stopPropagation(); moveTrack(tIdx, 1); });
+          controls.appendChild(downBtn);
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'gen-track-delete';
+          delBtn.title = 'Delete track';
+          delBtn.innerHTML = _iconTrash;
+          delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteTrack(tIdx); });
+          controls.appendChild(delBtn);
+          header.appendChild(controls);
+          trackGroup.appendChild(header);
+          /* Clips within this track */
+          var clips = Array.isArray(track.clips) ? track.clips : [];
+          if (clips.length === 0) {
+            var emptyEl = document.createElement('div');
+            emptyEl.className = 'gen-track-empty';
+            emptyEl.textContent = 'Empty Track';
+            trackGroup.appendChild(emptyEl);
+          } else {
+            clips.forEach(function (clip, ci) {
+              if (!clip || !clip.asset) return;
+              var assetType = ((clip.asset.type || '') + '').toLowerCase();
+              var isAudio = assetType === 'audio';
+              var isTts = assetType === 'text-to-speech';
+              var isCaption = assetType === 'caption' || assetType === 'rich-caption';
+              var isHtml = assetType === 'html';
+              var isLuma = assetType === 'luma';
+              var isTextToImage = assetType === 'text-to-image';
+              var isImageToVideo = assetType === 'image-to-video';
+              /* Find matching canvas object for visual clips */
+              var matchObj = null;
+              if (!isAudio && !isTts && !isCaption && !isHtml && !isLuma && !isTextToImage && !isImageToVideo) {
+                objects.forEach(function (o) {
+                  if (matchObj) return;
+                  if (o.cfsTrackIndex === tIdx) matchObj = o;
+                  else if (o.cfsOriginalClip === clip) matchObj = o;
+                });
+              }
+              var clipRow = document.createElement('div');
+              clipRow.className = 'gen-track-clip';
+              /* Determine active state */
+              if (matchObj && matchObj === active) clipRow.classList.add('active');
+              if (isAudio && selectedAudioClip && selectedAudioClip.templateTrackIndex === tIdx && selectedAudioClip.templateClipIndex === ci) clipRow.classList.add('active');
+              if (isCaption && selectedCaptionClip && selectedCaptionClip.templateTrackIndex === tIdx && selectedCaptionClip.templateClipIndex === ci) clipRow.classList.add('active');
+              if (isTts && selectedTtsClip && selectedTtsClip.templateTrackIndex === tIdx && selectedTtsClip.templateClipIndex === ci) clipRow.classList.add('active');
+              if (isHtml && selectedHtmlClip && selectedHtmlClip.templateTrackIndex === tIdx && selectedHtmlClip.templateClipIndex === ci) clipRow.classList.add('active');
+              /* Clip name */
+              var label;
+              if (matchObj) {
+                label = getFriendlyLayerName(matchObj);
+              } else if (isAudio) {
+                var src = clip.asset.src || '';
+                label = 'Audio';
+                if (src && src.indexOf('{{') === -1) { var fname = src.split('/').pop().split('?')[0]; if (fname) label += ' (' + (fname.length > 20 ? fname.slice(0, 17) + '\u2026' : fname) + ')'; }
+              } else if (isTts) {
+                label = 'TTS';
+              } else if (isCaption) {
+                label = 'Captions';
+              } else if (isHtml) {
+                label = 'HTML';
+              } else if (isLuma) {
+                label = 'Luma mask';
+              } else if (isTextToImage) {
+                label = 'Text-to-image';
+              } else if (isImageToVideo) {
+                label = 'Image-to-video';
+              } else {
+                label = clip.asset.type || 'Clip';
+              }
+              var nameSpan = document.createElement('span');
+              nameSpan.className = 'gen-track-clip-name';
+              nameSpan.textContent = label;
+              nameSpan.title = label;
+              clipRow.appendChild(nameSpan);
+              /* Type icon */
+              var iconHtml = '';
+              if (matchObj) iconHtml = getClipTypeIcon(matchObj);
+              else if (isAudio || isTts) iconHtml = _clipTypeIcons.audio;
+              else if (isCaption) iconHtml = _clipTypeIcons.caption;
+              else if (isHtml) iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
+              else iconHtml = _clipTypeIcons.system;
+              if (iconHtml) {
+                var iconSpan = document.createElement('span');
+                iconSpan.className = 'gen-track-clip-icon';
+                iconSpan.innerHTML = iconHtml;
+                clipRow.appendChild(iconSpan);
+              }
+              /* Click handler */
+              clipRow.addEventListener('click', function () {
+                if (matchObj) {
+                  canvas.setActiveObject(matchObj);
+                  canvas.renderAll();
+                } else if (isAudio) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedAudioClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                } else if (isCaption) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedCaptionClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                } else if (isTts) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedTtsClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                } else if (isHtml) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedHtmlClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                } else if (isLuma) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedLumaClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                } else if (isTextToImage) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedTextToImageClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                } else if (isImageToVideo) {
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
+                  selectedImageToVideoClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                }
+                refreshLayersPanel();
+                refreshPropertyPanel();
+              });
+              trackGroup.appendChild(clipRow);
             });
-            layersPanel.appendChild(row);
+          }
+          container.appendChild(trackGroup);
+        });
+      } else {
+        /* Fallback: simple flat list for non-timeline templates */
+        objects.forEach(function (obj) {
+          if (obj.visible === false && obj.cfsAudioType) return;
+          var label = getFriendlyLayerName(obj);
+          if (label === 'Object' && (obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox')) {
+            var preview = (obj.text || 'Text').toString().trim().slice(0, 24);
+            if (preview) label = preview + (preview.length >= 24 ? '\u2026' : '');
+          }
+          var row = document.createElement('div');
+          row.className = 'gen-track-clip' + (obj === active ? ' active' : '');
+          var nameSpan = document.createElement('span');
+          nameSpan.className = 'gen-track-clip-name';
+          nameSpan.textContent = label;
+          nameSpan.title = label;
+          row.appendChild(nameSpan);
+          var iconHtml = getClipTypeIcon(obj);
+          if (iconHtml) {
+            var iconSpan = document.createElement('span');
+            iconSpan.className = 'gen-track-clip-icon';
+            iconSpan.innerHTML = iconHtml;
+            row.appendChild(iconSpan);
+          }
+          row.addEventListener('click', function () {
+            canvas.setActiveObject(obj);
+            canvas.renderAll();
+            refreshLayersPanel();
+            refreshPropertyPanel();
           });
+          container.appendChild(row);
         });
       }
+      layersPanel.appendChild(container);
+      /* + Add Track button */
+      var addTrackBtn = document.createElement('button');
+      addTrackBtn.type = 'button';
+      addTrackBtn.className = 'gen-add-track-btn';
+      addTrackBtn.innerHTML = _iconPlus + ' Add Track';
+      addTrackBtn.addEventListener('click', function () { addTrack(); });
+      layersPanel.appendChild(addTrackBtn);
       updateEmptyHint();
+    }
+
+    /** Move a track up (direction=-1) or down (direction=1) within the template timeline. */
+    function moveTrack(index, direction) {
+      if (!template || !template.timeline || !Array.isArray(template.timeline.tracks)) return;
+      var tracks = template.timeline.tracks;
+      var target = index + direction;
+      if (target < 0 || target >= tracks.length) return;
+      var temp = tracks[index];
+      tracks[index] = tracks[target];
+      tracks[target] = temp;
+      /* Re-map cfsTrackIndex on canvas objects */
+      if (canvas && canvas.getObjects) {
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsTrackIndex === index) obj.cfsTrackIndex = target;
+          else if (obj.cfsTrackIndex === target) obj.cfsTrackIndex = index;
+        });
+      }
+      pushUndo();
+      refreshLayersPanel();
+      refreshTimeline();
+    }
+
+    /** Delete a track and remove its associated canvas objects. */
+    function deleteTrack(index) {
+      if (!template || !template.timeline || !Array.isArray(template.timeline.tracks)) return;
+      var tracks = template.timeline.tracks;
+      if (index < 0 || index >= tracks.length) return;
+      /* Remove canvas objects on this track */
+      if (canvas && canvas.getObjects) {
+        var toRemove = [];
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsTrackIndex === index) toRemove.push(obj);
+        });
+        toRemove.forEach(function (obj) { canvas.remove(obj); });
+        /* Shift track indices for higher tracks */
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsTrackIndex > index) obj.cfsTrackIndex--;
+        });
+      }
+      tracks.splice(index, 1);
+      /* Clear selection if it was on deleted track */
+      if (selectedAudioClip && selectedAudioClip.templateTrackIndex === index) selectedAudioClip = null;
+      if (selectedCaptionClip && selectedCaptionClip.templateTrackIndex === index) selectedCaptionClip = null;
+      if (selectedTtsClip && selectedTtsClip.templateTrackIndex === index) selectedTtsClip = null;
+      if (selectedHtmlClip && selectedHtmlClip.templateTrackIndex === index) selectedHtmlClip = null;
+      if (selectedLumaClip && selectedLumaClip.templateTrackIndex === index) selectedLumaClip = null;
+      pushUndo();
+      refreshLayersPanel();
+      refreshPropertyPanel();
+      refreshTimeline();
+      canvas.renderAll();
+    }
+
+    /** Add a new empty track to the template timeline. */
+    function addTrack() {
+      if (!template) return;
+      if (!template.timeline) template.timeline = {};
+      if (!Array.isArray(template.timeline.tracks)) template.timeline.tracks = [];
+      template.timeline.tracks.unshift({ clips: [] });
+      pushUndo();
+      refreshLayersPanel();
+      refreshTimeline();
     }
 
     function getFriendlyLayerName(obj) {
@@ -3253,7 +3481,7 @@
         selectedTextToImageClip = null;
         selectedImageToVideoClip = null;
         var e = document.createElement('div');
-        e.className = 'cfs-properties-empty';
+        e.className = 'gen-prop-empty';
         e.textContent = 'Select an object or a clip on the timeline';
         propertyPanel.appendChild(e);
         return;
@@ -3269,25 +3497,11 @@
       form.className = 'cfs-properties-form';
       var editingHeading = document.createElement('div');
       editingHeading.className = 'cfs-properties-editing';
-      editingHeading.textContent = 'Editing: ' + getFriendlyLayerName(obj);
+      editingHeading.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);margin-bottom:6px;display:flex;align-items:center;gap:4px;';
+      editingHeading.textContent = getFriendlyLayerName(obj);
       form.appendChild(editingHeading);
-      var toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.className = 'cfs-properties-toggle';
-      toggleBtn.setAttribute('aria-expanded', propertyPanelExpanded);
-      var chevron = document.createElement('span');
-      chevron.className = 'cfs-properties-chevron';
-      chevron.textContent = propertyPanelExpanded ? '\u25bc' : '\u25b6';
-      toggleBtn.appendChild(chevron);
-      toggleBtn.appendChild(document.createTextNode(' Properties'));
-      toggleBtn.addEventListener('click', function () {
-        propertyPanelExpanded = !propertyPanelExpanded;
-        wrap.classList.toggle('cfs-properties-collapsed', !propertyPanelExpanded);
-        toggleBtn.setAttribute('aria-expanded', propertyPanelExpanded);
-        chevron.textContent = propertyPanelExpanded ? '\u25bc' : '\u25b6';
-      });
       var wrap = document.createElement('div');
-      wrap.className = 'cfs-properties-form-wrap' + (propertyPanelExpanded ? '' : ' cfs-properties-collapsed');
+      wrap.className = 'cfs-properties-form-wrap';
       var _mergeDefaults = {};
       if (template && Array.isArray(template.merge)) {
         template.merge.forEach(function (m) {
@@ -3407,20 +3621,20 @@
       }
       function addRow(label, value, onChange) {
         var row = document.createElement('div');
-        row.className = 'cfs-prop-row';
+        row.className = 'gen-prop-group';
         var lab = document.createElement('label');
-        lab.textContent = label + ': ';
+        lab.textContent = label;
+        row.appendChild(lab);
         var input = document.createElement('input');
         input.type = typeof value === 'number' ? 'number' : 'text';
+        input.className = 'gen-prop-input';
         input.value = value != null ? value : '';
-        input.style.width = '80px';
         input.addEventListener('change', function () {
           var v = input.type === 'number' ? parseFloat(input.value, 10) : input.value;
           if (onChange) onChange(v);
           canvas.renderAll();
           refreshTimeline();
         });
-        row.appendChild(lab);
         row.appendChild(input);
         form.appendChild(row);
       }
@@ -3441,40 +3655,37 @@
         if (obj.type === 'circle' && obj.radius != null) obj.set('cfsRadiusPct', obj.radius / minSide);
         if (obj.fontSize != null && minSide > 0) obj.set('cfsFontSizePct', obj.fontSize / minSide);
       }
-      var posModeRow = document.createElement('div');
-      posModeRow.className = 'cfs-prop-row';
-      posModeRow.innerHTML = '<label>Positioning: </label>';
+      /* ── SECTION: LAYOUT & POSITION ── */
+      var layoutLabel = document.createElement('div');
+      layoutLabel.className = 'gen-prop-section-label';
+      layoutLabel.textContent = 'Layout & Position';
+      form.appendChild(layoutLabel);
+      var segCtrl = document.createElement('div');
+      segCtrl.className = 'gen-segmented-control';
       var posFixed = document.createElement('button');
       posFixed.type = 'button';
-      posFixed.className = 'cfs-btn-align';
+      posFixed.className = 'gen-segmented-btn' + (!obj.cfsResponsive ? ' active' : '');
       posFixed.textContent = 'Fixed';
       posFixed.title = 'Fixed pixels (left, top, width, height)';
       var posResp = document.createElement('button');
       posResp.type = 'button';
-      posResp.className = 'cfs-btn-align';
+      posResp.className = 'gen-segmented-btn' + (obj.cfsResponsive ? ' active' : '');
       posResp.textContent = 'Responsive';
       posResp.title = 'Percent of canvas (resizes with canvas)';
-      var isResp = !!obj.cfsResponsive;
-      posFixed.style.fontWeight = !isResp ? 'bold' : 'normal';
-      posResp.style.fontWeight = isResp ? 'bold' : 'normal';
       posFixed.addEventListener('click', function () {
         obj.set('cfsResponsive', false);
-        posFixed.style.fontWeight = 'bold';
-        posResp.style.fontWeight = 'normal';
         refreshPropertyPanel();
         canvas.renderAll();
       });
       posResp.addEventListener('click', function () {
         syncResponsiveFromPixels();
         obj.set('cfsResponsive', true);
-        posFixed.style.fontWeight = 'normal';
-        posResp.style.fontWeight = 'bold';
         refreshPropertyPanel();
         applyResponsivePositions(canvas);
       });
-      posModeRow.appendChild(posFixed);
-      posModeRow.appendChild(posResp);
-      form.appendChild(posModeRow);
+      segCtrl.appendChild(posFixed);
+      segCtrl.appendChild(posResp);
+      form.appendChild(segCtrl);
       if (!obj.cfsResponsive) {
         addRow('Left', Math.round(obj.left || 0), function (v) { obj.set('left', Number(v) || 0); if (obj.cfsRightPx != null) applyResponsivePositions(canvas); });
         addRow('Top', Math.round(obj.top || 0), function (v) { obj.set('top', Number(v) || 0); if (obj.cfsBottomPx != null) applyResponsivePositions(canvas); });
@@ -3539,6 +3750,11 @@
         obj.set('cfsClipOpacity', val);
       });
       if (obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox') {
+        /* ── SECTION: TEXT & CONTENT ── */
+        var textSectionLabel = document.createElement('div');
+        textSectionLabel.className = 'gen-prop-section-label';
+        textSectionLabel.textContent = 'Text & Content';
+        form.appendChild(textSectionLabel);
         var rawTextForPanel = (obj.cfsRawText != null ? String(obj.cfsRawText) : (typeof obj.get === 'function' && obj.get('cfsRawText') != null ? String(obj.get('cfsRawText')) : String(obj.text || '')));
         var _origTplText = getOriginalTemplateText(obj);
         var _currentText = rawTextForPanel;
@@ -3552,6 +3768,11 @@
         _currentPlaceholders.forEach(function (pk) { ensureMergeField(pk, ''); });
         var _displayText = _origTplText || _currentText;
         if (_allPlaceholders.length > 0) {
+          /* ── SECTION: MERGE FIELDS ── */
+          var mergeSectionLabel = document.createElement('div');
+          mergeSectionLabel.className = 'gen-prop-section-label';
+          mergeSectionLabel.textContent = 'Merge Fields';
+          form.appendChild(mergeSectionLabel);
           var tplSection = document.createElement('div');
           tplSection.className = 'cfs-prop-row';
           tplSection.style.cssText = 'flex-direction:column;gap:4px;';
@@ -3656,6 +3877,11 @@
           canvas.requestRenderAll();
           refreshPropertyPanel();
         });
+        /* ── SECTION: TYPOGRAPHY ── */
+        var typoSectionLabel = document.createElement('div');
+        typoSectionLabel.className = 'gen-prop-section-label';
+        typoSectionLabel.textContent = 'Typography';
+        form.appendChild(typoSectionLabel);
         addRow('Font size', obj.fontSize || 24, function (v) {
           var newSize = Number(v) || 24;
           obj.set('fontSize', newSize);
@@ -3674,8 +3900,8 @@
         });
         (function () {
           var fwRow = document.createElement('div');
-          fwRow.className = 'cfs-prop-row';
-          fwRow.innerHTML = '<label>Font weight: </label><select style="min-width:80px;"><option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option></select>';
+          fwRow.className = 'gen-prop-group';
+          fwRow.innerHTML = '<label>Font weight</label><select class="gen-prop-input"><option value="normal">Normal</option><option value="bold">Bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option></select>';
           var fwSel = fwRow.querySelector('select');
           fwSel.value = obj.fontWeight || 'normal';
           fwSel.addEventListener('change', function () { obj.set('fontWeight', fwSel.value); canvas.requestRenderAll(); });
@@ -3697,8 +3923,8 @@
         });
         (function () {
           var txRow = document.createElement('div');
-          txRow.className = 'cfs-prop-row';
-          txRow.innerHTML = '<label>Text transform: </label><select style="min-width:80px;"><option value="">none</option><option value="uppercase">uppercase</option><option value="lowercase">lowercase</option><option value="capitalize">capitalize</option></select>';
+          txRow.className = 'gen-prop-group';
+          txRow.innerHTML = '<label>Transform</label><select class="gen-prop-input"><option value="">None</option><option value="uppercase">Uppercase</option><option value="lowercase">Lowercase</option><option value="capitalize">Capitalize</option></select>';
           var txSel = txRow.querySelector('select');
           txSel.value = obj.cfsTextTransform || '';
           txSel.addEventListener('change', function () {
@@ -3711,8 +3937,8 @@
         })();
         (function () {
           var tdRow = document.createElement('div');
-          tdRow.className = 'cfs-prop-row';
-          tdRow.innerHTML = '<label>Text decoration: </label><select style="min-width:80px;"><option value="">none</option><option value="underline">underline</option><option value="line-through">line-through</option></select>';
+          tdRow.className = 'gen-prop-group';
+          tdRow.innerHTML = '<label>Decoration</label><select class="gen-prop-input"><option value="">None</option><option value="underline">Underline</option><option value="line-through">Line-through</option></select>';
           var tdSel = tdRow.querySelector('select');
           tdSel.value = obj.cfsTextDecoration || '';
           tdSel.addEventListener('change', function () {
@@ -3725,8 +3951,8 @@
         })();
         (function () {
           var ahRow = document.createElement('div');
-          ahRow.className = 'cfs-prop-row';
-          ahRow.innerHTML = '<label>Align H: </label><select style="min-width:80px;"><option value="left">left</option><option value="center">center</option><option value="right">right</option><option value="justify">justify</option></select>';
+          ahRow.className = 'gen-prop-group';
+          ahRow.innerHTML = '<label>Align H</label><select class="gen-prop-input"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select>';
           var ahSel = ahRow.querySelector('select');
           ahSel.value = obj.cfsAlignHorizontal || obj.textAlign || 'left';
           ahSel.addEventListener('change', function () {
@@ -3738,8 +3964,8 @@
         })();
         (function () {
           var avRow = document.createElement('div');
-          avRow.className = 'cfs-prop-row';
-          avRow.innerHTML = '<label>Align V: </label><select style="min-width:80px;"><option value="top">top</option><option value="center">center</option><option value="bottom">bottom</option></select>';
+          avRow.className = 'gen-prop-group';
+          avRow.innerHTML = '<label>Align V</label><select class="gen-prop-input"><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select>';
           var avSel = avRow.querySelector('select');
           avSel.value = obj.cfsAlignVertical || 'top';
           avSel.addEventListener('change', function () { obj.set('cfsAlignVertical', avSel.value); canvas.requestRenderAll(); });
@@ -3747,8 +3973,8 @@
         })();
         (function () {
           var tbgRow = document.createElement('div');
-          tbgRow.className = 'cfs-prop-row';
-          tbgRow.innerHTML = '<label>Text background: </label><input type="color" style="width:40px;height:24px;padding:0;"><button type="button" style="margin-left:4px;font-size:10px;padding:1px 4px;">Clear</button>';
+          tbgRow.className = 'gen-prop-group';
+          tbgRow.innerHTML = '<label>Background</label><div class="gen-color-pair"><input type="color" class="gen-color-swatch"><button type="button" class="gen-tool-icon-btn" title="Clear" style="width:28px;height:28px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
           var tbgInput = tbgRow.querySelector('input[type="color"]');
           var tbgClear = tbgRow.querySelector('button');
           var curBg = obj.cfsTextBackground || obj.backgroundColor || '';
@@ -3852,15 +4078,15 @@
           textHint.textContent = 'Lines break automatically when text is too long for the box width. Resize by dragging the edges; double-click to edit. Press Enter for a manual line break.';
           form.appendChild(textHint);
         }
+        /* ── SECTION: ANIMATION ── */
         var animSectionLabel = document.createElement('div');
-        animSectionLabel.className = 'cfs-prop-section-label';
-        animSectionLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
+        animSectionLabel.className = 'gen-prop-section-label';
         animSectionLabel.textContent = 'Animation';
         form.appendChild(animSectionLabel);
         var animPresets = ['none', 'fadeIn', 'typewriter', 'slideIn', 'ascend', 'shift'];
         var animRow = document.createElement('div');
-        animRow.className = 'cfs-prop-row';
-        animRow.innerHTML = '<label>Preset: </label><select class="cfs-prop-anim-preset" style="min-width:100px;"></select>';
+        animRow.className = 'gen-prop-group';
+        animRow.innerHTML = '<label>Preset</label><select class="gen-prop-input cfs-prop-anim-preset"></select>';
         var animPresetSel = animRow.querySelector('select.cfs-prop-anim-preset');
         if (animPresetSel) {
           animPresets.forEach(function (p) {
@@ -3880,8 +4106,8 @@
         }
         form.appendChild(animRow);
         var animDurationRow = document.createElement('div');
-        animDurationRow.className = 'cfs-prop-row';
-        animDurationRow.innerHTML = '<label>Duration (s): </label><input type="number" class="cfs-prop-anim-duration" min="0" step="0.5" style="width:60px;" placeholder="clip">';
+        animDurationRow.className = 'gen-prop-group';
+        animDurationRow.innerHTML = '<label>Duration (s)</label><input type="number" class="gen-prop-input cfs-prop-anim-duration" min="0" step="0.5" placeholder="clip">';
         var animDurationInput = animDurationRow.querySelector('input.cfs-prop-anim-duration');
         if (animDurationInput) {
           var animDur = obj.get ? obj.get('cfsAnimation') : obj.cfsAnimation;
@@ -3899,8 +4125,8 @@
         }
         form.appendChild(animDurationRow);
         var animStyleRow = document.createElement('div');
-        animStyleRow.className = 'cfs-prop-row';
-        animStyleRow.innerHTML = '<label>Style: </label><select class="cfs-prop-anim-style" style="min-width:90px;"><option value="">default</option><option value="character">character</option><option value="word">word</option><option value="full">full</option></select>';
+        animStyleRow.className = 'gen-prop-group';
+        animStyleRow.innerHTML = '<label>Style</label><select class="gen-prop-input cfs-prop-anim-style"><option value="">Default</option><option value="character">Character</option><option value="word">Word</option><option value="full">Full</option></select>';
         var animStyleSel = animStyleRow.querySelector('select.cfs-prop-anim-style');
         if (animStyleSel) {
           var a2 = obj.get ? obj.get('cfsAnimation') : obj.cfsAnimation;
@@ -3915,8 +4141,8 @@
         }
         form.appendChild(animStyleRow);
         var animDirRow = document.createElement('div');
-        animDirRow.className = 'cfs-prop-row';
-        animDirRow.innerHTML = '<label>Direction: </label><select class="cfs-prop-anim-direction" style="min-width:90px;"><option value="">default</option><option value="left">left</option><option value="right">right</option><option value="up">up</option><option value="down">down</option></select>';
+        animDirRow.className = 'gen-prop-group';
+        animDirRow.innerHTML = '<label>Direction</label><select class="gen-prop-input cfs-prop-anim-direction"><option value="">Default</option><option value="left">Left</option><option value="right">Right</option><option value="up">Up</option><option value="down">Down</option></select>';
         var animDirSel = animDirRow.querySelector('select.cfs-prop-anim-direction');
         if (animDirSel) {
           var a3 = obj.get ? obj.get('cfsAnimation') : obj.cfsAnimation;
@@ -3997,9 +4223,9 @@
         }
         form.appendChild(fillRow);
         (function () {
+          /* ── SECTION: STROKE ── */
           var stLabel = document.createElement('div');
-          stLabel.className = 'cfs-prop-section-label';
-          stLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
+          stLabel.className = 'gen-prop-section-label';
           stLabel.textContent = 'Stroke';
           form.appendChild(stLabel);
           var curStroke = obj.cfsStroke && typeof obj.cfsStroke === 'object' ? obj.cfsStroke : {};
@@ -4012,8 +4238,8 @@
             canvas.requestRenderAll();
           });
           var stcRow = document.createElement('div');
-          stcRow.className = 'cfs-prop-row';
-          stcRow.innerHTML = '<label>Stroke color: </label><input type="color" style="width:40px;height:24px;padding:0;">';
+          stcRow.className = 'gen-prop-group';
+          stcRow.innerHTML = '<label>Stroke color</label><input type="color" class="gen-color-swatch">';
           var stcInput = stcRow.querySelector('input[type="color"]');
           stcInput.value = (curStroke.color && curStroke.color.indexOf('#') === 0) ? curStroke.color : '#000000';
           stcInput.addEventListener('change', function () {
@@ -4026,9 +4252,9 @@
           form.appendChild(stcRow);
         })();
         (function () {
+          /* ── SECTION: SHADOW ── */
           var shLabel = document.createElement('div');
-          shLabel.className = 'cfs-prop-section-label';
-          shLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
+          shLabel.className = 'gen-prop-section-label';
           shLabel.textContent = 'Shadow';
           form.appendChild(shLabel);
           var curShadow = obj.cfsShadow && typeof obj.cfsShadow === 'object' ? obj.cfsShadow : {};
@@ -4054,8 +4280,8 @@
             canvas.requestRenderAll();
           });
           var shcRow = document.createElement('div');
-          shcRow.className = 'cfs-prop-row';
-          shcRow.innerHTML = '<label>Shadow color: </label><input type="color" style="width:40px;height:24px;padding:0;">';
+          shcRow.className = 'gen-prop-group';
+          shcRow.innerHTML = '<label>Shadow color</label><input type="color" class="gen-color-swatch">';
           var shcInput = shcRow.querySelector('input[type="color"]');
           shcInput.value = (curShadow.color && curShadow.color.indexOf('#') === 0) ? curShadow.color : '#000000';
           shcInput.addEventListener('change', function () {
@@ -4156,8 +4382,8 @@
         });
         (function () {
           var ssRow = document.createElement('div');
-          ssRow.className = 'cfs-prop-row';
-          ssRow.innerHTML = '<label>Stroke color: </label><input type="color" style="width:40px;height:24px;padding:0;">';
+          ssRow.className = 'gen-prop-group';
+          ssRow.innerHTML = '<label>Stroke color</label><input type=\"color\" class=\"gen-color-swatch\">';
           var ssInput = ssRow.querySelector('input[type="color"]');
           ssInput.value = (obj.stroke && typeof obj.stroke === 'string' && obj.stroke.indexOf('#') === 0) ? obj.stroke : '#000000';
           ssInput.addEventListener('change', function () { obj.set('stroke', ssInput.value); canvas.requestRenderAll(); });
@@ -5196,21 +5422,61 @@
         var tempCanvas = new fabric.Canvas(tempEl);
         tempCanvas.loadFromJSON(wrapper, function () {
           fixTextBaseline(tempCanvas);
+          /* Determine target track: use selected object's track, or last track, or 0 */
+          var targetTrack = 0;
+          var activeObj = canvas.getActiveObject && canvas.getActiveObject();
+          if (activeObj && activeObj.cfsTrackIndex != null) {
+            targetTrack = activeObj.cfsTrackIndex;
+          } else if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
+            targetTrack = template.timeline.tracks.length - 1;
+          }
+          /* Deselect and force-reset Fabric internal drag state */
+          canvas.discardActiveObject();
+          if (canvas.__currentTransform) canvas.__currentTransform = null;
+          if (canvas._currentTransform) canvas._currentTransform = null;
+          canvas._isMouseDown = false;
+          /* Fire synthetic mouseup on Fabric's upper canvas to fully clear drag state */
+          var upperCanvas = canvas.upperCanvasEl || (canvas.wrapperEl && canvas.wrapperEl.querySelector('.upper-canvas'));
+          if (upperCanvas) {
+            try { upperCanvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); } catch (_) {}
+          }
           var toAdd = tempCanvas.getObjects();
           toAdd.forEach(function (o, i) {
             o.set({ left: (o.left || 0) + 20 * (i + 1), top: (o.top || 0) + 20 * (i + 1) });
-            if (o.name) o.set('name', o.name + '_pasted');
+            var pastedName = (o.name || 'pasted') + '_copy';
+            o.set('name', pastedName);
+            /* Ensure the pasted object is selectable and shows handles */
+            o.set({ selectable: true, evented: true, hasControls: true, hasBorders: true });
+            /* Assign to target track so it appears in Layers */
+            o.set('cfsTrackIndex', targetTrack);
             canvas.add(o);
+            /* Add a clip entry to the template timeline track so Layers can show it */
+            if (template && template.timeline && Array.isArray(template.timeline.tracks) && template.timeline.tracks[targetTrack]) {
+              var clips = template.timeline.tracks[targetTrack].clips;
+              if (!clips) { clips = []; template.timeline.tracks[targetTrack].clips = clips; }
+              var newClip = {
+                asset: {
+                  type: (o.type === 'image' ? 'image' : o.cfsVideoSrc ? 'video' : 'title'),
+                  text: o.text || '',
+                  src: o.src || o.cfsVideoSrc || ''
+                },
+                start: o.cfsStart || 0,
+                length: o.cfsLength || 5
+              };
+              clips.push(newClip);
+              o.set('cfsOriginalClip', newClip);
+            }
           });
           if (toAdd.length) {
-            canvas.setActiveObject(toAdd[toAdd.length - 1]);
             pushUndo();
+            /* Don't auto-select — avoids Fabric stuck-to-cursor drag state bug.
+               User can click the pasted object to select it. */
             refreshLayersPanel();
             refreshPropertyPanel();
             refreshTimeline();
           }
           invalidateFabricTextLayout(canvas);
-          canvas.renderAll();
+          canvas.requestRenderAll();
           tempCanvas.dispose();
         });
       }).catch(function (e) { console.warn('Paste failed', e); });
@@ -6234,52 +6500,76 @@
 
     if (options.addContentContainer) {
       options.addContentContainer.innerHTML = '';
-      var editLabel = document.createElement('span');
-      editLabel.className = 'gen-add-content-group-label';
-      editLabel.textContent = 'Edit:';
-      editLabel.style.cssText = 'width:100%;font-size:10px;color:var(--gen-muted,#888);margin-bottom:2px;';
-      options.addContentContainer.appendChild(editLabel);
+      /* --- Row 1: Undo / Redo | Copy / Paste --- */
+      var editRow = document.createElement('div');
+      editRow.className = 'gen-tool-row';
+      var _iconUndo = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6.69 3L3 13"/></svg>';
+      var _iconRedo = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 019-9 9 9 0 016.69 3L21 13"/></svg>';
+      var _iconCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+      var _iconPaste = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/></svg>';
       undoBtn = document.createElement('button');
       undoBtn.type = 'button';
-      undoBtn.className = 'gen-add-content-btn';
-      undoBtn.textContent = 'Undo';
+      undoBtn.className = 'gen-tool-icon-btn';
+      undoBtn.title = 'Undo';
+      undoBtn.innerHTML = _iconUndo;
       undoBtn.disabled = true;
       undoBtn.addEventListener('click', function () { undo(); refreshLayersPanel(); refreshPropertyPanel(); refreshTimeline(); });
-      options.addContentContainer.appendChild(undoBtn);
+      editRow.appendChild(undoBtn);
       redoBtn = document.createElement('button');
       redoBtn.type = 'button';
-      redoBtn.className = 'gen-add-content-btn';
-      redoBtn.textContent = 'Redo';
+      redoBtn.className = 'gen-tool-icon-btn';
+      redoBtn.title = 'Redo';
+      redoBtn.innerHTML = _iconRedo;
       redoBtn.disabled = true;
       redoBtn.addEventListener('click', function () { redo(); refreshLayersPanel(); refreshPropertyPanel(); refreshTimeline(); });
-      options.addContentContainer.appendChild(redoBtn);
+      editRow.appendChild(redoBtn);
+      var sep1 = document.createElement('div');
+      sep1.className = 'gen-tool-separator';
+      editRow.appendChild(sep1);
       var copySidebarBtn = document.createElement('button');
       copySidebarBtn.type = 'button';
-      copySidebarBtn.className = 'gen-add-content-btn';
-      copySidebarBtn.textContent = 'Copy';
+      copySidebarBtn.className = 'gen-tool-icon-btn';
+      copySidebarBtn.title = 'Copy';
+      copySidebarBtn.innerHTML = _iconCopy;
       copySidebarBtn.addEventListener('click', function () { copyObject(); refreshLayersPanel(); refreshPropertyPanel(); });
-      options.addContentContainer.appendChild(copySidebarBtn);
+      editRow.appendChild(copySidebarBtn);
       var pasteSidebarBtn = document.createElement('button');
       pasteSidebarBtn.type = 'button';
-      pasteSidebarBtn.className = 'gen-add-content-btn';
-      pasteSidebarBtn.textContent = 'Paste';
+      pasteSidebarBtn.className = 'gen-tool-icon-btn';
+      pasteSidebarBtn.title = 'Paste';
+      pasteSidebarBtn.innerHTML = _iconPaste;
       pasteSidebarBtn.addEventListener('click', function () { pasteObject(); refreshLayersPanel(); refreshPropertyPanel(); refreshTimeline(); });
-      options.addContentContainer.appendChild(pasteSidebarBtn);
-      var addLabel = document.createElement('span');
-      addLabel.className = 'gen-add-content-group-label';
-      addLabel.textContent = 'Add:';
-      addLabel.style.cssText = 'width:100%;font-size:10px;color:var(--gen-muted,#888);margin:8px 0 2px 0;';
-      options.addContentContainer.appendChild(addLabel);
-      ['Add text', 'Add image', 'Add shape', 'Add video', 'Add audio', 'Import SVG', 'Import JSON'].forEach(function (label, i) {
-        var fns = [addText, addImage, addShape, addVideo, addAudioClip, importSvg, importJson];
-        var fn = fns[i];
+      editRow.appendChild(pasteSidebarBtn);
+      options.addContentContainer.appendChild(editRow);
+      /* --- Divider --- */
+      var divider = document.createElement('hr');
+      divider.className = 'gen-tool-divider';
+      options.addContentContainer.appendChild(divider);
+      /* --- Row 2: Add Text, Image, Shape, Video, Audio, Captions, SVG, HTML --- */
+      var addRow = document.createElement('div');
+      addRow.className = 'gen-tool-row';
+      var _addIcons = [
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><line x1="9" y1="10" x2="15" y2="10"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'
+      ];
+      var _addLabels = ['Add Text', 'Add Image', 'Add Shape', 'Add Video', 'Add Audio', 'Add Captions', 'Import SVG', 'Add HTML'];
+      var _addFns = [addText, addImage, addShape, addVideo, addAudioClip, typeof addCaptionClip === 'function' ? addCaptionClip : importSvg, importSvg, typeof addHtmlClip === 'function' ? addHtmlClip : importJson];
+      _addIcons.forEach(function (icon, i) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'gen-add-content-btn';
-        btn.textContent = label;
-        btn.addEventListener('click', function () { if (fn) fn(); refreshLayersPanel(); refreshPropertyPanel(); refreshTimeline(); });
-        options.addContentContainer.appendChild(btn);
+        btn.className = 'gen-tool-icon-btn';
+        btn.title = _addLabels[i];
+        btn.innerHTML = icon;
+        btn.addEventListener('click', function () { if (_addFns[i]) _addFns[i](); refreshLayersPanel(); refreshPropertyPanel(); refreshTimeline(); });
+        addRow.appendChild(btn);
       });
+      options.addContentContainer.appendChild(addRow);
     }
     addToolbarBtn('Save as JSON', saveShotstackJson);
     function updateExportVideoVisibility() {
