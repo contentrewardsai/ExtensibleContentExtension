@@ -52,11 +52,13 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `raydiumClmmDecreaseLiquidity` | Solana | CFS_RAYDIUM_CLMM_DECREASE_LIQUIDITY | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `raydiumClmmSwap` | Solana | CFS_RAYDIUM_CLMM_SWAP_BASE_IN | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `raydiumClmmSwapBaseOut` | Solana | CFS_RAYDIUM_CLMM_SWAP_BASE_OUT | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
+| `raydiumClmmRangeWatch` | Solana | CFS_RAYDIUM_CLMM_RANGE_CHECK | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `raydiumClmmQuoteBaseIn` | Solana | CFS_RAYDIUM_CLMM_QUOTE_BASE_IN | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `raydiumClmmQuoteBaseOut` | Solana | CFS_RAYDIUM_CLMM_QUOTE_BASE_OUT | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraDlmmAddLiquidity` | Solana | CFS_METEORA_DLMM_ADD_LIQUIDITY | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraDlmmRemoveLiquidity` | Solana | CFS_METEORA_DLMM_REMOVE_LIQUIDITY | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraDlmmClaimRewards` | Solana | CFS_METEORA_DLMM_CLAIM_REWARDS | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
+| `meteoraDlmmRangeWatch` | Solana | CFS_METEORA_DLMM_RANGE_CHECK | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraCpammSwap` | Solana | CFS_METEORA_CPAMM_SWAP | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraCpammQuoteSwap` | Solana | CFS_METEORA_CPAMM_QUOTE_SWAP | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraCpammSwapExactOut` | Solana | CFS_METEORA_CPAMM_SWAP_EXACT_OUT | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
@@ -67,6 +69,7 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `meteoraCpammClaimFees` | Solana | CFS_METEORA_CPAMM_CLAIM_FEES | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `meteoraCpammClaimReward` | Solana | CFS_METEORA_CPAMM_CLAIM_REWARD | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `bscPancake` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | Fork: mainnet addresses in `bsc-evm.js`; testnet 97 needs address map. |
+| `pancakeFlash` | — | CFS_PANCAKE_FLASH | L1 · L5 | yes | — |
 | `bscTransferBnb` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
 | `bscTransferBep20` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
 | `bscAggregatorSwap` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | Fork: mainnet addresses in `bsc-evm.js`; testnet 97 needs address map. |

@@ -1,0 +1,43 @@
+{
+  "id": "pancakeFlash",
+  "label": "PancakeSwap V3 Flash (BSC)",
+  "category": "data",
+  "description": "Execute a flash loan via PancakeSwap V3 on BSC. Borrows tokens from a V3 pool, executes a swap, then repays — all atomically. If the callback cannot repay, the entire transaction reverts. Uses the IPancakeV3Pool.flash() mechanism with a deployed callback contract. Requires BSC automation wallet and the deployed CFS flash callback contract address.",
+  "defaultAction": {
+    "type": "pancakeFlash",
+    "runIf": "",
+    "poolAddress": "",
+    "borrowToken0": true,
+    "borrowAmount": "",
+    "swapRouter": "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4",
+    "swapOutputToken": "",
+    "slippageBps": 50,
+    "callbackContract": "",
+    "rpcUrl": "",
+    "chainId": 56,
+    "saveHashVariable": "bscTxHash",
+    "saveExplorerUrlVariable": "bscExplorerUrl",
+    "saveProfitVariable": ""
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "poolAddress", "label": "PancakeSwap V3 pool address", "inputType": "text", "placeholder": "0x… (pool to flash from)" },
+    { "key": "borrowToken0", "label": "Borrow token0 (true) or token1 (false)", "inputType": "select", "options": [
+      { "value": "true", "label": "token0" },
+      { "value": "false", "label": "token1" }
+    ] },
+    { "key": "borrowAmount", "label": "Borrow amount (raw, smallest units)", "inputType": "text", "placeholder": "e.g. 1000000000000000000" },
+    { "key": "swapRouter", "label": "PancakeSwap swap router address", "inputType": "text" },
+    { "key": "swapOutputToken", "label": "Swap to token address", "inputType": "text", "placeholder": "Token to swap into for arbitrage" },
+    { "key": "slippageBps", "label": "Slippage (bps)", "inputType": "number", "placeholder": "50" },
+    { "key": "callbackContract", "label": "CFS flash callback contract address", "inputType": "text", "placeholder": "0x… (deployed CFS flash receiver)" },
+    { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
+    { "key": "chainId", "label": "Chain ID", "inputType": "select", "options": [
+      { "value": "56", "label": "BSC Mainnet (56)" },
+      { "value": "97", "label": "BSC Chapel Testnet (97)" }
+    ] },
+    { "key": "saveHashVariable", "label": "Save tx hash to variable", "inputType": "text" },
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" },
+    { "key": "saveProfitVariable", "label": "Save profit to variable (optional)", "inputType": "text" }
+  ]
+}

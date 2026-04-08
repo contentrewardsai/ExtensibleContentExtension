@@ -27,6 +27,8 @@
       <button type="button" id="runCryptoTestsBtn" class="btn" data-testid="cfs-run-crypto-tests">Run crypto tests</button>
       <button type="button" id="cryptoTestFundOnlyBtn" class="btn" data-testid="cfs-crypto-fund-only">Request test tokens again</button>
       <button type="button" id="cryptoTestReplaceBtn" class="btn" data-testid="cfs-crypto-replace-wallets">Replace crypto test wallets</button>
+      <button type="button" id="cryptoTestRestoreBtn" class="btn" data-testid="cfs-crypto-restore-mainnet" style="background:#ffe0b2;">⟲ Restore mainnet</button>
+      <button type="button" id="cryptoTestSimulateBtn" class="btn" data-testid="cfs-crypto-simulate-mainnet" style="background:#e0f0ff;">🧪 Simulate on mainnet</button>
     </div>
     <pre id="cryptoTestEnsureLog" style="margin-top:10px;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
   </div>
@@ -36,18 +38,7 @@
     <ul id="checklistList"></ul>
   </div>
 
-  <script>
-    if (typeof chrome === 'undefined') {
-      window.chrome = {
-        runtime: {
-          sendMessage: function (_msg, cb) {
-            if (typeof cb === 'function') cb({});
-          },
-          lastError: undefined,
-        },
-      };
-    }
-  </script>
+  <script src="chrome-shim.js"></script>
   <script src="../extension/config.js"></script>
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
@@ -240,6 +231,7 @@
   <script src="../steps/bscTransferBep20/handler.js"></script>
   <script src="../steps/bscAggregatorSwap/handler.js"></script>
   <script src="../steps/bscSellabilityProbe/handler.js"></script>
+  <script src="../steps/pancakeFlash/handler.js"></script>
   <script src="../steps/bscWatchRefresh/handler.js"></script>
   <script src="../steps/bscWatchReadActivity/handler.js"></script>
   <script src="../steps/watchActivityFilterTxAge/handler.js"></script>
@@ -267,6 +259,9 @@
   <script src="../steps/goBack/handler.js"></script>
   <script src="../steps/goForward/handler.js"></script>
   <script src="../steps/getConsoleLogs/handler.js"></script>
+  <script src="../steps/scanImportFolder/handler.js"></script>
+  <script src="../steps/moveProjectFile/handler.js"></script>
+  <script src="../steps/detectMediaType/handler.js"></script>
   <!-- STEP_HANDLERS_END -->
   <!-- STEP_TESTS_START -->
   <script src="../steps/click/step-tests.js"></script>
@@ -401,6 +396,7 @@
   <script src="../steps/bscTransferBep20/step-tests.js"></script>
   <script src="../steps/bscAggregatorSwap/step-tests.js"></script>
   <script src="../steps/bscSellabilityProbe/step-tests.js"></script>
+  <script src="../steps/pancakeFlash/step-tests.js"></script>
   <script src="../steps/bscWatchRefresh/step-tests.js"></script>
   <script src="../steps/bscWatchReadActivity/step-tests.js"></script>
   <script src="../steps/watchActivityFilterTxAge/step-tests.js"></script>
@@ -428,6 +424,9 @@
   <script src="../steps/goBack/step-tests.js"></script>
   <script src="../steps/goForward/step-tests.js"></script>
   <script src="../steps/getConsoleLogs/step-tests.js"></script>
+  <script src="../steps/scanImportFolder/step-tests.js"></script>
+  <script src="../steps/moveProjectFile/step-tests.js"></script>
+  <script src="../steps/detectMediaType/step-tests.js"></script>
   <!-- STEP_TESTS_END -->
   <script src="../generator/core/wrap-text.js"></script>
   <script src="../generator/core/position-from-clip.js"></script>

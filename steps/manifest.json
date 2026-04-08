@@ -134,6 +134,7 @@
     "bscTransferBep20",
     "bscAggregatorSwap",
     "bscSellabilityProbe",
+    "pancakeFlash",
     "bscWatchRefresh",
     "bscWatchReadActivity",
     "watchActivityFilterTxAge",

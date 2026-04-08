@@ -25,6 +25,8 @@ importScripts('evm-lib.bundle.js');
 importScripts('infinity-sdk.bundle.js');
 importScripts('bsc-evm.js');
 importScripts('crypto-test-wallets.js');
+importScripts('crypto-test-simulate.js');
+importScripts('pancake-flash.js');
 importScripts('bsc-sellability-probe.js');
 importScripts('watch-activity-price-filter.js');
 importScripts('following-automation-runner.js');
@@ -1548,6 +1550,12 @@ chrome.runtime.onInstalled.addListener(() => {
   try {
     if (typeof globalThis.__CFS_fileWatch_setupAlarm === 'function') globalThis.__CFS_fileWatch_setupAlarm();
   } catch (_) {}
+  /* Auto-restore crypto test snapshot if the browser was interrupted during tests */
+  try {
+    if (typeof globalThis.__CFS_cryptoTest_autoRestoreOnStartup === 'function') {
+      globalThis.__CFS_cryptoTest_autoRestoreOnStartup();
+    }
+  } catch (_) {}
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -2067,6 +2075,11 @@ function validateMessagePayload(type, msg) {
     case 'CFS_JUPITER_FLASHLOAN':
       if (!msg.borrowMint || typeof msg.borrowMint !== 'string' || !msg.borrowMint.trim()) return { valid: false, error: 'borrowMint required' };
       if (!msg.borrowAmount || !String(msg.borrowAmount).trim()) return { valid: false, error: 'borrowAmount required' };
+      break;
+    case 'CFS_PANCAKE_FLASH':
+      if (!msg.poolAddress || typeof msg.poolAddress !== 'string' || !msg.poolAddress.trim()) return { valid: false, error: 'poolAddress required' };
+      if (!msg.borrowAmount || !String(msg.borrowAmount).trim()) return { valid: false, error: 'borrowAmount required' };
+      if (!msg.callbackContract || typeof msg.callbackContract !== 'string' || !msg.callbackContract.trim()) return { valid: false, error: 'callbackContract required' };
       break;
     case 'CFS_JUPITER_PREDICTION_SEARCH':
       if (!msg.operation || typeof msg.operation !== 'string') return { valid: false, error: 'operation required' };
@@ -3279,6 +3292,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   /* ── Jupiter Prediction Search ── */
+  if (type === 'CFS_PANCAKE_FLASH') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_pancake_flash;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'PancakeSwap Flash handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  /* ── Jupiter Prediction Search ── */
   if (type === 'CFS_JUPITER_PREDICTION_SEARCH') {
     (async () => {
       try {
@@ -3480,6 +3505,57 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           error: e && e.message ? e.message : String(e),
           errors: [e && e.message ? e.message : String(e)],
         });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_CRYPTO_TEST_RESTORE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_cryptoTest_restoreSnapshot;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Restore handler not loaded' });
+          return;
+        }
+        const out = await fn();
+        sendResponse({ ok: out.restored, restored: out.restored, reason: out.reason || '', snapshot: out.snapshot || null });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_IS_PLAYBACK_ACTIVE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_cryptoTest_isPlaybackActive;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: true, active: false });
+          return;
+        }
+        const active = await fn();
+        sendResponse({ ok: true, active: active });
+      } catch (e) {
+        sendResponse({ ok: false, active: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_CRYPTO_TEST_SIMULATE') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_cryptoTest_simulate;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Simulation module not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
       }
     })();
     return true;
