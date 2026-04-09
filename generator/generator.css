@@ -11,8 +11,12 @@
   --gen-border: #27272a;
   --gen-border-subtle: rgba(39, 39, 42, 0.6);
   --gen-text: #e4e4e7;
+  /* Primary foreground for inline styles that use var(--gen-fg, …) in the editor */
+  --gen-fg: #e4e4e7;
   --gen-text-secondary: #a1a1aa;
   --gen-muted: #71717a;
+  /* Input wells — slightly darker than panel (mock: zinc-950 fields) */
+  --gen-field-bg: #050507;
   --gen-accent: #3b82f6;
   --gen-accent-hover: #2563eb;
   --gen-accent-glow: rgba(59, 130, 246, 0.15);
@@ -211,6 +215,14 @@ body {
   flex-shrink: 0;
 }
 
+.gen-accordion-extra {
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--gen-text-secondary);
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
 .gen-accordion-trigger .gen-accordion-chevron {
   color: var(--gen-muted);
   transition: transform var(--gen-transition);
@@ -326,6 +338,30 @@ select {
 .gen-template-list {
   flex: 0 0 auto;
   padding: 12px 16px;
+}
+
+.gen-template-picker-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gen-template-select-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-template-copy-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gen-template-hint-secondary {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--gen-muted);
 }
 
 .gen-template-list label {
@@ -543,7 +579,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
+  padding: 6px 8px;
   background: var(--gen-surface);
   border-bottom: 1px solid rgba(39, 39, 42, 0.4);
   cursor: pointer;
@@ -680,6 +716,36 @@ select {
   height: 12px;
 }
 
+.gen-clip-hide-img-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gen-muted, #888);
+  cursor: pointer;
+}
+
+.gen-clip-hide-img-btn:hover {
+  background: rgba(39, 39, 42, 0.35);
+  color: var(--gen-text-secondary);
+}
+
+.gen-clip-hide-img-btn.gen-clip-hide-img-active {
+  color: var(--gen-accent, #3b82f6);
+}
+
+.gen-clip-hide-img-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
 .gen-track-empty {
   padding: 5px 10px 5px 16px;
   font-size: 10px;
@@ -732,12 +798,12 @@ select {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--gen-muted);
-  border-bottom: 1px solid var(--gen-border);
-  padding-bottom: 4px;
-  margin-top: 14px;
-  margin-bottom: 8px;
+  border-bottom: 1px solid var(--gen-border-subtle);
+  padding-bottom: 6px;
+  margin-top: 16px;
+  margin-bottom: 10px;
 }
 
 .gen-prop-section-label:first-child {
@@ -771,17 +837,17 @@ select {
   font-size: 10px;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--gen-text-secondary);
+  letter-spacing: 0.06em;
+  color: #a1a1aa;
 }
 
 /* Inputs */
 .gen-prop-input {
   width: 100%;
-  padding: 5px 8px;
+  padding: 6px 10px;
   font-size: 12px;
   font-family: inherit;
-  background: var(--gen-bg);
+  background: var(--gen-field-bg);
   border: 1px solid var(--gen-border);
   border-radius: var(--gen-radius-sm);
   color: var(--gen-text);
@@ -791,7 +857,7 @@ select {
 
 .gen-prop-input:focus {
   border-color: var(--gen-accent);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45);
 }
 
 .gen-prop-input::placeholder {
@@ -808,40 +874,41 @@ textarea.gen-prop-input {
 
 select.gen-prop-input {
   appearance: none;
+  background-color: var(--gen-field-bg);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2371717a' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 8px center;
-  padding-right: 24px;
+  background-position: right 10px center;
+  padding-right: 26px;
 }
 
 /* Segmented control (Fixed / Responsive) */
 .gen-segmented-control {
   display: flex;
-  background: var(--gen-bg);
+  background: var(--gen-field-bg);
   border: 1px solid var(--gen-border);
   border-radius: var(--gen-radius-sm);
-  padding: 2px;
-  margin-bottom: 8px;
+  padding: 3px;
+  margin-bottom: 10px;
 }
 
 .gen-segmented-btn {
   flex: 1;
-  padding: 4px 0;
+  padding: 6px 4px;
   font-size: 10px;
   font-weight: 500;
   text-align: center;
   color: var(--gen-muted);
-  background: none;
+  background: transparent;
   border: none;
-  border-radius: 2px;
+  border-radius: 3px;
   cursor: pointer;
-  transition: all var(--gen-transition);
+  transition: background var(--gen-transition), color var(--gen-transition), box-shadow var(--gen-transition);
 }
 
 .gen-segmented-btn.active {
-  background: var(--gen-surface-hover);
-  color: var(--gen-text);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  background: #3f3f46;
+  color: #fafafa;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 /* Color + text input pair */
@@ -858,19 +925,19 @@ select.gen-prop-input {
   border: 1px solid var(--gen-border);
   border-radius: var(--gen-radius-sm);
   cursor: pointer;
-  background: none;
+  background: var(--gen-field-bg);
 }
 
 /* Alignment buttons */
 .gen-align-group {
   display: flex;
   gap: 2px;
-  background: var(--gen-bg);
+  background: var(--gen-field-bg);
   border: 1px solid var(--gen-border);
-  padding: 3px;
+  padding: 4px;
   border-radius: var(--gen-radius-sm);
   width: max-content;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .gen-align-btn {
@@ -880,22 +947,22 @@ select.gen-prop-input {
   align-items: center;
   justify-content: center;
   padding: 0;
-  background: none;
+  background: transparent;
   border: none;
-  border-radius: 2px;
-  color: var(--gen-text-secondary);
+  border-radius: 3px;
+  color: var(--gen-muted);
   cursor: pointer;
   transition: all var(--gen-transition);
 }
 
 .gen-align-btn:hover {
-  background: var(--gen-surface-hover);
+  background: #3f3f46;
   color: var(--gen-text);
 }
 
 .gen-align-btn.active {
-  background: var(--gen-border);
-  color: var(--gen-text);
+  background: #3f3f46;
+  color: #fafafa;
 }
 
 .gen-align-btn svg {
@@ -907,11 +974,11 @@ select.gen-prop-input {
    Merge Field Cards
    ======================================================================== */
 .gen-merge-card {
-  background: rgba(30, 58, 138, 0.06);
-  border: 1px solid rgba(30, 58, 138, 0.2);
+  background: rgba(30, 58, 138, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.28);
   border-radius: var(--gen-radius-md);
-  padding: 8px;
-  margin-bottom: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
   position: relative;
   transition: border-color var(--gen-transition), background var(--gen-transition);
 }
@@ -988,18 +1055,19 @@ select.gen-prop-input {
 .gen-merge-key-input {
   flex: 1;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 4px 8px;
   font-size: 10px;
   font-family: ui-monospace, monospace;
-  color: var(--gen-accent);
-  background: rgba(30, 58, 138, 0.1);
-  border: 1px solid rgba(30, 58, 138, 0.3);
+  color: #60a5fa;
+  background: rgba(23, 37, 84, 0.45);
+  border: 1px solid rgba(59, 130, 246, 0.35);
   border-radius: var(--gen-radius-sm);
   outline: none;
 }
 
 .gen-merge-key-input:focus {
   border-color: var(--gen-accent);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
 }
 
 .gen-merge-card-delete {
@@ -1040,11 +1108,11 @@ select.gen-prop-input {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 0;
+  padding: 8px 10px;
   font-size: 10px;
   font-weight: 500;
-  color: var(--gen-accent);
-  background: var(--gen-surface);
+  color: #60a5fa;
+  background: var(--gen-field-bg);
   border: 1px solid var(--gen-border);
   border-radius: var(--gen-radius-sm);
   cursor: pointer;
@@ -1052,7 +1120,8 @@ select.gen-prop-input {
 }
 
 .gen-merge-add-btn:hover {
-  background: var(--gen-surface-hover);
+  background: rgba(30, 58, 138, 0.2);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 
 .gen-merge-add-btn svg {
@@ -1065,20 +1134,21 @@ select.gen-prop-input {
    ======================================================================== */
 .gen-delete-clip-btn {
   width: 100%;
-  padding: 6px 0;
+  padding: 8px 10px;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   text-align: center;
-  color: var(--gen-danger);
-  background: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  background: rgba(127, 29, 29, 0.22);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: var(--gen-radius-sm);
   cursor: pointer;
   transition: all var(--gen-transition);
 }
 
 .gen-delete-clip-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(127, 29, 29, 0.35);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 /* Empty / hint states */
@@ -1086,10 +1156,17 @@ select.gen-prop-input {
   font-size: 10px;
   color: var(--gen-muted);
   font-style: italic;
-  padding: 8px;
+  padding: 10px 12px;
   text-align: center;
-  border: 1px dashed var(--gen-border);
+  border: 1px dashed var(--gen-border-subtle);
   border-radius: var(--gen-radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* Code / pre-style template snippets in inspector (low specificity; inline styles may still win) */
+.cfs-properties-form-wrap code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--gen-fg);
 }
 
 /* Legacy add-content button compat */
@@ -1228,22 +1305,25 @@ button.primary:hover,
   height: 52px;
   padding: 0 16px;
   border-bottom: 1px solid var(--gen-border-subtle);
-  background: var(--gen-surface);
+  background: rgba(24, 24, 27, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   flex-shrink: 0;
+  z-index: 10;
 }
 
 .gen-dims-badge {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   color: var(--gen-muted);
-  padding: 4px 10px;
-  background: var(--gen-bg);
-  border: 1px solid var(--gen-border);
-  border-radius: var(--gen-radius-sm);
+  padding: 5px 12px;
+  background: rgba(39, 39, 42, 0.5);
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  border-radius: var(--gen-radius-md);
 }
 
 .gen-project-select {
@@ -1254,6 +1334,55 @@ button.primary:hover,
   border-radius: var(--gen-radius-sm);
   color: var(--gen-text);
   font-family: inherit;
+}
+
+.gen-project-row-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--gen-border);
+  flex-shrink: 0;
+}
+
+.gen-project-row-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gen-muted);
+}
+
+.gen-project-select-sidebar {
+  width: 100%;
+  max-width: 100%;
+}
+
+.gen-project-toolbar-hint {
+  font-size: 11px;
+  padding: 4px 8px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gen-template-clipboard-banner {
+  font-size: 11px;
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  background: var(--gen-accent-glow);
+  border: 1px solid var(--gen-accent-border);
+  border-radius: var(--gen-radius-sm);
+  color: var(--gen-text-secondary);
+}
+
+.gen-template-staged-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0;
+  align-items: center;
 }
 
 .gen-preview-toolbar button {
@@ -1474,9 +1603,9 @@ button.primary:hover,
 /* Dimensions display in toolbar */
 .gen-dims-badge {
   background: rgba(39, 39, 42, 0.5);
-  padding: 5px 10px;
-  border-radius: var(--gen-radius-sm);
-  border: 1px solid var(--gen-border-subtle);
+  padding: 5px 12px;
+  border-radius: var(--gen-radius-md);
+  border: 1px solid rgba(63, 63, 70, 0.5);
   font-size: 11px;
   color: var(--gen-muted);
   font-family: ui-monospace, monospace;
@@ -1723,24 +1852,22 @@ button.primary:hover,
 }
 
 .gen-editor-toolbar-sidebar .cfs-editor-toolbar {
-  display: grid !important;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  display: flex !important;
+  flex-direction: column;
+  gap: 10px;
   padding: 0 !important;
   background: none !important;
   border: none !important;
-  align-items: start;
+  align-items: stretch;
 }
 
-.gen-editor-toolbar-sidebar .cfs-editor-toolbar label {
+.gen-editor-toolbar-sidebar .cfs-editor-toolbar > label {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--gen-muted);
-  margin-bottom: 2px;
-  display: block;
-  grid-column: span 1;
+  margin-bottom: -6px;
 }
 
 .gen-editor-toolbar-sidebar .cfs-editor-toolbar select {
@@ -1758,13 +1885,11 @@ button.primary:hover,
   border-radius: var(--gen-radius-sm);
   margin: 0;
   font-size: 12px;
-  grid-column: span 2;
 }
 
 .gen-editor-toolbar-sidebar .cfs-editor-toolbar .cfs-editor-custom-dims {
-  grid-column: span 2;
   display: flex;
-  gap: 6px;
+  gap: 0;
   align-items: center;
 }
 
@@ -1777,15 +1902,78 @@ button.primary:hover,
 
 /* Hide "Save as JSON" and "Back to preview" toolbar buttons when in sidebar (duplicated in Output tab) */
 .gen-editor-toolbar-sidebar .cfs-editor-toolbar button {
-  grid-column: span 1;
   padding: 6px 10px;
   font-size: 11px;
   white-space: nowrap;
 }
 
-/* Wrap each label+control pair as a field group */
-.gen-editor-toolbar-sidebar .cfs-editor-toolbar > label {
-  margin-top: 2px;
+/* --- Canvas Config Paired Fields (Resolution + Aspect, Dims + Framerate) --- */
+.gen-config-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gen-config-pair .gen-prop-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gen-config-pair .gen-prop-group > label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gen-muted);
+}
+
+/* --- Dimensions Inline (W × H bordered container) --- */
+.gen-dims-inline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: var(--gen-radius-sm);
+  overflow: hidden;
+}
+
+.gen-dims-inline input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  background: transparent;
+  border: none;
+  color: var(--gen-text);
+  outline: none;
+}
+
+.gen-dims-inline input:focus {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.gen-dims-times {
+  color: var(--gen-muted);
+  font-size: 11px;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+/* --- Video-Only Fields --- */
+.cfs-video-only-field {
+  display: none;
+}
+
+.cfs-video-only-field > label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gen-muted);
 }
 
 /* ========================================================================
@@ -1805,4 +1993,102 @@ button.primary:hover,
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ========================================================================
+   Output Tab — Render & Upload Sections
+   ======================================================================== */
+.gen-output-render-section,
+.gen-output-upload-section {
+  font-size: 12px;
+}
+
+.gen-output-render-section .gen-export-primary,
+.gen-output-upload-section .gen-export-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--gen-accent-glow);
+  color: var(--gen-accent);
+  border: 1px solid var(--gen-accent-border);
+  border-radius: var(--gen-radius-sm);
+  cursor: pointer;
+  transition: background var(--gen-transition);
+}
+
+.gen-output-render-section .gen-export-primary:hover,
+.gen-output-upload-section .gen-export-primary:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+/* ========================================================================
+   Copy / Save History Dialog
+   ======================================================================== */
+.cfs-copy-dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cfs-copy-dialog {
+  background: var(--gen-surface, #fff);
+  color: var(--gen-text, #18181b);
+  border-radius: var(--gen-radius-lg, 8px);
+  padding: 20px;
+  max-width: 420px;
+  width: 90%;
+  max-height: 70vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+.cfs-copy-dialog h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.cfs-copy-dialog label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gen-muted, #888);
+  margin-bottom: 4px;
+}
+.cfs-copy-dialog input,
+.cfs-copy-dialog select {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--gen-border, #333);
+  border-radius: var(--gen-radius-sm, 4px);
+  background: var(--gen-bg, #09090b);
+  color: var(--gen-text, #fafafa);
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+.cfs-copy-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.cfs-copy-dialog-actions button {
+  padding: 6px 16px;
+  font-size: 13px;
+  border-radius: var(--gen-radius-sm, 4px);
+  cursor: pointer;
+  border: 1px solid var(--gen-border, #333);
+  background: var(--gen-surface, #18181b);
+  color: var(--gen-text, #fafafa);
+}
+.cfs-copy-dialog-actions button.primary {
+  background: var(--gen-accent, #3b82f6);
+  color: #fff;
+  border-color: var(--gen-accent, #3b82f6);
 }

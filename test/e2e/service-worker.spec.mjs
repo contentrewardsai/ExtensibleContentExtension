@@ -1070,18 +1070,30 @@ test.describe('SAVE_TEMPLATE_TO_PROJECT', () => {
     expect(resp?.error).toContain('Missing templateId');
   });
 
+  test('rejects missing projectId', async ({ extensionContext, extensionId }) => {
+    const resp = await sendExtensionMessage(extensionContext, extensionId, {
+      type: 'SAVE_TEMPLATE_TO_PROJECT',
+      templateId: 't1',
+      templateJson: '{}',
+    });
+    expect(resp?.ok).toBe(false);
+    expect(resp?.error).toContain('projectId');
+  });
+
   test('stores pending template save', async ({ extensionContext, extensionId }) => {
     const resp = await sendExtensionMessage(extensionContext, extensionId, {
       type: 'SAVE_TEMPLATE_TO_PROJECT',
       templateId: 'test-template-123',
       templateJson: '{"actions":[]}',
       extensionJson: { version: 1 },
+      projectId: 'project-abc',
     });
     expect(resp?.ok).toBe(true);
 
     const stored = await readStorage(extensionContext, extensionId, 'cfs_pending_template_save');
     expect(stored?.templateId).toBe('test-template-123');
     expect(stored?.templateJson).toBe('{"actions":[]}');
+    expect(stored?.projectId).toBe('project-abc');
     expect(stored?.at).toBeGreaterThan(0);
   });
 });

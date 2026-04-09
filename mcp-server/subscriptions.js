@@ -71,7 +71,7 @@ function buildPoller(ctx, type, params) {
         if (chain === 'solana') {
           const res = await ctx.sendMessage({
             type: 'CFS_SOLANA_RPC_READ',
-            readType: 'nativeBalance',
+            readKind: 'nativeBalance',
             address,
           });
           return res;
@@ -79,7 +79,7 @@ function buildPoller(ctx, type, params) {
         if (chain === 'bsc') {
           const res = await ctx.sendMessage({
             type: 'CFS_BSC_QUERY',
-            queryType: 'nativeBalance',
+            operation: 'nativeBalance',
             address,
           });
           return res;
@@ -138,8 +138,9 @@ function buildPoller(ctx, type, params) {
     case 'asterPosition':
       return async () => {
         const res = await ctx.sendMessage({
-          type: 'CFS_ASTER_FUTURES_ACCOUNT',
-          endpoint: 'positionRisk',
+          type: 'CFS_ASTER_FUTURES',
+          asterCategory: 'account',
+          operation: 'positionRisk',
         });
         return res;
       };

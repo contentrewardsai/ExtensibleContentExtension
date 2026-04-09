@@ -1,6 +1,7 @@
 /**
  * Run generator step: send inputs to the template engine (via offscreen runner).
- * templateId (pluginId) selects a template; runner loads template + extension and runs generate().
+ * templateId (pluginId) selects a template (bare id = bundled; project:id = uploads templates);
+ * runner loads template + extension using selectedProjectId from storage for project templates.
  * Receives image/video/audio/text/book; saves to workflow variable.
  */
 (function() {

@@ -99,6 +99,11 @@
         entries.push({ find: CFS_META_PREFIX + 'INPUT_SCHEMA', replace: JSON.stringify(ext.inputSchema) });
       } catch (e) {}
     }
+    if (ext._undoHistory) {
+      try {
+        entries.push({ find: CFS_META_PREFIX + 'UNDO_HISTORY', replace: JSON.stringify(ext._undoHistory) });
+      } catch (e) {}
+    }
     return entries;
   }
 
@@ -114,6 +119,10 @@
       var suffix = key.slice(CFS_META_PREFIX.length);
       if (suffix === 'INPUT_SCHEMA') {
         try { meta.inputSchema = JSON.parse(m.replace); } catch (e) {}
+        return;
+      }
+      if (suffix === 'UNDO_HISTORY') {
+        try { meta._undoHistory = JSON.parse(m.replace); } catch (e) {}
         return;
       }
       var extKey = CFS_META_KEYS[suffix];
@@ -140,7 +149,12 @@
     const extension = options.extension || {};
     const template = options.template || {};
     var embeddedMeta = deserializeEditorMeta(template.merge);
+    var _savedUndoHistory = null;
     if (embeddedMeta) {
+      if (embeddedMeta._undoHistory) {
+        _savedUndoHistory = embeddedMeta._undoHistory;
+        delete embeddedMeta._undoHistory;
+      }
       Object.keys(embeddedMeta).forEach(function (k) {
         if (extension[k] == null || extension[k] === '') extension[k] = embeddedMeta[k];
       });
@@ -222,8 +236,98 @@
       if (t === outputType) opt.selected = true;
       outputTypeSelect.appendChild(opt);
     });
-    toolbar.appendChild(document.createElement('label')).textContent = 'Output:';
+    toolbar.appendChild(document.createElement('label')).textContent = 'Format Type';
     toolbar.appendChild(outputTypeSelect);
+
+    var _cfgResolutionBases = { sd: 480, hd: 720, fhd: 1080, '4k': 2160 };
+    var _cfgAspectRatioMap = { '1:1': [1,1], '16:9': [16,9], '9:16': [9,16], '4:5': [4,5] };
+
+    var cfgResolutionSelect = document.createElement('select');
+    cfgResolutionSelect.id = 'cfs-editor-cfg-resolution';
+    [
+      { value: 'fhd', label: 'Full HD (1080p)' },
+      { value: 'sd', label: 'SD (480p)' },
+      { value: 'hd', label: 'HD (720p)' },
+      { value: '4k', label: '4K (2160p)' },
+      { value: 'custom', label: 'Custom' }
+    ].forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      if (o.value === 'fhd') opt.selected = true;
+      cfgResolutionSelect.appendChild(opt);
+    });
+    var cfgAspectSelect = document.createElement('select');
+    cfgAspectSelect.id = 'cfs-editor-cfg-aspect';
+    [
+      { value: '1:1', label: '1:1 Square' },
+      { value: '16:9', label: '16:9 Landscape' },
+      { value: '9:16', label: '9:16 Portrait' },
+      { value: '4:5', label: '4:5 Portrait' },
+      { value: 'custom', label: 'Custom' }
+    ].forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      if (o.value === '1:1') opt.selected = true;
+      cfgAspectSelect.appendChild(opt);
+    });
+    var resAspRow = document.createElement('div');
+    resAspRow.className = 'gen-config-pair';
+    var _resGroup = document.createElement('div');
+    _resGroup.className = 'gen-prop-group';
+    var _cfgResLabel = document.createElement('label');
+    _cfgResLabel.textContent = 'Resolution';
+    _resGroup.appendChild(_cfgResLabel);
+    _resGroup.appendChild(cfgResolutionSelect);
+    var _aspGroup = document.createElement('div');
+    _aspGroup.className = 'gen-prop-group';
+    var _cfgAspLabel = document.createElement('label');
+    _cfgAspLabel.textContent = 'Aspect Ratio';
+    _aspGroup.appendChild(_cfgAspLabel);
+    _aspGroup.appendChild(cfgAspectSelect);
+    resAspRow.appendChild(_resGroup);
+    resAspRow.appendChild(_aspGroup);
+    toolbar.appendChild(resAspRow);
+
+    function _cfgApplyResolutionAspect() {
+      var res = cfgResolutionSelect.value;
+      var asp = cfgAspectSelect.value;
+      if (res === 'custom' || asp === 'custom') return;
+      var base = _cfgResolutionBases[res];
+      var ratio = _cfgAspectRatioMap[asp];
+      if (!base || !ratio) return;
+      var rw = ratio[0], rh = ratio[1];
+      var w, h;
+      if (rw >= rh) { h = base; w = Math.round(base * rw / rh); }
+      else { w = base; h = Math.round(base * rh / rw); }
+      customWidthInput.value = w;
+      customHeightInput.value = h;
+      if (presetSelect.value !== 'custom') presetSelect.value = 'custom';
+      applyCustomDimensionsFromInputs();
+    }
+    cfgResolutionSelect.addEventListener('change', _cfgApplyResolutionAspect);
+    cfgAspectSelect.addEventListener('change', _cfgApplyResolutionAspect);
+
+    function _cfgSyncResolutionAspect(w, h) {
+      if (!w || !h) return;
+      for (var resKey in _cfgResolutionBases) {
+        for (var aspKey in _cfgAspectRatioMap) {
+          var base = _cfgResolutionBases[resKey];
+          var r = _cfgAspectRatioMap[aspKey];
+          var expW, expH;
+          if (r[0] >= r[1]) { expH = base; expW = Math.round(base * r[0] / r[1]); }
+          else { expW = base; expH = Math.round(base * r[1] / r[0]); }
+          if (expW === w && expH === h) {
+            cfgResolutionSelect.value = resKey;
+            cfgAspectSelect.value = aspKey;
+            return;
+          }
+        }
+      }
+      cfgResolutionSelect.value = 'custom';
+      cfgAspectSelect.value = 'custom';
+    }
 
     const presetSelect = document.createElement('select');
     presetSelect.id = 'cfs-editor-preset';
@@ -272,7 +376,7 @@
     toolbar.appendChild(dimensionsEl);
 
     var customDimsWrap = document.createElement('span');
-    customDimsWrap.className = 'cfs-editor-custom-dims';
+    customDimsWrap.className = 'cfs-editor-custom-dims gen-dims-inline';
     customDimsWrap.style.display = 'none';
     var customWidthInput = document.createElement('input');
     customWidthInput.type = 'number';
@@ -308,6 +412,52 @@
       if (e.key === 'Enter') { onCustomDimInputApply(); }
     });
 
+    var cfgFramerateSelect = document.createElement('select');
+    cfgFramerateSelect.id = 'cfs-editor-cfg-framerate';
+    [
+      { value: '25', label: '25 fps' },
+      { value: '30', label: '30 fps' },
+      { value: '60', label: '60 fps' },
+      { value: '12', label: '12 fps' }
+    ].forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      if (o.value === '25') opt.selected = true;
+      cfgFramerateSelect.appendChild(opt);
+    });
+    var _fpsField = document.createElement('div');
+    _fpsField.className = 'gen-prop-group cfs-video-only-field';
+    var _fpsLabel = document.createElement('label');
+    _fpsLabel.textContent = 'Framerate (FPS)';
+    _fpsField.appendChild(_fpsLabel);
+    _fpsField.appendChild(cfgFramerateSelect);
+    toolbar.appendChild(_fpsField);
+
+    var cfgVideoLengthInput = document.createElement('input');
+    cfgVideoLengthInput.type = 'number';
+    cfgVideoLengthInput.id = 'cfs-editor-cfg-video-length';
+    cfgVideoLengthInput.min = '0.1';
+    cfgVideoLengthInput.step = '0.1';
+    cfgVideoLengthInput.placeholder = 'Auto';
+    cfgVideoLengthInput.title = 'Video duration in seconds';
+    cfgVideoLengthInput.setAttribute('aria-label', 'Video length in seconds');
+    var _vidLenField = document.createElement('div');
+    _vidLenField.className = 'gen-prop-group cfs-video-only-field';
+    var _vidLenLabel = document.createElement('label');
+    _vidLenLabel.textContent = 'Video Length (s)';
+    _vidLenField.appendChild(_vidLenLabel);
+    _vidLenField.appendChild(cfgVideoLengthInput);
+    toolbar.appendChild(_vidLenField);
+
+    function _cfgUpdateVideoOnlyFields() {
+      var isVideo = outputTypeSelect && (outputTypeSelect.value === 'video');
+      var fields = toolbar.querySelectorAll('.cfs-video-only-field');
+      for (var i = 0; i < fields.length; i++) {
+        fields[i].style.display = isVideo ? '' : 'none';
+      }
+    }
+
     var exportScaleResolution = null;
     var resolutionScaleSelect = document.createElement('select');
     resolutionScaleSelect.id = 'cfs-editor-resolution-scale';
@@ -332,22 +482,33 @@
     function updateDimensionsDisplay() {
       var d = getCanvasDimensions();
       dimensionsEl.textContent = d.w + ' \u00d7 ' + d.h;
-      if (presetSelect.value === 'custom') {
+      var inSidebar = toolbar.classList.contains('cfs-toolbar-in-preview');
+      if (presetSelect.value === 'custom' || inSidebar) {
         customWidthInput.value = d.w;
         customHeightInput.value = d.h;
+      }
+      if (cfgResolutionSelect && cfgAspectSelect) {
+        _cfgSyncResolutionAspect(d.w, d.h);
       }
     }
 
     function updateCustomDimsVisibility() {
       var isAudio = _lastOutputType === 'audio' || (outputTypeSelect && outputTypeSelect.value === 'audio');
       var isCustom = presetSelect.value === 'custom';
-      dimensionsEl.style.display = (isAudio || isCustom) ? 'none' : '';
-      customDimsWrap.style.display = isAudio ? 'none' : (isCustom ? '' : 'none');
-      if (isCustom) {
+      var inSidebar = toolbar.classList.contains('cfs-toolbar-in-preview');
+      if (inSidebar) {
+        dimensionsEl.style.display = 'none';
+        customDimsWrap.style.display = isAudio ? 'none' : '';
+      } else {
+        dimensionsEl.style.display = (isAudio || isCustom) ? 'none' : '';
+        customDimsWrap.style.display = isAudio ? 'none' : (isCustom ? '' : 'none');
+      }
+      if (isCustom || inSidebar) {
         var d = getCanvasDimensions();
         customWidthInput.value = d.w;
         customHeightInput.value = d.h;
       }
+      _cfgUpdateVideoOnlyFields();
     }
 
     function applyCustomDimensionsFromInputs() {
@@ -690,7 +851,7 @@
         tb.set('cfsRawText', rawText);
         if (obj.cfsRightPx != null) tb.set('cfsRightPx', obj.cfsRightPx);
         if (obj.name != null) tb.set('name', obj.name);
-        var keys = ['cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsTrackIndex', 'cfsMergeKey', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'cfsRichText', 'backgroundColor', 'opacity', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsFontSizePct', 'cfsRadiusPct', 'cfsAnimation', 'cfsAlignHorizontal', 'cfsAlignVertical', 'cfsLineHeight', 'cfsLetterSpacing', 'cfsTextTransform', 'cfsTextDecoration', 'cfsGradient', 'cfsStroke', 'cfsShadow', 'cfsFilter', 'cfsMaxHeightPx', 'cfsBottomPx', 'cfsFadeIn', 'cfsFadeOut', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsLengthAuto'];
+        var keys = ['cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsTrackIndex', 'cfsMergeKey', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'cfsRichText', 'backgroundColor', 'opacity', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsFontSizePct', 'cfsRadiusPct', 'cfsAnimation', 'cfsAlignHorizontal', 'cfsAlignVertical', 'cfsLineHeight', 'cfsLetterSpacing', 'cfsTextTransform', 'cfsTextDecoration', 'cfsGradient', 'cfsStroke', 'cfsShadow', 'cfsFilter', 'cfsMaxHeightPx', 'cfsBottomPx', 'cfsFadeIn', 'cfsFadeOut', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsLengthAuto', 'cfsHideOnImage'];
         keys.forEach(function (k) { if (obj[k] != null) tb.set(k, obj[k]); });
         withInternalCanvasMutation(function () {
           c.remove(obj);
@@ -752,15 +913,17 @@
     propertyPanel.className = 'cfs-editor-property-panel';
     var propertyPanelExpanded = true;
 
-    var undoStack = [];
-    var redoStack = [];
-    var lastUndoFingerprint = null;
+    var cfsJsonDiff = global.__CFS_jsonPatch && global.__CFS_jsonPatch.diff;
+    var cfsJsonPatch = global.__CFS_jsonPatch && global.__CFS_jsonPatch.patch;
+    var fabricHead = null;
+    var undoPatches = [];
+    var redoPatches = [];
     var timelineMinTracks = 2;
-    var maxHistory = 30;
+    var maxHistory = 100;
     var isUndoRedo = false;
     var isInternalCanvasMutation = false;
     var saveStateTimer = null;
-    var CFS_RESPONSIVE_KEYS = ['dataURL', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsLengthAuto', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsOriginalClip', 'name', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsRadiusPct', 'cfsFontSizePct', 'cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsWrapText', 'cfsRichText', 'cfsRawText', 'cfsLetterSpacing', 'cfsLineHeight', 'cfsTextTransform', 'cfsTextDecoration', 'cfsGradient', 'cfsStroke', 'cfsShadow', 'cfsAlignHorizontal', 'cfsAlignVertical', 'cfsAnimation', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsTextBgFor'];
+    var CFS_RESPONSIVE_KEYS = ['dataURL', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsLengthAuto', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsOriginalClip', 'name', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsRadiusPct', 'cfsFontSizePct', 'cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsWrapText', 'cfsRichText', 'cfsRawText', 'cfsLetterSpacing', 'cfsLineHeight', 'cfsTextTransform', 'cfsTextDecoration', 'cfsGradient', 'cfsStroke', 'cfsShadow', 'cfsAlignHorizontal', 'cfsAlignVertical', 'cfsAnimation', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsTextBgFor', 'cfsHideOnImage'];
 
     /** Get canvas state for preset switch. Prefer toObject (accepts propertiesToInclude); toJSON may not. */
     function getCanvasStateForPresetSwitch(c) {
@@ -1060,16 +1223,31 @@
     function pushUndo(stateOverride) {
       if (!canvas || isUndoRedo || isInternalCanvasMutation) return;
       try {
-        var state = stateOverride || canvas.toJSON(CFS_RESPONSIVE_KEYS);
-        if (state && state.width == null) state.width = canvas.getWidth ? canvas.getWidth() : (canvas.width || 0);
-        if (state && state.height == null) state.height = canvas.getHeight ? canvas.getHeight() : (canvas.height || 0);
-        var fp = '';
-        try { fp = JSON.stringify(state); } catch (_) {}
-        if (fp && fp === lastUndoFingerprint) return;
-        undoStack.push(state);
-        if (fp) lastUndoFingerprint = fp;
-        if (undoStack.length > maxHistory) undoStack.shift();
-        redoStack.length = 0;
+        var newState = stateOverride || canvas.toJSON(CFS_RESPONSIVE_KEYS);
+        if (newState && newState.width == null) newState.width = canvas.getWidth ? canvas.getWidth() : (canvas.width || 0);
+        if (newState && newState.height == null) newState.height = canvas.getHeight ? canvas.getHeight() : (canvas.height || 0);
+        if (!fabricHead) { fabricHead = newState; updateUndoRedoButtons(); return; }
+        if (!cfsJsonDiff) { fabricHead = newState; return; }
+        var reversePatch = cfsJsonDiff(newState, fabricHead);
+        if (!reversePatch.length) return;
+        undoPatches.unshift({ ops: reversePatch, at: Date.now(), isSave: false });
+        if (undoPatches.length > maxHistory) undoPatches.pop();
+        redoPatches.length = 0;
+        fabricHead = newState;
+        updateUndoRedoButtons();
+      } catch (e) { /* ignore */ }
+    }
+
+    /** After template load / injectMergeData, sync fabricHead to the visible canvas and clear patches so Undo does not revert to pre-merge placeholders. */
+    function resetEditorUndoBaseline() {
+      if (!canvas) return;
+      try {
+        var s = canvas.toJSON(CFS_RESPONSIVE_KEYS);
+        if (s && s.width == null) s.width = canvas.getWidth ? canvas.getWidth() : (canvas.width || 0);
+        if (s && s.height == null) s.height = canvas.getHeight ? canvas.getHeight() : (canvas.height || 0);
+        fabricHead = s;
+        undoPatches.length = 0;
+        redoPatches.length = 0;
         updateUndoRedoButtons();
       } catch (e) { /* ignore */ }
     }
@@ -1085,8 +1263,8 @@
     }
 
     function updateUndoRedoButtons() {
-      if (undoBtn) undoBtn.disabled = undoStack.length < 2;
-      if (redoBtn) redoBtn.disabled = !redoStack.length;
+      if (undoBtn) undoBtn.disabled = !undoPatches.length;
+      if (redoBtn) redoBtn.disabled = !redoPatches.length;
     }
 
     function restoreState(state) {
@@ -1104,7 +1282,6 @@
             refreshPropertyPanel();
             refreshTimeline();
             invalidateFabricTextLayout(canvas);
-            try { lastUndoFingerprint = JSON.stringify(state); } catch (_) {}
           });
       } finally {
         setTimeout(function () { isUndoRedo = false; }, 0);
@@ -1121,20 +1298,26 @@
     }
 
     function undo() {
-      if (undoStack.length < 2 || !canvas) return;
-      var current = undoStack.pop();
-      redoStack.push(current);
-      var prev = undoStack[undoStack.length - 1];
-      restoreState(prev);
+      if (!undoPatches.length || !fabricHead || !canvas) return;
+      if (!cfsJsonPatch || !cfsJsonDiff) return;
+      var entry = undoPatches.shift();
+      var prevState = cfsJsonPatch(fabricHead, entry.ops);
+      var forwardPatch = cfsJsonDiff(prevState, fabricHead);
+      redoPatches.unshift({ ops: forwardPatch, at: entry.at, isSave: entry.isSave });
+      fabricHead = prevState;
+      restoreState(fabricHead);
       editEvents.emit('edit:undo', {});
     }
 
     function redo() {
-      if (!redoStack.length || !canvas) return;
-      var state = redoStack.pop();
-      undoStack.push(state);
-      try { lastUndoFingerprint = JSON.stringify(state); } catch (_) {}
-      restoreState(state);
+      if (!redoPatches.length || !fabricHead || !canvas) return;
+      if (!cfsJsonPatch || !cfsJsonDiff) return;
+      var entry = redoPatches.shift();
+      var nextState = cfsJsonPatch(fabricHead, entry.ops);
+      var reversePatch = cfsJsonDiff(nextState, fabricHead);
+      undoPatches.unshift({ ops: reversePatch, at: entry.at, isSave: entry.isSave });
+      fabricHead = nextState;
+      restoreState(fabricHead);
       editEvents.emit('edit:redo', {});
     }
 
@@ -1270,13 +1453,24 @@
       return eng.computeStillImageSeekTimeSec(template, dur);
     }
 
-    /** Image: seek past typewriter so canvas matches still export; video/audio: use playhead. */
+    /** Image: all clips visible at still seek time (ignore clip timing), minus cfsHideOnImage; video/audio: playhead seek. */
     function applySeekForOutputPreview(fabricCanvasArg) {
       var fc = fabricCanvasArg || canvas;
-      if (!coreScene || !coreScene.seekToTime || !fc) return;
+      if (!coreScene || !fc) return;
       var ot = outputTypeSelect && outputTypeSelect.value;
-      var t = (ot === 'image') ? computeEditorStillSeekSec(fc) : (currentPlayheadSec || 0);
-      if (ot === 'image') setPlayheadTime(t);
+      if (ot === 'image') {
+        if (coreScene.restoreAllBaseStates) coreScene.restoreAllBaseStates(fc);
+        var tStill = computeEditorStillSeekSec(fc);
+        if (typeof setPlayheadTime === 'function') setPlayheadTime(tStill);
+        if (coreScene.seekToTime) coreScene.seekToTime(fc, tStill, { ignoreClipTiming: true });
+        fc.getObjects().forEach(function (obj) {
+          if (obj.cfsHideOnImage && obj.set) obj.set('visible', false);
+        });
+        fc.renderAll();
+        return;
+      }
+      if (!coreScene.seekToTime) return;
+      var t = currentPlayheadSec || 0;
       coreScene.seekToTime(fc, t);
     }
 
@@ -1558,6 +1752,7 @@
           width = targetW > 0 ? targetW : structure.width;
           height = targetH > 0 ? targetH : structure.height;
           var stateToLoad = fabricState;
+          withInternalCanvasMutation(function () {
           fabricCanvas.loadFromJSON(stateToLoad, function () {
           if (fabricCanvas.setDimensions) {
             fabricCanvas.setDimensions({ width: targetW, height: targetH });
@@ -1565,7 +1760,7 @@
           }
           ensureCanvasObjectsSelectable(fabricCanvas);
           var loadedObjs = fabricCanvas.getObjects();
-          var keys = ['cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsLineHeight', 'cfsWrapText', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsRichText', 'cfsAnimation', 'cfsLengthAuto', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsStroke', 'cfsShadow', 'cfsTextTransform', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsAlignVertical', 'cfsAlignHorizontal', 'cfsLetterSpacing', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsFontSizePct', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio'];
+          var keys = ['cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsLineHeight', 'cfsWrapText', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsRichText', 'cfsAnimation', 'cfsLengthAuto', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsStroke', 'cfsShadow', 'cfsTextTransform', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsAlignVertical', 'cfsAlignHorizontal', 'cfsLetterSpacing', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsFontSizePct', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsHideOnImage'];
           (stateToLoad.objects || structure.objects || []).forEach(function (orig, i) {
             var obj = loadedObjs[i];
             if (!obj || !obj.set) return;
@@ -1592,6 +1787,7 @@
           setCanvasZoom(canvasZoom);
           invalidateFabricTextLayout(fabricCanvas);
           fabricCanvas.renderAll();
+          resetEditorUndoBaseline();
           /* Delayed passes: re-apply scaled geometry in case Fabric/canvas dimensions weren't ready; refreshTextboxWrapping fixes textbox height */
           setTimeout(function () {
             applyScaledGeometryFromState(fabricCanvas, stateToLoad.objects || structure.objects);
@@ -1607,6 +1803,7 @@
             refreshLayersPanel();
             refreshPropertyPanel();
             applySeekForOutputPreview(fabricCanvas);
+            resetEditorUndoBaseline();
             if (typeof onDone === 'function') onDone();
           }, 150);
           if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.ready === 'object') {
@@ -1623,6 +1820,7 @@
           refreshLayersPanel();
           refreshPropertyPanel();
           setTimeout(resolveAutoLengthsFromMedia, 500);
+        });
         });
         };
         var downloadToUploads = (typeof options.downloadToUploads === 'function' && options.downloadToUploads) || (typeof global !== 'undefined' && global.__CFS_downloadToUploads) || (typeof window !== 'undefined' && window.__CFS_downloadToUploads);
@@ -1657,12 +1855,15 @@
         }
         width = targetW;
         height = targetH;
+        withInternalCanvasMutation(function () {
         fabricCanvas.loadFromJSON(emptyState, function () {
           syncCanvasToPresetDimensions();
           fabricCanvas.renderAll();
           refreshLayersPanel();
           refreshPropertyPanel();
+          resetEditorUndoBaseline();
           if (typeof onDone === 'function') onDone();
+        });
         });
       } else if (typeof onDone === 'function') onDone();
       };
@@ -1799,6 +2000,7 @@
         if (savedState && savedState.objects && savedState.objects.length) {
           var stateToLoad = scaleCanvasStateToSize(savedState, dim.w, dim.h);
           stateToLoad.background = stateToLoad.background || bg;
+          withInternalCanvasMutation(function () {
           canvas.loadFromJSON(stateToLoad, function () {
             var loadedObjs = canvas.getObjects();
             var oldW = savedState.width || dim.w;
@@ -1847,6 +2049,7 @@
             refreshLayersPanel();
             refreshPropertyPanel();
             refreshTimeline();
+            resetEditorUndoBaseline();
             /* Delayed passes: re-apply scaled geometry in case Fabric overwrote; then applyResponsivePositions */
             setTimeout(function () {
               applyScaledGeometryFromState(canvas, stateToLoad.objects);
@@ -1873,7 +2076,9 @@
               if (typeof zoomToFit === 'function') zoomToFit();
               if (typeof resetViewportAndScroll === 'function') resetViewportAndScroll();
               updateCanvasWrapAlignment();
+              resetEditorUndoBaseline();
             }, 200);
+          });
           });
         } else {
           loadTemplateIntoCanvas(canvas, function () {
@@ -1883,7 +2088,7 @@
         if (canvas.on) {
           if (typeof attachObjectModifiedRefresh === 'function') attachObjectModifiedRefresh(canvas);
           canvas.on('mouse:down', function (opt) {
-            if (opt && opt.target && undoStack.length === 0) pushUndo();
+            if (opt && opt.target && !fabricHead) pushUndo();
           });
           canvas.on('selection:created', function (opt) {
             refreshLayersPanel();
@@ -2265,37 +2470,41 @@
             if (ctx) drawAlignmentGuides(ctx);
           });
           canvas.on('object:moving', function (e) {
-            if (canvasWrap) canvasWrap.style.overflow = 'hidden';
-            var target = e && e.target;
-            if (target) applySnapAlignment(target);
+            try {
+              if (canvasWrap) canvasWrap.style.overflow = 'hidden';
+              var target = e && e.target;
+              if (target) applySnapAlignment(target);
+            } catch (err) { console.warn('[CFS Editor] object:moving handler error:', err); }
           });
           canvas.on('object:scaling', function () {
             if (canvasWrap) canvasWrap.style.overflow = 'hidden';
           });
           canvas.on('object:modified', function (e) {
-            activeGuides = [];
-            clearContextTop();
-            if (canvasWrap) canvasWrap.style.overflow = 'auto';
-            var target = (e && e.target) || (canvas.getActiveObject && canvas.getActiveObject());
-            if (target) {
-              var cw = canvas.getWidth ? canvas.getWidth() : 1080;
-              var ch = canvas.getHeight ? canvas.getHeight() : 1080;
-              var visualW = (target.width || 0) * (target.scaleX || 1);
-              var visualH = (target.height || 0) * (target.scaleY || 1);
-              if (target.cfsRightPx != null) {
-                target.set('cfsRightPx', cw - (target.left || 0) - visualW);
+            try {
+              activeGuides = [];
+              clearContextTop();
+              if (canvasWrap) canvasWrap.style.overflow = 'auto';
+              var target = (e && e.target) || (canvas.getActiveObject && canvas.getActiveObject());
+              if (target) {
+                var cw = canvas.getWidth ? canvas.getWidth() : 1080;
+                var ch = canvas.getHeight ? canvas.getHeight() : 1080;
+                var visualW = (target.width || 0) * (target.scaleX || 1);
+                var visualH = (target.height || 0) * (target.scaleY || 1);
+                if (target.cfsRightPx != null) {
+                  target.set('cfsRightPx', cw - (target.left || 0) - visualW);
+                }
+                if (target.cfsBottomPx != null) {
+                  target.set('cfsBottomPx', ch - (target.top || 0) - visualH);
+                }
+                if (target.type === 'textbox') {
+                  applyTextboxReflow(target);
+                }
               }
-              if (target.cfsBottomPx != null) {
-                target.set('cfsBottomPx', ch - (target.top || 0) - visualH);
-              }
-              if (target.type === 'textbox') {
-                applyTextboxReflow(target);
-              }
-            }
-            if (canvas.requestRenderAll) canvas.requestRenderAll();
-            saveStateDebounced();
-            refreshPropertyPanel();
-            editEvents.emit('clip:updated', {});
+              if (canvas.requestRenderAll) canvas.requestRenderAll();
+              saveStateDebounced();
+              refreshPropertyPanel();
+              editEvents.emit('clip:updated', {});
+            } catch (err) { console.warn('[CFS Editor] object:modified handler error:', err); }
           });
           function applyTextboxReflow(target, options) {
             options = options || {};
@@ -2340,6 +2549,21 @@
           });
         }
         setupPanWhenZoomed();
+        if (!document.__CFS_dragSafetyMouseup) {
+          document.__CFS_dragSafetyMouseup = true;
+          document.addEventListener('mouseup', function () {
+            setTimeout(function () {
+              if (!canvas) return;
+              if (canvas._currentTransform) {
+                canvas._currentTransform = null;
+                canvas._groupSelector = null;
+                canvas._isMouseDown = false;
+                if (canvasWrap) canvasWrap.style.overflow = 'auto';
+                if (canvas.requestRenderAll) canvas.requestRenderAll();
+              }
+            }, 0);
+          });
+        }
         if (!canvasWrap.__CFS_wheelZoom) {
           canvasWrap.__CFS_wheelZoom = true;
           canvasWrap.addEventListener('wheel', function (e) {
@@ -2376,7 +2600,7 @@
         document.addEventListener('keydown', onEditorKeydown);
         document.addEventListener('keyup', document.body.__CFS_editorKeyup);
         setTimeout(function () {
-          if (canvas && undoStack.length === 0) pushUndo();
+          if (canvas && !fabricHead) pushUndo();
         }, 0);
       }
     }
@@ -2527,6 +2751,29 @@
                 iconSpan.innerHTML = iconHtml;
                 clipRow.appendChild(iconSpan);
               }
+              if (matchObj) {
+                var hideImgBtn = document.createElement('button');
+                hideImgBtn.type = 'button';
+                hideImgBtn.className = 'gen-clip-hide-img-btn' + (matchObj.cfsHideOnImage ? ' gen-clip-hide-img-active' : '');
+                hideImgBtn.title = matchObj.cfsHideOnImage ? 'Show on image (clear hide-on-image)' : 'Hide on image export';
+                hideImgBtn.setAttribute('aria-pressed', matchObj.cfsHideOnImage ? 'true' : 'false');
+                hideImgBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/><line x1="4" y1="20" x2="20" y2="4"/></svg>';
+                if (!matchObj.cfsHideOnImage) {
+                  hideImgBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+                }
+                hideImgBtn.addEventListener('click', function (e) {
+                  e.stopPropagation();
+                  if (!matchObj || !matchObj.set) return;
+                  pushUndo();
+                  matchObj.set('cfsHideOnImage', !matchObj.cfsHideOnImage);
+                  refreshTimeline();
+                  applySeekForOutputPreview(canvas);
+                  refreshLayersPanel();
+                  refreshPropertyPanel();
+                  if (canvas.renderAll) canvas.renderAll();
+                });
+                clipRow.appendChild(hideImgBtn);
+              }
               /* Click handler */
               clipRow.addEventListener('click', function () {
                 if (matchObj) {
@@ -2591,6 +2838,29 @@
             iconSpan.className = 'gen-track-clip-icon';
             iconSpan.innerHTML = iconHtml;
             row.appendChild(iconSpan);
+          }
+          if (obj.name !== 'background' && !obj.cfsAudioType) {
+            var hideImgBtnFb = document.createElement('button');
+            hideImgBtnFb.type = 'button';
+            hideImgBtnFb.className = 'gen-clip-hide-img-btn' + (obj.cfsHideOnImage ? ' gen-clip-hide-img-active' : '');
+            hideImgBtnFb.title = obj.cfsHideOnImage ? 'Show on image (clear hide-on-image)' : 'Hide on image export';
+            hideImgBtnFb.setAttribute('aria-pressed', obj.cfsHideOnImage ? 'true' : 'false');
+            hideImgBtnFb.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/><line x1="4" y1="20" x2="20" y2="4"/></svg>';
+            if (!obj.cfsHideOnImage) {
+              hideImgBtnFb.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+            }
+            hideImgBtnFb.addEventListener('click', function (e) {
+              e.stopPropagation();
+              if (!obj || !obj.set) return;
+              pushUndo();
+              obj.set('cfsHideOnImage', !obj.cfsHideOnImage);
+              refreshTimeline();
+              applySeekForOutputPreview(canvas);
+              refreshLayersPanel();
+              refreshPropertyPanel();
+              if (canvas.renderAll) canvas.renderAll();
+            });
+            row.appendChild(hideImgBtnFb);
           }
           row.addEventListener('click', function () {
             canvas.setActiveObject(obj);
@@ -2709,11 +2979,19 @@
       var existing = propertyPanel.querySelector('.cfs-properties-form');
       if (existing) existing.remove();
       propertyPanel.querySelectorAll('.cfs-properties-empty').forEach(function (el) { el.remove(); });
+      propertyPanel.querySelectorAll('.gen-prop-empty').forEach(function (el) { el.remove(); });
       propertyPanel.querySelectorAll('.cfs-properties-toggle').forEach(function (el) { el.remove(); });
       propertyPanel.querySelectorAll('.cfs-properties-form-wrap').forEach(function (el) { el.remove(); });
       propertyPanel.querySelectorAll('.cfs-properties-editing').forEach(function (el) { el.remove(); });
-      if (!canvas) return;
+      var _propsExtra = document.getElementById('propsAccordionExtra');
+      if (!canvas) {
+        if (_propsExtra) _propsExtra.textContent = '';
+        return;
+      }
       var obj = canvas.getActiveObject && canvas.getActiveObject();
+      if (_propsExtra) {
+        _propsExtra.textContent = obj ? ('— ' + (obj.name || obj.id || obj.type || 'Object').toString().slice(0, 20)) : '';
+      }
       if (!obj && selectedAudioClip && template && template.timeline && Array.isArray(template.timeline.tracks)) {
         var tr = template.timeline.tracks[selectedAudioClip.templateTrackIndex];
         var audioClip = tr && tr.clips && tr.clips[selectedAudioClip.templateClipIndex];
@@ -3502,6 +3780,28 @@
       form.appendChild(editingHeading);
       var wrap = document.createElement('div');
       wrap.className = 'cfs-properties-form-wrap';
+      if (obj.name !== 'background' && !obj.cfsAudioType && !obj.cfsTtsText) {
+        var hideImgRow = document.createElement('div');
+        hideImgRow.className = 'cfs-prop-row cfs-prop-hide-on-image-row';
+        var hideImgLabel = document.createElement('label');
+        hideImgLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;';
+        var hideImgCb = document.createElement('input');
+        hideImgCb.type = 'checkbox';
+        hideImgCb.checked = !!obj.cfsHideOnImage;
+        hideImgLabel.appendChild(hideImgCb);
+        hideImgLabel.appendChild(document.createTextNode('Hide on image'));
+        hideImgRow.appendChild(hideImgLabel);
+        hideImgCb.addEventListener('change', function () {
+          pushUndo();
+          obj.set('cfsHideOnImage', !!hideImgCb.checked);
+          refreshTimeline();
+          applySeekForOutputPreview(canvas);
+          refreshLayersPanel();
+          refreshPropertyPanel();
+          if (canvas.renderAll) canvas.renderAll();
+        });
+        wrap.appendChild(hideImgRow);
+      }
       var _mergeDefaults = {};
       if (template && Array.isArray(template.merge)) {
         template.merge.forEach(function (m) {
@@ -5209,7 +5509,6 @@
       btnRow.appendChild(deleteBtn);
       form.appendChild(btnRow);
       wrap.appendChild(form);
-      propertyPanel.appendChild(toggleBtn);
       propertyPanel.appendChild(wrap);
     }
 
@@ -5589,7 +5888,7 @@
       }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(e.key) !== -1 && canvas && canvas.getActiveObject()) {
         e.preventDefault();
-        if (undoStack.length === 0) pushUndo();
+        if (!fabricHead) pushUndo();
         var nudge = e.shiftKey ? 1 : 5;
         var activeObj = canvas.getActiveObject();
         var dx = e.key === 'ArrowLeft' ? -nudge : e.key === 'ArrowRight' ? nudge : 0;
@@ -5624,9 +5923,9 @@
     }
 
     function renderBookCurrentPage() {
-      undoStack.length = 0;
-      redoStack.length = 0;
-      lastUndoFingerprint = null;
+      fabricHead = null;
+      undoPatches.length = 0;
+      redoPatches.length = 0;
       updateUndoRedoButtons();
       canvasWrap.innerHTML = '';
       const dim = getCanvasDimensions();
@@ -6119,6 +6418,10 @@
           template.timeline = parsed.timeline;
           template.output = parsed.output || template.output;
           template.merge = parsed.merge || template.merge;
+          var g = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
+          if (typeof g.__CFS_ensureMergeEntriesForTimelinePlaceholders === 'function') {
+            g.__CFS_ensureMergeEntriesForTimelinePlaceholders(template);
+          }
           /* Update canvas dimensions from the imported template's output size and switch to "Custom" preset. */
           var importDims = coreScene.getOutputDimensions && coreScene.getOutputDimensions(template.output);
           if (importDims && importDims.width > 0 && importDims.height > 0) {
@@ -6134,7 +6437,6 @@
           }
           loadTemplateIntoCanvas(canvas, function () {
             refreshTimeline();
-            pushUndo();
             if (typeof options.onTemplateReplaced === 'function') options.onTemplateReplaced(parsed);
           });
         };
@@ -6408,6 +6710,9 @@
       if (!canvas) return;
       saveCurrentPageToState();
       const c = canvas;
+      var otExport = outputTypeSelect && outputTypeSelect.value;
+      var savedPlayheadForPng = currentPlayheadSec;
+      applySeekForOutputPreview(c);
       var savedVpt = c.viewportTransform ? c.viewportTransform.slice() : null;
       if (typeof c.setViewportTransform === 'function') {
         c.setViewportTransform([1, 0, 0, 1, 0, 0]);
@@ -6415,6 +6720,10 @@
       const dataUrl = c.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
       if (savedVpt && typeof c.setViewportTransform === 'function') {
         c.setViewportTransform(savedVpt);
+      }
+      if (otExport === 'image' && typeof setPlayheadTime === 'function') {
+        setPlayheadTime(savedPlayheadForPng);
+        applySeekForOutputPreview(c);
       }
       if (options.onExportImage) options.onExportImage(dataUrl);
       else {
@@ -6843,6 +7152,8 @@
       customDimsWrap.style.display = hideForAudio ? 'none' : (presetSelect.value === 'custom' ? '' : 'none');
       resLabel.style.display = hideForAudio ? 'none' : '';
       resolutionScaleSelect.style.display = hideForAudio ? 'none' : '';
+      resAspRow.style.display = hideForAudio ? 'none' : '';
+      _cfgUpdateVideoOnlyFields();
       timelineWrap.style.display = (newType === 'video' || newType === 'audio') ? 'block' : 'none';
       bookPanel.style.display = newType === 'book' ? 'flex' : 'none';
       walkthroughPanel.style.display = newType === 'walkthrough' ? 'block' : 'none';
@@ -6871,9 +7182,9 @@
         }
         if (!savedState || !savedState.objects || !savedState.objects.length) savedState = null;
       }
-      undoStack.length = 0;
-      redoStack.length = 0;
-      lastUndoFingerprint = null;
+      fabricHead = null;
+      undoPatches.length = 0;
+      redoPatches.length = 0;
       updateUndoRedoButtons();
       if (newType === 'book') initBookPages();
       else if (showCanvas) {
@@ -7811,6 +8122,32 @@
 
     if (outputType === 'book') initBookPages();
     else if (isCanvasOutputType(outputType)) initSingleCanvas();
+    if (_savedUndoHistory && _savedUndoHistory.fabricHead && cfsJsonPatch) {
+      setTimeout(function () {
+        if (!canvas) return;
+        isUndoRedo = true;
+        try {
+          canvas.loadFromJSON(_savedUndoHistory.fabricHead, function () {
+            ensureCanvasObjectsSelectable(canvas);
+            fixTextBaseline(canvas);
+            applyResponsivePositions(canvas);
+            refreshTextboxWrapping(canvas);
+            constrainToBounds(canvas);
+            canvas.renderAll();
+            refreshLayersPanel();
+            refreshPropertyPanel();
+            invalidateFabricTextLayout(canvas);
+            fabricHead = _savedUndoHistory.fabricHead;
+            undoPatches = Array.isArray(_savedUndoHistory.patches) ? _savedUndoHistory.patches : [];
+            redoPatches.length = 0;
+            updateUndoRedoButtons();
+            _savedUndoHistory = null;
+          });
+        } finally {
+          setTimeout(function () { isUndoRedo = false; }, 0);
+        }
+      }, 300);
+    }
     refreshTimeline();
     updateDimensionsDisplay();
     updateCustomDimsVisibility();
@@ -8073,6 +8410,21 @@
         try { lastSavedFingerprint = JSON.stringify(canvas.toJSON(CFS_RESPONSIVE_KEYS)); } catch (_) {}
         editEvents.emit('save:completed', {});
       },
+      getUndoHistory: function () {
+        return { fabricHead: fabricHead, patches: undoPatches };
+      },
+      setUndoHistory: function (history) {
+        if (!history) return;
+        if (history.fabricHead) fabricHead = history.fabricHead;
+        if (Array.isArray(history.patches)) undoPatches = history.patches;
+        redoPatches.length = 0;
+        updateUndoRedoButtons();
+      },
+      markSavePoint: function () {
+        if (undoPatches.length) undoPatches[0].isSave = true;
+      },
+      getUndoPatches: function () { return undoPatches; },
+      restoreState: restoreState,
     };
     if (container) container._cfsEditor = instance;
     return instance;

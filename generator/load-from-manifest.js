@@ -56,6 +56,8 @@
     'editor/timeline-panel.js',
     '../lib/ffmpeg/ffmpeg.js',
     '../shared/ffmpeg-local.js',
+    'editor/json-patch.js',
+    '../shared/shotstack-merge-placeholder-fill.js',
     'editor/unified-editor.js',
     'generation-storage.js',
     'generation-history-ui.js',

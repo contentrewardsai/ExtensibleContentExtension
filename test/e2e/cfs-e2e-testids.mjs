@@ -9,6 +9,8 @@ export const CFS_E2E_TESTID = {
   settingsCryptoEnsure: 'cfs-settings-crypto-ensure',
   settingsCryptoFundOnly: 'cfs-settings-crypto-fund-only',
   settingsCryptoReplace: 'cfs-settings-crypto-replace',
+  settingsCryptoRestoreMainnet: 'cfs-settings-crypto-restore-mainnet',
+  settingsCryptoSimulateMainnet: 'cfs-settings-crypto-simulate-mainnet',
   runCryptoTests: 'cfs-run-crypto-tests',
   cryptoFundOnly: 'cfs-crypto-fund-only',
   cryptoReplaceWallets: 'cfs-crypto-replace-wallets',

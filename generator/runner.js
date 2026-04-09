@@ -10,6 +10,7 @@
     if (msg.type !== 'RUN_GENERATOR') return;
     var templateId = msg.pluginId || msg.templateId;
     var inputs = msg.inputs || {};
+    var runProjectId = msg.projectId != null ? String(msg.projectId).trim() : '';
     if (!templateId) {
       sendResponse({ ok: false, error: 'Missing pluginId/templateId' });
       return true;
@@ -20,13 +21,19 @@
       return true;
     }
     Promise.resolve()
-      .then(function () { return engine.loadTemplateList(); })
-      .then(function () { return engine.loadTemplate(templateId); })
+      .then(function () {
+        window.__CFS_generatorProjectId = runProjectId;
+        var tid = templateId;
+        if (tid.indexOf('builtin:') !== 0 && tid.indexOf('project:') !== 0) tid = 'builtin:' + tid;
+        var loadOpts = runProjectId ? { projectId: runProjectId } : undefined;
+        return engine.loadTemplate(tid, loadOpts);
+      })
       .then(function (loaded) {
         if (!loaded || !loaded.extension || !loaded.extension.id) {
           return Promise.reject(new Error('Template not found: ' + templateId));
         }
-        return engine.generate(templateId, loaded.extension, loaded.template, inputs);
+        var bareId = loaded.extension.id || templateId;
+        return engine.generate(bareId, loaded.extension, loaded.template, inputs);
       })
       .then(function (result) {
         if (!result) {

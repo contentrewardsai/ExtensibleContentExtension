@@ -413,6 +413,7 @@
       if (clip.filter != null && clip.filter !== '' && clip.filter !== 'none') obj.cfsFilter = clip.filter;
       if (clip.fit != null && clip.fit !== '') obj.cfsFit = clip.fit;
       if (clip.scale != null && typeof clip.scale === 'number') obj.cfsScale = clip.scale;
+      if (clip._cfsHideOnImage) obj.cfsHideOnImage = true;
     }
 
     let clipIndex = 0;
@@ -648,6 +649,7 @@
                 bgRect.rx = Number(asset.background.borderRadius);
                 bgRect.ry = Number(asset.background.borderRadius);
               }
+              if (clip._cfsHideOnImage) bgRect.cfsHideOnImage = true;
               objects.push(bgRect);
             } else {
               richObj.backgroundColor = asset.background.color;
@@ -1311,14 +1313,16 @@
    * timeSec is in [start, start+length); objects without timing are always visible.
    * Also applies cfsAnimation effects (typewriter, fadeIn, slideIn, etc.) to Fabric objects.
    */
-  function seekToTime(canvas, timeSec) {
+  function seekToTime(canvas, timeSec, opts) {
     if (!canvas || !canvas.getObjects) return;
+    opts = opts || {};
+    var ignoreClipTiming = !!opts.ignoreClipTiming;
     const objects = canvas.getObjects();
     objects.forEach(function (obj) {
       const hasTiming = obj.cfsStart != null && obj.cfsLength != null;
       const start = obj.cfsStart != null ? obj.cfsStart : 0;
       const length = obj.cfsLength != null ? obj.cfsLength : 0;
-      const visible = !hasTiming || (timeSec >= start && timeSec < start + length);
+      const visible = ignoreClipTiming ? true : (!hasTiming || (timeSec >= start && timeSec < start + length));
       if (obj.set && obj.visible !== visible) obj.set('visible', visible);
       if (visible) {
         captureBaseState(obj);
@@ -1533,12 +1537,13 @@
 
   /**
    * Capture a single frame at timeSec: seek, render, return data URL.
-   * options: { format: 'png'|'jpeg', quality?: number }.
+   * options: { format: 'png'|'jpeg', quality?: number, ignoreClipTiming?: boolean }.
    */
   function captureFrameAt(canvas, timeSec, options) {
     if (!canvas) return null;
     options = options || {};
-    seekToTime(canvas, timeSec);
+    var seekOpts = options.ignoreClipTiming ? { ignoreClipTiming: true } : undefined;
+    seekToTime(canvas, timeSec, seekOpts);
     if (!canvas.toDataURL) return null;
     var savedVpt = canvas.viewportTransform ? canvas.viewportTransform.slice() : null;
     if (typeof canvas.setViewportTransform === 'function') {

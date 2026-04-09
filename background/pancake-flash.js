@@ -9,12 +9,14 @@
  *   poolAddress: string — PancakeSwap V3 pool address
  *   borrowToken0: boolean — borrow token0 (true) or token1 (false)
  *   borrowAmount: string — amount in smallest units
- *   swapRouter?: string — optional router override
  *   swapOutputToken?: string — intermediate token for swaps
  *   slippageBps?: number — slippage tolerance
  *   callbackContract: string — deployed CFS flash receiver contract
  *   rpcUrl?: string — optional RPC override
  *   chainId?: number — 56 (BSC) or 97 (Chapel)
+ *
+ * Note: swapRouter is set at contract deployment time (immutable in CfsFlashReceiver).
+ * Use deploy_flash_receiver to deploy with the desired router address.
  */
 (function () {
   'use strict';
@@ -76,9 +78,14 @@
     var borrowToken0 = msg.borrowToken0 !== false && msg.borrowToken0 !== 'false';
     var chainId = parseInt(msg.chainId, 10) || 56;
 
-    /* Resolve RPC */
-    var data = await storageLocalGet(['cfs_bsc_rpc_url', 'cfs_bsc_chain_id']);
-    var rpcUrl = String(msg.rpcUrl || data.cfs_bsc_rpc_url || '').trim();
+    /* Resolve RPC from cfs_bsc_global_settings (JSON blob) */
+    var bscGlobData = await storageLocalGet(['cfs_bsc_global_settings']);
+    var bscGlob = null;
+    try {
+      var _raw = bscGlobData.cfs_bsc_global_settings;
+      bscGlob = typeof _raw === 'object' && _raw ? _raw : (_raw ? JSON.parse(_raw) : null);
+    } catch (_) {}
+    var rpcUrl = String(msg.rpcUrl || (bscGlob && bscGlob.rpcUrl) || '').trim();
     if (!rpcUrl) rpcUrl = chainId === 97 ? CHAPEL_RPC : DEFAULT_BSC_RPC;
 
     /* Load BSC wallet */
@@ -87,23 +94,20 @@
       return { ok: false, error: 'EVM library (ethers) not loaded' };
     }
 
-    var loadBscKp = globalThis.__CFS_bsc_loadKeypairFromStorage;
-    if (typeof loadBscKp !== 'function') {
-      return { ok: false, error: 'BSC wallet loader not available' };
+    var getWallet = globalThis.__CFS_bsc_getConnectedWallet;
+    if (typeof getWallet !== 'function') {
+      return { ok: false, error: 'BSC wallet connector not available' };
     }
-    var walletInfo;
+    var wallet;
     try {
-      walletInfo = await loadBscKp();
+      wallet = await getWallet();
     } catch (e) {
       return { ok: false, error: 'BSC wallet load failed: ' + (e && e.message ? e.message : String(e)) };
     }
 
-    if (!walletInfo || !walletInfo.privateKey) {
-      return { ok: false, error: 'BSC wallet: no private key available' };
+    if (!wallet || !wallet.address) {
+      return { ok: false, error: 'BSC wallet: no wallet available' };
     }
-
-    var provider = new E.JsonRpcProvider(rpcUrl);
-    var wallet = new E.Wallet(walletInfo.privateKey, provider);
 
     /* Build swap calldata — a simple exactInputSingle on PancakeSwap V3 router */
     var swapCalldata = '0x'; /* empty = no swap, just borrow+repay (useful for testing) */

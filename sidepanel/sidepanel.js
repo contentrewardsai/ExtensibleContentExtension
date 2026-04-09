@@ -5725,6 +5725,30 @@
     });
   }
 
+  /** Base template ids (no .json) under uploads/{projectId}/templates/ in the linked project folder. */
+  async function listUploadsProjectTemplateIds(projectRoot, projectId) {
+    if (!projectRoot || !projectId) return [];
+    try {
+      const perm = await projectRoot.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') return [];
+      const uploadsDir = await projectRoot.getDirectoryHandle('uploads', { create: false });
+      const projDir = await uploadsDir.getDirectoryHandle(projectId, { create: false });
+      const templatesDir = await projDir.getDirectoryHandle('templates', { create: false });
+      const out = [];
+      for await (const entry of templatesDir.values()) {
+        if (!entry || entry.kind !== 'file') continue;
+        const name = entry.name || '';
+        if (!/\.json$/i.test(name)) continue;
+        const base = name.replace(/\.json$/i, '');
+        if (base) out.push(base);
+      }
+      out.sort((a, b) => a.localeCompare(b));
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
   function setStoredProjectFolderHandle(handle) {
     return new Promise((resolve) => {
       try {
@@ -5761,6 +5785,140 @@
     } catch (_) {
       return null;
     }
+  }
+
+  /** Read file as Uint8Array (for binary-safe copy). Returns null if missing. */
+  async function readFileBytesFromProjectFolder(projectRoot, relativePath) {
+    if (!projectRoot || typeof relativePath !== 'string') return null;
+    try {
+      const perm = await projectRoot.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') return null;
+      const parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
+      if (parts.length === 0) return null;
+      let dir = projectRoot;
+      for (let i = 0; i < parts.length - 1; i++) {
+        dir = await dir.getDirectoryHandle(parts[i], { create: false });
+      }
+      const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: false });
+      const file = await fileHandle.getFile();
+      const buf = await file.arrayBuffer();
+      return new Uint8Array(buf);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** Write bytes to path (creates parent dirs). */
+  async function writeFileBytesToProjectFolder(projectRoot, relativePath, bytes) {
+    if (!projectRoot || typeof relativePath !== 'string' || !bytes) return false;
+    try {
+      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return false;
+      const parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
+      if (parts.length === 0) return false;
+      let dir = projectRoot;
+      for (let i = 0; i < parts.length - 1; i++) {
+        dir = await dir.getDirectoryHandle(parts[i], { create: true });
+      }
+      const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+      const w = await fh.createWritable();
+      await w.write(bytes);
+      await w.close();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function projectPathFileExists(projectRoot, relativePath) {
+    if (!projectRoot || typeof relativePath !== 'string') return false;
+    try {
+      const perm = await projectRoot.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') return false;
+      const parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
+      if (parts.length === 0) return false;
+      let dir = projectRoot;
+      for (let i = 0; i < parts.length - 1; i++) {
+        dir = await dir.getDirectoryHandle(parts[i], { create: false });
+      }
+      await dir.getFileHandle(parts[parts.length - 1], { create: false });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Find literal paths uploads/{sourceProjectId}/... in serialized JSON.
+   * @returns {string[]} full relative paths from project root
+   */
+  function collectUploadsPathsForProjectInJson(jsonStr, sourceProjectId) {
+    if (!jsonStr || !sourceProjectId) return [];
+    const prefix = 'uploads/' + sourceProjectId + '/';
+    const out = new Set();
+    let idx = 0;
+    while (idx < jsonStr.length) {
+      const i = jsonStr.indexOf(prefix, idx);
+      if (i === -1) break;
+      let j = i + prefix.length;
+      while (j < jsonStr.length) {
+        const c = jsonStr[j];
+        if (c === '"' || c === "'" || c === ' ' || c === '\n' || c === '\r' || c === '\t' || c === '}' || c === ']' || c === ',') break;
+        j++;
+      }
+      const rel = jsonStr.slice(i + prefix.length, j).replace(/\\/g, '/').replace(/^\/+/, '');
+      if (rel) out.add(prefix + rel);
+      idx = i + 1;
+    }
+    return Array.from(out);
+  }
+
+  /**
+   * Copy referenced uploads/{source}/ files to uploads/{dest}/ (skip if dest exists), rewrite JSON.
+   * @returns {{ templateJson: object, copied: number, skipped: number, missing: number, warnings: string[] }}
+   */
+  async function replicateUploadsMediaForTemplateJson(projectRoot, sourceProjectId, destProjectId, templateJson) {
+    const warnings = [];
+    if (!sourceProjectId || !destProjectId || sourceProjectId === destProjectId) {
+      const tj = typeof templateJson === 'object' && templateJson !== null ? templateJson : {};
+      return { templateJson: tj, copied: 0, skipped: 0, missing: 0, warnings };
+    }
+    let str = typeof templateJson === 'string' ? templateJson : JSON.stringify(templateJson);
+    const paths = collectUploadsPathsForProjectInJson(str, sourceProjectId);
+    let copied = 0;
+    let skipped = 0;
+    let missing = 0;
+    const prefixSrc = 'uploads/' + sourceProjectId + '/';
+    const prefixDst = 'uploads/' + destProjectId + '/';
+    for (let pi = 0; pi < paths.length; pi++) {
+      const fromRel = paths[pi];
+      if (fromRel.indexOf(prefixSrc) !== 0) continue;
+      const suffix = fromRel.slice(prefixSrc.length);
+      const toRel = prefixDst + suffix;
+      const existsDest = await projectPathFileExists(projectRoot, toRel);
+      if (existsDest) {
+        skipped++;
+        continue;
+      }
+      const bytes = await readFileBytesFromProjectFolder(projectRoot, fromRel);
+      if (!bytes) {
+        missing++;
+        warnings.push('Missing: ' + fromRel);
+        continue;
+      }
+      const ok = await writeFileBytesToProjectFolder(projectRoot, toRel, bytes);
+      if (ok) copied++;
+      else warnings.push('Write failed: ' + toRel);
+    }
+    str = str.split(prefixSrc).join(prefixDst);
+    let outObj;
+    try {
+      outObj = JSON.parse(str);
+    } catch (e) {
+      warnings.push('Path rewrite broke JSON; saving original object');
+      outObj = typeof templateJson === 'object' && templateJson !== null ? templateJson : {};
+    }
+    return { templateJson: outObj, copied, skipped, missing, warnings };
   }
 
   async function writeJsonToProjectFolder(projectRoot, relativePath, data) {
@@ -5800,6 +5958,7 @@
       // Core folders
       await projDir.getDirectoryHandle('generations', { create: true });
       await projDir.getDirectoryHandle('posts', { create: true });
+      await projDir.getDirectoryHandle('templates', { create: true });
       // Source structure
       const sourceDir = await projDir.getDirectoryHandle('source', { create: true });
       await sourceDir.getDirectoryHandle('logos', { create: true });
@@ -6576,6 +6735,7 @@
           }
         }
         await setStoredProjectFolderHandle(handle);
+        loadGeneratorTemplates().catch(() => {});
         await syncProjectFolderStepsToBackground(handle);
         updateProjectFolderStatus();
         if (typeof window.__cfsRefreshGithubSyncSummary === 'function') {
@@ -8265,36 +8425,6 @@
     const templatesDir = await genDir.getDirectoryHandle('templates', { create: true });
     const folderHandle = await templatesDir.getDirectoryHandle(templateId, { create: true });
 
-    if (saveOptions.createVersion) {
-      try {
-        const existingHandle = await folderHandle.getFileHandle('template.json', { create: false });
-        const existingFile = await existingHandle.getFile();
-        const existingContent = await existingFile.text();
-        if (existingContent && existingContent.trim()) {
-          const versionsDir = await folderHandle.getDirectoryHandle('versions', { create: true });
-          const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '');
-          const versionHandle = await versionsDir.getFileHandle(ts + '.json', { create: true });
-          const vw = await versionHandle.createWritable();
-          await vw.write(existingContent);
-          await vw.close();
-          const MAX_VERSIONS = 20;
-          try {
-            const entries = [];
-            for await (const [name, handle] of versionsDir.entries()) {
-              if (handle.kind === 'file' && name.endsWith('.json')) entries.push(name);
-            }
-            entries.sort();
-            if (entries.length > MAX_VERSIONS) {
-              const toDelete = entries.slice(0, entries.length - MAX_VERSIONS);
-              for (const old of toDelete) {
-                try { await versionsDir.removeEntry(old); } catch (_) {}
-              }
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
-
     const templateHandle = await folderHandle.getFileHandle('template.json', { create: true });
     const templateWritable = await templateHandle.createWritable();
     await templateWritable.write(typeof templateJson === 'string' ? templateJson : JSON.stringify(templateJson, null, 2));
@@ -8323,49 +8453,20 @@
     }
   }
 
-  async function listTemplateVersions(projectRoot, templateId) {
-    try {
-      const genDir = await projectRoot.getDirectoryHandle('generator', { create: false });
-      const templatesDir = await genDir.getDirectoryHandle('templates', { create: false });
-      const folderHandle = await templatesDir.getDirectoryHandle(templateId, { create: false });
-      const versionsDir = await folderHandle.getDirectoryHandle('versions', { create: false });
-      const entries = [];
-      for await (const [name, handle] of versionsDir.entries()) {
-        if (handle.kind === 'file' && name.endsWith('.json')) {
-          entries.push(name.replace('.json', ''));
-        }
-      }
-      entries.sort().reverse();
-      return entries;
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function loadTemplateVersion(projectRoot, templateId, versionName) {
-    try {
-      const genDir = await projectRoot.getDirectoryHandle('generator', { create: false });
-      const templatesDir = await genDir.getDirectoryHandle('templates', { create: false });
-      const folderHandle = await templatesDir.getDirectoryHandle(templateId, { create: false });
-      const versionsDir = await folderHandle.getDirectoryHandle('versions', { create: false });
-      const fh = await versionsDir.getFileHandle(versionName + '.json', { create: false });
-      const file = await fh.getFile();
-      const text = await file.text();
-      return JSON.parse(text);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /** If a template save was queued from the generator, write it to the project folder and clear the queue. */
+  /** If a template save was queued from the generator, write uploads/{projectId}/templates/{id}.json and clear the queue. */
   async function processPendingTemplateSave() {
     try {
       const data = await chrome.storage.local.get('cfs_pending_template_save');
       const pending = data.cfs_pending_template_save;
       if (!pending || !pending.templateId || pending.templateJson === undefined) return;
+      if (!pending.projectId) {
+        setStatus('Template save failed: pick a project in the Generator (project selector) before saving.', 'error');
+        await chrome.storage.local.remove('cfs_pending_template_save');
+        return;
+      }
       const projectRoot = await getStoredProjectFolderHandle();
       if (!projectRoot) {
-        setStatus('Set project folder first (Library → Set project folder) to save the template to generator/templates/.', 'error');
+        setStatus('Set project folder first (Library → Set project folder) to save templates under uploads/.', 'error');
         return;
       }
       const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
@@ -8373,17 +8474,58 @@
         setStatus('Permission denied for project folder. Allow read/write to save the template.', 'error');
         return;
       }
-      const isOverwrite = !!pending.overwrite;
-      await writeTemplateToProjectFolder(projectRoot, pending.templateId, pending.templateJson, {
-        overwrite: isOverwrite,
-        createVersion: isOverwrite,
-      });
-      await chrome.storage.local.remove('cfs_pending_template_save');
-      if (isOverwrite) {
-        setStatus('Template "' + pending.templateId + '" saved in-place. Version backup created.', 'success');
-      } else {
-        setStatus('Template "' + pending.templateId + '" saved to generator/templates/' + pending.templateId + '/. Click Reload Extension to see it in the dropdown.', 'success');
+      await ensureProjectFolderStructure(projectRoot, pending.projectId, pending.projectName || pending.projectId);
+      let tmpl = pending.templateJson;
+      if (typeof tmpl === 'string') {
+        try {
+          tmpl = JSON.parse(tmpl);
+        } catch (pe) {
+          setStatus('Template save failed: invalid JSON.', 'error');
+          await chrome.storage.local.remove('cfs_pending_template_save');
+          return;
+        }
       }
+      let copied = 0;
+      let skipped = 0;
+      let missing = 0;
+      const rep =
+        pending.replicateUploadsAssets && pending.sourceProjectId && pending.sourceProjectId !== pending.projectId
+          ? await replicateUploadsMediaForTemplateJson(projectRoot, pending.sourceProjectId, pending.projectId, tmpl)
+          : { templateJson: tmpl, copied: 0, skipped: 0, missing: 0, warnings: [] };
+      tmpl = rep.templateJson;
+      copied = rep.copied;
+      skipped = rep.skipped;
+      missing = rep.missing;
+      const relPath = 'uploads/' + pending.projectId + '/templates/' + pending.templateId + '.json';
+      const isOverwrite = !!pending.overwrite;
+      if (!isOverwrite && (await projectPathFileExists(projectRoot, relPath))) {
+        setStatus(
+          'Template save skipped: ' + relPath + ' already exists. Choose another ID or use overwrite.',
+          'error'
+        );
+        await chrome.storage.local.remove('cfs_pending_template_save');
+        return;
+      }
+      const wrote = await writeJsonToProjectFolder(projectRoot, relPath, tmpl);
+      await chrome.storage.local.remove('cfs_pending_template_save');
+      if (!wrote) {
+        setStatus('Template save failed: could not write ' + relPath + '.', 'error');
+        return;
+      }
+      let msg =
+        (isOverwrite ? 'Template "' : 'Template "') +
+        pending.templateId +
+        '" saved to ' +
+        relPath +
+        '.';
+      if (pending.replicateUploadsAssets && pending.sourceProjectId && pending.sourceProjectId !== pending.projectId) {
+        msg += ' Media: ' + copied + ' copied, ' + skipped + ' skipped (already present), ' + missing + ' missing.';
+        if (rep.warnings && rep.warnings.length) {
+          msg += ' ' + rep.warnings.slice(0, 3).join(' ');
+          if (rep.warnings.length > 3) msg += '…';
+        }
+      }
+      setStatus(msg, 'success');
     } catch (err) {
       const msg = err.name === 'AbortError' ? 'Cancelled.' : (err.message || String(err));
       setStatus('Template save failed: ' + msg, 'error');
@@ -8718,7 +8860,6 @@
   document.getElementById('unitTestsPageBtnLoggedOut')?.addEventListener('click', openUnitTestsPage);
 
   processPendingTemplateSave();
-  processPendingVersionRequest();
 
   async function refreshLibraryPanel() {
     if (typeof renderGetStartedSection === 'function') renderGetStartedSection();
@@ -11520,9 +11661,6 @@
       setStatus(`Extracted ${msg.rows.length} row(s). Use Prev/Next to browse, then Run Current Row or Run All Rows to process them.`, 'success');
       return false;
     }
-    if (msg.type === 'CFS_VERSION_LIST_RESULT' || msg.type === 'CFS_VERSION_LOAD_RESULT') {
-      return false;
-    }
     if (msg.type === 'SAVE_POST_TO_FOLDER') {
       (async () => {
         try {
@@ -11738,28 +11876,6 @@
     }
     return false;
   });
-
-  async function processPendingVersionRequest() {
-    try {
-      const data = await chrome.storage.local.get('cfs_pending_version_request');
-      const pending = data.cfs_pending_version_request;
-      if (!pending || !pending.templateId) return;
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot) return;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return;
-      await chrome.storage.local.remove('cfs_pending_version_request');
-      if (pending.action === 'list') {
-        const versions = await listTemplateVersions(projectRoot, pending.templateId);
-        chrome.runtime.sendMessage({ type: 'CFS_VERSION_LIST_RESULT', templateId: pending.templateId, versions: versions });
-      } else if (pending.action === 'load') {
-        const templateJson = await loadTemplateVersion(projectRoot, pending.templateId, pending.versionName);
-        chrome.runtime.sendMessage({ type: 'CFS_VERSION_LOAD_RESULT', templateId: pending.templateId, versionName: pending.versionName, templateJson: templateJson });
-      }
-    } catch (e) {
-      console.warn('processPendingVersionRequest failed:', e);
-    }
-  }
 
   function applyDiscoveredConfig(groups) {
     const wfId = playbackWorkflow.value;
@@ -19329,19 +19445,104 @@
     if (PULSE_WATCH_VISIBILITY_STORAGE_KEYS.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
       refreshPulseWatchActivityPanel().catch(() => {});
     }
+    if (changes.selectedProjectId) {
+      loadGeneratorTemplates().catch(() => {});
+    }
+    const pendTpl = changes.cfs_pending_template_save;
+    if (pendTpl && pendTpl.oldValue != null && pendTpl.newValue === undefined) {
+      loadGeneratorTemplates().catch(() => {});
+    }
   });
 
-  /** Prefetch generator template list for runGenerator step. */
+  /**
+   * Load template.json text and return inputSchema from __CFS_INPUT_SCHEMA (for Run generator step UI).
+   * @param {string} templateKey - e.g. ad-facebook, project:my-id, builtin:ad-facebook
+   */
+  window.__CFS_loadGeneratorTemplateInputSchema = async function (templateKey) {
+    const parseApi = globalThis.__CFS_parseGeneratorTemplateInputSchema;
+    if (!parseApi || typeof parseApi.parseFromTemplateJsonText !== 'function') {
+      return { inputSchema: [], error: 'Schema parser not loaded' };
+    }
+    const key = String(templateKey || '').trim();
+    if (!key) return { inputSchema: [], error: 'Missing template id' };
+
+    function parseTemplateKey(tk) {
+      const t = String(tk || '');
+      if (t.indexOf('project:') === 0) return { source: 'project', id: t.slice(8).trim() };
+      if (t.indexOf('builtin:') === 0) return { source: 'builtin', id: t.slice(8).trim() };
+      return { source: 'builtin', id: t.trim() };
+    }
+
+    const parsedKey = parseTemplateKey(key);
+    if (!parsedKey.id) return { inputSchema: [], error: 'Missing template id' };
+
+    const st = await chrome.storage.local.get(['selectedProjectId']);
+    const projectId = (st.selectedProjectId || '').trim();
+
+    let text = null;
+    const root = await getStoredProjectFolderHandle();
+
+    if (parsedKey.source === 'project') {
+      if (!projectId) {
+        return { inputSchema: [], error: 'Select a project (Library / Generator) for project: templates.' };
+      }
+      if (!root) {
+        return { inputSchema: [], error: 'Set project folder to load project templates.' };
+      }
+      const relPath = 'uploads/' + projectId + '/templates/' + parsedKey.id + '.json';
+      text = await readFileFromProjectFolder(root, relPath);
+      if (!text) {
+        return { inputSchema: [], error: 'Template not found (' + relPath + ').' };
+      }
+    } else {
+      if (root) {
+        text = await readFileFromProjectFolder(root, 'generator/templates/' + parsedKey.id + '/template.json');
+      }
+      if (!text) {
+        try {
+          const url = chrome.runtime.getURL(
+            'generator/templates/' + encodeURIComponent(parsedKey.id) + '/template.json'
+          );
+          const r = await fetch(url);
+          if (r.ok) text = await r.text();
+        } catch (_) {}
+      }
+      if (!text) {
+        return { inputSchema: [], error: 'Could not load template (bundled or project folder).' };
+      }
+    }
+
+    return parseApi.parseFromTemplateJsonText(text);
+  };
+
+  /** Prefetch generator template ids for runGenerator step: manifest + uploads/{selectedProject}/templates/*.json as project:id. */
   function loadGeneratorTemplates() {
+    const fallback = ['ad-apple-notes', 'ad-facebook', 'ad-twitter', 'blank-canvas'];
     const url = chrome.runtime.getURL('generator/templates/manifest.json');
-    return fetch(url).then(function (r) { return r.ok ? r.json() : {}; }).then(function (data) {
-      const ids = Array.isArray(data.templates) ? data.templates : [];
-      window.__CFS_generatorTemplateIds = ids;
-      return ids;
-    }).catch(function () {
-      window.__CFS_generatorTemplateIds = ['ad-apple-notes', 'ad-facebook', 'ad-twitter', 'blank-canvas'];
-      return window.__CFS_generatorTemplateIds;
-    });
+    return fetch(url)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then(async (data) => {
+        const builtin = Array.isArray(data.templates) ? data.templates.slice() : [];
+        const st = await chrome.storage.local.get(['selectedProjectId']);
+        const projectId = (st.selectedProjectId || '').trim();
+        if (!projectId) {
+          window.__CFS_generatorTemplateIds = builtin.length ? builtin : fallback;
+          return window.__CFS_generatorTemplateIds;
+        }
+        const root = await getStoredProjectFolderHandle();
+        if (!root) {
+          window.__CFS_generatorTemplateIds = builtin.length ? builtin : fallback;
+          return window.__CFS_generatorTemplateIds;
+        }
+        const projBases = await listUploadsProjectTemplateIds(root, projectId);
+        const prefixed = projBases.map((id) => 'project:' + id);
+        window.__CFS_generatorTemplateIds = builtin.concat(prefixed);
+        return window.__CFS_generatorTemplateIds;
+      })
+      .catch(() => {
+        window.__CFS_generatorTemplateIds = fallback;
+        return window.__CFS_generatorTemplateIds;
+      });
   }
   loadGeneratorTemplates();
 

@@ -1,0 +1,33 @@
+{
+  "id": "cryptoSimulateSwap",
+  "label": "Simulate Swap (Mainnet Dry Run)",
+  "category": "data",
+  "description": "Dry-run a DeFi swap on mainnet using simulation (no real transaction sent). Solana uses Jupiter quote + simulateTransaction; BSC uses PancakeSwap Quoter + eth_call. Both are free and validate against live on-chain state. Useful for verifying swap parameters before committing real funds.",
+  "defaultAction": {
+    "type": "cryptoSimulateSwap",
+    "runIf": "",
+    "chain": "solana",
+    "solInputMint": "So11111111111111111111111111111111111111112",
+    "solOutputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "solAmount": "10000000",
+    "bscTokenIn": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+    "bscTokenOut": "0x55d398326f99059fF775485246999027B3197955",
+    "bscAmountIn": "1000000000000000",
+    "saveResultVariable": "simulationResult"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "chain", "label": "Chain", "inputType": "select", "options": [
+      { "value": "solana", "label": "Solana" },
+      { "value": "bsc", "label": "BSC" },
+      { "value": "both", "label": "Both" }
+    ] },
+    { "key": "solInputMint", "label": "Solana input mint", "inputType": "text", "placeholder": "So11111111111111111111111111111111111111112 (wrapped SOL)" },
+    { "key": "solOutputMint", "label": "Solana output mint", "inputType": "text", "placeholder": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v (USDC)" },
+    { "key": "solAmount", "label": "Solana amount (lamports)", "inputType": "text", "placeholder": "10000000 (0.01 SOL)" },
+    { "key": "bscTokenIn", "label": "BSC token in", "inputType": "text", "placeholder": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c (WBNB)" },
+    { "key": "bscTokenOut", "label": "BSC token out", "inputType": "text", "placeholder": "0x55d398326f99059fF775485246999027B3197955 (USDT)" },
+    { "key": "bscAmountIn", "label": "BSC amount in (wei)", "inputType": "text", "placeholder": "1000000000000000 (0.001 BNB)" },
+    { "key": "saveResultVariable", "label": "Save result to variable", "inputType": "text" }
+  ]
+}
