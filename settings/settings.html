@@ -560,6 +560,8 @@
       <button type="button" id="cryptoTestEnsureSettingsBtn" class="btn btn-primary btn-small" data-testid="cfs-settings-crypto-ensure">Ensure devnet / Chapel test wallets</button>
       <button type="button" id="cryptoTestFundOnlySettingsBtn" class="btn btn-small" data-testid="cfs-settings-crypto-fund-only">Request test tokens again</button>
       <button type="button" id="cryptoTestReplaceSettingsBtn" class="btn btn-small" data-testid="cfs-settings-crypto-replace">Replace crypto test wallets</button>
+      <button type="button" id="cryptoTestRestoreSettingsBtn" class="btn btn-small" data-testid="cfs-settings-crypto-restore-mainnet" style="background:#ffe0b2;">&#x27F2; Restore mainnet</button>
+      <button type="button" id="cryptoTestSimulateSettingsBtn" class="btn btn-small" data-testid="cfs-settings-crypto-simulate-mainnet" style="background:#e0f0ff;">&#x1F9EA; Simulate on mainnet</button>
     </div>
     <p id="cryptoTestEnsureSettingsMsg" class="status-msg" style="display:none;"></p>
     <div id="cryptoTestWalletInfo" style="display:none;margin-top:12px;" class="jwt-section">
@@ -1132,6 +1134,7 @@
   <script src="../steps/bscAggregatorSwap/handler.js"></script>
   <script src="../steps/bscSellabilityProbe/handler.js"></script>
   <script src="../steps/pancakeFlash/handler.js"></script>
+  <script src="../steps/cryptoSimulateSwap/handler.js"></script>
   <script src="../steps/bscWatchRefresh/handler.js"></script>
   <script src="../steps/bscWatchReadActivity/handler.js"></script>
   <script src="../steps/watchActivityFilterTxAge/handler.js"></script>
@@ -1297,6 +1300,7 @@
   <script src="../steps/bscAggregatorSwap/step-tests.js"></script>
   <script src="../steps/bscSellabilityProbe/step-tests.js"></script>
   <script src="../steps/pancakeFlash/step-tests.js"></script>
+  <script src="../steps/cryptoSimulateSwap/step-tests.js"></script>
   <script src="../steps/bscWatchRefresh/step-tests.js"></script>
   <script src="../steps/bscWatchReadActivity/step-tests.js"></script>
   <script src="../steps/watchActivityFilterTxAge/step-tests.js"></script>

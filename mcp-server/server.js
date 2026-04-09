@@ -289,6 +289,7 @@ import { registerSchedulingTools } from './tools/scheduling.js';
 import { registerFollowingTools } from './tools/following.js';
 import { registerCryptoTools } from './tools/crypto.js';
 import { registerFlashloanTools } from './tools/flashloan.js';
+import { registerPancakeFlashTools } from './tools/pancake-flash.js';
 import { registerRaydiumTools } from './tools/raydium.js';
 import { registerMeteoraTools } from './tools/meteora.js';
 import { registerAsterTools } from './tools/aster.js';
@@ -325,6 +326,7 @@ function createMcpServer() {
   registerFollowingTools(server, ctx);
   registerCryptoTools(server, ctx);
   registerFlashloanTools(server, ctx);
+  registerPancakeFlashTools(server, ctx);
   registerRaydiumTools(server, ctx);
   registerMeteoraTools(server, ctx);
   registerAsterTools(server, ctx);

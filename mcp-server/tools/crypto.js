@@ -48,16 +48,16 @@ export function registerCryptoTools(server, ctx) {
     'solana_rpc_read',
     'Read Solana data (wallet balances, token accounts, mint info) via the configured RPC.',
     {
-      operation: z.string().describe('RPC operation: "balance", "tokenAccounts", "mintInfo", "accountInfo", etc.'),
-      address: z.string().optional().describe('Solana address to query'),
-      mint: z.string().optional().describe('Token mint address'),
+      readKind: z.enum(['nativeBalance', 'tokenBalance', 'mintInfo', 'metaplexMetadata']).describe('Read operation type'),
+      address: z.string().optional().describe('Solana address to query (defaults to automation wallet)'),
+      mint: z.string().optional().describe('Token mint address (required for tokenBalance, mintInfo, metaplexMetadata)'),
       extra: z.record(z.string(), z.any()).optional().describe('Additional operation-specific fields'),
     },
-    async ({ operation, address, mint, extra }) => {
-      const payload = { type: 'CFS_SOLANA_RPC_READ', operation };
+    async ({ readKind, address, mint, extra }) => {
+      const payload = { type: 'CFS_SOLANA_RPC_READ', readKind };
       if (address) payload.address = address;
       if (mint) payload.mint = mint;
-      if (extra) Object.assign(payload, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(payload, rest); }
       const res = await ctx.sendMessage(payload);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -108,7 +108,7 @@ export function registerCryptoTools(server, ctx) {
     },
     async ({ mint, extra }) => {
       const payload = { type: 'CFS_PUMPFUN_MARKET_PROBE', mint };
-      if (extra) Object.assign(payload, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(payload, rest); }
       const res = await ctx.sendMessage(payload);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -130,9 +130,9 @@ export function registerCryptoTools(server, ctx) {
       confirm: confirmField,
     },
     writeToolHandler(ctx, ({ inputMint, outputMint, amount, slippageBps, extra }) => {
-      const p = { type: 'CFS_SOLANA_EXECUTE_SWAP', inputMint, outputMint, amount };
+      const p = { type: 'CFS_SOLANA_EXECUTE_SWAP', inputMint, outputMint, amountRaw: amount };
       if (slippageBps != null) p.slippageBps = slippageBps;
-      if (extra) Object.assign(p, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
     })
   );
@@ -146,7 +146,7 @@ export function registerCryptoTools(server, ctx) {
       confirm: confirmField,
     },
     writeToolHandler(ctx, ({ destination, lamports }) => ({
-      type: 'CFS_SOLANA_TRANSFER_SOL', destination, lamports,
+      type: 'CFS_SOLANA_TRANSFER_SOL', toPubkey: destination, lamports,
     }))
   );
 
@@ -160,7 +160,7 @@ export function registerCryptoTools(server, ctx) {
       confirm: confirmField,
     },
     writeToolHandler(ctx, ({ destination, mint, amount }) => ({
-      type: 'CFS_SOLANA_TRANSFER_SPL', destination, mint, amount,
+      type: 'CFS_SOLANA_TRANSFER_SPL', toOwner: destination, mint, amountRaw: amount,
     }))
   );
 
@@ -211,7 +211,7 @@ export function registerCryptoTools(server, ctx) {
     writeToolHandler(ctx, ({ mint, solLamports, slippageBps, extra }) => {
       const p = { type: 'CFS_PUMPFUN_BUY', mint, solLamports };
       if (slippageBps != null) p.slippageBps = slippageBps;
-      if (extra) Object.assign(p, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
     })
   );
@@ -229,45 +229,97 @@ export function registerCryptoTools(server, ctx) {
     writeToolHandler(ctx, ({ mint, tokenAmountRaw, slippageBps, extra }) => {
       const p = { type: 'CFS_PUMPFUN_SELL', mint, tokenAmountRaw };
       if (slippageBps != null) p.slippageBps = slippageBps;
-      if (extra) Object.assign(p, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
     })
   );
 
   server.tool(
     'solana_pump_or_jupiter_buy',
-    'Buy a token via PumpFun or Jupiter (auto-detects venue). WARNING: Real transaction.',
+    'Buy a token via PumpFun or Jupiter (auto-detects venue by probing the market first). WARNING: Real transaction.',
     {
       mint: z.string().describe('Token mint address'),
       solLamports: z.string().describe('SOL amount to spend in lamports'),
-      slippageBps: z.number().int().optional(),
-      extra: z.record(z.string(), z.any()).optional(),
+      slippageBps: z.number().int().optional().describe('Slippage in bps (default 50)'),
       confirm: confirmField,
     },
-    writeToolHandler(ctx, ({ mint, solLamports, slippageBps, extra }) => {
-      const p = { type: 'CFS_PUMP_OR_JUPITER_BUY', mint, solLamports };
-      if (slippageBps != null) p.slippageBps = slippageBps;
-      if (extra) Object.assign(p, extra);
-      return p;
-    })
+    async ({ mint, solLamports, slippageBps, confirm }) => {
+      const WSOL = 'So11111111111111111111111111111111111111112';
+      const dryRun = await isDryRunEnabled(ctx);
+      const slip = slippageBps != null ? slippageBps : 50;
+
+      if (dryRun && !confirm) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              dryRun: true,
+              message: 'Will probe market for ' + mint + ', then buy via PumpFun or Jupiter. Call again with confirm: true to execute.',
+              mint, solLamports, slippageBps: slip,
+            }, null, 2),
+          }],
+        };
+      }
+
+      const probe = await ctx.sendMessage({ type: 'CFS_PUMPFUN_MARKET_PROBE', mint });
+      if (!probe || !probe.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: (probe && probe.error) || 'Market probe failed' }, null, 2) }], isError: true };
+      }
+
+      const usePump = probe.pumpBondingCurveReadable === true && probe.bondingCurveComplete === false;
+      let res;
+      if (usePump) {
+        res = await ctx.sendMessage({ type: 'CFS_PUMPFUN_BUY', mint, solLamports, slippage: slip });
+      } else {
+        res = await ctx.sendMessage({ type: 'CFS_SOLANA_EXECUTE_SWAP', inputMint: WSOL, outputMint: mint, amountRaw: solLamports, slippageBps: slip });
+      }
+      const out = { ...res, venue: usePump ? 'pump' : 'jupiter', probe: { bondingCurveComplete: probe.bondingCurveComplete, raydiumPoolCheck: probe.raydiumPoolCheck } };
+      return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: !res.ok };
+    }
   );
 
   server.tool(
     'solana_pump_or_jupiter_sell',
-    'Sell a token via PumpFun or Jupiter (auto-detects venue). WARNING: Real transaction.',
+    'Sell a token via PumpFun or Jupiter (auto-detects venue by probing the market first). WARNING: Real transaction.',
     {
       mint: z.string().describe('Token mint address'),
       tokenAmountRaw: z.string().describe('Token amount to sell in raw units'),
-      slippageBps: z.number().int().optional(),
-      extra: z.record(z.string(), z.any()).optional(),
+      slippageBps: z.number().int().optional().describe('Slippage in bps (default 50)'),
       confirm: confirmField,
     },
-    writeToolHandler(ctx, ({ mint, tokenAmountRaw, slippageBps, extra }) => {
-      const p = { type: 'CFS_PUMP_OR_JUPITER_SELL', mint, tokenAmountRaw };
-      if (slippageBps != null) p.slippageBps = slippageBps;
-      if (extra) Object.assign(p, extra);
-      return p;
-    })
+    async ({ mint, tokenAmountRaw, slippageBps, confirm }) => {
+      const WSOL = 'So11111111111111111111111111111111111111112';
+      const dryRun = await isDryRunEnabled(ctx);
+      const slip = slippageBps != null ? slippageBps : 50;
+
+      if (dryRun && !confirm) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              dryRun: true,
+              message: 'Will probe market for ' + mint + ', then sell via PumpFun or Jupiter. Call again with confirm: true to execute.',
+              mint, tokenAmountRaw, slippageBps: slip,
+            }, null, 2),
+          }],
+        };
+      }
+
+      const probe = await ctx.sendMessage({ type: 'CFS_PUMPFUN_MARKET_PROBE', mint });
+      if (!probe || !probe.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: (probe && probe.error) || 'Market probe failed' }, null, 2) }], isError: true };
+      }
+
+      const usePump = probe.pumpBondingCurveReadable === true && probe.bondingCurveComplete === false;
+      let res;
+      if (usePump) {
+        res = await ctx.sendMessage({ type: 'CFS_PUMPFUN_SELL', mint, tokenAmountRaw, slippage: slip });
+      } else {
+        res = await ctx.sendMessage({ type: 'CFS_SOLANA_EXECUTE_SWAP', inputMint: mint, outputMint: WSOL, amountRaw: tokenAmountRaw, slippageBps: slip });
+      }
+      const out = { ...res, venue: usePump ? 'pump' : 'jupiter', probe: { bondingCurveComplete: probe.bondingCurveComplete, raydiumPoolCheck: probe.raydiumPoolCheck } };
+      return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: !res.ok };
+    }
   );
 
   server.tool(
@@ -284,7 +336,7 @@ export function registerCryptoTools(server, ctx) {
       const p = { type: 'CFS_SOLANA_SELLABILITY_PROBE', mint };
       if (spendUsdApprox != null) p.spendUsdApprox = spendUsdApprox;
       if (solLamports) p.solLamports = solLamports;
-      if (extra) Object.assign(p, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
     })
   );
@@ -439,7 +491,7 @@ export function registerCryptoTools(server, ctx) {
     },
     async ({ operation, params }) => {
       const payload = { type: 'CFS_BSC_QUERY', operation };
-      if (params) Object.assign(payload, params);
+      if (params) { const { type: _drop, operation: _dropOp, ...rest } = params; Object.assign(payload, rest); }
       const res = await ctx.sendMessage(payload);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -455,7 +507,7 @@ export function registerCryptoTools(server, ctx) {
     },
     writeToolHandler(ctx, ({ operation, params }) => {
       const p = { type: 'CFS_BSC_POOL_EXECUTE', operation };
-      if (params) Object.assign(p, params);
+      if (params) { const { type: _drop, operation: _dropOp, ...rest } = params; Object.assign(p, rest); }
       return p;
     })
   );
@@ -474,7 +526,7 @@ export function registerCryptoTools(server, ctx) {
       const p = { type: 'CFS_BSC_SELLABILITY_PROBE', token };
       if (spendUsdApprox != null) p.spendUsdApprox = spendUsdApprox;
       if (spendBnbWei) p.spendBnbWei = spendBnbWei;
-      if (extra) Object.assign(p, extra);
+      if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
     })
   );

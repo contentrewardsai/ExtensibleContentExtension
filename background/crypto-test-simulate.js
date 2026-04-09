@@ -28,8 +28,6 @@
 
   /* PancakeSwap V3 Quoter on BSC mainnet */
   var PANCAKE_QUOTER_V2 = '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997';
-  /* PancakeSwap V3 SwapRouter */
-  var PANCAKE_SWAP_ROUTER = '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4';
   var BSC_MAINNET_RPC = 'https://bsc-dataseed1.binance.org/';
 
   function fetchWithTimeout(url, init, ms) {
@@ -159,12 +157,17 @@
     var tokenOut = String(msg.bscTokenOut || USDT_BSC).trim();
     var amountIn = String(msg.bscAmountIn || '1000000000000000').trim(); /* 0.001 BNB */
 
-    /* Load BSC RPC from settings, fallback to public BSC */
+    /* Load BSC RPC from cfs_bsc_global_settings (JSON blob), fallback to public BSC */
     var data = await new Promise(function (r) {
-      chrome.storage.local.get(['cfs_bsc_rpc_url', 'cfs_bsc_chain_id'], function (d) { r(d || {}); });
+      chrome.storage.local.get(['cfs_bsc_global_settings'], function (d) { r(d || {}); });
     });
-    var rpc = String(data.cfs_bsc_rpc_url || BSC_MAINNET_RPC).trim();
-    var chainId = Number(data.cfs_bsc_chain_id || 56);
+    var bscGlob = null;
+    try {
+      var raw = data.cfs_bsc_global_settings;
+      bscGlob = typeof raw === 'object' && raw ? raw : (raw ? JSON.parse(raw) : null);
+    } catch (_) {}
+    var rpc = String((bscGlob && bscGlob.rpcUrl) || BSC_MAINNET_RPC).trim();
+    var chainId = Number((bscGlob && bscGlob.chainId) || 56);
 
     /* If Chapel testnet, use testnet addresses */
     if (chainId === 97) {
@@ -274,7 +277,9 @@
       }
     }
 
-    result.ok = true;
+    var anyFailed = (runSol && result.solana && !result.solana.ok) ||
+                    (runBsc && result.bsc && !result.bsc.ok);
+    result.ok = !anyFailed;
     return result;
   };
 })();

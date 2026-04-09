@@ -1,6 +1,7 @@
 /**
- * Template-driven generator interface. Loads templates from generator/templates/
- * (template.json with embedded __CFS_ editor metadata in merge fields),
+ * Template-driven generator interface. Loads bundled templates from generator/templates/
+ * and project-scoped templates from uploads/{projectId}/templates/*.json in the linked
+ * folder (template.json with embedded __CFS_ editor metadata in merge fields),
  * builds sidebar from extension.inputSchema, and uses the template engine
  * for preview and generate (template-only).
  */
@@ -22,11 +23,25 @@
   const exportShotstackJsonBtn = document.getElementById('exportShotstackJsonBtn');
   const importJsonWhenNoTemplateWrap = document.getElementById('importJsonWhenNoTemplateWrap');
   const importJsonWhenNoTemplateBtn = document.getElementById('importJsonWhenNoTemplate');
+  const copyTemplateBtn = document.getElementById('copyTemplateBtn');
 
   let templates = [];
   let currentTemplate = null;
   let pluginValues = {};
   let pendingPreviewCallback = null;
+  var _showCopyDialog = null;
+  var TEMPLATE_CLIPBOARD_KEY = 'cfs_generator_template_clipboard';
+
+  function getSelectedProjectId() {
+    return typeof window !== 'undefined' && window.__CFS_generatorProjectId
+      ? String(window.__CFS_generatorProjectId).trim()
+      : '';
+  }
+
+  function draftStorageKey(templateSelectKey) {
+    var k = templateSelectKey || '';
+    return 'cfs_template_draft_' + String(k).replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
 
   const exportErrorBanner = document.getElementById('exportErrorBanner');
   const exportErrorText = document.getElementById('exportErrorText');
@@ -173,7 +188,7 @@
     if (!editor || typeof editor.getDraftState !== 'function') return;
     var templateJson = editor.getDraftState();
     if (!templateJson) return;
-    var key = 'cfs_template_draft_' + currentTemplate.id;
+    var key = draftStorageKey(currentTemplate.templateKey || ('project:' + currentTemplate.id));
     var draftData = {};
     draftData[key] = {
       templateJson: templateJson,
@@ -190,8 +205,8 @@
     autosaveTimer = setTimeout(autosaveDraft, AUTOSAVE_DELAY);
   }
 
-  function clearAutosaveDraft(templateId) {
-    var key = 'cfs_template_draft_' + (templateId || (currentTemplate && currentTemplate.id) || '');
+  function clearAutosaveDraft(templateSelectKey) {
+    var key = draftStorageKey(templateSelectKey || (currentTemplate && currentTemplate.templateKey) || '');
     if (!key || key === 'cfs_template_draft_') return;
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.remove(key);
@@ -212,6 +227,18 @@
       window.alert('Select a template first.');
       return;
     }
+    var engine = window.__CFS_templateEngine;
+    if (engine && engine.isBuiltInTemplate && engine.isBuiltInTemplate(currentTemplate.templateKey || currentTemplate.id)) {
+      if (typeof _showCopyDialog === 'function') {
+        _showCopyDialog(
+          currentTemplate.id,
+          (currentTemplate.extension && currentTemplate.extension.name) || currentTemplate.id
+        );
+      } else {
+        window.alert('Built-in templates cannot be saved in-place. Use "Copy" to create an editable copy first.');
+      }
+      return;
+    }
     var editor = previewContainer && previewContainer._cfsEditor;
     if (!editor || typeof editor.getShotstackTemplate !== 'function') {
       window.alert('Save is available when the unified editor is open.');
@@ -222,18 +249,29 @@
       window.alert('No template content to save.');
       return;
     }
+    if (editor && typeof editor.markSavePoint === 'function') editor.markSavePoint();
     var unifiedEditor = window.__CFS_unifiedEditor;
     if (unifiedEditor && unifiedEditor.serializeEditorMeta && unifiedEditor.stripCfsMetaFromMerge) {
       var ext = currentTemplate.extension ? JSON.parse(JSON.stringify(currentTemplate.extension)) : {};
+      if (editor && typeof editor.getUndoHistory === 'function') {
+        ext._undoHistory = editor.getUndoHistory();
+      }
       if (!Array.isArray(shotstack.merge)) shotstack.merge = [];
       shotstack.merge = unifiedEditor.stripCfsMetaFromMerge(shotstack.merge);
       shotstack.merge = shotstack.merge.concat(unifiedEditor.serializeEditorMeta(ext));
+    }
+    var destProject = getSelectedProjectId();
+    if (!destProject) {
+      window.alert('Select a project in the sidebar before saving.');
+      return;
     }
     chrome.runtime.sendMessage({
       type: 'SAVE_TEMPLATE_TO_PROJECT',
       templateId: currentTemplate.id,
       templateJson: shotstack,
       overwrite: true,
+      projectId: destProject,
+      projectName: (genProjectSelect && genProjectSelect.options[genProjectSelect.selectedIndex] && genProjectSelect.options[genProjectSelect.selectedIndex].textContent) || destProject,
     }, function (response) {
       if (chrome.runtime.lastError) {
         window.alert('Could not save: ' + (chrome.runtime.lastError.message || 'Unknown error'));
@@ -241,7 +279,7 @@
       }
       if (response && response.ok) {
         currentTemplate.template = JSON.parse(JSON.stringify(shotstack));
-        clearAutosaveDraft(currentTemplate.id);
+        clearAutosaveDraft(currentTemplate.templateKey);
         if (editor && typeof editor.markSaved === 'function') editor.markSaved();
         updateSaveButtonDirtyState();
       } else {
@@ -250,51 +288,63 @@
     });
   }
 
-  function openVersionHistory() {
+  function showSaveHistory() {
     if (!currentTemplate) {
       window.alert('Select a template first.');
       return;
     }
-    chrome.runtime.sendMessage({
-      type: 'LIST_TEMPLATE_VERSIONS',
-      templateId: currentTemplate.id,
-    }, function (response) {
-      if (chrome.runtime.lastError) {
-        window.alert('Could not list versions: ' + (chrome.runtime.lastError.message || 'Unknown error'));
-      }
-    });
-  }
-
-  function showVersionHistoryDialog(versions, templateId) {
-    if (!versions || !versions.length) {
-      window.alert('No version history found for "' + templateId + '".');
+    var editor = previewContainer && previewContainer._cfsEditor;
+    if (!editor || typeof editor.getUndoPatches !== 'function') {
+      window.alert('Save history is available when the unified editor is open.');
       return;
     }
-    var existing = document.getElementById('cfsVersionHistoryDialog');
+    var patches = editor.getUndoPatches();
+    var savePoints = [];
+    for (var i = 0; i < patches.length; i++) {
+      if (patches[i].isSave) savePoints.push({ index: i, at: patches[i].at });
+    }
+    if (!savePoints.length) {
+      window.alert('No save history found for "' + currentTemplate.id + '". Save the template to create history entries.');
+      return;
+    }
+    var existing = document.getElementById('cfsSaveHistoryDialog');
     if (existing) existing.remove();
     var overlay = document.createElement('div');
-    overlay.id = 'cfsVersionHistoryDialog';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;';
+    overlay.id = 'cfsSaveHistoryDialog';
+    overlay.className = 'cfs-copy-dialog-overlay';
     var dialog = document.createElement('div');
-    dialog.style.cssText = 'background:#fff;border-radius:8px;padding:20px;max-width:400px;width:90%;max-height:60vh;overflow-y:auto;box-shadow:0 4px 24px rgba(0,0,0,0.2);';
-    dialog.innerHTML = '<h3 style="margin:0 0 12px 0;font-size:16px;">Version History: ' + templateId + '</h3>';
+    dialog.className = 'cfs-copy-dialog';
+    dialog.innerHTML = '<h3 style="margin:0 0 12px 0;font-size:16px;">Save History: ' + currentTemplate.id + '</h3>';
     var list = document.createElement('div');
-    versions.forEach(function (v) {
-      var readable = v.replace(/T/, ' ').replace(/-(\d{2})-(\d{2})-(\d{3,})$/, ':$1:$2').replace(/-(\d{2})-(\d{2})$/, ':$1:$2');
+    var cfsJsonPatchFn = window.__CFS_jsonPatch && window.__CFS_jsonPatch.patch;
+    savePoints.forEach(function (sp, displayIdx) {
+      var d = new Date(sp.at);
+      var readable = d.toLocaleString();
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee;';
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--gen-border, #eee);';
       row.innerHTML = '<span style="font-size:13px;">' + readable + '</span>';
       var btn = document.createElement('button');
       btn.textContent = 'Restore';
       btn.className = 'secondary';
       btn.style.cssText = 'font-size:12px;padding:4px 12px;';
       btn.onclick = function () {
-        if (!window.confirm('Restore this version? Current changes will be lost.')) return;
-        chrome.runtime.sendMessage({
-          type: 'LOAD_TEMPLATE_VERSION',
-          templateId: templateId,
-          versionName: v,
-        });
+        if (!window.confirm('Restore to this save point? Redo history will be lost.')) return;
+        if (!cfsJsonPatchFn || !editor) return;
+        var head = editor.getUndoHistory().fabricHead;
+        if (!head) return;
+        var current = head;
+        for (var j = 0; j <= sp.index; j++) {
+          current = cfsJsonPatchFn(current, patches[j].ops);
+        }
+        editor.setUndoHistory({ fabricHead: current, patches: patches.slice(sp.index + 1) });
+        if (typeof editor.restoreState === 'function') {
+          editor.restoreState(current);
+        } else {
+          var c = editor.getCanvas();
+          if (c && c.loadFromJSON) {
+            c.loadFromJSON(current, function () { c.renderAll(); });
+          }
+        }
         overlay.remove();
       };
       row.appendChild(btn);
@@ -312,27 +362,27 @@
     document.body.appendChild(overlay);
   }
 
-  async function checkAndRestoreDraft(templateId) {
-    if (!templateId) return false;
+  async function checkAndRestoreDraft(templateSelectKey) {
+    if (!templateSelectKey) return false;
     if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return false;
-    var key = 'cfs_template_draft_' + templateId;
+    var key = draftStorageKey(templateSelectKey);
     return new Promise(function (resolve) {
       chrome.storage.local.get(key, function (data) {
         var draft = data[key];
         if (!draft || !draft.templateJson || !draft.savedAt) { resolve(false); return; }
         var age = Date.now() - draft.savedAt;
         if (age > 7 * 24 * 60 * 60 * 1000) {
-          clearAutosaveDraft(templateId);
+          clearAutosaveDraft(templateSelectKey);
           resolve(false);
           return;
         }
         var draftDate = new Date(draft.savedAt);
         var confirmed = window.confirm(
-          'An unsaved draft of "' + templateId + '" was found from ' +
+          'An unsaved draft was found from ' +
           draftDate.toLocaleString() + '.\n\nRestore this draft?'
         );
         if (!confirmed) {
-          clearAutosaveDraft(templateId);
+          clearAutosaveDraft(templateSelectKey);
           resolve(false);
           return;
         }
@@ -341,7 +391,10 @@
             pluginValues[k] = draft.mergeValues[k];
           });
         }
-        loadImportedShotstackTemplate(draft.templateJson, templateId, (currentTemplate && currentTemplate.extension && currentTemplate.extension.name) || templateId);
+        var eng = window.__CFS_templateEngine;
+        var parsed = eng && eng.parseTemplateKey ? eng.parseTemplateKey(templateSelectKey) : { source: 'project', id: templateSelectKey };
+        var bare = parsed.id || templateSelectKey;
+        loadImportedShotstackTemplate(draft.templateJson, bare, (currentTemplate && currentTemplate.extension && currentTemplate.extension.name) || bare, 'project:' + bare);
         resolve(true);
       });
     });
@@ -427,8 +480,39 @@
     return format === 'mp4' || format === 'webm' ? 'video' : 'image';
   }
 
-  function loadImportedShotstackTemplate(parsed, importedId, importedName) {
+  function syncCopyTemplateButton() {
+    if (!copyTemplateBtn) return;
+    copyTemplateBtn.style.display = 'inline-flex';
+    var hasLoaded = !!(currentTemplate && currentTemplate.template);
+    var pid = getSelectedProjectId();
+    copyTemplateBtn.disabled = !hasLoaded || !pid;
+    copyTemplateBtn.title = !pid
+      ? 'Select a project in the sidebar first'
+      : hasLoaded
+        ? 'Save a copy as uploads/{project}/templates/{id}.json'
+        : 'Load a template from the menu first';
+    var dupBtn = document.getElementById('duplicateToProjectBtn');
+    if (dupBtn) {
+      dupBtn.disabled = !hasLoaded || !pid;
+      dupBtn.title = !pid
+        ? 'Select a project first'
+        : 'Duplicate to another project (copies referenced uploads/ media when crossing projects)';
+    }
+    var stagedCopy = document.getElementById('copyTemplateStagedBtn');
+    if (stagedCopy) {
+      stagedCopy.disabled = !hasLoaded;
+      stagedCopy.title = hasLoaded ? 'Stage template; switch project then Paste' : 'Load a template first';
+    }
+    if (typeof window !== 'undefined' && window.__CFS_updateTemplateClipboardBanner) {
+      window.__CFS_updateTemplateClipboardBanner();
+    }
+  }
+
+  function loadImportedShotstackTemplate(parsed, importedId, importedName, selectKeyOpt) {
     if (!parsed || !parsed.timeline) return;
+    if (typeof globalThis.__CFS_ensureMergeEntriesForTimelinePlaceholders === 'function') {
+      globalThis.__CFS_ensureMergeEntriesForTimelinePlaceholders(parsed);
+    }
     var mergeList = parsed.merge || [];
     var inputSchemaFromMerge = toInputSchemaFromMerge(mergeList);
     (mergeList || []).forEach(function (m) {
@@ -443,14 +527,15 @@
       inputSchema: inputSchemaFromMerge,
       outputPresetId: ''
     };
-    if (pluginSelect && !pluginSelect.querySelector('option[value="' + minimalExtension.id + '"]')) {
+    var optKey = selectKeyOpt || ('project:' + (minimalExtension.id || 'imported'));
+    if (pluginSelect && !pluginSelect.querySelector('option[value="' + optKey + '"]')) {
       var opt = document.createElement('option');
-      opt.value = minimalExtension.id;
+      opt.value = optKey;
       opt.textContent = minimalExtension.name;
       pluginSelect.appendChild(opt);
     }
-    if (pluginSelect) pluginSelect.value = minimalExtension.id;
-    currentTemplate = { id: minimalExtension.id, extension: minimalExtension, template: parsed };
+    if (pluginSelect) pluginSelect.value = optKey;
+    currentTemplate = { id: minimalExtension.id, templateKey: optKey, extension: minimalExtension, template: parsed };
     if (typeof window !== 'undefined') window.__CFS_currentPluginMeta = minimalExtension;
     if (previewContainer && previewContainer.classList) previewContainer.classList.remove('gen-preview-white-outer');
     showVariables(minimalExtension);
@@ -459,6 +544,7 @@
     showTemplatePreview(true);
     if (importJsonWhenNoTemplateWrap) importJsonWhenNoTemplateWrap.style.display = 'none';
     showEditorAsPreview(minimalExtension, parsed, minimalExtension.id);
+    syncCopyTemplateButton();
   }
 
   function importShotstackTemplateFromFile() {
@@ -507,19 +593,20 @@
   }
 
   async function onTemplateSelect() {
-    const id = pluginSelect ? pluginSelect.value : '';
+    const selectVal = pluginSelect ? pluginSelect.value : '';
     clearPreview();
     currentTemplate = null;
     pluginValues = {};
     showExportButtons(null);
 
-    if (!id) {
+    if (!selectVal) {
       if (variablesPanel) {
         variablesPanel.innerHTML = '';
         variablesPanel.style.display = '';
       }
       if (pluginDescription) { pluginDescription.style.display = 'none'; pluginDescription.textContent = ''; }
       if (genEditorActions) genEditorActions.style.display = 'none';
+      syncCopyTemplateButton();
       if (importJsonWhenNoTemplateWrap) importJsonWhenNoTemplateWrap.style.display = 'block';
       showTemplatePreview(false);
       return;
@@ -527,7 +614,7 @@
     if (importJsonWhenNoTemplateWrap) importJsonWhenNoTemplateWrap.style.display = 'none';
 
     showTemplatePreview(true);
-    const entry = templates && templates.find(function (e) { return e.id === id; });
+    const entry = templates && templates.find(function (e) { return e.key === selectVal; });
     if (entry && entry.failed) {
       currentTemplate = null;
       if (previewContainer) {
@@ -536,29 +623,34 @@
         var msg = document.createElement('p');
         msg.className = 'gen-muted';
         msg.style.padding = '12px';
-        msg.textContent = 'This template failed to load. ' + (entry.error || 'Check that template.json exists under generator/templates/' + id + '/.');
+        msg.textContent =
+          'This template failed to load. ' +
+          (entry.error ||
+            'For project templates, check uploads/<project>/templates/<id>.json on your linked folder. For system templates, check bundled generator/templates/.');
         previewContainer.appendChild(msg);
       }
       showVariables(entry.extension || { inputSchema: [] });
       showExportButtons('');
       if (genEditorActions) genEditorActions.style.display = 'none';
+      syncCopyTemplateButton();
       return;
     }
 
     const engine = window.__CFS_templateEngine;
     if (!engine || !engine.loadTemplate) {
       if (previewContainer) previewContainer.textContent = 'Template engine not loaded.';
+      syncCopyTemplateButton();
       return;
     }
 
     let extension;
     let template;
     try {
-      const loaded = await engine.loadTemplate(id);
+      const loaded = await engine.loadTemplate(selectVal);
       extension = loaded.extension;
       template = loaded.template;
     } catch (e) {
-      console.error('Load template', id, e);
+      console.error('Load template', selectVal, e);
       var loadMsg = (e && e.message) ? e.message : String(e);
       if (previewContainer) {
         previewContainer.innerHTML = '';
@@ -569,11 +661,16 @@
         p.textContent = 'Failed to load template: ' + loadMsg;
         previewContainer.appendChild(p);
       }
+      syncCopyTemplateButton();
       return;
     }
 
+    const parsedKey = engine.parseTemplateKey ? engine.parseTemplateKey(selectVal) : { source: 'builtin', id: selectVal };
+    const bareId = (extension && extension.id) || parsedKey.id;
+
     if (!extension || !extension.id) {
-      if (previewContainer) previewContainer.textContent = 'Template not found: ' + id;
+      if (previewContainer) previewContainer.textContent = 'Template not found: ' + selectVal;
+      syncCopyTemplateButton();
       return;
     }
 
@@ -582,22 +679,37 @@
       pluginDescription.style.display = extension.description ? 'block' : 'none';
     }
 
-    currentTemplate = { id, extension, template };
+    currentTemplate = { id: bareId, templateKey: selectVal, extension: extension, template: template };
     if (typeof window !== 'undefined') window.__CFS_currentPluginMeta = extension;
+
+    if (engine.isBuiltInTemplate && engine.isBuiltInTemplate(selectVal)) {
+      syncCopyTemplateButton();
+      showCopyDialog(bareId, extension.name || bareId, null, function () {
+        pluginSelect.value = '';
+        currentTemplate = null;
+        clearPreview();
+        showExportButtons(null);
+        if (genEditorActions) genEditorActions.style.display = 'none';
+        syncCopyTemplateButton();
+      });
+      return;
+    }
+
     if (previewContainer) {
-      if (id === 'ad-apple-notes') previewContainer.classList.add('gen-preview-white-outer');
+      if (bareId === 'ad-apple-notes') previewContainer.classList.add('gen-preview-white-outer');
       else previewContainer.classList.remove('gen-preview-white-outer');
     }
     showVariables(extension);
     showExportButtons(extension.outputType || 'image');
     if (genEditorActions) genEditorActions.style.display = 'block';
+    syncCopyTemplateButton();
 
     var restoredDraft = false;
-    try { restoredDraft = await checkAndRestoreDraft(id); } catch (_) {}
+    try { restoredDraft = await checkAndRestoreDraft(selectVal); } catch (_) {}
     if (restoredDraft) return;
 
     pendingPreviewCallback = null;
-    showEditorAsPreview(extension, template, id);
+    showEditorAsPreview(extension, template, bareId);
     loadGenerationHistory();
     /* Auto-switch to editor tab when template loads */
     switchTab('editor');
@@ -758,6 +870,9 @@
         downloadToUploads: (typeof window !== 'undefined' && window.__CFS_downloadToUploads) || undefined,
         onTemplateReplaced: function (parsed) {
           if (!currentTemplate) return;
+          if (typeof globalThis.__CFS_ensureMergeEntriesForTimelinePlaceholders === 'function') {
+            globalThis.__CFS_ensureMergeEntriesForTimelinePlaceholders(parsed);
+          }
           var mergeList = parsed.merge || [];
           var inputSchemaFromMerge = toInputSchemaFromMerge(mergeList);
           mergeList.forEach(function (m) {
@@ -937,6 +1052,11 @@
     document.querySelectorAll('.gen-tab-content').forEach(function (content) {
       content.classList.toggle('active', content.getAttribute('data-tab') === tabId);
     });
+    if (tabId === 'editor' && previewContainer && previewContainer._cfsEditor && typeof syncPreview === 'function') {
+      requestAnimationFrame(function () {
+        try { syncPreview(); } catch (_) {}
+      });
+    }
   }
 
   function showGenToast(msg) {
@@ -975,71 +1095,570 @@
       return;
     }
 
-    function refreshTemplateList(selectedId) {
-      return engine.loadTemplateList().then(function (templateIds) {
-      return Promise.all(templateIds.map(function (tid) {
-        return engine.loadTemplate(tid).then(function (loaded) {
-          return { id: tid, name: (loaded.extension && loaded.extension.name) ? loaded.extension.name : tid, failed: false };
-        }).catch(function (err) {
-          console.warn('Template load failed:', tid, err && err.message ? err.message : err);
-          return { id: tid, name: tid + ' (load failed)', failed: true, error: err && err.message ? err.message : String(err) };
-        });
-      }));
-      }).then(function (entries) {
-        templates = entries;
-        var failed = entries.filter(function (e) { return e.failed; });
-        var ok = entries.filter(function (e) { return !e.failed; });
-        if (!pluginSelect) return;
-        var currentSelected = selectedId != null ? selectedId : pluginSelect.value;
-        pluginSelect.innerHTML = '<option value="">— Choose template —</option>';
-        ok.forEach(function (e) {
-          const opt = document.createElement('option');
-          opt.value = e.id;
-          opt.textContent = e.name;
-          pluginSelect.appendChild(opt);
-        });
-        if (currentSelected && pluginSelect.querySelector('option[value="' + currentSelected + '"]')) {
-          pluginSelect.value = currentSelected;
+    function updateTemplateClipboardBanner() {
+      var banner = document.getElementById('templateClipboardBanner');
+      var pasteBtn = document.getElementById('pasteTemplateStagedBtn');
+      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+        if (pasteBtn) pasteBtn.disabled = !getSelectedProjectId();
+        return;
+      }
+      chrome.storage.local.get(TEMPLATE_CLIPBOARD_KEY, function (data) {
+        var clip = data[TEMPLATE_CLIPBOARD_KEY];
+        if (pasteBtn) pasteBtn.disabled = !clip || !clip.templateJson || !getSelectedProjectId();
+        if (!banner) return;
+        banner.innerHTML = '';
+        if (clip && clip.templateJson) {
+          var src = clip.sourceLabel || clip.templateId || 'template';
+          banner.style.display = 'block';
+          banner.appendChild(
+            document.createTextNode('Template copied (' + src + '). Pick destination project, then Paste. ')
+          );
+          var dismiss = document.createElement('button');
+          dismiss.type = 'button';
+          dismiss.className = 'secondary';
+          dismiss.textContent = 'Dismiss';
+          dismiss.style.cssText = 'margin-left:6px;font-size:11px;padding:2px 8px;';
+          dismiss.onclick = function () {
+            chrome.storage.local.remove(TEMPLATE_CLIPBOARD_KEY, function () {
+              updateTemplateClipboardBanner();
+            });
+          };
+          banner.appendChild(dismiss);
+        } else {
+          banner.style.display = 'none';
         }
-        var failedNote = document.getElementById('templateLoadFailedNote');
-        if (failed.length > 0) {
-          if (!failedNote) {
-            failedNote = document.createElement('p');
-            failedNote.id = 'templateLoadFailedNote';
-            failedNote.className = 'gen-muted';
-            failedNote.style.cssText = 'font-size:11px;margin-top:4px;';
-            pluginSelect.parentNode && pluginSelect.parentNode.appendChild(failedNote);
-          }
-          failedNote.textContent = failed.length + ' template(s) could not be loaded (see console for details).';
-          failedNote.style.display = 'block';
-        } else if (failedNote) {
-          failedNote.style.display = 'none';
-        }
-        if (importJsonWhenNoTemplateWrap && (!pluginSelect.value || pluginSelect.value === '')) importJsonWhenNoTemplateWrap.style.display = 'block';
-      }).catch(function (e) {
-        console.error('Load templates', e);
-        if (pluginSelect) pluginSelect.innerHTML = '<option value="">— Failed to load templates —</option>';
       });
     }
+    window.__CFS_updateTemplateClipboardBanner = updateTemplateClipboardBanner;
 
-    function waitForTemplateInList(templateId, attemptsLeft) {
+    function refreshTemplateList(selectedKey) {
+      return engine
+        .loadTemplateList()
+        .then(function (lists) {
+          var builtIn = (lists && lists.builtIn) || [];
+          var project = (lists && lists.project) || [];
+          var items = builtIn.concat(project);
+          return Promise.all(
+            items.map(function (item) {
+              return engine.loadTemplate(item.key).then(function (loaded) {
+                return {
+                  key: item.key,
+                  id: item.id,
+                  name: loaded.extension && loaded.extension.name ? loaded.extension.name : item.id,
+                  failed: !loaded.template,
+                  error: !loaded.template ? 'Missing or unreadable template' : null,
+                };
+              }).catch(function (err) {
+                console.warn('Template load failed:', item.key, err && err.message ? err.message : err);
+                return {
+                  key: item.key,
+                  id: item.id,
+                  name: item.id + ' (load failed)',
+                  failed: true,
+                  error: err && err.message ? err.message : String(err),
+                };
+              });
+            })
+          );
+        })
+        .then(function (entries) {
+          templates = entries;
+          var failed = entries.filter(function (e) {
+            return e.failed;
+          });
+          var ok = entries.filter(function (e) {
+            return !e.failed;
+          });
+          if (!pluginSelect) return;
+          var currentSelected = selectedKey != null ? selectedKey : pluginSelect.value;
+          pluginSelect.innerHTML = '<option value="">— Choose template —</option>';
+          function appendOptgroup(label, list) {
+            if (!list.length) return;
+            var og = document.createElement('optgroup');
+            og.label = label;
+            list.forEach(function (e) {
+              var opt = document.createElement('option');
+              opt.value = e.key;
+              opt.textContent = e.name;
+              og.appendChild(opt);
+            });
+            pluginSelect.appendChild(og);
+          }
+          appendOptgroup(
+            'System',
+            ok.filter(function (e) {
+              return e.key.indexOf('builtin:') === 0;
+            })
+          );
+          appendOptgroup(
+            'This project',
+            ok.filter(function (e) {
+              return e.key.indexOf('project:') === 0;
+            })
+          );
+          if (failed.length) {
+            var ogf = document.createElement('optgroup');
+            ogf.label = 'Unavailable';
+            failed.forEach(function (e) {
+              var opt = document.createElement('option');
+              opt.value = e.key;
+              opt.textContent = e.name;
+              opt.disabled = true;
+              ogf.appendChild(opt);
+            });
+            pluginSelect.appendChild(ogf);
+          }
+          if (currentSelected && pluginSelect.querySelector('option[value="' + currentSelected + '"]')) {
+            pluginSelect.value = currentSelected;
+          }
+          var failedNote = document.getElementById('templateLoadFailedNote');
+          if (failed.length > 0) {
+            if (!failedNote) {
+              failedNote = document.createElement('p');
+              failedNote.id = 'templateLoadFailedNote';
+              failedNote.className = 'gen-muted';
+              failedNote.style.cssText = 'font-size:11px;margin-top:4px;';
+              var listHost = pluginSelect.closest('.gen-template-list');
+              (listHost || pluginSelect.parentNode).appendChild(failedNote);
+            }
+            failedNote.textContent = failed.length + ' template(s) could not be loaded (see console for details).';
+            failedNote.style.display = 'block';
+          } else if (failedNote) {
+            failedNote.style.display = 'none';
+          }
+          if (importJsonWhenNoTemplateWrap && (!pluginSelect.value || pluginSelect.value === '')) {
+            importJsonWhenNoTemplateWrap.style.display = 'block';
+          }
+          syncCopyTemplateButton();
+        })
+        .catch(function (e) {
+          console.error('Load templates', e);
+          if (pluginSelect) pluginSelect.innerHTML = '<option value="">— Failed to load templates —</option>';
+        });
+    }
+
+    function waitForTemplateInList(templateKey, attemptsLeft) {
       var maxAttempts = attemptsLeft != null ? attemptsLeft : 6;
-      return refreshTemplateList(templateId).then(function () {
-        if (pluginSelect && pluginSelect.querySelector('option[value="' + templateId + '"]')) return true;
+      return refreshTemplateList(templateKey).then(function () {
+        if (pluginSelect && pluginSelect.querySelector('option[value="' + templateKey + '"]')) return true;
         if (maxAttempts <= 1) return false;
         return new Promise(function (resolve) {
           setTimeout(function () {
-            waitForTemplateInList(templateId, maxAttempts - 1).then(resolve).catch(function () { resolve(false); });
+            waitForTemplateInList(templateKey, maxAttempts - 1).then(resolve).catch(function () {
+              resolve(false);
+            });
           }, 1000);
         });
-      }).catch(function () { return false; });
+      }).catch(function () {
+        return false;
+      });
     }
+
+    function showCopyDialog(templateId, templateName, onCopied, onCancel) {
+      var destPid = getSelectedProjectId();
+      if (!destPid) {
+        window.alert('Select a project in the sidebar before copying a template.');
+        return;
+      }
+      var existing = document.getElementById('cfsCopyDialog');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'cfsCopyDialog';
+      overlay.className = 'cfs-copy-dialog-overlay';
+      var dialog = document.createElement('div');
+      dialog.className = 'cfs-copy-dialog';
+      dialog.innerHTML = '<h3>Copy Template</h3>';
+      var sanitize = function (s) {
+        return (s || '').trim().replace(/[^a-z0-9-_]/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'new-template';
+      };
+
+      var idLabel = document.createElement('label');
+      idLabel.textContent = 'Template ID (file name without .json)';
+      var idInput = document.createElement('input');
+      idInput.type = 'text';
+      idInput.value = sanitize(templateId) + '-copy';
+      dialog.appendChild(idLabel);
+      dialog.appendChild(idInput);
+
+      var nameLabel = document.createElement('label');
+      nameLabel.textContent = 'Display Name';
+      var nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = (templateName || templateId) + ' (copy)';
+      dialog.appendChild(nameLabel);
+      dialog.appendChild(nameInput);
+
+      var pathHint = document.createElement('p');
+      pathHint.className = 'gen-muted';
+      pathHint.style.cssText = 'font-size:11px;margin:10px 0;line-height:1.45;';
+      pathHint.textContent =
+        'Saves to uploads/' + destPid + '/templates/<Template ID>.json in your linked project folder (side panel).';
+      dialog.appendChild(pathHint);
+
+      var actions = document.createElement('div');
+      actions.className = 'cfs-copy-dialog-actions';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.onclick = function () {
+        overlay.remove();
+        if (typeof onCancel === 'function') onCancel();
+      };
+      var copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy';
+      copyBtn.className = 'primary';
+      copyBtn.onclick = function () {
+        var newId = sanitize(idInput.value);
+        var newName = (nameInput.value || '').trim() || newId;
+        if (!newId) { window.alert('Please enter a valid Template ID.'); return; }
+        var editor = previewContainer && previewContainer._cfsEditor;
+        var shotstack = null;
+        if (editor && typeof editor.getShotstackTemplate === 'function') {
+          shotstack = editor.getShotstackTemplate();
+        }
+        if (!shotstack && currentTemplate && currentTemplate.template) {
+          shotstack = JSON.parse(JSON.stringify(currentTemplate.template));
+        }
+        if (!shotstack) { window.alert('No template content to copy.'); overlay.remove(); return; }
+        var ext = currentTemplate && currentTemplate.extension ? JSON.parse(JSON.stringify(currentTemplate.extension)) : {};
+        ext.id = newId;
+        ext.name = newName;
+        delete ext._undoHistory;
+        var unifiedEditor = window.__CFS_unifiedEditor;
+        if (unifiedEditor && unifiedEditor.serializeEditorMeta && unifiedEditor.stripCfsMetaFromMerge) {
+          if (!Array.isArray(shotstack.merge)) shotstack.merge = [];
+          shotstack.merge = unifiedEditor.stripCfsMetaFromMerge(shotstack.merge);
+          shotstack.merge = shotstack.merge.concat(unifiedEditor.serializeEditorMeta(ext));
+        }
+        var projName =
+          genProjectSelect && genProjectSelect.options[genProjectSelect.selectedIndex]
+            ? genProjectSelect.options[genProjectSelect.selectedIndex].textContent
+            : destPid;
+        chrome.runtime.sendMessage(
+          {
+            type: 'SAVE_TEMPLATE_TO_PROJECT',
+            templateId: newId,
+            templateJson: shotstack,
+            projectId: destPid,
+            projectName: projName,
+          },
+          function (response) {
+            if (chrome.runtime.lastError) {
+              window.alert('Copy failed: ' + (chrome.runtime.lastError.message || 'Unknown error'));
+              return;
+            }
+            if (response && response.ok) {
+              overlay.remove();
+              var newKey = 'project:' + newId;
+              waitForTemplateInList(newKey, 8).then(function (found) {
+                if (found && pluginSelect && pluginSelect.querySelector('option[value="' + newKey + '"]')) {
+                  pluginSelect.value = newKey;
+                  onTemplateSelect();
+                }
+              }).catch(function () {});
+              window.alert(
+                'Template "' + newId + '" queued. The side panel saves uploads/' + destPid + '/templates/' + newId + '.json'
+              );
+              if (typeof onCopied === 'function') onCopied(newId);
+            } else {
+              window.alert('Copy failed: ' + ((response && response.error) || 'Unknown error'));
+            }
+          }
+        );
+      };
+      actions.appendChild(cancelBtn);
+      actions.appendChild(copyBtn);
+      dialog.appendChild(actions);
+      overlay.appendChild(dialog);
+      overlay.onclick = function (e) { if (e.target === overlay) { overlay.remove(); if (typeof onCancel === 'function') onCancel(); } };
+      document.body.appendChild(overlay);
+      idInput.focus();
+      idInput.select();
+    }
+    _showCopyDialog = showCopyDialog;
+
+    function showDuplicateToProjectDialog() {
+      if (!currentTemplate || !currentTemplate.template) {
+        window.alert('Load a template first.');
+        return;
+      }
+      var sourcePid = getSelectedProjectId();
+      if (!sourcePid) {
+        window.alert('Select a project in the sidebar (source context).');
+        return;
+      }
+      var eng = window.__CFS_templateEngine;
+      var tk = currentTemplate.templateKey || '';
+      var isBuiltin = eng && eng.isBuiltInTemplate && eng.isBuiltInTemplate(tk);
+      var sourceProjectId = isBuiltin ? '' : sourcePid;
+      var existing = document.getElementById('cfsDupDialog');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'cfsDupDialog';
+      overlay.className = 'cfs-copy-dialog-overlay';
+      var dialog = document.createElement('div');
+      dialog.className = 'cfs-copy-dialog';
+      var h = document.createElement('h3');
+      h.textContent = 'Duplicate to project';
+      dialog.appendChild(h);
+      var fromP = document.createElement('p');
+      fromP.className = 'gen-muted';
+      fromP.style.cssText = 'font-size:12px;margin:0 0 10px;';
+      fromP.textContent = 'From: ' + (isBuiltin ? 'System (bundled template)' : 'Current project (' + sourcePid + ')');
+      dialog.appendChild(fromP);
+      var tmplP = document.createElement('p');
+      tmplP.className = 'gen-muted';
+      tmplP.style.cssText = 'font-size:12px;margin:0 0 10px;';
+      tmplP.textContent =
+        'Template: ' + ((currentTemplate.extension && currentTemplate.extension.name) || currentTemplate.id);
+      dialog.appendChild(tmplP);
+      var toLabel = document.createElement('label');
+      toLabel.textContent = 'To project';
+      var toSelect = document.createElement('select');
+      toSelect.style.cssText = 'width:100%;margin-bottom:10px;';
+      if (genProjectSelect) {
+        for (var i = 0; i < genProjectSelect.options.length; i++) {
+          var o = genProjectSelect.options[i];
+          if (!o.value) continue;
+          var o2 = document.createElement('option');
+          o2.value = o.value;
+          o2.textContent = o.textContent;
+          toSelect.appendChild(o2);
+        }
+      }
+      if (!toSelect.options.length) {
+        window.alert('No projects available. Add a project in Settings or sync.');
+        return;
+      }
+      dialog.appendChild(toLabel);
+      dialog.appendChild(toSelect);
+      var sanitize = function (s) {
+        return (s || '').trim().replace(/[^a-z0-9-_]/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'new-template';
+      };
+      var idLabel = document.createElement('label');
+      idLabel.textContent = 'New template ID';
+      var idInput = document.createElement('input');
+      idInput.type = 'text';
+      idInput.value = sanitize(currentTemplate.id) + '-copy';
+      idInput.style.cssText = 'width:100%;margin-bottom:10px;';
+      dialog.appendChild(idLabel);
+      dialog.appendChild(idInput);
+      var actions = document.createElement('div');
+      actions.className = 'cfs-copy-dialog-actions';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.onclick = function () {
+        overlay.remove();
+      };
+      var goBtn = document.createElement('button');
+      goBtn.textContent = 'Duplicate';
+      goBtn.className = 'primary';
+      goBtn.onclick = function () {
+        var destPid = (toSelect.value || '').trim();
+        if (!destPid) {
+          window.alert('Pick a destination project.');
+          return;
+        }
+        var newId = sanitize(idInput.value);
+        if (!newId) {
+          window.alert('Enter a valid template ID.');
+          return;
+        }
+        var editor = previewContainer && previewContainer._cfsEditor;
+        var shotstack = null;
+        if (editor && typeof editor.getShotstackTemplate === 'function') {
+          shotstack = editor.getShotstackTemplate();
+        }
+        if (!shotstack && currentTemplate.template) {
+          shotstack = JSON.parse(JSON.stringify(currentTemplate.template));
+        }
+        if (!shotstack) {
+          window.alert('No template content to duplicate.');
+          return;
+        }
+        var ext = currentTemplate.extension ? JSON.parse(JSON.stringify(currentTemplate.extension)) : {};
+        ext.id = newId;
+        ext.name = ((currentTemplate.extension && currentTemplate.extension.name) || currentTemplate.id) + ' (copy)';
+        delete ext._undoHistory;
+        var unifiedEditor = window.__CFS_unifiedEditor;
+        if (unifiedEditor && unifiedEditor.serializeEditorMeta && unifiedEditor.stripCfsMetaFromMerge) {
+          if (!Array.isArray(shotstack.merge)) shotstack.merge = [];
+          shotstack.merge = unifiedEditor.stripCfsMetaFromMerge(shotstack.merge);
+          shotstack.merge = shotstack.merge.concat(unifiedEditor.serializeEditorMeta(ext));
+        }
+        var destName = toSelect.options[toSelect.selectedIndex]
+          ? toSelect.options[toSelect.selectedIndex].textContent
+          : destPid;
+        var replicate = !!sourceProjectId && sourceProjectId !== destPid;
+        chrome.runtime.sendMessage(
+          {
+            type: 'SAVE_TEMPLATE_TO_PROJECT',
+            templateId: newId,
+            templateJson: shotstack,
+            projectId: destPid,
+            projectName: destName,
+            sourceProjectId: sourceProjectId,
+            replicateUploadsAssets: replicate,
+          },
+          function (response) {
+            if (chrome.runtime.lastError) {
+              window.alert('Duplicate failed: ' + (chrome.runtime.lastError.message || 'Unknown error'));
+              return;
+            }
+            if (response && response.ok) {
+              overlay.remove();
+              if (genProjectSelect) {
+                genProjectSelect.value = destPid;
+                window.__CFS_generatorProjectId = destPid;
+              }
+              var newKey = 'project:' + newId;
+              waitForTemplateInList(newKey, 8).then(function (found) {
+                if (found && pluginSelect && pluginSelect.querySelector('option[value="' + newKey + '"]')) {
+                  pluginSelect.value = newKey;
+                  onTemplateSelect();
+                }
+              }).catch(function () {});
+              window.alert(
+                'Duplicated to project ' +
+                  destPid +
+                  ' as uploads/' +
+                  destPid +
+                  '/templates/' +
+                  newId +
+                  '.json' +
+                  (replicate ? ' (media copied where needed).' : '')
+              );
+            } else {
+              window.alert('Duplicate failed: ' + ((response && response.error) || 'Unknown error'));
+            }
+          }
+        );
+      };
+      actions.appendChild(cancelBtn);
+      actions.appendChild(goBtn);
+      dialog.appendChild(actions);
+      overlay.appendChild(dialog);
+      overlay.onclick = function (e) {
+        if (e.target === overlay) overlay.remove();
+      };
+      document.body.appendChild(overlay);
+      idInput.focus();
+      idInput.select();
+    }
+
+    window.__CFS_refreshGeneratorTemplates = refreshTemplateList;
 
     refreshTemplateList();
     populateProjectDropdown();
     if (pluginSelect && !pluginSelect.dataset.cfsBoundChange) {
       pluginSelect.addEventListener('change', onTemplateSelect);
       pluginSelect.dataset.cfsBoundChange = '1';
+    }
+
+    var duplicateToProjectBtn = document.getElementById('duplicateToProjectBtn');
+    if (duplicateToProjectBtn) duplicateToProjectBtn.addEventListener('click', showDuplicateToProjectDialog);
+    var copyTemplateStagedBtn = document.getElementById('copyTemplateStagedBtn');
+    if (copyTemplateStagedBtn) {
+      copyTemplateStagedBtn.addEventListener('click', function () {
+        if (!currentTemplate || !currentTemplate.template) return;
+        var editor = previewContainer && previewContainer._cfsEditor;
+        var shotstack =
+          editor && typeof editor.getShotstackTemplate === 'function'
+            ? editor.getShotstackTemplate()
+            : JSON.parse(JSON.stringify(currentTemplate.template));
+        if (!shotstack) return;
+        var sto = {};
+        sto[TEMPLATE_CLIPBOARD_KEY] = {
+          templateJson: shotstack,
+          sourceProjectId: getSelectedProjectId() || '',
+          sourceLabel:
+            (currentTemplate.extension && currentTemplate.extension.name) || currentTemplate.id || 'template',
+          templateId: currentTemplate.id,
+          templateKey: currentTemplate.templateKey || '',
+          copiedAt: Date.now(),
+        };
+        chrome.storage.local.set(sto, function () {
+          updateTemplateClipboardBanner();
+          showGenToast('Template staged — switch project, then Paste');
+        });
+      });
+    }
+    var pasteTemplateStagedBtn = document.getElementById('pasteTemplateStagedBtn');
+    if (pasteTemplateStagedBtn) {
+      pasteTemplateStagedBtn.addEventListener('click', function () {
+        chrome.storage.local.get(TEMPLATE_CLIPBOARD_KEY, function (data) {
+          var clip = data[TEMPLATE_CLIPBOARD_KEY];
+          if (!clip || !clip.templateJson) {
+            window.alert('Nothing to paste. Click “Copy for paste” first.');
+            return;
+          }
+          var destPid = getSelectedProjectId();
+          if (!destPid) {
+            window.alert('Select a destination project.');
+            return;
+          }
+          var sanitize = function (s) {
+            return (s || '').trim().replace(/[^a-z0-9-_]/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'new-template';
+          };
+          var defId = sanitize((clip.templateId || 'template') + '-paste');
+          var newIdRaw = window.prompt('New template ID for this project:', defId);
+          if (newIdRaw == null) return;
+          var newId = sanitize(newIdRaw);
+          if (!newId) return;
+          var shotstack = JSON.parse(JSON.stringify(clip.templateJson));
+          var ext = {
+            id: newId,
+            name: (clip.sourceLabel || newId) + ' (paste)',
+            description: 'Pasted template',
+            outputType: inferOutputTypeFromTemplate(shotstack),
+            inputSchema: toInputSchemaFromMerge(shotstack.merge || []),
+            outputPresetId: '',
+          };
+          var unifiedEditor = window.__CFS_unifiedEditor;
+          if (unifiedEditor && unifiedEditor.serializeEditorMeta && unifiedEditor.stripCfsMetaFromMerge) {
+            if (!Array.isArray(shotstack.merge)) shotstack.merge = [];
+            shotstack.merge = unifiedEditor.stripCfsMetaFromMerge(shotstack.merge);
+            shotstack.merge = shotstack.merge.concat(unifiedEditor.serializeEditorMeta(ext));
+          }
+          var srcProj = clip.sourceProjectId || '';
+          var replicate = !!srcProj && srcProj !== destPid;
+          var projName =
+            genProjectSelect && genProjectSelect.options[genProjectSelect.selectedIndex]
+              ? genProjectSelect.options[genProjectSelect.selectedIndex].textContent
+              : destPid;
+          chrome.runtime.sendMessage(
+            {
+              type: 'SAVE_TEMPLATE_TO_PROJECT',
+              templateId: newId,
+              templateJson: shotstack,
+              projectId: destPid,
+              projectName: projName,
+              sourceProjectId: srcProj,
+              replicateUploadsAssets: replicate,
+            },
+            function (response) {
+              if (chrome.runtime.lastError) {
+                window.alert('Paste failed: ' + (chrome.runtime.lastError.message || 'Unknown error'));
+                return;
+              }
+              if (response && response.ok) {
+                var newKey = 'project:' + newId;
+                waitForTemplateInList(newKey, 8).then(function (found) {
+                  if (found && pluginSelect && pluginSelect.querySelector('option[value="' + newKey + '"]')) {
+                    pluginSelect.value = newKey;
+                    onTemplateSelect();
+                  }
+                }).catch(function () {});
+                window.alert('Pasted as uploads/' + destPid + '/templates/' + newId + '.json');
+                chrome.storage.local.remove(TEMPLATE_CLIPBOARD_KEY, function () {
+                  updateTemplateClipboardBanner();
+                });
+              } else {
+                window.alert('Paste failed: ' + ((response && response.error) || 'Unknown error'));
+              }
+            }
+          );
+        });
+      });
     }
 
     if (importJsonWhenNoTemplateBtn) importJsonWhenNoTemplateBtn.addEventListener('click', importShotstackTemplateFromFile);
@@ -1198,7 +1817,13 @@
           URL.revokeObjectURL(url);
         }
         downloadJson(shotstack, 'template.json');
-        window.alert('Downloaded template.json (with embedded editor metadata). Add it under generator/templates/' + newId + '/ and add "' + newId + '" to generator/templates/manifest.json templates array.');
+        window.alert(
+          'Downloaded template.json (with embedded editor metadata). To keep it only in your linked project folder, use Save to project folder (sidebar project) instead of this download. To ship it inside the extension, add generator/templates/' +
+            newId +
+            '/template.json and list "' +
+            newId +
+            '" in generator/templates/manifest.json.'
+        );
       });
     }
 
@@ -1209,7 +1834,20 @@
 
     var versionHistoryBtn = document.getElementById('versionHistoryBtn');
     if (versionHistoryBtn) {
-      versionHistoryBtn.addEventListener('click', openVersionHistory);
+      versionHistoryBtn.addEventListener('click', showSaveHistory);
+    }
+
+    if (copyTemplateBtn) {
+      copyTemplateBtn.addEventListener('click', function () {
+        if (!currentTemplate || !currentTemplate.template) {
+          window.alert('Choose a template from the menu above and wait for it to load. For bundled examples, complete the “Copy template” dialog (or cancel and pick again).');
+          return;
+        }
+        showCopyDialog(
+          currentTemplate.id,
+          (currentTemplate.extension && currentTemplate.extension.name) || currentTemplate.id
+        );
+      });
     }
 
     var saveToProjectFolderBtn = document.getElementById('saveToProjectFolderBtn');
@@ -1244,29 +1882,48 @@
           shotstack.merge = unifiedEditor.stripCfsMetaFromMerge(shotstack.merge);
           shotstack.merge = shotstack.merge.concat(unifiedEditor.serializeEditorMeta(ext));
         }
-        chrome.runtime.sendMessage({
-          type: 'SAVE_TEMPLATE_TO_PROJECT',
-          templateId: newId,
-          templateJson: shotstack,
-        }, function (response) {
-          if (chrome.runtime.lastError) {
-            window.alert('Could not queue save: ' + (chrome.runtime.lastError.message || 'Unknown error'));
-            return;
+        var destProj = getSelectedProjectId();
+        if (!destProj) {
+          window.alert('Select a project in the sidebar first.');
+          return;
+        }
+        var projName =
+          genProjectSelect && genProjectSelect.options[genProjectSelect.selectedIndex]
+            ? genProjectSelect.options[genProjectSelect.selectedIndex].textContent
+            : destProj;
+        chrome.runtime.sendMessage(
+          {
+            type: 'SAVE_TEMPLATE_TO_PROJECT',
+            templateId: newId,
+            templateJson: shotstack,
+            projectId: destProj,
+            projectName: projName,
+          },
+          function (response) {
+            if (chrome.runtime.lastError) {
+              window.alert('Could not queue save: ' + (chrome.runtime.lastError.message || 'Unknown error'));
+              return;
+            }
+            if (response && response.ok) {
+              var nk = 'project:' + newId;
+              waitForTemplateInList(nk, 8).then(function (found) {
+                if (found && pluginSelect && pluginSelect.querySelector('option[value="' + nk + '"]')) {
+                  pluginSelect.value = nk;
+                  onTemplateSelect();
+                }
+              }).catch(function () {});
+              window.alert(
+                'Template "' + newId + '" queued. Side panel saves uploads/' + destProj + '/templates/' + newId + '.json'
+              );
+            } else {
+              window.alert(response && response.error ? response.error : 'Save failed.');
+            }
           }
-          if (response && response.ok) {
-            waitForTemplateInList(newId, 8).then(function (found) {
-              if (found && pluginSelect && pluginSelect.querySelector('option[value="' + newId + '"]')) {
-                pluginSelect.value = newId;
-                onTemplateSelect();
-              }
-            }).catch(function () {});
-            window.alert('Template "' + newId + '" queued. The side panel will open and save it to generator/templates/' + newId + '/. If project-folder save is granted, it should appear in the dropdown automatically.');
-          } else {
-            window.alert(response && response.error ? response.error : 'Save failed.');
-          }
-        });
+        );
       });
     }
+
+    syncCopyTemplateButton();
 
     /* ---- Wire tab & accordion UI ---- */
     initTabs();
@@ -1321,6 +1978,23 @@
       }
       window.__CFS_generatorProjectId = genProjectSelect.value || '';
       genProjectSelect.style.display = (projects && projects.length) ? '' : 'none';
+      var hint = document.getElementById('genProjectToolbarHint');
+      if (hint) {
+        if (genProjectSelect.value) {
+          hint.style.display = '';
+          var si = genProjectSelect.selectedIndex;
+          hint.textContent =
+            'Project: ' +
+            (genProjectSelect.options[si] ? genProjectSelect.options[si].textContent : genProjectSelect.value);
+        } else {
+          hint.style.display = 'none';
+          hint.textContent = '';
+        }
+      }
+      if (typeof window.__CFS_refreshGeneratorTemplates === 'function') {
+        var ps = document.getElementById('pluginSelect');
+        window.__CFS_refreshGeneratorTemplates(ps ? ps.value : undefined);
+      }
     }
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(['localProjects', 'selectedProjectId'], function (data) {
@@ -1354,16 +2028,47 @@
     chrome.storage.onChanged.addListener(function (changes, area) {
       if (area !== 'local') return;
       if (changes.localProjects || changes.selectedProjectId) populateProjectDropdown();
+      var pend = changes.cfs_pending_template_save;
+      if (
+        pend &&
+        pend.oldValue != null &&
+        pend.newValue === undefined &&
+        typeof window.__CFS_refreshGeneratorTemplates === 'function'
+      ) {
+        var ps = document.getElementById('pluginSelect');
+        window.__CFS_refreshGeneratorTemplates(ps ? ps.value : undefined);
+      }
     });
   }
 
   if (genProjectSelect) {
     genProjectSelect.addEventListener('change', function () {
       window.__CFS_generatorProjectId = genProjectSelect.value || '';
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ selectedProjectId: genProjectSelect.value || '' });
+      }
       var ssSelect = document.getElementById('ss-gen-project');
       if (ssSelect && ssSelect.value !== genProjectSelect.value) {
         ssSelect.value = genProjectSelect.value;
       }
+      var hint = document.getElementById('genProjectToolbarHint');
+      if (hint) {
+        if (genProjectSelect.value) {
+          hint.style.display = '';
+          var si = genProjectSelect.selectedIndex;
+          hint.textContent =
+            'Project: ' +
+            (genProjectSelect.options[si] ? genProjectSelect.options[si].textContent : genProjectSelect.value);
+        } else {
+          hint.style.display = 'none';
+          hint.textContent = '';
+        }
+      }
+      if (typeof window.__CFS_refreshGeneratorTemplates === 'function') {
+        var ps = document.getElementById('pluginSelect');
+        window.__CFS_refreshGeneratorTemplates(ps ? ps.value : undefined);
+      }
+      syncCopyTemplateButton();
       loadGenerationHistory();
     });
   }
@@ -1414,24 +2119,6 @@
     },
   };
 
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-    chrome.runtime.onMessage.addListener(function (msg) {
-      if (!msg || typeof msg !== 'object') return false;
-      if (msg.type === 'CFS_VERSION_LIST_RESULT') {
-        showVersionHistoryDialog(msg.versions || [], msg.templateId || '');
-        return false;
-      }
-      if (msg.type === 'CFS_VERSION_LOAD_RESULT') {
-        if (msg.templateJson) {
-          loadImportedShotstackTemplate(msg.templateJson, msg.templateId || currentTemplate.id, (currentTemplate && currentTemplate.extension && currentTemplate.extension.name) || msg.templateId);
-        } else {
-          window.alert('Could not load version "' + (msg.versionName || '') + '".');
-        }
-        return false;
-      }
-      return false;
-    });
-  }
 
   window.__CFS_onGenerationSaved = function () {
     loadGenerationHistory();

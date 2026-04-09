@@ -217,8 +217,9 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
 
       const res = await ctx.sendMessage(payload);
 
-      // Clean up session after execution
-      flashloanSessions.delete(sessionId);
+      if (res && res.ok) {
+        flashloanSessions.delete(sessionId);
+      }
 
       return {
         content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],

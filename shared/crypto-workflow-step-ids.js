@@ -58,6 +58,7 @@
     'meteoraCpammClaimReward',
     'bscPancake',
     'pancakeFlash',
+    'cryptoSimulateSwap',
     'bscTransferBnb',
     'bscTransferBep20',
     'bscAggregatorSwap',

@@ -610,7 +610,8 @@
 
     var keys = [
       STORAGE_SOL_V2, STORAGE_SOL_CLUSTER, STORAGE_SOL_RPC,
-      STORAGE_BSC_V2, 'cfs_bsc_rpc_url', 'cfs_bsc_chain_id',
+      STORAGE_BSC_V2, 'cfs_bsc_global_settings',
+      STORAGE_SOL_PRACTICE, STORAGE_BSC_PRACTICE,
     ];
     var data = await storageLocalGet(keys);
 
@@ -620,14 +621,22 @@
     var bscV2 = null;
     try { bscV2 = JSON.parse(data[STORAGE_BSC_V2] || 'null'); } catch (_) {}
 
+    var bscGlob = null;
+    try {
+      var _raw = data['cfs_bsc_global_settings'];
+      bscGlob = typeof _raw === 'object' && _raw ? _raw : (_raw ? JSON.parse(_raw) : null);
+    } catch (_) {}
+
     var snapshot = {
       ts: Date.now(),
       solPrimaryWalletId: solV2 ? solV2.primaryWalletId || '' : '',
       solCluster: data[STORAGE_SOL_CLUSTER] || '',
       solRpc: data[STORAGE_SOL_RPC] || '',
       bscPrimaryWalletId: bscV2 ? bscV2.primaryWalletId || '' : '',
-      bscRpc: data['cfs_bsc_rpc_url'] || '',
-      bscChainId: data['cfs_bsc_chain_id'] || '',
+      bscRpc: (bscGlob && bscGlob.rpcUrl) || '',
+      bscChainId: (bscGlob && bscGlob.chainId) || '',
+      solPracticeWalletId: data[STORAGE_SOL_PRACTICE] || '',
+      bscPracticeWalletId: data[STORAGE_BSC_PRACTICE] || '',
     };
 
     await storageLocalSet({ [SNAPSHOT_KEY]: JSON.stringify(snapshot) });
@@ -648,32 +657,50 @@
       return { restored: false, reason: 'Corrupt snapshot — removed' };
     }
 
+    var errors = [];
+
     /* Restore Solana primary wallet + cluster */
     if (snap.solPrimaryWalletId) {
-      await solWalletRoute({ type: 'CFS_SOLANA_WALLET_SET_PRIMARY', walletId: snap.solPrimaryWalletId });
+      var solPrimRes = await solWalletRoute({ type: 'CFS_SOLANA_WALLET_SET_PRIMARY', walletId: snap.solPrimaryWalletId });
+      if (solPrimRes && !solPrimRes.ok) errors.push('Solana SET_PRIMARY: ' + (solPrimRes.error || 'failed'));
     }
     if (snap.solCluster || snap.solRpc) {
-      await solWalletRoute({
+      var solSettingsRes = await solWalletRoute({
         type: 'CFS_SOLANA_WALLET_SAVE_SETTINGS',
         cluster: snap.solCluster || 'mainnet-beta',
         rpcUrl: snap.solRpc || '',
       });
+      if (solSettingsRes && !solSettingsRes.ok) errors.push('Solana SAVE_SETTINGS: ' + (solSettingsRes.error || 'failed'));
     }
 
     /* Restore BSC primary wallet + chain */
     if (snap.bscPrimaryWalletId) {
-      await bscWalletRoute({ type: 'CFS_BSC_WALLET_SET_PRIMARY', walletId: snap.bscPrimaryWalletId });
+      var bscPrimRes = await bscWalletRoute({ type: 'CFS_BSC_WALLET_SET_PRIMARY', walletId: snap.bscPrimaryWalletId });
+      if (bscPrimRes && !bscPrimRes.ok) errors.push('BSC SET_PRIMARY: ' + (bscPrimRes.error || 'failed'));
     }
     if (snap.bscRpc || snap.bscChainId) {
-      await bscWalletRoute({
+      var bscSettingsRes = await bscWalletRoute({
         type: 'CFS_BSC_WALLET_SAVE_SETTINGS',
         rpcUrl: snap.bscRpc || '',
         chainId: snap.bscChainId ? Number(snap.bscChainId) : 56,
       });
+      if (bscSettingsRes && !bscSettingsRes.ok) errors.push('BSC SAVE_SETTINGS: ' + (bscSettingsRes.error || 'failed'));
     }
 
-    /* Remove snapshot after successful restore */
+    /* Restore practice wallet IDs */
+    var practiceRestore = {};
+    if (snap.solPracticeWalletId !== undefined) practiceRestore[STORAGE_SOL_PRACTICE] = snap.solPracticeWalletId;
+    if (snap.bscPracticeWalletId !== undefined) practiceRestore[STORAGE_BSC_PRACTICE] = snap.bscPracticeWalletId;
+    if (Object.keys(practiceRestore).length) {
+      await storageLocalSet(practiceRestore);
+    }
+
+    /* Remove snapshot after restore attempt */
     await storageLocalRemove([SNAPSHOT_KEY]);
+
+    if (errors.length) {
+      return { restored: true, snapshot: snap, warnings: errors };
+    }
     return { restored: true, snapshot: snap };
   }
 
@@ -707,7 +734,27 @@
    */
   globalThis.__CFS_cryptoTest_isPlaybackActive = isPlaybackActive;
 
+  var _ensureInFlight = false;
+
   globalThis.__CFS_cryptoTest_ensureWallets = async function (msg) {
+    if (_ensureInFlight) {
+      return {
+        ok: false,
+        errors: ['Another ensure-wallets call is already in progress. Please wait for it to finish.'],
+        warnings: [],
+        solanaAddress: '', bscAddress: '',
+        solanaFunded: false, bscFunded: false,
+      };
+    }
+    _ensureInFlight = true;
+    try {
+      return await _ensureWalletsImpl(msg);
+    } finally {
+      _ensureInFlight = false;
+    }
+  };
+
+  async function _ensureWalletsImpl(msg) {
     msg = msg || {};
     var skipFund = msg.skipFund === true;
     var solOnly = msg.solanaOnly === true;
@@ -781,6 +828,6 @@
       chapelRpc: CHAPEL_RPC_DEFAULT,
       snapshotSaved: true,
     };
-  };
+  }
 })();
 

@@ -1,6 +1,6 @@
 /**
  * Content Generator: sidepanel link and any legacy hooks.
- * Templates are listed in generator/templates/ and loaded by the template engine.
+ * Bundled templates live under generator/templates/; project templates load from the linked uploads/ tree.
  */
 (function() {
   'use strict';

@@ -81,8 +81,21 @@
   }
 
   /**
-   * Load list of template ids from templates/manifest.json (extension + optional project).
+   * Parse select value: builtin:id vs project:id (bare id treated as builtin for back-compat).
    */
+  function parseTemplateKey(templateKey) {
+    const k = String(templateKey || '');
+    if (k.indexOf('project:') === 0) return { source: 'project', id: k.slice(8) };
+    if (k.indexOf('builtin:') === 0) return { source: 'builtin', id: k.slice(8) };
+    return { source: 'builtin', id: k };
+  }
+
+  /**
+   * Load system templates from bundled manifest + project templates from uploads/{projectId}/templates/*.json.
+   * @returns {Promise<{ builtIn: Array<{key:string,id:string}>, project: Array<{key:string,id:string}> }>}
+   */
+  var _builtInIds = new Set();
+
   async function loadTemplateList() {
     const url = getBaseUrl() + 'generator/templates/manifest.json';
     let ids = [];
@@ -93,41 +106,40 @@
     } catch (e) {
       console.error('Load template manifest', e);
     }
+    _builtInIds = new Set(ids);
+    const builtIn = ids.map(function (id) {
+      return { key: 'builtin:' + id, id: id };
+    });
+    builtIn.sort(function (a, b) { return String(a.id).localeCompare(String(b.id)); });
+
+    const project = [];
     projectRootHandle = await getProjectFolderHandle();
-    if (projectRootHandle) {
+    const projectId =
+      typeof window !== 'undefined' && window.__CFS_generatorProjectId
+        ? String(window.__CFS_generatorProjectId).trim()
+        : '';
+    if (projectRootHandle && projectId) {
       try {
         const perm = await projectRootHandle.requestPermission({ mode: 'read' });
         if (perm === 'granted') {
-          const text = await readFileFromProjectFolder(projectRootHandle, 'generator/templates/manifest.json');
-          if (text) {
-            const data = JSON.parse(text);
-            const projectIds = data.templates || [];
-            projectIds.forEach(function (id) {
-              if (ids.indexOf(id) === -1) ids.push(id);
-            });
-          }
-          /* Also discover template folders directly so new templates appear without manifest edits/reload. */
           try {
-            const generatorDir = await projectRootHandle.getDirectoryHandle('generator', { create: false });
-            const templatesDir = await generatorDir.getDirectoryHandle('templates', { create: false });
-            const skipIds = { presets: true, schemas: true };
+            const uploadsDir = await projectRootHandle.getDirectoryHandle('uploads', { create: false });
+            const projDir = await uploadsDir.getDirectoryHandle(projectId, { create: false });
+            const templatesDir = await projDir.getDirectoryHandle('templates', { create: false });
             for await (const entry of templatesDir.values()) {
-              if (!entry || entry.kind !== 'directory') continue;
-              const templateId = (entry.name || '').trim();
-              if (!templateId || skipIds[templateId]) continue;
-              let hasTemplateFiles = false;
-              try {
-                await entry.getFileHandle('template.json', { create: false });
-                hasTemplateFiles = true;
-              } catch (_) {}
-              if (hasTemplateFiles && ids.indexOf(templateId) === -1) ids.push(templateId);
+              if (!entry || entry.kind !== 'file') continue;
+              const name = entry.name || '';
+              if (!/\.json$/i.test(name)) continue;
+              const base = name.replace(/\.json$/i, '');
+              if (!base) continue;
+              project.push({ key: 'project:' + base, id: base });
             }
           } catch (_) {}
         }
       } catch (_) {}
     }
-    ids.sort(function (a, b) { return String(a).localeCompare(String(b)); });
-    return ids;
+    project.sort(function (a, b) { return String(a.id).localeCompare(String(b.id)); });
+    return { builtIn: builtIn, project: project };
   }
 
   var CFS_META_PREFIX = '__CFS_';
@@ -159,27 +171,52 @@
   }
 
   /**
-   * Load template.json and derive extension metadata from __CFS_* merge entries.
+   * Load template: project from uploads/{projectId}/templates/{id}.json; builtin from linked generator/templates or extension package.
    */
-  async function loadTemplate(templateId, options) {
+  async function loadTemplate(templateKey, options) {
     options = options || {};
+    const parsed = parseTemplateKey(templateKey);
+    const source = parsed.source;
+    const bareId = parsed.id;
+    const projectId =
+      options.projectId != null && String(options.projectId).trim() !== ''
+        ? String(options.projectId).trim()
+        : typeof window !== 'undefined' && window.__CFS_generatorProjectId
+          ? String(window.__CFS_generatorProjectId).trim()
+          : '';
 
     let template = null;
-    const templateFileName = 'template.json';
-    const templatePath = 'generator/templates/' + templateId + '/' + templateFileName;
-    if (projectRootHandle) {
-      const text = await readFileFromProjectFolder(projectRootHandle, templatePath);
-      if (text) {
+    projectRootHandle = projectRootHandle || (await getProjectFolderHandle());
+
+    if (source === 'project') {
+      if (projectId && projectRootHandle) {
+        const path = 'uploads/' + projectId + '/templates/' + bareId + '.json';
+        const text = await readFileFromProjectFolder(projectRootHandle, path);
+        if (text) {
+          try {
+            template = JSON.parse(text);
+          } catch (_) {}
+        }
+      }
+    } else {
+      const templateFileName = 'template.json';
+      const templatePath = 'generator/templates/' + bareId + '/' + templateFileName;
+      if (projectRootHandle) {
+        const text = await readFileFromProjectFolder(projectRootHandle, templatePath);
+        if (text) {
+          try {
+            template = JSON.parse(text);
+          } catch (_) {}
+        }
+      }
+      if (!template) {
         try {
-          template = JSON.parse(text);
+          const res = await fetch(
+            getBaseUrl() + 'generator/templates/' + encodeURIComponent(bareId) + '/' + encodeURIComponent(templateFileName)
+          );
+          if (res.ok) template = await res.json();
         } catch (_) {}
       }
-    }
-    if (!template) {
-      try {
-        const res = await fetch(getBaseUrl() + 'generator/templates/' + encodeURIComponent(templateId) + '/' + encodeURIComponent(templateFileName));
-        if (res.ok) template = await res.json();
-      } catch (_) {}
     }
 
     const extension = template ? extensionFromMerge(template.merge) : {};
@@ -512,6 +549,20 @@
   }
 
   /**
+   * Deep-clone template and remove clips marked _cfsHideOnImage (still-image export only).
+   */
+  function omitHideOnImageClipsFromTemplate(tmpl) {
+    var copy = JSON.parse(JSON.stringify(tmpl));
+    if (!copy.timeline || !Array.isArray(copy.timeline.tracks)) return copy;
+    copy.timeline.tracks = copy.timeline.tracks.map(function (track) {
+      if (!track) return track;
+      var clips = (track.clips || []).filter(function (c) { return !c || !c._cfsHideOnImage; });
+      return Object.assign({}, track, { clips: clips });
+    });
+    return copy;
+  }
+
+  /**
    * Render timeline to a 2d canvas (one frame). Used when template has timeline.
    * Seeks past progressive text/animation so PNG/JPEG stills show final content; video export still plays from 0.
    * Returns Promise<dataURL>.
@@ -532,10 +583,11 @@
     if (!player || typeof player.load !== 'function') {
       return Promise.reject(new Error('Pixi renderer unavailable: invalid player instance.'));
     }
-    return player.load(mergedTemplate)
+    var templateForStill = omitHideOnImageClipsFromTemplate(mergedTemplate);
+    return player.load(templateForStill)
       .then(function () {
         var durationSec = typeof player.getDuration === 'function' ? player.getDuration() : 0;
-        var seekT = computeStillImageSeekTimeSec(mergedTemplate, durationSec);
+        var seekT = computeStillImageSeekTimeSec(templateForStill, durationSec);
         player.seek(seekT);
         return player.captureFrame({ format: 'png', quality: 1 });
       })
@@ -1068,13 +1120,22 @@
     });
   }
 
+  function isBuiltInTemplate(templateKeyOrId) {
+    const k = String(templateKeyOrId || '');
+    if (k.indexOf('project:') === 0) return false;
+    const bare = k.indexOf('builtin:') === 0 ? k.slice(8) : k;
+    return _builtInIds.has(bare);
+  }
+
   window.__CFS_templateEngine = {
     getBaseUrl: getBaseUrl,
     getProjectFolderHandle: getProjectFolderHandle,
     readFileFromProjectFolder: readFileFromProjectFolder,
     readImageAsDataUrlFromProjectFolder: readImageAsDataUrlFromProjectFolder,
+    parseTemplateKey: parseTemplateKey,
     loadTemplateList: loadTemplateList,
     loadTemplate: loadTemplate,
+    isBuiltInTemplate: isBuiltInTemplate,
     buildMerge: buildMerge,
     applyMergeToTemplate: applyMergeToTemplate,
     renderPreview: renderPreview,

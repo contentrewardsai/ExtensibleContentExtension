@@ -296,8 +296,13 @@ test.describe('Export video — uses editor output type', () => {
     expect(block).toContain("outputType === 'video' && typeof editor.exportVideo");
   });
 
-  test('exportVideo function downloads webm, not png', () => {
-    expect(editorSrc).toMatch(/a\.download\s*=\s*'export\.webm'/);
+  test('exportVideo function downloads video (webm or mp4), not png', () => {
+    const exportVideoBlock = editorSrc.match(
+      /function exportVideo\(\)\s*\{[\s\S]*?\n    \}/,
+    );
+    expect(exportVideoBlock).not.toBeNull();
+    expect(exportVideoBlock[0]).toContain("a.download = 'export.' + ext");
+    expect(exportVideoBlock[0]).toMatch(/finishExport\([^)]*,\s*'(webm|mp4)'\)/);
     const exportVideoPngMatch = editorSrc.match(
       /function exportVideo[\s\S]*?a\.download\s*=\s*'export\.png'/,
     );
@@ -404,7 +409,7 @@ test.describe('Typewriter effect — editor canvas animation', () => {
 
   test('seekToTime calls applyAnimationAtTime for visible objects', () => {
     const fn = sceneSrc.match(
-      /function seekToTime\(canvas, timeSec\)\s*\{[\s\S]*?\n  \}/,
+      /function seekToTime\(canvas, timeSec, opts\)\s*\{[\s\S]*?\n  \}/,
     );
     expect(fn).not.toBeNull();
     expect(fn[0]).toContain('applyAnimationAtTime(');
@@ -2808,6 +2813,7 @@ test.describe('Template persistence and versioning', () => {
     expect(fn).not.toBeNull();
     expect(fn[0]).toContain("type: 'SAVE_TEMPLATE_TO_PROJECT'");
     expect(fn[0]).toContain('overwrite: true');
+    expect(fn[0]).toContain('projectId:');
   });
 
   test('generator-interface saveTemplateInPlace clears draft and marks editor saved on success', () => {
@@ -2824,38 +2830,26 @@ test.describe('Template persistence and versioning', () => {
     expect(interfaceSrc).toContain("'Save *'");
   });
 
-  test('generator-interface has openVersionHistory that sends LIST_TEMPLATE_VERSIONS', () => {
-    expect(interfaceSrc).toContain('function openVersionHistory()');
-    expect(interfaceSrc).toContain("type: 'LIST_TEMPLATE_VERSIONS'");
-  });
-
-  test('generator-interface showVersionHistoryDialog renders version list with restore buttons', () => {
-    expect(interfaceSrc).toContain('function showVersionHistoryDialog(');
+  test('generator-interface has showSaveHistory for delta-based save history', () => {
+    expect(interfaceSrc).toContain('function showSaveHistory()');
     expect(interfaceSrc).toContain("'Restore'");
-    expect(interfaceSrc).toContain("type: 'LOAD_TEMPLATE_VERSION'");
+    expect(interfaceSrc).toContain('isSave');
   });
 
-  test('generator-interface listens for CFS_VERSION_LIST_RESULT and CFS_VERSION_LOAD_RESULT messages', () => {
-    expect(interfaceSrc).toContain("msg.type === 'CFS_VERSION_LIST_RESULT'");
-    expect(interfaceSrc).toContain("msg.type === 'CFS_VERSION_LOAD_RESULT'");
+  test('generator-interface has showCopyDialog for template copying', () => {
+    expect(interfaceSrc).toContain('function showCopyDialog(');
+    expect(interfaceSrc).toContain("type: 'SAVE_TEMPLATE_TO_PROJECT'");
+  });
+
+  test('generator-interface guards saveTemplateInPlace for built-in templates', () => {
+    expect(interfaceSrc).toContain('isBuiltInTemplate');
   });
 
   test('service-worker SAVE_TEMPLATE_TO_PROJECT passes overwrite flag to pending save', () => {
-    const handler = serviceWorkerSrc.match(
-      /if \(msg\.type === 'SAVE_TEMPLATE_TO_PROJECT'\)[\s\S]*?return true;\s*\}/,
-    );
-    expect(handler).not.toBeNull();
-    expect(handler[0]).toContain('overwrite: !!msg.overwrite');
-  });
-
-  test('service-worker handles LIST_TEMPLATE_VERSIONS message', () => {
-    expect(serviceWorkerSrc).toContain("msg.type === 'LIST_TEMPLATE_VERSIONS'");
-    expect(serviceWorkerSrc).toContain('cfs_pending_version_request');
-  });
-
-  test('service-worker handles LOAD_TEMPLATE_VERSION message', () => {
-    expect(serviceWorkerSrc).toContain("msg.type === 'LOAD_TEMPLATE_VERSION'");
-    expect(serviceWorkerSrc).toContain("action: 'load'");
+    expect(serviceWorkerSrc).toContain("msg.type === 'SAVE_TEMPLATE_TO_PROJECT'");
+    expect(serviceWorkerSrc).toContain('overwrite: !!msg.overwrite');
+    expect(serviceWorkerSrc).toContain('cfs_pending_template_save');
+    expect(serviceWorkerSrc).toContain("case 'SAVE_TEMPLATE_TO_PROJECT'");
   });
 
   test('sidepanel writeTemplateToProjectFolder accepts saveOptions parameter', () => {
@@ -2866,45 +2860,180 @@ test.describe('Template persistence and versioning', () => {
     expect(fn[0]).toContain('saveOptions');
   });
 
-  test('sidepanel creates version backup when saveOptions.createVersion is true', () => {
-    expect(sidepanelSrc).toContain('saveOptions.createVersion');
-    expect(sidepanelSrc).toContain("getDirectoryHandle('versions'");
-    expect(sidepanelSrc).toContain('MAX_VERSIONS');
-  });
-
-  test('sidepanel version backup caps at 20 files', () => {
-    expect(sidepanelSrc).toContain('MAX_VERSIONS = 20');
-  });
-
   test('sidepanel skips manifest update when overwrite is true', () => {
     expect(sidepanelSrc).toContain('!saveOptions.overwrite');
   });
 
-  test('sidepanel processPendingTemplateSave reads overwrite flag and passes it to write function', () => {
-    const fn = sidepanelSrc.match(
-      /async function processPendingTemplateSave\(\)\s*\{[\s\S]*?\n  \}/,
+  test('sidepanel processPendingTemplateSave requires projectId and writes uploads templates json', () => {
+    expect(sidepanelSrc).toContain('async function processPendingTemplateSave()');
+    expect(sidepanelSrc).toContain('pending.projectId');
+    expect(sidepanelSrc).toContain('/templates/');
+    expect(sidepanelSrc).toContain('writeJsonToProjectFolder');
+  });
+
+  test('template-engine exposes isBuiltInTemplate function', () => {
+    const teSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/template-engine.js'),
+      'utf8',
     );
-    expect(fn).not.toBeNull();
-    expect(fn[0]).toContain('pending.overwrite');
-    expect(fn[0]).toContain('overwrite: isOverwrite');
-    expect(fn[0]).toContain('createVersion: isOverwrite');
+    expect(teSrc).toContain('function isBuiltInTemplate(');
+    expect(teSrc).toContain('_builtInIds');
+    expect(teSrc).toContain('isBuiltInTemplate: isBuiltInTemplate');
   });
 
-  test('sidepanel has listTemplateVersions function', () => {
-    expect(sidepanelSrc).toContain('async function listTemplateVersions(');
-    expect(sidepanelSrc).toContain("getDirectoryHandle('versions'");
+  test('json-patch.js exists and exposes diff and patch functions', () => {
+    const jpSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/editor/json-patch.js'),
+      'utf8',
+    );
+    expect(jpSrc).toContain('function cfsJsonDiff(');
+    expect(jpSrc).toContain('function cfsJsonPatch(');
+    expect(jpSrc).toContain('__CFS_jsonPatch');
+    expect(jpSrc).toContain("op: 'replace'");
+    expect(jpSrc).toContain("op: 'add'");
+    expect(jpSrc).toContain("op: 'remove'");
   });
 
-  test('sidepanel has loadTemplateVersion function', () => {
-    expect(sidepanelSrc).toContain('async function loadTemplateVersion(');
+  test('json-patch diff produces correct ops and patch applies them', async () => {
+    const vm = await import('vm');
+    const jpSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/editor/json-patch.js'),
+      'utf8',
+    );
+    const ctx = { window: {}, globalThis: {} };
+    vm.createContext(ctx);
+    vm.runInContext(jpSrc, ctx);
+    const jp = ctx.window.__CFS_jsonPatch || ctx.globalThis.__CFS_jsonPatch;
+    expect(jp).toBeTruthy();
+    expect(typeof jp.diff).toBe('function');
+    expect(typeof jp.patch).toBe('function');
+
+    // replace
+    const ops1 = jp.diff({ x: 1 }, { x: 2 });
+    expect(ops1.length).toBe(1);
+    expect(jp.patch({ x: 1 }, ops1).x).toBe(2);
+
+    // add
+    const ops2 = jp.diff({ a: 1 }, { a: 1, b: 2 });
+    expect(jp.patch({ a: 1 }, ops2)).toEqual({ a: 1, b: 2 });
+
+    // remove
+    const ops3 = jp.diff({ a: 1, b: 2 }, { a: 1 });
+    const r3 = jp.patch({ a: 1, b: 2 }, ops3);
+    expect(r3.a).toBe(1);
+    expect('b' in r3).toBe(false);
+
+    // no-op
+    expect(jp.diff({ x: 1 }, { x: 1 }).length).toBe(0);
+
+    // undo round-trip
+    const s1 = { objects: [{ left: 10 }], w: 500 };
+    const s2 = { objects: [{ left: 30 }], w: 500 };
+    const rev = jp.diff(s2, s1);
+    const fwd = jp.diff(s1, s2);
+    expect(jp.patch(s2, rev).objects[0].left).toBe(10);
+    expect(jp.patch(s1, fwd).objects[0].left).toBe(30);
   });
 
-  test('sidepanel processPendingVersionRequest handles list and load actions', () => {
-    expect(sidepanelSrc).toContain('async function processPendingVersionRequest()');
-    expect(sidepanelSrc).toContain("pending.action === 'list'");
-    expect(sidepanelSrc).toContain("pending.action === 'load'");
-    expect(sidepanelSrc).toContain("type: 'CFS_VERSION_LIST_RESULT'");
-    expect(sidepanelSrc).toContain("type: 'CFS_VERSION_LOAD_RESULT'");
+  test('unified-editor uses delta-based undo (fabricHead, undoPatches, redoPatches)', () => {
+    const ueSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/editor/unified-editor.js'),
+      'utf8',
+    );
+    expect(ueSrc).toContain('var fabricHead = null;');
+    expect(ueSrc).toContain('var undoPatches = [];');
+    expect(ueSrc).toContain('var redoPatches = [];');
+    expect(ueSrc).toContain('var maxHistory = 100;');
+    expect(ueSrc).not.toContain('var undoStack = []');
+    expect(ueSrc).not.toContain('var redoStack = []');
+    expect(ueSrc).toContain('cfsJsonDiff(newState, fabricHead)');
+    expect(ueSrc).toContain('cfsJsonPatch(fabricHead, entry.ops)');
+  });
+
+  test('unified-editor serializes and deserializes __CFS_UNDO_HISTORY', () => {
+    const ueSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/editor/unified-editor.js'),
+      'utf8',
+    );
+    expect(ueSrc).toContain("CFS_META_PREFIX + 'UNDO_HISTORY'");
+    expect(ueSrc).toContain('ext._undoHistory');
+    expect(ueSrc).toContain("suffix === 'UNDO_HISTORY'");
+    expect(ueSrc).toContain('meta._undoHistory');
+  });
+
+  test('unified-editor exposes undo history methods on instance', () => {
+    const ueSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/editor/unified-editor.js'),
+      'utf8',
+    );
+    expect(ueSrc).toContain('getUndoHistory:');
+    expect(ueSrc).toContain('setUndoHistory:');
+    expect(ueSrc).toContain('markSavePoint:');
+    expect(ueSrc).toContain('getUndoPatches:');
+    expect(ueSrc).toContain('restoreState: restoreState');
+  });
+
+  test('unified-editor restores undo history from _savedUndoHistory on load', () => {
+    const ueSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/editor/unified-editor.js'),
+      'utf8',
+    );
+    expect(ueSrc).toContain('_savedUndoHistory');
+    expect(ueSrc).toContain('_savedUndoHistory.fabricHead');
+    expect(ueSrc).toContain('_savedUndoHistory.patches');
+  });
+
+  test('generator-interface persists undo history on save via markSavePoint and getUndoHistory', () => {
+    expect(interfaceSrc).toContain('editor.markSavePoint');
+    expect(interfaceSrc).toContain('editor.getUndoHistory');
+    expect(interfaceSrc).toContain('ext._undoHistory');
+  });
+
+  test('load-from-manifest.js includes json-patch.js before unified-editor.js', () => {
+    const lfmSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/load-from-manifest.js'),
+      'utf8',
+    );
+    const jpIdx = lfmSrc.indexOf('editor/json-patch.js');
+    const ueIdx = lfmSrc.indexOf('editor/unified-editor.js');
+    expect(jpIdx).toBeGreaterThan(-1);
+    expect(ueIdx).toBeGreaterThan(-1);
+    expect(jpIdx).toBeLessThan(ueIdx);
+  });
+
+  test('index.html has Copy button with id copyTemplateBtn', () => {
+    const indexSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/index.html'),
+      'utf8',
+    );
+    expect(indexSrc).toContain('id="copyTemplateBtn"');
+    expect(indexSrc).toContain('Copy');
+  });
+
+  test('index.html Save History button replaces Version History', () => {
+    const indexSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/index.html'),
+      'utf8',
+    );
+    expect(indexSrc).toContain('id="versionHistoryBtn"');
+    expect(indexSrc).toContain('Save History');
+    expect(indexSrc).not.toContain('>Version History<');
+  });
+
+  test('generator-interface blocks built-in save and redirects to copy dialog', () => {
+    expect(interfaceSrc).toContain('isBuiltInTemplate');
+    expect(interfaceSrc).toContain('_showCopyDialog');
+    expect(interfaceSrc).toContain('Built-in templates cannot be saved in-place');
+  });
+
+  test('generator.css has copy dialog overlay and dialog styles', () => {
+    const cssSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/generator.css'),
+      'utf8',
+    );
+    expect(cssSrc).toContain('.cfs-copy-dialog-overlay');
+    expect(cssSrc).toContain('.cfs-copy-dialog');
+    expect(cssSrc).toContain('.cfs-copy-dialog-actions');
   });
 
   test('index.html has Save button with id saveTemplateBtn', () => {
@@ -3084,6 +3213,7 @@ test.describe('Template persistence and versioning', () => {
         templateId: 'my-template',
         templateJson: { timeline: { tracks: [{ clips: [] }] } },
         overwrite: true,
+        projectId: 'proj-1',
       }, function () {});
 
       chrome.storage.local.remove(draftKey);
@@ -3215,7 +3345,7 @@ test.describe('Timeline, transitions, effects, and electric car template', () =>
 
   test('scene.js seekToTime calls applyTransitionAtTime for visible objects', () => {
     const fn = sceneSrc.match(
-      /function seekToTime\(canvas, timeSec\)\s*\{[\s\S]*?\n  \}/,
+      /function seekToTime\(canvas, timeSec, opts\)\s*\{[\s\S]*?\n  \}/,
     );
     expect(fn).not.toBeNull();
     expect(fn[0]).toContain('applyTransitionAtTime(');
@@ -3247,7 +3377,7 @@ test.describe('Timeline, transitions, effects, and electric car template', () =>
 
   test('scene.js seekToTime calls captureBaseState for visible and restoreBaseState for hidden', () => {
     const fn = sceneSrc.match(
-      /function seekToTime\(canvas, timeSec\)\s*\{[\s\S]*?\n  \}/,
+      /function seekToTime\(canvas, timeSec, opts\)\s*\{[\s\S]*?\n  \}/,
     );
     expect(fn).not.toBeNull();
     expect(fn[0]).toContain('captureBaseState(obj)');
@@ -3261,8 +3391,52 @@ test.describe('Timeline, transitions, effects, and electric car template', () =>
     expect(sceneSrc).toContain('fade: 0.5');
   });
 
-  test('unified-editor.js loadTemplateIntoCanvas calls seekToTime(fabricCanvas, 0) after load', () => {
-    expect(editorSrc).toContain('coreScene.seekToTime(fabricCanvas, 0)');
+  test('unified-editor.js loadTemplateIntoCanvas calls applySeekForOutputPreview after load', () => {
+    expect(editorSrc).toContain('applySeekForOutputPreview(fabricCanvas)');
+  });
+
+  test('unified-editor includes cfsHideOnImage in CFS_RESPONSIVE_KEYS and load keys', () => {
+    expect(editorSrc).toContain("'cfsHideOnImage'");
+    expect(editorSrc).toMatch(/CFS_RESPONSIVE_KEYS\s*=\s*\[[^\]]*'cfsHideOnImage'/);
+  });
+
+  test('unified-editor applySeekForOutputPreview uses ignoreClipTiming for image output', () => {
+    expect(editorSrc).toContain('ignoreClipTiming: true');
+    expect(editorSrc).toContain('cfsHideOnImage');
+  });
+
+  test('scene.js seekToTime accepts ignoreClipTiming option', () => {
+    expect(sceneSrc).toContain('ignoreClipTiming');
+    expect(sceneSrc).toContain('opts.ignoreClipTiming');
+  });
+
+  test('scene.js captureFrameAt passes ignoreClipTiming to seekToTime when requested', () => {
+    expect(sceneSrc).toContain('options.ignoreClipTiming');
+    expect(sceneSrc).toContain('seekToTime(canvas, timeSec, seekOpts)');
+  });
+
+  test('scene.js addTweenToObject stamps cfsHideOnImage from clip._cfsHideOnImage', () => {
+    expect(sceneSrc).toContain('clip._cfsHideOnImage');
+    expect(sceneSrc).toContain('obj.cfsHideOnImage = true');
+  });
+
+  test('fabric-to-timeline applyCommonClipProps maps cfsHideOnImage to _cfsHideOnImage', () => {
+    expect(fabricToTimelineSrc).toContain("obj.cfsHideOnImage === true");
+    expect(fabricToTimelineSrc).toContain("clip._cfsHideOnImage = true");
+  });
+
+  test('template-engine strips _cfsHideOnImage clips for Pixi still render', () => {
+    const teSrc = fs.readFileSync(
+      path.join(ROOT, 'generator/template-engine.js'),
+      'utf8',
+    );
+    expect(teSrc).toContain('omitHideOnImageClipsFromTemplate');
+    expect(teSrc).toContain('_cfsHideOnImage');
+    expect(teSrc).toContain('player.load(templateForStill)');
+  });
+
+  test('unified-editor layers panel has gen-clip-hide-img-btn for hide-on-image toggle', () => {
+    expect(editorSrc).toContain('gen-clip-hide-img-btn');
   });
 
   test('unified-editor.js playTimelinePreview uses 5s minimum instead of 10s', () => {

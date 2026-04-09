@@ -115,5 +115,15 @@
     { name: 'getRowIndex default 0', fn: function () {
       runner.assertEqual(getRowIndex({}, {}), 0);
     }},
+    { name: '__CFS_parseGeneratorTemplateInputSchema from merge', fn: function () {
+      var api = global.__CFS_parseGeneratorTemplateInputSchema;
+      if (!api) { runner.assertTrue(false, 'parse API missing'); return; }
+      var r = api.parseFromTemplateObject({
+        merge: [{ find: '__CFS_INPUT_SCHEMA', replace: '[{"id":"a","type":"text"}]' }],
+      });
+      runner.assertEqual(r.error, null);
+      runner.assertEqual(r.inputSchema.length, 1);
+      runner.assertEqual(r.inputSchema[0].id, 'a');
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

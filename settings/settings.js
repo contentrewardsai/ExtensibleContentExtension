@@ -2097,6 +2097,45 @@
       updateWalletInfoPanel(r);
     });
 
+    document.getElementById('cryptoTestRestoreSettingsBtn')?.addEventListener('click', async () => {
+      setStatus(msgEl, 'Restoring pre-test settings…', 'success');
+      try {
+        const r = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'CFS_CRYPTO_TEST_RESTORE' }, (resp) => resolve(resp || {}));
+        });
+        if (r.ok) {
+          setStatus(msgEl, 'Restored: primary wallet and cluster reverted to pre-test state.', 'success');
+        } else {
+          setStatus(msgEl, r.error || 'Restore failed.', 'error');
+        }
+      } catch (e) {
+        setStatus(msgEl, 'Restore error: ' + (e.message || String(e)), 'error');
+      }
+    });
+
+    document.getElementById('cryptoTestSimulateSettingsBtn')?.addEventListener('click', async () => {
+      setStatus(msgEl, 'Running mainnet simulation (no real transactions)…', 'success');
+      try {
+        const r = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'CFS_CRYPTO_TEST_SIMULATE' }, (resp) => resolve(resp || {}));
+        });
+        const lines = [];
+        if (r.solana) {
+          lines.push('Solana: ' + (r.solana.ok
+            ? 'OK — ' + r.solana.amount + ' lamports → ' + (r.solana.outAmount || '?') + ' output (' + (r.solana.unitsConsumed || 0) + ' CU)'
+            : 'FAIL — ' + (r.solana.error || 'unknown')));
+        }
+        if (r.bsc) {
+          lines.push('BSC: ' + (r.bsc.ok
+            ? 'OK — ' + r.bsc.amountIn + ' wei → ' + (r.bsc.amountOut || '?') + ' output'
+            : 'FAIL — ' + (r.bsc.error || 'unknown')));
+        }
+        setStatus(msgEl, lines.join('\n') || 'No results.', (r.solana?.ok || r.bsc?.ok) ? 'success' : 'error');
+      } catch (e) {
+        setStatus(msgEl, 'Simulate error: ' + (e.message || String(e)), 'error');
+      }
+    });
+
     document.getElementById('cryptoTestCopySolBtn')?.addEventListener('click', () => {
       const addr = document.getElementById('cryptoTestSolanaAddr')?.textContent || '';
       if (addr) navigator.clipboard.writeText(addr).then(() => setStatus(msgEl, 'Solana address copied.', 'success'));

@@ -41,6 +41,7 @@ interface IERC20 {
 contract CfsFlashReceiver {
     address public immutable swapRouter;
     address public owner;
+    address private _expectedPool;
 
     event FlashExecuted(
         address indexed pool,
@@ -88,7 +89,9 @@ contract CfsFlashReceiver {
             swapCalldata
         );
 
+        _expectedPool = pool;
         IPancakeV3Pool(pool).flash(address(this), amount0, amount1, data);
+        _expectedPool = address(0);
     }
 
     /**
@@ -102,6 +105,7 @@ contract CfsFlashReceiver {
         uint256 fee1,
         bytes calldata data
     ) external {
+        require(msg.sender == _expectedPool, "Callback caller is not the expected pool");
         (
             address caller,
             address borrowToken,

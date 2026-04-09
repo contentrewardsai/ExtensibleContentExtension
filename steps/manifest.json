@@ -135,6 +135,7 @@
     "bscAggregatorSwap",
     "bscSellabilityProbe",
     "pancakeFlash",
+    "cryptoSimulateSwap",
     "bscWatchRefresh",
     "bscWatchReadActivity",
     "watchActivityFilterTxAge",

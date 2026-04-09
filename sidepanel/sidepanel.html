@@ -344,6 +344,7 @@
           <button id="scheduleFromData" class="btn btn-outline" title="Schedule multiple runs from CSV or JSON (one row per run)">Schedule from CSV/JSON</button>
           <button type="button" id="goToActivityTabBtn" class="btn btn-outline btn-small" title="Open Activity tab (upcoming runs and history)">Activity</button>
         </div>
+        <p class="hint" style="margin:6px 0 0 0;font-size:11px;line-height:1.35;">Scheduled runs open a tab on the workflow start URL. Workflows with <strong>Run generator</strong> need Chrome running, a linked <strong>project folder</strong>, and the correct <strong>selected project</strong> for <code>project:…</code> templates; the side panel does not need to stay open after folder access is granted.</p>
         <p id="workflowLastRunStatus" class="workflow-last-run-status hint" style="margin:6px 0 0 0;font-size:11px;min-height:16px;" aria-live="polite"></p>
         <div id="scheduleRunForm" class="schedule-run-form" style="display:none">
           <div class="step-field">
@@ -776,6 +777,7 @@
   <script src="../shared/selector-parity.js"></script>
   <script src="../shared/run-variation.js"></script>
   <script src="../shared/step-validator.js"></script>
+  <script src="../shared/generator-template-schema.js"></script>
   <script src="../steps/sidepanel-registry.js"></script>
   <script src="../steps/sidepanel-loader.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>

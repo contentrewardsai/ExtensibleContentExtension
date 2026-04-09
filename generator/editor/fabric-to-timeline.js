@@ -90,6 +90,7 @@
 
     function applyCommonClipProps(obj, clip) {
       if (!obj || !clip) return;
+      if (obj.cfsHideOnImage === true) clip._cfsHideOnImage = true;
       if (obj.cfsFilter && obj.cfsFilter !== 'none') clip.filter = obj.cfsFilter;
       if (obj.cfsChromaKey && typeof obj.cfsChromaKey === 'object' && obj.cfsChromaKey.color) {
         if (!clip.asset) clip.asset = {};

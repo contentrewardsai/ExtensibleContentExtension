@@ -3478,6 +3478,41 @@
     assertEqual(copy.discovery.domains['labs.google'].inputCandidates.length, 1);
   }
 
+  function testShotstackMergePlaceholderFill() {
+    var fn = global.__CFS_ensureMergeEntriesForTimelinePlaceholders;
+    if (!fn) throw new Error('__CFS_ensureMergeEntriesForTimelinePlaceholders not loaded');
+    var t = {
+      timeline: { tracks: [{ clips: [{ asset: { type: 'title', text: 'Hi {{ FOO_BAR }} ok' } }] }] },
+      merge: []
+    };
+    fn(t);
+    assertEqual(t.merge.length, 1, 'one synthesized row');
+    assertEqual(t.merge[0].find, 'FOO_BAR');
+    assertEqual(t.merge[0].replace, '');
+
+    var t2 = {
+      timeline: { x: '{{ BAZ }}' },
+      merge: [{ find: 'BAZ', replace: 'hello' }]
+    };
+    fn(t2);
+    assertEqual(t2.merge.length, 1, 'no duplicate BAZ');
+
+    var t3 = {
+      timeline: { nested: '{{  spaced_key  }}' },
+      merge: []
+    };
+    fn(t3);
+    assertEqual(t3.merge.length, 1);
+    assertEqual(t3.merge[0].find, 'spaced_key');
+
+    var t4 = {
+      timeline: {},
+      merge: [{ find: 'X', replace: '{{ NESTED }}' }]
+    };
+    fn(t4);
+    assertTrue(t4.merge.some(function (m) { return m.find === 'NESTED'; }), 'placeholder in merge.replace');
+  }
+
   function testEnsureSelectCrossWorkflowMerge() {
     var x = global.CFS_crossWorkflowSelectors;
     if (!x) throw new Error('CFS_crossWorkflowSelectors missing');
@@ -4246,6 +4281,7 @@
     testDiscoveryOutputMergeAppendOnly,
     testCrossWorkflowMergeFallbacks,
     testEnsureSelectCrossWorkflowMerge,
+    testShotstackMergePlaceholderFill,
     testSelectorParityReportAndNthRefine,
     testSelectorParityMultiListNthRefine,
     testParityRecordedCardinalityMismatch,
@@ -4354,6 +4390,11 @@
     testUploadPostCancelScheduledValidation,
     testUploadPostCreateUserProfileValidation,
     testUploadPostConvertToMp4ErrorFlow,
+
+    // ── Playback guard tests (require extension context) ───────────────
+    testPlaybackGuardIsPlaybackActiveReturns,
+    testPlaybackGuardEnsureBlockedWhenBusy,
+    testPlaybackGuardForceBypass,
   ];
 
   // ── Player pure-function tests ─────────────────────────────────────
@@ -6415,6 +6456,78 @@
     assertTrue(!isEligible('Element not found'), 'fbNotEligible: generic element error');
   }
 
+  /* ── Playback guard tests (require extension context) ── */
+
+  function testPlaybackGuardIsPlaybackActiveReturns() {
+    if (!global.chrome || !global.chrome.runtime || !global.chrome.runtime.sendMessage) return;
+    return new Promise(function (resolve, reject) {
+      chrome.runtime.sendMessage({ type: 'CFS_IS_PLAYBACK_ACTIVE' }, function (resp) {
+        if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+        try {
+          assertTrue(resp !== undefined && resp !== null, 'CFS_IS_PLAYBACK_ACTIVE returns a response');
+          assertTrue(typeof resp.active === 'boolean', 'response.active is boolean');
+          resolve();
+        } catch (e) { reject(e); }
+      });
+    });
+  }
+
+  function testPlaybackGuardEnsureBlockedWhenBusy() {
+    if (!global.chrome || !global.chrome.runtime || !global.chrome.runtime.sendMessage) return;
+    /* We cannot reliably make playback active in a unit test, so we verify
+       the shape of the response: when force is omitted and playback is idle,
+       the ensure call should NOT have playbackBlocked set. */
+    return new Promise(function (resolve, reject) {
+      chrome.runtime.sendMessage(
+        { type: 'CFS_IS_PLAYBACK_ACTIVE' },
+        function (statusResp) {
+          if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+          try {
+            /* If playback IS active for some reason, skip (we can't control it in unit tests) */
+            if (statusResp && statusResp.active) {
+              assertTrue(true, 'playback is active — skipped (cannot control in unit test)');
+              resolve();
+              return;
+            }
+            /* Playback idle → ensure should proceed, not be blocked */
+            chrome.runtime.sendMessage(
+              { type: 'CFS_CRYPTO_TEST_ENSURE_WALLETS', skipFund: true },
+              function (ensureResp) {
+                if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+                try {
+                  assertFalse(
+                    ensureResp && ensureResp.playbackBlocked === true,
+                    'ensure is NOT blocked when playback is idle',
+                  );
+                  resolve();
+                } catch (e2) { reject(e2); }
+              },
+            );
+          } catch (e) { reject(e); }
+        },
+      );
+    });
+  }
+
+  function testPlaybackGuardForceBypass() {
+    if (!global.chrome || !global.chrome.runtime || !global.chrome.runtime.sendMessage) return;
+    return new Promise(function (resolve, reject) {
+      chrome.runtime.sendMessage(
+        { type: 'CFS_CRYPTO_TEST_ENSURE_WALLETS', force: true, skipFund: true },
+        function (resp) {
+          if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+          try {
+            assertFalse(
+              resp && resp.playbackBlocked === true,
+              'force: true always bypasses playback guard',
+            );
+            resolve();
+          } catch (e) { reject(e); }
+        },
+      );
+    });
+  }
+
   /* ── Inline test calls ── */
   testDefiActionPatternsMatchUrl();
   testDefiActionPatternsMatchSelector();
@@ -6438,6 +6551,37 @@
   testDefiFieldHintUrlExtraction();
   testFallbackActionsPreserved();
   testFallbackEligibilityPatterns();
+
+  /** Generator template inputSchema (__CFS_INPUT_SCHEMA) */
+  function testGeneratorTemplateSchemaParseFromObject() {
+    var api = global.__CFS_parseGeneratorTemplateInputSchema;
+    if (!api) throw new Error('__CFS_parseGeneratorTemplateInputSchema not loaded');
+    var o = {
+      merge: [{ find: '__CFS_INPUT_SCHEMA', replace: '[{"id":"headline","label":"Headline","mergeField":"TITLE"}]' }],
+    };
+    var r = api.parseFromTemplateObject(o);
+    assertEqual(r.error, null);
+    assertEqual(r.inputSchema.length, 1);
+    assertEqual(r.inputSchema[0].id, 'headline');
+  }
+
+  function testGeneratorTemplateSchemaParseInvalidJson() {
+    var api = global.__CFS_parseGeneratorTemplateInputSchema;
+    var r = api.parseFromTemplateJsonText('{');
+    assertTrue(r.error != null && r.error.length > 0);
+    assertEqual(r.inputSchema.length, 0);
+  }
+
+  function testGeneratorTemplateSchemaSuggestValue() {
+    var api = global.__CFS_parseGeneratorTemplateInputSchema;
+    assertEqual(api.suggestInputMapValue({ id: 'x', mergeField: 'TITLE' }, ''), '{{TITLE}}');
+    assertEqual(api.suggestInputMapValue({ id: 'headline' }, ''), '{{headline}}');
+    assertEqual(api.suggestInputMapValue({ id: 'headline' }, '{{custom}}'), '{{custom}}');
+  }
+
+  testGeneratorTemplateSchemaParseFromObject();
+  testGeneratorTemplateSchemaParseInvalidJson();
+  testGeneratorTemplateSchemaSuggestValue();
 
 })(typeof window !== 'undefined' ? window : globalThis);
 

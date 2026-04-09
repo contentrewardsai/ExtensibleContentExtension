@@ -27,6 +27,7 @@ importScripts('bsc-evm.js');
 importScripts('crypto-test-wallets.js');
 importScripts('crypto-test-simulate.js');
 importScripts('pancake-flash.js');
+importScripts('deploy-flash-receiver.js');
 importScripts('bsc-sellability-probe.js');
 importScripts('watch-activity-price-filter.js');
 importScripts('following-automation-runner.js');
@@ -1417,9 +1418,11 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
   if (!startUrl.startsWith('http')) startUrl = 'https://' + startUrl;
   const resolved = resolveNestedWorkflowsInBackground(analyzed, workflows);
   if (!resolved) return mkHistoryEntry(entry, 'failed', 'Nested workflow resolution failed');
-  const scheduledPlaybackMs = cfsWorkflowContainsStepType(resolved, 'apifyActorRun')
-    ? CFS_SCHEDULED_PLAYBACK_LONG_MS
-    : CFS_SCHEDULED_PLAYBACK_SHORT_MS;
+  const scheduledPlaybackMs =
+    cfsWorkflowContainsStepType(resolved, 'apifyActorRun') ||
+    cfsWorkflowContainsStepType(resolved, 'runGenerator')
+      ? CFS_SCHEDULED_PLAYBACK_LONG_MS
+      : CFS_SCHEDULED_PLAYBACK_SHORT_MS;
   const runStartedAt = Date.now();
   const tabsOpened = [];
   const windowsOpened = [];
@@ -1585,6 +1588,12 @@ chrome.runtime.onStartup.addListener(() => {
   } catch (_) {}
   try {
     if (typeof globalThis.__CFS_fileWatch_setupAlarm === 'function') globalThis.__CFS_fileWatch_setupAlarm();
+  } catch (_) {}
+  /* Auto-restore crypto test snapshot if the browser was interrupted during tests */
+  try {
+    if (typeof globalThis.__CFS_cryptoTest_autoRestoreOnStartup === 'function') {
+      globalThis.__CFS_cryptoTest_autoRestoreOnStartup();
+    }
   } catch (_) {}
 });
 
@@ -3127,6 +3136,12 @@ function validateMessagePayload(type, msg) {
         };
       }
       break;
+    case 'CFS_CRYPTO_TEST_RESTORE':
+    case 'CFS_CRYPTO_TEST_SIMULATE':
+    case 'CFS_IS_PLAYBACK_ACTIVE':
+      break;
+    case 'CFS_DEPLOY_FLASH_RECEIVER':
+      break;
     case 'CFS_RAYDIUM_POOL_SEARCH': {
       /* At least one search criteria: poolIds OR mint1 */
       const hasIds = msg.poolIds && typeof msg.poolIds === 'string' && msg.poolIds.trim() !== '';
@@ -3145,6 +3160,18 @@ function validateMessagePayload(type, msg) {
       const hasMint = (msg.mint1 && typeof msg.mint1 === 'string' && msg.mint1.trim() !== '') ||
                       (msg.inputMint && typeof msg.inputMint === 'string' && msg.inputMint.trim() !== '');
       if (!hasMint) return { valid: false, error: 'mint1 or inputMint required' };
+      break;
+    }
+    case 'SAVE_TEMPLATE_TO_PROJECT': {
+      if (!msg.templateId || typeof msg.templateId !== 'string' || !String(msg.templateId).trim()) {
+        return { valid: false, error: 'Missing templateId' };
+      }
+      if (msg.templateJson === undefined) {
+        return { valid: false, error: 'Missing templateJson' };
+      }
+      if (msg.projectId == null || String(msg.projectId).trim() === '') {
+        return { valid: false, error: 'Missing projectId (select a project in the Generator)' };
+      }
       break;
     }
     default:
@@ -3297,6 +3324,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const fn = globalThis.__CFS_pancake_flash;
         if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'PancakeSwap Flash handler not loaded' }); return; }
+        sendResponse(await fn(msg) || { ok: false, error: 'No response' });
+      } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_DEPLOY_FLASH_RECEIVER') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_deploy_flash_receiver;
+        if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'Deploy Flash Receiver handler not loaded' }); return; }
         sendResponse(await fn(msg) || { ok: false, error: 'No response' });
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
@@ -4374,8 +4412,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         /* Get provider from wallet record or build one */
         let provider = wallet.provider;
         if (!provider) {
-          const stored = await chrome.storage.local.get(['cfs_bsc_rpc_url']);
-          const rpcUrl = String(stored.cfs_bsc_rpc_url || 'https://bsc-dataseed1.binance.org').trim();
+          const stored = await chrome.storage.local.get(['cfs_bsc_global_settings']);
+          let rpcUrl = 'https://bsc-dataseed1.binance.org';
+          try {
+            const _raw = stored.cfs_bsc_global_settings;
+            const glob = typeof _raw === 'object' && _raw ? _raw : (_raw ? JSON.parse(_raw) : null);
+            if (glob && glob.rpcUrl && String(glob.rpcUrl).trim()) rpcUrl = String(glob.rpcUrl).trim();
+          } catch (_) {}
           const ethers = globalThis.CFS_EVM_LIB;
           if (!ethers) { sendResponse({ ok: false, error: 'EVM library not loaded' }); return; }
           provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -5464,8 +5507,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     const templateId = msg.templateId;
     const templateJson = msg.templateJson;
+    const projectId = msg.projectId != null ? String(msg.projectId).trim() : '';
     if (!templateId || templateJson === undefined) {
       sendResponse({ ok: false, error: 'Missing templateId or templateJson' });
+      return true;
+    }
+    if (!projectId) {
+      sendResponse({ ok: false, error: 'Missing projectId (select a project in the Generator)' });
       return true;
     }
     chrome.storage.local.set({
@@ -5473,51 +5521,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         templateId,
         templateJson: templateJson,
         overwrite: !!msg.overwrite,
-        at: Date.now(),
-      },
-    }, () => {
-      if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs && tabs[0] && tabs[0].windowId) {
-            chrome.sidePanel.open({ windowId: tabs[0].windowId }).catch(() => {});
-          }
-          sendResponse({ ok: true });
-        });
-      } else {
-        sendResponse({ ok: true });
-      }
-    });
-    return true;
-  }
-
-  if (msg.type === 'LIST_TEMPLATE_VERSIONS') {
-    chrome.storage.local.set({
-      cfs_pending_version_request: {
-        action: 'list',
-        templateId: msg.templateId,
-        at: Date.now(),
-      },
-    }, () => {
-      if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs && tabs[0] && tabs[0].windowId) {
-            chrome.sidePanel.open({ windowId: tabs[0].windowId }).catch(() => {});
-          }
-          sendResponse({ ok: true });
-        });
-      } else {
-        sendResponse({ ok: true });
-      }
-    });
-    return true;
-  }
-
-  if (msg.type === 'LOAD_TEMPLATE_VERSION') {
-    chrome.storage.local.set({
-      cfs_pending_version_request: {
-        action: 'load',
-        templateId: msg.templateId,
-        versionName: msg.versionName,
+        projectId,
+        projectName: msg.projectName != null ? String(msg.projectName) : '',
+        sourceProjectId: msg.sourceProjectId != null ? String(msg.sourceProjectId).trim() : '',
+        replicateUploadsAssets: !!msg.replicateUploadsAssets,
         at: Date.now(),
       },
     }, () => {
@@ -5642,11 +5649,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       let release;
       try {
+        const projStore = await chrome.storage.local.get(['selectedProjectId']);
+        const generatorProjectId = (projStore.selectedProjectId || '').trim();
         release = await acquireOffscreen('generator');
         await new Promise((r) => setTimeout(r, 200));
         const response = await new Promise((resolve) => {
           chrome.runtime.sendMessage(
-            { type: 'RUN_GENERATOR', pluginId, inputs, entry },
+            {
+              type: 'RUN_GENERATOR',
+              pluginId,
+              inputs,
+              entry,
+              ...(generatorProjectId ? { projectId: generatorProjectId } : {}),
+            },
             (res) => {
               if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
               else resolve(res || { ok: false, error: 'No response' });

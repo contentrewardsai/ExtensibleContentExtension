@@ -2,7 +2,7 @@
   "id": "runGenerator",
   "label": "Run generator",
   "category": "data",
-  "description": "Send data to a content generator plugin and get back image, video, or text. Map workflow variables to generator inputs; save output to a variable for later steps.",
+  "description": "Send data to a content generator template and get back image, video, or text. In the side panel, use Load inputs from template to match the Generator’s input fields, or map JSON keys (inputSchema ids) to row variables; save output to a variable for later steps.",
   "defaultAction": {
     "type": "runGenerator",
     "pluginId": "ad-apple-notes",
@@ -12,7 +12,7 @@
   "formSchema": [
     { "key": "runIf", "label": "Run only if (row variable; skip step when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{prompt}} or leave empty" },
     { "key": "pluginId", "label": "Generator plugin", "inputType": "select", "optionsSource": "generatorPlugins" },
-    { "key": "inputMap", "label": "Input mapping (generator input id → workflow variable or literal)", "inputType": "textarea", "rows": 4, "hint": "JSON object, e.g. {\"headline\": \"{{title}}\", \"body\": \"{{description}}\"}" },
+    { "key": "inputMap", "label": "Input mapping (generator input id → workflow variable or literal)", "inputType": "textarea", "rows": 4, "hint": "Side panel: per-field rows after Load inputs from template, or JSON. Keys must match template __CFS_INPUT_SCHEMA ids, e.g. {\"headline\": \"{{title}}\"}" },
     { "key": "saveAsVariable", "label": "Save output to variable name", "inputType": "text", "placeholder": "e.g. generatedImage" }
   ]
 }
