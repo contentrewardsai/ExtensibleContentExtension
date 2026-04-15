@@ -9,6 +9,8 @@ export function registerRaydiumTools(server, ctx) {
   /** Helper for Raydium write tools */
   function raydiumWrite(name, desc, schema, buildPayload) {
     server.tool(name, desc, { ...schema, confirm: confirmField }, async (args) => {
+      const gateErr = await ctx.cryptoGate.guard(name);
+      if (gateErr) return gateErr;
       let dryRun = true;
       try {
         const dryRunRes = await ctx.readStorage(['cfsMcpDryRunConfirmation']);

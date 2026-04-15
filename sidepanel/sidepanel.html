@@ -20,7 +20,6 @@
           <span id="projectFolderStatusLoggedOut" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="reloadExtensionBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (chrome.runtime.reload). Rebuilds manifests only if a project folder is set; otherwise reloads code only. Use a normal webpage to record, not chrome://.">Reload Extension</button>
           <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
-          <button type="button" id="unitTestsPageBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-unit-tests" title="Open test/unit-tests.html: Run crypto tests, full unit suite, E2E checklist">Unit tests</button>
         </div>
       </div>
       <div id="authLoggedIn" class="auth-logged-in" style="display:none">
@@ -35,7 +34,6 @@
           <button type="button" id="downloadLaminiBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
-          <button type="button" id="unitTestsPageBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-unit-tests" title="Open test/unit-tests.html: Run crypto tests, full unit suite, E2E checklist">Unit tests</button>
         </div>
         <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Set your project folder so we can read and write workflows, steps, and plugins. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there and new steps/plugins load on reload. You can also choose another folder; we'll import what we can from it.</p>
         <div class="sidebar-name-row form-row">
@@ -311,6 +309,9 @@
           <div class="steps-toolbar" style="display:none">
             <button id="addEnsureSelectStep" class="btn btn-outline" title="Add step at start: ensure dropdown is set (e.g. Frames to Video). If already set, skips; otherwise clicks to change.">+ Ensure dropdown</button>
             <button id="addWaitGenerationStep" class="btn btn-outline" title="Add wait step: polls until video[src] appears in the container (for AI video generation pages like Veo).">+ Wait for generation</button>
+            <span class="steps-toolbar-spacer"></span>
+            <button id="workflowUndoBtn" class="btn btn-outline btn-small" title="Undo last workflow edit (Ctrl+Z)" disabled data-testid="cfs-workflow-undo">↩ Undo</button>
+            <button id="workflowRedoBtn" class="btn btn-outline btn-small" title="Redo workflow edit (Ctrl+Shift+Z)" disabled data-testid="cfs-workflow-redo">↪ Redo</button>
           </div>
           <div id="stepsList" class="steps-list"></div>
         </section>
@@ -795,6 +796,7 @@
   <script src="../shared/social-action-patterns.js"></script>
   <script src="../shared/data-action-patterns.js"></script>
   <script src="../shared/action-patterns-registry.js"></script>
+  <script src="../shared/workflow-edit-history.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

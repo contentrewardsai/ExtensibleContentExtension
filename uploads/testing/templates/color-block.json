@@ -1,0 +1,220 @@
+{
+  "merge": [
+    {
+      "find": "TOP_COLOR",
+      "replace": "#ffe600"
+    },
+    {
+      "find": "BOTTOM_COLOR",
+      "replace": "#1a47b8"
+    },
+    {
+      "find": "LINE_1",
+      "replace": "Extensible Content"
+    },
+    {
+      "find": "LINE_2",
+      "replace": "Generate content with AI."
+    },
+    {
+      "find": "LINE_3",
+      "replace": "Automatically publish to your social media accounts."
+    },
+    {
+      "find": "topColor",
+      "replace": "#ffe600"
+    },
+    {
+      "find": "bottomColor",
+      "replace": "#1a47b8"
+    },
+    {
+      "find": "line1",
+      "replace": "Your product in retail stores?"
+    },
+    {
+      "find": "line2",
+      "replace": "Track every pitch."
+    },
+    {
+      "find": "line3",
+      "replace": "Finally organized retail outreach."
+    },
+    {
+      "find": "__CFS_TEMPLATE_ID",
+      "replace": "color-block"
+    },
+    {
+      "find": "__CFS_TEMPLATE_NAME",
+      "replace": "Color Block Ad — Two-Tone Background"
+    },
+    {
+      "find": "__CFS_DESCRIPTION",
+      "replace": "Bold two-tone color block with 3 lines of centered text. Customize both background colors and each text line independently. Export as image or video."
+    },
+    {
+      "find": "__CFS_OUTPUT_TYPE",
+      "replace": "image"
+    },
+    {
+      "find": "__CFS_PRESET_ID",
+      "replace": "instagram_square"
+    },
+    {
+      "find": "__CFS_INPUT_SCHEMA",
+      "replace": "[{\"id\":\"topColor\",\"label\":\"Top Color\",\"type\":\"color\",\"default\":\"#ffe600\",\"mergeField\":\"TOP_COLOR\"},{\"id\":\"bottomColor\",\"label\":\"Bottom Color\",\"type\":\"color\",\"default\":\"#1a47b8\",\"mergeField\":\"BOTTOM_COLOR\"},{\"id\":\"line1\",\"label\":\"Line 1\",\"type\":\"text\",\"default\":\"Your product in retail stores?\",\"mergeField\":\"LINE_1\"},{\"id\":\"line2\",\"label\":\"Line 2\",\"type\":\"text\",\"default\":\"Track every pitch.\",\"mergeField\":\"LINE_2\"},{\"id\":\"line3\",\"label\":\"Line 3\",\"type\":\"text\",\"default\":\"Finally organized retail outreach.\",\"mergeField\":\"LINE_3\"}]"
+    }
+  ],
+  "output": {
+    "aspectRatio": "1:1",
+    "format": "png",
+    "fps": 25,
+    "resolution": "hd",
+    "size": {
+      "height": 1080,
+      "width": 1080
+    }
+  },
+  "timeline": {
+    "background": "#ffe600",
+    "tracks": [
+      {
+        "clips": [
+          {
+            "alias": "LINE_1",
+            "asset": {
+              "type": "rich-text",
+              "text": "{{ LINE_1 }}",
+              "font": {
+                "family": "Arial Black",
+                "size": 52,
+                "color": "#000000",
+                "weight": 800
+              },
+              "align": {
+                "horizontal": "left"
+              }
+            },
+            "start": 0,
+            "length": 7,
+            "width": 980,
+            "height": 100,
+            "position": "center",
+            "offset": {
+              "x": 0,
+              "y": 0.259259
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "LINE_2",
+            "asset": {
+              "type": "rich-text",
+              "text": "{{ LINE_2 }}",
+              "font": {
+                "family": "Arial Black",
+                "size": 52,
+                "color": "#000000",
+                "weight": 800
+              },
+              "align": {
+                "horizontal": "left"
+              }
+            },
+            "start": 0,
+            "length": 7,
+            "width": 980,
+            "height": 100,
+            "position": "center",
+            "offset": {
+              "x": 0,
+              "y": 0.175926
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "LINE_3",
+            "asset": {
+              "type": "rich-text",
+              "text": "{{ LINE_3 }}",
+              "font": {
+                "family": "Arial Black",
+                "size": 52,
+                "color": "#000000",
+                "weight": 800
+              },
+              "align": {
+                "horizontal": "left"
+              }
+            },
+            "start": 0,
+            "length": 7,
+            "width": 980,
+            "height": 100,
+            "position": "center",
+            "offset": {
+              "x": 0,
+              "y": 0.092593
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "shape",
+              "shape": "rectangle",
+              "fill": {
+                "color": "#ffe600"
+              },
+              "rectangle": {
+                "width": 1080,
+                "height": 648
+              }
+            },
+            "start": 0,
+            "length": 7,
+            "fit": "none",
+            "position": "center",
+            "offset": {
+              "x": 0,
+              "y": 0.2
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "shape",
+              "shape": "rectangle",
+              "fill": {
+                "color": "#1a47b8"
+              },
+              "rectangle": {
+                "width": 1080,
+                "height": 432
+              }
+            },
+            "start": 0,
+            "length": 7,
+            "fit": "none",
+            "position": "center",
+            "offset": {
+              "x": 0,
+              "y": -0.3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

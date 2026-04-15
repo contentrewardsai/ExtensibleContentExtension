@@ -18,6 +18,34 @@
     return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
   }
 
+  /**
+   * Estimate total duration (in seconds) from a ShotStack timeline.
+   * Duration = max(clip.start + clip.length) across all tracks.
+   */
+  function estimateTimelineDurationUI(timeline) {
+    var maxEnd = 0, hasUnknown = false;
+    if (timeline && Array.isArray(timeline.tracks)) {
+      for (var ti = 0; ti < timeline.tracks.length; ti++) {
+        var clips = timeline.tracks[ti] && timeline.tracks[ti].clips;
+        if (!Array.isArray(clips)) continue;
+        for (var ci = 0; ci < clips.length; ci++) {
+          var clip = clips[ci];
+          if (!clip) continue;
+          var start = typeof clip.start === 'number' ? clip.start : parseFloat(clip.start) || 0;
+          var len = clip.length;
+          if (typeof len === 'string') {
+            var trimmed = len.trim().toLowerCase();
+            if (trimmed === 'auto' || trimmed === 'end') { hasUnknown = true; continue; }
+            len = parseFloat(len) || 0;
+          } else if (typeof len !== 'number') { continue; }
+          var end = start + len;
+          if (end > maxEnd) maxEnd = end;
+        }
+      }
+    }
+    return { seconds: maxEnd, hasUnknown: hasUnknown, creditsNeeded: maxEnd > 0 ? Math.ceil(maxEnd / 60) : 0 };
+  }
+
   /* ---- Project folder helpers ---- */
 
   function getProjectFolderHandle() {
@@ -78,12 +106,6 @@
       container.innerHTML =
         '<div class="gen-section-label">ShotStack Cloud Render</div>' +
         '<div class="step-gen-field">' +
-          '<label for="ss-gen-project">Save to project</label>' +
-          '<select id="ss-gen-project" style="width:100%;padding:4px 8px;font-size:12px;border:1px solid var(--gen-border,#d1d5db);border-radius:4px;background:var(--gen-surface,#1a1a1f);color:var(--gen-text,#e8e8ed);">' +
-            '<option value="">No project (render only)</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="step-gen-field">' +
           '<label for="ss-gen-format">Output format</label>' +
           '<select id="ss-gen-format">' +
             '<option value="mp4">MP4 (video)</option>' +
@@ -98,6 +120,11 @@
             '<option value="stage">Staging (watermarked)</option>' +
             '<option value="v1">Production</option>' +
           '</select>' +
+        '</div>' +
+        '<div id="ss-gen-credits-row" style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:11px;">' +
+          '<span style="color:var(--gen-muted,#6b7280);">Credits:</span>' +
+          '<span id="ss-gen-credits-badge" style="padding:1px 6px;border-radius:3px;font-weight:600;font-size:11px;background:#16a34a22;color:#22c55e;">—</span>' +
+          '<span id="ss-gen-credits-hint" style="color:var(--gen-muted,#6b7280);font-size:10px;"></span>' +
         '</div>' +
         '<div class="step-gen-field">' +
           '<label>Resolution</label>' +
@@ -137,43 +164,49 @@
       var resultLink = container.querySelector('#ss-gen-result-link');
       var resInfo = container.querySelector('#ss-gen-resolution-info');
       var saveResultEl = container.querySelector('#ss-gen-save-result');
+      var creditsBadge = container.querySelector('#ss-gen-credits-badge');
+      var creditsHint = container.querySelector('#ss-gen-credits-hint');
+      var creditsRow = container.querySelector('#ss-gen-credits-row');
 
-      var ssProjectSelect = container.querySelector('#ss-gen-project');
-
-      function populateSsProjectDropdown() {
-        if (!ssProjectSelect) return;
-        if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
-        chrome.storage.local.get(['localProjects', 'selectedProjectId'], function (data) {
-          var projects = data.localProjects || [];
-          var currentGlobal = global.__CFS_generatorProjectId || data.selectedProjectId || '';
-          ssProjectSelect.innerHTML = '<option value="">No project (render only)</option>';
-          if (Array.isArray(projects)) {
-            projects.forEach(function (p) {
-              var id = p.id || p.name || '';
-              var name = p.name || p.id || '(unnamed)';
-              if (!id) return;
-              var opt = document.createElement('option');
-              opt.value = id;
-              opt.textContent = name;
-              ssProjectSelect.appendChild(opt);
-            });
-          }
-          if (currentGlobal && ssProjectSelect.querySelector('option[value="' + currentGlobal + '"]')) {
-            ssProjectSelect.value = currentGlobal;
+      /* ---- Credits badge ---- */
+      function refreshCreditsBadge() {
+        var env = (envSelect && envSelect.value) || 'stage';
+        if (env === 'stage') {
+          creditsBadge.textContent = 'Free';
+          creditsBadge.style.background = '#16a34a22';
+          creditsBadge.style.color = '#22c55e';
+          creditsHint.textContent = 'staging is free';
+          return;
+        }
+        creditsBadge.textContent = '...';
+        creditsBadge.style.background = '#f59e0b22';
+        creditsBadge.style.color = '#f59e0b';
+        creditsHint.textContent = '';
+        chrome.runtime.sendMessage({ type: 'GET_SHOTSTACK_CREDITS' }, function (resp) {
+          if (resp && resp.ok && typeof resp.credits === 'number') {
+            creditsBadge.textContent = resp.credits + ' min';
+            if (resp.credits <= 0) {
+              creditsBadge.style.background = '#dc262622';
+              creditsBadge.style.color = '#ef4444';
+              creditsHint.textContent = 'no credits remaining';
+            } else {
+              creditsBadge.style.background = '#16a34a22';
+              creditsBadge.style.color = '#22c55e';
+              creditsHint.textContent = '1 credit = 1 min';
+            }
+          } else {
+            creditsBadge.textContent = '?';
+            creditsBadge.style.background = '#64748b22';
+            creditsBadge.style.color = '#94a3b8';
+            creditsHint.textContent = 'sign in to check';
           }
         });
       }
-
-      if (ssProjectSelect) {
-        ssProjectSelect.addEventListener('change', function () {
-          global.__CFS_generatorProjectId = ssProjectSelect.value || '';
-          var toolbarSelect = document.getElementById('genProjectSelect');
-          if (toolbarSelect && toolbarSelect.value !== ssProjectSelect.value) {
-            toolbarSelect.value = ssProjectSelect.value;
-          }
-        });
+      if (envSelect) {
+        envSelect.addEventListener('change', refreshCreditsBadge);
       }
-      populateSsProjectDropdown();
+      /* Fetch credits on first render */
+      refreshCreditsBadge();
 
       /* ---- Ingested Files Manager ---- */
       var ingestHeader = container.querySelector('#ss-ingest-header');
@@ -568,7 +601,6 @@
         renderBtn.disabled = true;
         resultWrap.style.display = 'none';
         saveResultEl.textContent = '';
-        setStatus(statusEl, 'Submitting render...', '');
 
         try {
           var shotstack = (api.getEdit && api.getEdit()) || (api.getShotstackTemplate && api.getShotstackTemplate()) || (api.getTemplate && api.getTemplate());
@@ -580,6 +612,50 @@
 
           var format = formatSelect.value;
           var environment = envSelect.value;
+
+          /* Check auth mode: local key vs backend credits */
+          var ssKeyName = environment === 'v1' ? 'shotstackApiKeyProduction' : 'shotstackApiKeyStaging';
+          var keyData = await new Promise(function (r) { chrome.storage.local.get([ssKeyName, 'whop_auth'], r); });
+          var hasLocalKey = !!(keyData[ssKeyName] && String(keyData[ssKeyName]).trim());
+          var hasBackendAuth = !!(keyData.whop_auth && (keyData.whop_auth.access_token || keyData.whop_auth.accessToken));
+          if (!hasLocalKey && !hasBackendAuth) {
+            setStatus(statusEl, 'ShotStack API key not set and not signed in. Add a key in Settings or sign in to use account credits.', 'error');
+            renderBtn.disabled = false;
+            return;
+          }
+          /* For backend production renders, check credits vs duration */
+          if (!hasLocalKey && hasBackendAuth && environment === 'v1') {
+            setStatus(statusEl, 'Checking render credits...', '');
+            try {
+              var creditsResp = await new Promise(function (resolve) {
+                chrome.runtime.sendMessage({ type: 'GET_SHOTSTACK_CREDITS' }, resolve);
+              });
+              if (creditsResp && creditsResp.ok && typeof creditsResp.credits === 'number') {
+                if (creditsResp.credits <= 0) {
+                  setStatus(statusEl, 'No production render credits remaining. Upgrade your plan or use staging (free).', 'error');
+                  renderBtn.disabled = false;
+                  return;
+                }
+                /* Estimate video duration from timeline */
+                var estDuration = estimateTimelineDurationUI(shotstack.timeline);
+                if (estDuration.creditsNeeded > 0 && estDuration.creditsNeeded > creditsResp.credits) {
+                  setStatus(statusEl, 'Insufficient credits: ~' + estDuration.creditsNeeded + ' needed for ' + Math.round(estDuration.seconds) + 's video but only ' + creditsResp.credits + ' available.' + (estDuration.hasUnknown ? ' (some clips have unknown duration)' : ''), 'error');
+                  renderBtn.disabled = false;
+                  return;
+                }
+                var durNote = estDuration.creditsNeeded > 0 ? ' (~' + estDuration.creditsNeeded + ' credit(s) for ' + Math.round(estDuration.seconds) + 's)' : '';
+                setStatus(statusEl, 'Submitting render... (' + creditsResp.credits + ' credits available' + durNote + ')', '');
+              } else {
+                setStatus(statusEl, 'Submitting render via backend...', '');
+              }
+            } catch (_) {
+              setStatus(statusEl, 'Submitting render via backend...', '');
+            }
+          } else if (!hasLocalKey && hasBackendAuth) {
+            setStatus(statusEl, 'Submitting render via backend (staging — free)...', '');
+          } else {
+            setStatus(statusEl, 'Submitting render...', '');
+          }
 
           var output = Object.assign({}, shotstack.output || {});
           output.format = format;
@@ -724,6 +800,21 @@
                       cfs_project_id: ssGenPid || undefined,
                     }, null);
                   }
+                } catch (_) {}
+
+                /* Store render in Supabase if user has backend auth (fire-and-forget) */
+                try {
+                  chrome.runtime.sendMessage({
+                    type: 'STORE_SHOTSTACK_RENDER',
+                    renderId: renderId,
+                    url: pollResp.url,
+                    environment: environment,
+                    format: format,
+                  }, function (storeResp) {
+                    if (storeResp && storeResp.ok && storeResp.file_url) {
+                      saveResultEl.textContent = (saveResultEl.textContent || '') + ' · Stored in cloud';
+                    }
+                  });
                 } catch (_) {}
               }
               renderBtn.disabled = false;

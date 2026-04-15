@@ -3,7 +3,6 @@
  * Keep in sync with sidepanel/sidepanel.html, settings/settings.html, test/unit-tests.html.
  */
 export const CFS_E2E_TESTID = {
-  sidepanelUnitTests: 'cfs-sidepanel-unit-tests',
   sidepanelSettings: 'cfs-sidepanel-settings',
   settingsOpenUnitTestsPage: 'cfs-settings-open-unit-tests-page',
   settingsCryptoEnsure: 'cfs-settings-crypto-ensure',

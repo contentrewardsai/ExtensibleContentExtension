@@ -1193,6 +1193,7 @@
   global.__CFS_solanaWatch_tick = function (opts) {
     opts = opts && typeof opts === 'object' ? opts : {};
     return storageLocalGet([
+      'cfsCryptoWeb3Enabled',
       BUNDLE_KEY,
       CURSORS_KEY,
       STORAGE_RPC,
@@ -1208,6 +1209,13 @@
       BSC_API_KEY,
     ])
       .then(function (stored) {
+        if (stored.cfsCryptoWeb3Enabled !== true) {
+          wsTeardown();
+          return finishTick(
+            { ok: true, idle: true, reason: 'crypto_disabled' },
+            { ok: true, idle: true, reason: 'crypto_disabled', watchedCount: 0 },
+          );
+        }
         var bundle = stored[BUNDLE_KEY];
         if (!bundle || !Array.isArray(bundle.entries) || bundle.entries.length === 0) {
           return finishTick({ ok: true, idle: true }, { ok: true, idle: true, reason: 'no_watches', watchedCount: 0 });

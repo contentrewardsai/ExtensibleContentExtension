@@ -1,0 +1,23 @@
+{
+  "id": "deleteStorageFile",
+  "label": "Delete Storage File",
+  "description": "Delete a file from your backend account storage by file ID. Requires backend login.",
+  "category": "data",
+  "defaultAction": {
+    "type": "deleteStorageFile",
+    "runIf": "",
+    "fileIdVariableKey": "fileId",
+    "saveAsVariable": "deleteResult"
+  },
+  "inputs": [
+    { "key": "fileIdVariableKey", "description": "Row variable containing the file ID to delete" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store deletion result" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "fileIdVariableKey", "label": "File ID variable key", "inputType": "text", "placeholder": "fileId", "hint": "Row variable with the file ID to delete." },
+    { "key": "saveAsVariable", "label": "Save result to variable", "inputType": "text", "placeholder": "deleteResult" }
+  ]
+}

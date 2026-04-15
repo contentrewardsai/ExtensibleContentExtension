@@ -9,6 +9,60 @@
   /** Must match service worker CFS_LLM_API_KEY_MAX_CHARS (cloud keys). */
   const CFS_LLM_API_KEY_MAX_CHARS = 4096;
 
+  /* ── Crypto & Web3 master toggle: cached state for step filtering ── */
+  let _cfsCryptoWeb3Enabled = false;
+  const _CFS_CRYPTO_STEP_TYPES = {
+    solanaJupiterSwap:1,solanaTransferSol:1,solanaTransferSpl:1,solanaEnsureTokenAccount:1,
+    solanaWrapSol:1,solanaUnwrapSol:1,solanaReadBalances:1,solanaReadMint:1,
+    solanaReadMetaplexMetadata:1,solanaPumpfunBuy:1,solanaPumpfunSell:1,solanaPumpMarketProbe:1,
+    solanaPumpOrJupiterBuy:1,solanaPumpOrJupiterSell:1,solanaSellabilityProbe:1,solanaPerpsStatus:1,
+    raydiumAddLiquidity:1,raydiumRemoveLiquidity:1,raydiumSwapStandard:1,
+    raydiumCpmmAddLiquidity:1,raydiumCpmmRemoveLiquidity:1,
+    raydiumClmmOpenPosition:1,raydiumClmmOpenPositionFromLiquidity:1,
+    raydiumClmmCollectReward:1,raydiumClmmCollectRewards:1,raydiumClmmHarvestLockPosition:1,
+    raydiumClmmLockPosition:1,raydiumClmmClosePosition:1,raydiumClmmIncreasePosition:1,
+    raydiumClmmIncreasePositionFromLiquidity:1,raydiumClmmDecreaseLiquidity:1,
+    raydiumClmmSwap:1,raydiumClmmSwapBaseOut:1,raydiumClmmRangeWatch:1,
+    raydiumClmmQuoteBaseIn:1,raydiumClmmQuoteBaseOut:1,
+    meteoraDlmmAddLiquidity:1,meteoraDlmmRemoveLiquidity:1,meteoraDlmmClaimRewards:1,
+    meteoraDlmmRangeWatch:1,
+    meteoraCpammSwap:1,meteoraCpammQuoteSwap:1,meteoraCpammSwapExactOut:1,
+    meteoraCpammQuoteSwapExactOut:1,meteoraCpammAddLiquidity:1,meteoraCpammRemoveLiquidity:1,
+    meteoraCpammDecreaseLiquidity:1,meteoraCpammClaimFees:1,meteoraCpammClaimReward:1,
+    bscPancake:1,pancakeFlash:1,cryptoSimulateSwap:1,bscTransferBnb:1,bscTransferBep20:1,
+    bscAggregatorSwap:1,bscSellabilityProbe:1,bscWatchRefresh:1,bscWatchReadActivity:1,
+    watchActivityFilterTxAge:1,watchActivityFilterPriceDrift:1,selectFollowingAccount:1,
+    rugcheckToken:1,solanaWatchRefresh:1,solanaWatchReadActivity:1,bscQuery:1,
+    asterSpotMarket:1,asterSpotAccount:1,asterSpotTrade:1,asterSpotWait:1,
+    asterFuturesMarket:1,asterFuturesAccount:1,asterFuturesAnalysis:1,
+    asterFuturesWait:1,asterFuturesTrade:1,asterUserStreamWait:1,
+    jupiterPriceV3:1,jupiterTokenSearch:1,jupiterDCA:1,jupiterLimitOrder:1,
+    jupiterEarn:1,jupiterFlashloan:1,jupiterPredictionTrade:1,jupiterPredictionSearch:1,
+    pancakeV3RangeWatch:1,
+    walletApprove:1,
+  };
+  /* Load on startup + listen for changes */
+  chrome.storage.local.get('cfsCryptoWeb3Enabled', (d) => {
+    _cfsCryptoWeb3Enabled = d.cfsCryptoWeb3Enabled === true;
+  });
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.cfsCryptoWeb3Enabled) {
+      _cfsCryptoWeb3Enabled = changes.cfsCryptoWeb3Enabled.newValue === true;
+      if (typeof renderStepsList === 'function' && document.getElementById('stepsList')) {
+        renderStepsList();
+      }
+      if (typeof renderWorkflowAlwaysOnPanel === 'function') {
+        try { renderWorkflowAlwaysOnPanel(); } catch (_) {}
+      }
+      if (typeof refreshPulseWatchActivityPanel === 'function') {
+        try { refreshPulseWatchActivityPanel(); } catch (_) {}
+      }
+      if (typeof renderFollowingFromCaches === 'function') {
+        try { renderFollowingFromCaches(); } catch (_) {}
+      }
+    }
+  });
+
   /** Parse Chrome version from navigator.userAgent. Returns 0 if unknown. */
   function getChromeVersion() {
     const m = navigator.userAgent.match(/Chrome\/(\d+)/);
@@ -439,9 +493,10 @@
         div.innerHTML = `<span class="activity-scheduled-name">${escapeHtml(r.workflowName || r.workflowId)}</span><span class="activity-item-when">${escapeHtml(whenStr)}</span><div class="activity-item-actions">${rescheduleBtn}${changeTimeBtn}${deleteBtn}</div>`;
         scheduledListEl.appendChild(div);
       });
-      // Show JWT refresh system task if UploadPost key is set
-      const jwtKeyData = await chrome.storage.local.get(['uploadPostApiKey', 'uploadPostJwtRefreshTime']);
-      if (jwtKeyData.uploadPostApiKey && jwtKeyData.uploadPostApiKey.trim()) {
+      // Show JWT refresh system task if UploadPost key is set or user is logged in via backend
+      const jwtKeyData = await chrome.storage.local.get(['uploadPostApiKey', 'uploadPostJwtRefreshTime', 'whop_auth']);
+      const hasUploadPostAuth = (jwtKeyData.uploadPostApiKey && jwtKeyData.uploadPostApiKey.trim()) || (jwtKeyData.whop_auth && (jwtKeyData.whop_auth.access_token || jwtKeyData.whop_auth.accessToken));
+      if (hasUploadPostAuth) {
         const jwtTime = jwtKeyData.uploadPostJwtRefreshTime || '23:59';
         const div = document.createElement('div');
         div.className = 'activity-scheduled-item';
@@ -451,9 +506,9 @@
 
       // Scheduled Upload Posts (from UploadPost API)
       var hasScheduledUploads = false;
-      if (typeof UploadPost !== 'undefined' && UploadPost.getApiKey) {
-        const upApiKey = await UploadPost.getApiKey();
-        if (upApiKey) {
+      if (typeof UploadPost !== 'undefined' && UploadPost.getAuthMode) {
+        const authMode = await UploadPost.getAuthMode();
+        if (authMode.mode) {
           try {
             const schedRes = await UploadPost.listScheduled();
             if (schedRes.ok && Array.isArray(schedRes.json) && schedRes.json.length > 0) {
@@ -530,9 +585,9 @@
     const uploadHistEmptyEl = document.getElementById('activityUploadPostHistoryEmpty');
     if (uploadHistEl) {
       uploadHistEl.innerHTML = '';
-      if (typeof UploadPost !== 'undefined' && UploadPost.getApiKey) {
-        const apiKey = await UploadPost.getApiKey();
-        if (apiKey) {
+      if (typeof UploadPost !== 'undefined' && UploadPost.getAuthMode) {
+        const authMode = await UploadPost.getAuthMode();
+        if (authMode.mode) {
           try {
             const histRes = await UploadPost.getHistory({ page: 1, limit: 20 });
             if (histRes.ok && histRes.json && Array.isArray(histRes.json.history)) {
@@ -1948,13 +2003,17 @@
       <label class="pd-checkbox-label" style="display:block;margin-bottom:6px;"><input type="checkbox" id="wfAlwaysOnEnabled" ${en ? 'checked' : ''}> Always on (background)</label>
       <div id="wfAlwaysOnScopes" style="margin-left:8px;margin-bottom:6px;">
         <span class="hint" style="display:block;margin-bottom:4px;">Scopes</span>
+        <div id="wfScopesCryptoGroup" style="display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeSolWatch" ${sc.followingSolanaWatch ? 'checked' : ''}> Solana Following watch</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeBscWatch" ${sc.followingBscWatch ? 'checked' : ''}> BSC Following watch</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoSol" ${sc.followingAutomationSolana ? 'checked' : ''}> Following automation (Solana)</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoBsc" ${sc.followingAutomationBsc ? 'checked' : ''}> Following automation (BSC)</label>
+        </div>
         <span class="hint" style="display:block;margin:8px 0 4px 0;border-top:1px solid var(--border);padding-top:6px;">Universal scopes</span>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFileWatch" ${sc.fileWatch ? 'checked' : ''}> File watch (project import folder)</label>
+        <div id="wfScopesCryptoGroup2" style="display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopePriceRange" ${sc.priceRangeWatch ? 'checked' : ''}> Price range watch (DeFi position)</label>
+        </div>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeCustom" ${sc.custom ? 'checked' : ''}> Custom trigger</label>
       </div>
       <div id="wfAlwaysOnProjectBind" style="margin-left:8px;margin-bottom:6px;display:${sc.fileWatch ? 'block' : 'none'};">
@@ -1962,12 +2021,12 @@
         <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnProjectId" style="min-width:90px;">Project ID</label><input type="text" id="wfAlwaysOnProjectId" value="${escapeHtml(ao.projectId || '')}" placeholder="Use selected project" style="flex:1;min-width:0;"></div>
         <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnPollInterval" style="min-width:90px;">Poll ms</label><input type="number" id="wfAlwaysOnPollInterval" value="${ao.pollIntervalMs || ''}" placeholder="60000" min="1000" style="flex:1;max-width:120px;"></div>
       </div>
-      <div id="wfAlwaysOnCond" style="margin-left:8px;margin-bottom:8px;">
+      <div id="wfAlwaysOnCondCrypto" style="margin-left:8px;margin-bottom:8px;display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
         <span class="hint" style="display:block;margin-bottom:4px;">Conditions (optional)</span>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondNonEmpty" ${c.requireNonEmptyFollowingBundle ? 'checked' : ''}> Require non-empty Following bundle for selected chains</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondBscKey" ${c.requireBscScanKeyForBsc ? 'checked' : ''}> Require BscScan API key for BSC</label>
       </div>
-      <div id="wfFollowingAutomationBox" style="margin-left:8px;padding-top:6px;border-top:1px solid var(--border);display:${sc.followingAutomationSolana || sc.followingAutomationBsc ? 'block' : 'none'};">
+      <div id="wfFollowingAutomationBox" style="margin-left:8px;padding-top:6px;border-top:1px solid var(--border);display:${_cfsCryptoWeb3Enabled && (sc.followingAutomationSolana || sc.followingAutomationBsc) ? 'block' : 'none'};">
         <span class="hint" style="display:block;margin-bottom:4px;">Automation policy (requires <code>selectFollowingAccount</code> step matching a Pulse wallet)</span>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtAutomationEnabled" ${ct.automationEnabled !== false ? 'checked' : ''}> Enable automation for bound wallets</label>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtPaper" ${ct.paperMode === true ? 'checked' : ''}> Paper mode (size only, no sign)</label>
@@ -3228,6 +3287,11 @@
   async function updatePulseWatchBundleLine() {
     const el = document.getElementById('pulseWatchBundleLine');
     if (!el) return;
+    if (!_cfsCryptoWeb3Enabled) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
     try {
       const data = await chrome.storage.local.get([PULSE_SOLANA_WATCH_BUNDLE_KEY, PULSE_BSC_WATCH_BUNDLE_KEY]);
       const sol = data[PULSE_SOLANA_WATCH_BUNDLE_KEY];
@@ -3279,8 +3343,9 @@
       const sol = data[PULSE_SOLANA_LAST_POLL_KEY];
       const bsc = data[PULSE_BSC_LAST_POLL_KEY];
       const fw = data.cfsFileWatchLastPoll;
-      const solOk = sol && typeof sol === 'object' && sol.ts != null;
-      const bscOk = bsc && typeof bsc === 'object' && bsc.ts != null;
+      const cryptoOn = _cfsCryptoWeb3Enabled;
+      const solOk = cryptoOn && sol && typeof sol === 'object' && sol.ts != null;
+      const bscOk = cryptoOn && bsc && typeof bsc === 'object' && bsc.ts != null;
       const fwOk = fw && typeof fw === 'object' && fw.ts != null;
       if (!solOk && !bscOk && !fwOk) {
         el.hidden = true;
@@ -3403,6 +3468,9 @@
     if (!el) return;
     const visible = await updatePulseWatchSectionVisibility();
     if (!visible) return;
+    /* Hide Export JSON when crypto is off – the export is crypto-only (Solana/BSC activity) */
+    const exportBtn = document.getElementById('pulseWatchExportActivityBtn');
+    if (exportBtn) exportBtn.style.display = _cfsCryptoWeb3Enabled ? '' : 'none';
     await updatePulseWatchStatusBanner();
     await updatePulseWatchLastPollLine();
     await updatePulseWatchBundleLine();
@@ -3440,6 +3508,11 @@
       }
     } catch (_) {}
 
+    if (!_cfsCryptoWeb3Enabled) {
+      /* Crypto disabled — skip Solana/BSC activity, show only always-on file watch summaries */
+      el.innerHTML = alwaysOnHtml || '';
+      return;
+    }
     try {
       const clusterStore = await chrome.storage.local.get(PULSE_SOLANA_CLUSTER_STORAGE_KEY);
       const clusterFallback =
@@ -5215,7 +5288,7 @@
           ${emailSection}
           ${addressSection}
           ${notesSection}
-          ${walletSection}
+          ${_cfsCryptoWeb3Enabled ? walletSection : ''}
           <div class="following-accounts">${accountsHtml}</div>
           <div class="following-add-account-form" data-profile-id="${escapeHtml(profileId)}">
             <input type="text" class="following-input-handle" placeholder="Handle (URL slug)" title="URL slug for the social account">
@@ -6074,7 +6147,15 @@
       }
     }
     setStatus('Choose your project folder; workflows/ will be created as a subfolder there.', '');
-    const handle = await showDirectoryPicker({ mode: 'readwrite', startIn: 'documents' });
+    /* Use the previously stored handle as startIn so the picker opens to the
+       last-used folder instead of the user's home directory. */
+    var pickerOpts = { mode: 'readwrite' };
+    try {
+      var prev = await getStoredProjectFolderHandle();
+      if (prev) pickerOpts.startIn = prev;
+      else pickerOpts.startIn = 'documents';
+    } catch (_) { pickerOpts.startIn = 'documents'; }
+    const handle = await showDirectoryPicker(pickerOpts);
     return { handle, fromStored: false };
   }
 
@@ -6724,7 +6805,14 @@
     }
     return (async () => {
       try {
-        const handle = await showDirectoryPicker({ mode: 'readwrite', startIn: 'documents' });
+        /* Use stored handle as startIn so picker opens to last-used folder */
+        var setFolderPickerOpts = { mode: 'readwrite' };
+        try {
+          var prevHandle = await getStoredProjectFolderHandle();
+          if (prevHandle) setFolderPickerOpts.startIn = prevHandle;
+          else setFolderPickerOpts.startIn = 'documents';
+        } catch (_) { setFolderPickerOpts.startIn = 'documents'; }
+        const handle = await showDirectoryPicker(setFolderPickerOpts);
         let laminiDirTreeOk = true;
         if (typeof cfsEnsureLaminiDirTree === 'function') {
           try {
@@ -8848,16 +8936,12 @@
   })();
 
   document.getElementById('testsBtn')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html#tab-tests') });
   });
   document.getElementById('testsBtnLoggedOut')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html#tab-tests') });
   });
-  const openUnitTestsPage = () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('test/unit-tests.html') });
-  };
-  document.getElementById('unitTestsPageBtn')?.addEventListener('click', openUnitTestsPage);
-  document.getElementById('unitTestsPageBtnLoggedOut')?.addEventListener('click', openUnitTestsPage);
+
 
   processPendingTemplateSave();
 
@@ -9536,9 +9620,9 @@
       return;
     }
     var user = postData.user || pathSegments[2];
-    if (typeof window.ExtensionApi !== 'undefined' && window.ExtensionApi.getUploadPostApiKey) {
+    if (typeof window.ExtensionApi !== 'undefined' && window.ExtensionApi.getUploadPostProfile) {
       try {
-        var configRes = await window.ExtensionApi.getUploadPostApiKey();
+        var configRes = await window.ExtensionApi.getUploadPostProfile();
         if (configRes && configRes.ok && configRes.upload_post_profile_user)
           user = configRes.upload_post_profile_user;
       } catch (_) {}
@@ -9973,9 +10057,14 @@
         setStatus('Name cannot be empty.', 'error');
         return;
       }
+      const previousName = currentName;
       wf.name = trimmed;
+      if (typeof WorkflowEditHistory !== 'undefined') {
+        WorkflowEditHistory.push(wf, 'rename', { name: trimmed, previousName: previousName }, 'user');
+      }
       await chrome.storage.local.set({ workflows });
       loadWorkflows();
+      updateUndoRedoButtons();
       persistWorkflowToProjectFolder(wfId);
       await syncWorkflowToBackend(wfId).catch(() => ({}));
       setStatus('Workflow renamed.', 'success');
@@ -11343,6 +11432,7 @@
     const dataDetails = document.getElementById('workflowDataDetails');
     if (dataDetails && wfId) dataDetails.open = true;
     void syncAutoDiscoveryState();
+    updateUndoRedoButtons();
   });
 
   document.getElementById('saveWorkflowToFolderBtn')?.addEventListener('click', async function() {
@@ -11735,6 +11825,7 @@
           const emails = (followingEmailsCache || []).filter(r => !r.deleted);
           const addresses = (followingAddressesCache || []).filter(r => !r.deleted);
           const notes = (followingNotesCache || []).filter(r => !r.deleted);
+          const wallets = (followingWalletsCache || []).filter(r => !r.deleted);
           const result = profiles.map(p => {
             const id = p.id;
             return {
@@ -11744,6 +11835,7 @@
               emails: emails.filter(r => r.following === id),
               addresses: addresses.filter(r => r.following === id),
               notes: notes.filter(r => r.following === id),
+              wallets: wallets.filter(r => r.following === id),
             };
           });
           if (msg.nameFilter) {
@@ -12674,7 +12766,8 @@
     const reg = window.__CFS_stepSidepanels || {};
     const defs = window.__CFS_stepDefs || {};
     const order = window.__CFS_stepOrder && window.__CFS_stepOrder.length ? window.__CFS_stepOrder : Object.keys(reg);
-    return order.map(function(id) {
+    const filtered = _cfsCryptoWeb3Enabled ? order : order.filter(function(id) { return !_CFS_CRYPTO_STEP_TYPES[id]; });
+    return filtered.map(function(id) {
       return { id: id, label: (reg[id] && reg[id].label) || (defs[id] && defs[id].label) || id };
     });
   }
@@ -13626,12 +13719,17 @@
   function deleteStep(wfId, idx) {
     const wf = workflows[wfId];
     if (!wf?.analyzed?.actions?.length || idx < 0 || idx >= wf.analyzed.actions.length) return;
+    const removedAction = JSON.parse(JSON.stringify(wf.analyzed.actions[idx]));
     wf.analyzed.actions.splice(idx, 1);
+    if (typeof WorkflowEditHistory !== 'undefined') {
+      WorkflowEditHistory.push(wf, 'deleteStep', { index: idx, action: removedAction }, 'user');
+    }
     syncWorkflowCsvColumnsFromSteps(wf);
     workflows[wfId] = wf;
     chrome.storage.local.set({ workflows });
     renderStepsList();
     renderWorkflowFormFields();
+    updateUndoRedoButtons();
     setStatus(`Step ${idx + 1} deleted.`, 'success');
     persistWorkflowToProjectFolder(wfId);
   }
@@ -13643,10 +13741,14 @@
     const newIdx = idx + dir;
     if (newIdx < 0 || newIdx >= actions.length) return;
     [actions[idx], actions[newIdx]] = [actions[newIdx], actions[idx]];
+    if (typeof WorkflowEditHistory !== 'undefined') {
+      WorkflowEditHistory.push(wf, 'moveStep', { fromIndex: idx, toIndex: newIdx }, 'user');
+    }
     workflows[wfId] = wf;
     chrome.storage.local.set({ workflows });
     renderStepsList();
     renderWorkflowFormFields();
+    updateUndoRedoButtons();
     setStatus(`Step moved ${dir > 0 ? 'down' : 'up'}.`, 'success');
     persistWorkflowToProjectFolder(wfId);
   }
@@ -13667,11 +13769,15 @@
     if (!wf.analyzed) wf.analyzed = { actions: [] };
     if (!Array.isArray(wf.analyzed.actions)) wf.analyzed.actions = [];
     wf.analyzed.actions.splice(index, 0, newAction);
+    if (typeof WorkflowEditHistory !== 'undefined') {
+      WorkflowEditHistory.push(wf, 'insertStep', { index: index, action: JSON.parse(JSON.stringify(newAction)) }, 'user');
+    }
     syncWorkflowCsvColumnsFromSteps(wf);
     workflows[wfId] = wf;
     await chrome.storage.local.set({ workflows });
     renderStepsList();
     renderWorkflowFormFields();
+    updateUndoRedoButtons();
     const insertedItem = document.querySelector(`.step-item[data-step-index="${index}"]`);
     if (insertedItem) insertedItem.querySelector('.step-header')?.click();
     setStatus(`Step ${index + 1} added. Configure and save.`, 'success');
@@ -13701,6 +13807,104 @@
     const lastItem = document.querySelector(`.step-item[data-step-index="${lastIdx - 1}"]`);
     if (lastItem) lastItem.querySelector('.step-header')?.click();
     setStatus('Wait for generation step added. Set container selector and Save.', 'success');
+  });
+
+  /* ── Workflow undo / redo ── */
+
+  /** Update undo/redo button enabled state to reflect current workflow history. */
+  function updateUndoRedoButtons() {
+    const undoBtn = document.getElementById('workflowUndoBtn');
+    const redoBtn = document.getElementById('workflowRedoBtn');
+    if (!undoBtn || !redoBtn) return;
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId && workflows[wfId];
+    if (!wf || typeof WorkflowEditHistory === 'undefined') {
+      undoBtn.disabled = true;
+      redoBtn.disabled = true;
+      return;
+    }
+    undoBtn.disabled = !WorkflowEditHistory.canUndo(wf);
+    redoBtn.disabled = !WorkflowEditHistory.canRedo(wf);
+    // Update tooltips with last entry description
+    if (WorkflowEditHistory.canUndo(wf)) {
+      const hist = WorkflowEditHistory.getHistory(wf);
+      const ptr = WorkflowEditHistory.getPointer(wf);
+      const entry = hist[ptr];
+      undoBtn.title = 'Undo: ' + WorkflowEditHistory.describeEdit(entry) + ' (Ctrl+Z)';
+    } else {
+      undoBtn.title = 'Nothing to undo';
+    }
+    if (WorkflowEditHistory.canRedo(wf)) {
+      const hist = WorkflowEditHistory.getHistory(wf);
+      const ptr = WorkflowEditHistory.getPointer(wf);
+      const entry = hist[ptr + 1];
+      redoBtn.title = 'Redo: ' + WorkflowEditHistory.describeEdit(entry) + ' (Ctrl+Shift+Z)';
+    } else {
+      redoBtn.title = 'Nothing to redo';
+    }
+  }
+
+  async function performUndo() {
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId && workflows[wfId];
+    if (!wf || typeof WorkflowEditHistory === 'undefined') return;
+    const result = WorkflowEditHistory.undo(wf);
+    if (!result.success) {
+      setStatus('Nothing to undo.', '');
+      return;
+    }
+    syncWorkflowCsvColumnsFromSteps(wf);
+    workflows[wfId] = wf;
+    await chrome.storage.local.set({ workflows });
+    renderStepsList();
+    renderWorkflowFormFields();
+    renderExecutionsList();
+    loadWorkflows();
+    updateUndoRedoButtons();
+    const desc = WorkflowEditHistory.describeEdit(result.appliedEntry);
+    setStatus('Undo: ' + desc, 'success');
+    persistWorkflowToProjectFolder(wfId);
+  }
+
+  async function performRedo() {
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId && workflows[wfId];
+    if (!wf || typeof WorkflowEditHistory === 'undefined') return;
+    const result = WorkflowEditHistory.redo(wf);
+    if (!result.success) {
+      setStatus('Nothing to redo.', '');
+      return;
+    }
+    syncWorkflowCsvColumnsFromSteps(wf);
+    workflows[wfId] = wf;
+    await chrome.storage.local.set({ workflows });
+    renderStepsList();
+    renderWorkflowFormFields();
+    renderExecutionsList();
+    loadWorkflows();
+    updateUndoRedoButtons();
+    const desc = WorkflowEditHistory.describeEdit(result.appliedEntry);
+    setStatus('Redo: ' + desc, 'success');
+    persistWorkflowToProjectFolder(wfId);
+  }
+
+  document.getElementById('workflowUndoBtn')?.addEventListener('click', () => performUndo());
+  document.getElementById('workflowRedoBtn')?.addEventListener('click', () => performRedo());
+
+  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z (⌘ on Mac)
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      if (e.shiftKey) {
+        e.preventDefault();
+        performRedo();
+      } else {
+        // Only intercept Ctrl+Z if we're not inside a text input/textarea
+        const tag = document.activeElement?.tagName?.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        e.preventDefault();
+        performUndo();
+      }
+    }
   });
 
   /** Build step form body HTML from formSchema (step.json). Used when step has no custom renderBody. */
@@ -14475,6 +14679,7 @@
     const wf = workflows[wfId];
     if (!wf?.analyzed?.actions?.[idx]) return;
     const action = wf.analyzed.actions[idx];
+    const _editHistoryBeforeSnapshot = JSON.parse(JSON.stringify(action));
     const item = document.querySelector(`.step-item[data-step-index="${idx}"]`);
     if (!item) return;
     const getVal = (field) => {
@@ -14535,12 +14740,16 @@
         if (msEl && msEl.value) action.proceedAfterMs = Math.max(1000, parseInt(msEl.value, 10) || 60000);
       } else { action.proceedAfterMs = undefined; }
       await persistStepNarrationFromItem(item, action, wfId, idx);
+      if (typeof WorkflowEditHistory !== 'undefined') {
+        WorkflowEditHistory.push(wf, 'updateStep', { index: idx, before: _editHistoryBeforeSnapshot, after: JSON.parse(JSON.stringify(action)) }, 'user');
+      }
       syncWorkflowCsvColumnsFromSteps(wf);
       workflows[wfId] = wf;
       await chrome.storage.local.set({ workflows });
       renderStepsList();
       renderWorkflowFormFields();
       renderExecutionsList();
+      updateUndoRedoButtons();
       setStatus('Step saved.', 'success');
       persistWorkflowToProjectFolder(wfId);
       return;
@@ -14562,12 +14771,16 @@
         if (msEl && msEl.value) action.proceedAfterMs = Math.max(1000, parseInt(msEl.value, 10) || 60000);
       } else { action.proceedAfterMs = undefined; }
       await persistStepNarrationFromItem(item, action, wfId, idx);
+      if (typeof WorkflowEditHistory !== 'undefined') {
+        WorkflowEditHistory.push(wf, 'updateStep', { index: idx, before: _editHistoryBeforeSnapshot, after: JSON.parse(JSON.stringify(action)) }, 'user');
+      }
       syncWorkflowCsvColumnsFromSteps(wf);
       workflows[wfId] = wf;
       await chrome.storage.local.set({ workflows });
       renderStepsList();
       renderWorkflowFormFields();
       renderExecutionsList();
+      updateUndoRedoButtons();
       setStatus('Step saved.', 'success');
       persistWorkflowToProjectFolder(wfId);
       return;
@@ -14741,11 +14954,15 @@
       const msEl = item.querySelector('[data-field="proceedAfterMs"]');
       if (msEl && msEl.value) action.proceedAfterMs = Math.max(1000, parseInt(msEl.value, 10) || 60000);
     } else { action.proceedAfterMs = undefined; }
+    if (typeof WorkflowEditHistory !== 'undefined') {
+      WorkflowEditHistory.push(wf, 'updateStep', { index: idx, before: _editHistoryBeforeSnapshot, after: JSON.parse(JSON.stringify(action)) }, 'user');
+    }
     syncWorkflowCsvColumnsFromSteps(wf);
     workflows[wfId] = wf;
     await chrome.storage.local.set({ workflows });
     renderStepsList();
     renderWorkflowFormFields();
+    updateUndoRedoButtons();
     setStatus('Step saved.', 'success');
     persistWorkflowToProjectFolder(wfId);
   }
@@ -19449,7 +19666,9 @@
       loadGeneratorTemplates().catch(() => {});
     }
     const pendTpl = changes.cfs_pending_template_save;
-    if (pendTpl && pendTpl.oldValue != null && pendTpl.newValue === undefined) {
+    if (pendTpl && pendTpl.newValue && pendTpl.newValue.templateId) {
+      processPendingTemplateSave().catch(() => {});
+    } else if (pendTpl && pendTpl.oldValue != null && pendTpl.newValue === undefined) {
       loadGeneratorTemplates().catch(() => {});
     }
   });

@@ -104,10 +104,22 @@
       const data = res.ok ? await res.json() : {};
       ids = data.templates || [];
     } catch (e) {
-      console.error('Load template manifest', e);
+      console.warn('Load template manifest via fetch failed (expected on file:// protocol):', e.message || e);
+      /* ── Inline fallback for file:// testing ── */
+      if (window.__CFS_inlineTemplateIds && window.__CFS_inlineTemplateIds.length) {
+        ids = window.__CFS_inlineTemplateIds;
+        console.log('[template-engine] Using inline template fallback (' + ids.length + ' templates)');
+      }
     }
-    _builtInIds = new Set(ids);
-    const builtIn = ids.map(function (id) {
+    /* When inline fallback is active (file:// mode), do NOT mark these as built-in
+       so they bypass the copy-to-project gate and load directly into the editor. */
+    const isInlineFallback = !!(window.__CFS_inlineTemplates && Object.keys(window.__CFS_inlineTemplates).length);
+    if (!isInlineFallback) {
+      _builtInIds = new Set(ids);
+    } else {
+      _builtInIds = new Set(); // empty → none are "built-in" → all bypass copy dialog
+    }
+    const builtIn = isInlineFallback ? [] : ids.map(function (id) {
       return { key: 'builtin:' + id, id: id };
     });
     builtIn.sort(function (a, b) { return String(a.id).localeCompare(String(b.id)); });
@@ -137,6 +149,16 @@
           } catch (_) {}
         }
       } catch (_) {}
+    }
+    /* In inline-fallback mode (file://), add inline templates as project templates
+       so they appear in the dropdown and bypass the built-in copy gate. */
+    if (isInlineFallback) {
+      const existingProjectIds = new Set(project.map(function (p) { return p.id; }));
+      ids.forEach(function (id) {
+        if (!existingProjectIds.has(id)) {
+          project.push({ key: 'project:' + id, id: id });
+        }
+      });
     }
     project.sort(function (a, b) { return String(a.id).localeCompare(String(b.id)); });
     return { builtIn: builtIn, project: project };
@@ -198,6 +220,11 @@
           } catch (_) {}
         }
       }
+      /* ── Inline fallback for file:// testing (project-keyed but inline-sourced) ── */
+      if (!template && window.__CFS_inlineTemplates && window.__CFS_inlineTemplates[bareId]) {
+        template = JSON.parse(JSON.stringify(window.__CFS_inlineTemplates[bareId]));
+        console.log('[template-engine] Loaded project template from inline fallback:', bareId);
+      }
     } else {
       const templateFileName = 'template.json';
       const templatePath = 'generator/templates/' + bareId + '/' + templateFileName;
@@ -216,6 +243,11 @@
           );
           if (res.ok) template = await res.json();
         } catch (_) {}
+      }
+      /* ── Inline fallback for file:// testing ── */
+      if (!template && window.__CFS_inlineTemplates && window.__CFS_inlineTemplates[bareId]) {
+        template = JSON.parse(JSON.stringify(window.__CFS_inlineTemplates[bareId]));
+        console.log('[template-engine] Loaded template from inline fallback:', bareId);
       }
     }
 
@@ -613,43 +645,392 @@
 
   /**
    * Pre-generate TTS audio for all text-to-speech clips in the template.
-   * Calls window.__CFS_ttsGenerate(text, { voice }) for each TTS clip; returns a map of
-   * "trackIdx_clipIdx" -> blob URL and a list of URLs to revoke when done.
-   * mergedTemplate should already have merge applied (text is final).
+   * Checks disk cache (uploads/{pid}/generations/{tid}/audio/) first; only
+   * calls the TTS engine for uncached chunks. Newly generated blobs are
+   * saved to disk so subsequent renders (and Fabric.js preview) reuse them.
    * Returns Promise<{ map: Object, revoke: string[] }>.
    */
   function preGenerateTtsForTemplate(mergedTemplate) {
     const ttsGenerate = typeof window !== 'undefined' && window.__CFS_ttsGenerate;
+    const ttsCache = typeof window !== 'undefined' && window.__CFS_ttsAudioCache;
     const map = {};
     const revoke = [];
     if (!ttsGenerate || !mergedTemplate || !mergedTemplate.timeline || !Array.isArray(mergedTemplate.timeline.tracks)) {
       return Promise.resolve({ map: map, revoke: revoke });
     }
-    const tracks = mergedTemplate.timeline.tracks;
-    const promises = [];
-    tracks.forEach(function (track, trackIdx) {
-      (track.clips || []).forEach(function (clip, clipIdx) {
-        const asset = clip.asset || {};
-        const type = (asset.type || '').toLowerCase();
-        if (type !== 'text-to-speech') return;
-        const text = (asset.text != null ? String(asset.text) : '').trim();
-        if (!text) return;
-        const voice = asset.voice != null ? String(asset.voice) : '';
-        const key = trackIdx + '_' + clipIdx;
-        promises.push(
-          Promise.resolve(ttsGenerate(text, { voice: voice }))
-            .then(function (blob) {
-              if (blob && typeof URL !== 'undefined' && URL.createObjectURL) {
-                const url = URL.createObjectURL(blob);
-                map[key] = url;
-                revoke.push(url);
+
+    /* Resolve project context for disk cache */
+    const projId = (typeof window !== 'undefined' && window.__CFS_generatorProjectId || '').toString().trim();
+    const templateId = (function () {
+      var merge = mergedTemplate.merge || [];
+      for (var i = 0; i < merge.length; i++) {
+        if (merge[i] && merge[i].find === '__CFS_TEMPLATE_ID' && merge[i].replace) return merge[i].replace;
+      }
+      return '';
+    })();
+    const cacheEnabled = !!(ttsCache && projId && templateId);
+    const rootPromise = cacheEnabled ? getProjectFolderHandle() : Promise.resolve(null);
+
+    return rootPromise.then(function (projRoot) {
+      const tracks = mergedTemplate.timeline.tracks;
+      const promises = [];
+
+      /* Find caption display settings (matching Fabric.js chunking) */
+      var captionDisplay = {};
+      var captionWords = null;
+      for (var fti = 0; fti < tracks.length; fti++) {
+        var fClips = tracks[fti].clips || [];
+        for (var fci = 0; fci < fClips.length; fci++) {
+          var fAsset = fClips[fci].asset || {};
+          if ((fAsset.type === 'caption' || fAsset.type === 'rich-caption') && Array.isArray(fAsset.words) && fAsset.words.length) {
+            captionDisplay = fAsset.display || {};
+            captionWords = fAsset.words;
+            break;
+          }
+        }
+        if (captionWords) break;
+      }
+      var wpl = (captionDisplay.wordsPerLine || 4);
+      var numLines = (captionDisplay.lines || 2);
+      var chunkSize = wpl * numLines;
+
+      tracks.forEach(function (track, trackIdx) {
+        (track.clips || []).forEach(function (clip, clipIdx) {
+          const asset = clip.asset || {};
+          const type = (asset.type || '').toLowerCase();
+          if (type !== 'text-to-speech') return;
+          const fullText = (asset.text != null ? String(asset.text) : '').trim();
+          if (!fullText) return;
+          var voice = (asset.localVoice || asset.voice || '').toString();
+          /* Match Fabric.js voice resolution: non-Kokoro voices fall back to af_heart */
+          if (!/^[a-z]{2}_[a-z]/i.test(voice)) voice = 'af_heart';
+          const mapKey = trackIdx + '_' + clipIdx;
+
+          /* Build per-chunk text list matching Fabric.js chunking */
+          var textWords = fullText.split(/\s+/).filter(Boolean);
+          var chunkTexts = [];
+          for (var ci = 0; ci < textWords.length; ci += chunkSize) {
+            chunkTexts.push(textWords.slice(ci, ci + chunkSize).join(' '));
+          }
+
+          /* Generate or load each chunk, then concatenate into one WAV */
+          function loadChunkSequential(idx, chunkBlobs) {
+            if (idx >= chunkTexts.length) return Promise.resolve(chunkBlobs);
+            var chunkText = chunkTexts[idx];
+            var ck = ttsCache ? ttsCache.getChunkKey(voice, chunkText) : '';
+            var diskP = (ttsCache && projRoot && ck)
+              ? ttsCache.loadTtsChunk(projRoot, projId, templateId, ck).catch(function () { return null; })
+              : Promise.resolve(null);
+
+            return diskP.then(function (hit) {
+              if (hit && hit.blob) {
+                console.log('[TTS cache/pixi] Chunk ' + idx + ' from disk: ' + ck + (hit.words ? ' (with words)' : ''));
+                chunkBlobs.push({ blob: hit.blob, duration: hit.duration || 0 });
+                return loadChunkSequential(idx + 1, chunkBlobs);
               }
-            })
-            .catch(function (err) { console.warn('[CFS] TTS generation failed for clip', key, err); })
-        );
+              /* Generate fresh */
+              return Promise.resolve(ttsGenerate(chunkText, { voice: voice })).then(function (blob) {
+                if (!blob || blob.size < 100) {
+                  chunkBlobs.push({ blob: blob || new Blob(), duration: 0 });
+                  return loadChunkSequential(idx + 1, chunkBlobs);
+                }
+                /* Trim silence */
+                var trimP = (ttsCache && ttsCache.trimSilence)
+                  ? ttsCache.trimSilence(blob)
+                  : Promise.resolve({ blob: blob, duration: 0 });
+                return trimP.then(function (trimResult) {
+                  var tb = trimResult.blob;
+                  chunkBlobs.push({ blob: tb, duration: trimResult.duration || 0 });
+                  /* Save to disk */
+                  if (ttsCache && projRoot && ck) {
+                    return ttsCache.saveTtsChunk(projRoot, projId, templateId, voice, chunkText, tb, trimResult.duration || 0)
+                      .then(function () { console.log('[TTS cache/pixi] Saved chunk to disk: ' + ck); })
+                      .catch(function () {});
+                  }
+                }).then(function () {
+                  return loadChunkSequential(idx + 1, chunkBlobs);
+                });
+              });
+            });
+          }
+
+          promises.push(
+            loadChunkSequential(0, []).then(function (chunkBlobs) {
+              if (!chunkBlobs.length) return;
+              /* Concatenate WAV blobs into one */
+              return concatenateWavBlobs(chunkBlobs.map(function (c) { return c.blob; })).then(function (combined) {
+                if (!combined || combined.size < 100) return;
+                if (typeof URL !== 'undefined' && URL.createObjectURL) {
+                  var url = URL.createObjectURL(combined);
+                  map[mapKey] = url;
+                  revoke.push(url);
+                }
+              });
+            }).catch(function (err) { console.warn('[CFS] TTS generation failed for clip', mapKey, err); })
+          );
+        });
+      });
+      return Promise.all(promises).then(function () {
+        /* ── Sync caption word timings to actual TTS audio duration ── */
+        return syncCaptionTimingsToTts(mergedTemplate, map).then(function () {
+          return { map: map, revoke: revoke };
+        });
       });
     });
-    return Promise.all(promises).then(function () { return { map: map, revoke: revoke }; });
+  }
+
+  /**
+   * Concatenate multiple WAV blobs into a single WAV blob.
+   * Assumes all are 16-bit PCM WAV. Decodes via OfflineAudioContext, concatenates samples, and re-encodes.
+   */
+  function concatenateWavBlobs(blobs) {
+    if (!blobs || !blobs.length) return Promise.resolve(null);
+    if (blobs.length === 1) return Promise.resolve(blobs[0]);
+    var AudioCtx = typeof OfflineAudioContext !== 'undefined' ? OfflineAudioContext
+      : (typeof webkitOfflineAudioContext !== 'undefined' ? webkitOfflineAudioContext : null);
+    if (!AudioCtx) return Promise.resolve(blobs[0]);
+
+    return Promise.all(blobs.map(function (b) {
+      return b.arrayBuffer().then(function (ab) {
+        var ctx = new AudioCtx(1, 24000, 24000);
+        return ctx.decodeAudioData(ab).then(function (buf) {
+          return buf;
+        });
+      }).catch(function () { return null; });
+    })).then(function (buffers) {
+      buffers = buffers.filter(Boolean);
+      if (!buffers.length) return null;
+      if (buffers.length === 1) {
+        /* Re-encode single buffer as WAV */
+        return encodeAudioBufferAsWav(buffers[0]);
+      }
+      var sampleRate = buffers[0].sampleRate;
+      var totalFrames = 0;
+      buffers.forEach(function (b) { totalFrames += b.length; });
+      var ctx2 = new AudioCtx(1, totalFrames, sampleRate);
+      var combined = ctx2.createBuffer(1, totalFrames, sampleRate);
+      var channel = combined.getChannelData(0);
+      var offset = 0;
+      buffers.forEach(function (b) {
+        channel.set(b.getChannelData(0), offset);
+        offset += b.length;
+      });
+      return encodeAudioBufferAsWav(combined);
+    });
+  }
+
+  /**
+   * Encode an AudioBuffer as a 16-bit PCM WAV Blob.
+   */
+  function encodeAudioBufferAsWav(audioBuffer) {
+    var numChannels = 1;
+    var sampleRate = audioBuffer.sampleRate;
+    var samples = audioBuffer.getChannelData(0);
+    var numFrames = samples.length;
+    var bytesPerSample = 2;
+    var dataSize = numFrames * bytesPerSample;
+    var buffer = new ArrayBuffer(44 + dataSize);
+    var view = new DataView(buffer);
+    function writeStr(offset, str) {
+      for (var i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    }
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
+    view.setUint16(32, numChannels * bytesPerSample, true);
+    view.setUint16(34, bytesPerSample * 8, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataSize, true);
+    var idx = 44;
+    for (var i = 0; i < numFrames; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(idx, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      idx += 2;
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  /**
+   * After TTS audio is loaded, update caption word timings in the template
+   * so they match the actual audio duration. This ensures karaoke-style
+   * word highlighting stays in sync with the TTS audio during export.
+   *
+   * Priority:
+   *   1. Use cached per-word timings from the manifest (saved by Fabric.js after STT)
+   *   2. Fall back to decoding audio + character-proportional distribution
+   */
+  function syncCaptionTimingsToTts(mergedTemplate, ttsMap) {
+    if (!mergedTemplate || !mergedTemplate.timeline || !Array.isArray(mergedTemplate.timeline.tracks)) {
+      return Promise.resolve();
+    }
+    var tracks = mergedTemplate.timeline.tracks;
+    var ttsCache = typeof window !== 'undefined' && window.__CFS_ttsAudioCache;
+
+    /* Find caption asset with words */
+    var captionAsset = null;
+    for (var ti = 0; ti < tracks.length; ti++) {
+      var clips = tracks[ti].clips || [];
+      for (var ci = 0; ci < clips.length; ci++) {
+        var a = clips[ci].asset || {};
+        if ((a.type === 'caption' || a.type === 'rich-caption') && Array.isArray(a.words) && a.words.length) {
+          captionAsset = a;
+          break;
+        }
+      }
+      if (captionAsset) break;
+    }
+    if (!captionAsset || !captionAsset.words || !captionAsset.words.length) {
+      return Promise.resolve();
+    }
+    var display = captionAsset.display || {};
+    var wpl = display.wordsPerLine || 4;
+    var numLines = display.lines || 2;
+    var chunkSize = wpl * numLines;
+    var words = captionAsset.words;
+
+    /* Build text chunks matching caption chunking */
+    var textChunks = [];
+    for (var i = 0; i < words.length; i += chunkSize) {
+      var end = Math.min(i + chunkSize, words.length);
+      var chunkWords = words.slice(i, end);
+      var chunkText = chunkWords.map(function (w) { return w.text || ''; }).join(' ');
+      textChunks.push({ text: chunkText, wordStart: i, wordEnd: end - 1 });
+    }
+
+    var ttsKeys = Object.keys(ttsMap);
+    if (!ttsKeys.length) return Promise.resolve();
+
+    /* ── Strategy 1: Load cached word timings from manifest ── */
+    var projId = (typeof window !== 'undefined' && window.__CFS_generatorProjectId || '').toString().trim();
+    var templateId = (function () {
+      var merge = mergedTemplate.merge || [];
+      for (var mi = 0; mi < merge.length; mi++) {
+        if (merge[mi] && merge[mi].find === '__CFS_TEMPLATE_ID' && merge[mi].replace) return merge[mi].replace;
+      }
+      return '';
+    })();
+
+    var manifestPromise = (ttsCache && projId && templateId)
+      ? getProjectFolderHandle().then(function (root) {
+          if (!root) return null;
+          return ttsCache.loadManifest(root, projId, templateId);
+        }).catch(function () { return null; })
+      : Promise.resolve(null);
+
+    return manifestPromise.then(function (manifest) {
+      /* Try to find cached word timings for each chunk */
+      if (manifest && manifest.chunks) {
+        var ttsVoice = '';
+        /* Find TTS voice from the template */
+        for (var tvi = 0; tvi < tracks.length; tvi++) {
+          var tClips = tracks[tvi].clips || [];
+          for (var tci = 0; tci < tClips.length; tci++) {
+            var tAsset = tClips[tci].asset || {};
+            if (tAsset.type === 'text-to-speech') {
+              ttsVoice = (tAsset.localVoice || tAsset.voice || '').toString();
+              break;
+            }
+          }
+          if (ttsVoice) break;
+        }
+        /* Apply same Kokoro voice fallback as generation path */
+        if (!/^[a-z]{2}_[a-z]/i.test(ttsVoice)) ttsVoice = 'af_heart';
+
+        var allCached = true;
+        var cachedChunkData = [];
+        for (var cci = 0; cci < textChunks.length; cci++) {
+          var cKey = ttsCache ? ttsCache.getChunkKey(ttsVoice, textChunks[cci].text) : '';
+          var entry = cKey && manifest.chunks[cKey];
+          if (entry && Array.isArray(entry.words) && entry.words.length) {
+            cachedChunkData.push({ chunk: textChunks[cci], words: entry.words, duration: entry.duration || 0 });
+          } else {
+            allCached = false;
+            break;
+          }
+        }
+
+        if (allCached && cachedChunkData.length) {
+          /* Apply cached word timings */
+          var runningOffset = 0;
+          for (var ai = 0; ai < cachedChunkData.length; ai++) {
+            var cd = cachedChunkData[ai];
+            var chunkWordCount = cd.chunk.wordEnd - cd.chunk.wordStart + 1;
+            var cachedWords = cd.words;
+            /* Map cached words (relative to chunk start) to absolute timeline time */
+            for (var wi = 0; wi < chunkWordCount && wi < cachedWords.length; wi++) {
+              var w = words[cd.chunk.wordStart + wi];
+              w.start = Math.round((runningOffset + cachedWords[wi].start) * 1000) / 1000;
+              w.end = Math.round((runningOffset + cachedWords[wi].end) * 1000) / 1000;
+            }
+            runningOffset += cd.duration;
+          }
+          console.log('[TTS sync] Applied cached word timings from manifest (' + words.length + ' words, ' +
+            runningOffset.toFixed(2) + 's)');
+          return;
+        }
+      }
+
+      /* ── Strategy 2: Fall back to audio decode + character-proportional ── */
+      var AudioCtx = typeof OfflineAudioContext !== 'undefined' ? OfflineAudioContext
+        : (typeof webkitOfflineAudioContext !== 'undefined' ? webkitOfflineAudioContext : null);
+      if (!AudioCtx) return;
+
+      return Promise.all(ttsKeys.map(function (key) {
+        var url = ttsMap[key];
+        return fetch(url).then(function (res) { return res.arrayBuffer(); }).then(function (ab) {
+          var ctx = new AudioCtx(1, 24000, 24000);
+          return ctx.decodeAudioData(ab).then(function (buf) {
+            return { key: key, duration: buf.duration };
+          });
+        }).catch(function () { return { key: key, duration: 0 }; });
+      })).then(function (durations) {
+        var totalTtsDuration = 0;
+        durations.forEach(function (d) { totalTtsDuration += d.duration; });
+        if (totalTtsDuration <= 0) return;
+
+        var runningOffset = 0;
+        if (textChunks.length === durations.length) {
+          for (var dci = 0; dci < textChunks.length; dci++) {
+            var chunk = textChunks[dci];
+            var chunkDur = durations[dci].duration || 0;
+            if (chunkDur <= 0) { runningOffset += chunkDur; continue; }
+            distributeWordTimings(words, chunk.wordStart, chunk.wordEnd - chunk.wordStart + 1, runningOffset, chunkDur);
+            runningOffset += chunkDur;
+          }
+        } else {
+          distributeWordTimings(words, 0, words.length, 0, totalTtsDuration);
+        }
+
+        console.log('[TTS sync] Distributed word timings proportionally (' + words.length + ' words, ' +
+          totalTtsDuration.toFixed(2) + 's TTS audio)');
+      });
+    });
+  }
+
+  /**
+   * Distribute word timings proportional to character length within a range.
+   */
+  function distributeWordTimings(words, startIdx, count, offset, duration) {
+    var totalChars = 0;
+    for (var i = 0; i < count; i++) {
+      totalChars += Math.max(1, (words[startIdx + i].text || '').replace(/[^a-zA-Z0-9]/g, '').length);
+    }
+    if (totalChars <= 0) totalChars = count;
+    var t = offset;
+    for (var j = 0; j < count; j++) {
+      var w = words[startIdx + j];
+      var charLen = Math.max(1, (w.text || '').replace(/[^a-zA-Z0-9]/g, '').length);
+      var wordDur = duration * charLen / totalChars;
+      w.start = Math.round(t * 1000) / 1000;
+      w.end = Math.round((t + wordDur) * 1000) / 1000;
+      t += wordDur;
+    }
   }
 
   /**

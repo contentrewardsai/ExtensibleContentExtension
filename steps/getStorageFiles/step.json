@@ -1,0 +1,26 @@
+{
+  "id": "getStorageFiles",
+  "label": "Get Storage Files",
+  "description": "List files stored in your backend account storage. Requires backend login.",
+  "category": "data",
+  "defaultAction": {
+    "type": "getStorageFiles",
+    "runIf": "",
+    "pageVariableKey": "",
+    "limitVariableKey": "",
+    "saveAsVariable": "storageFiles"
+  },
+  "inputs": [
+    { "key": "pageVariableKey", "description": "Row variable for page number (optional)" },
+    { "key": "limitVariableKey", "description": "Row variable for results per page (optional)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store array of file objects" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "pageVariableKey", "label": "Page variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Pagination page number." },
+    { "key": "limitVariableKey", "label": "Limit variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Results per page." },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "storageFiles" }
+  ]
+}

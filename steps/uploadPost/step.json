@@ -30,6 +30,8 @@
     "extraFieldsVariableKey": "",
     "saveAsVariable": "",
     "saveStatusToVariable": "",
+    "saveViolationsToVariable": "",
+    "onCapReached": "fail",
     "savePostManifestToDisk": true,
     "timeoutMs": 120000
   },
@@ -51,7 +53,8 @@
   ],
   "outputs": [
     { "key": "saveAsVariable", "description": "Row variable to store API response (full body or results)" },
-    { "key": "saveStatusToVariable", "description": "Row variable to store the HTTP status code" }
+    { "key": "saveStatusToVariable", "description": "Row variable to store the HTTP status code" },
+    { "key": "saveViolationsToVariable", "description": "Row variable to store violations array (cap, duplicate, etc.) from failed posts" }
   ],
   "formSchema": [
     { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
@@ -80,6 +83,11 @@
     { "key": "savePostManifestToDisk", "label": "Save post manifest to project folder after API success", "inputType": "checkbox", "hint": "Writes uploads/{projectId}/posts/{account}/... Requires side panel open and project folder." },
     { "key": "saveAsVariable", "label": "Save response to variable", "inputType": "text", "placeholder": "e.g. uploadPostResponse" },
     { "key": "saveStatusToVariable", "label": "Save status code to variable", "inputType": "text", "placeholder": "" },
+    { "key": "saveViolationsToVariable", "label": "Save violations to variable (optional)", "inputType": "text", "placeholder": "e.g. postViolations", "hint": "Stores the violations array from 429/verification failures. Includes cap, duplicate, mention violations." },
+    { "key": "onCapReached", "label": "When daily cap reached", "inputType": "select", "options": [
+      { "value": "fail", "label": "Fail (halt workflow / error)" },
+      { "value": "skip", "label": "Skip (log warning, continue to next row)" }
+    ], "hint": "Controls behavior when the platform daily posting cap or verification (429) is reached." },
     { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "placeholder": "120000", "min": 10000, "hint": "Request timeout. Default 120s for large uploads." }
   ]
 }

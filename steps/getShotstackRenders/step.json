@@ -1,0 +1,26 @@
+{
+  "id": "getShotstackRenders",
+  "label": "Get ShotStack Renders",
+  "description": "List past ShotStack renders stored in your backend account. Requires backend login. Returns render history with URLs.",
+  "category": "data",
+  "defaultAction": {
+    "type": "getShotstackRenders",
+    "runIf": "",
+    "limitVariableKey": "",
+    "environmentVariableKey": "",
+    "saveAsVariable": "shotstackRenders"
+  },
+  "inputs": [
+    { "key": "limitVariableKey", "description": "Row variable for max results (optional)" },
+    { "key": "environmentVariableKey", "description": "Row variable for environment filter: 'stage' or 'v1' (optional)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store array of render objects" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "limitVariableKey", "label": "Limit variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Max number of results." },
+    { "key": "environmentVariableKey", "label": "Environment variable key (optional)", "inputType": "text", "placeholder": "", "hint": "Filter by 'stage' or 'v1'." },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "shotstackRenders" }
+  ]
+}

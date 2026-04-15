@@ -1,0 +1,313 @@
+{
+  "merge": [
+    {
+      "find": "AD_APPLE_NOTES_NAME_1",
+      "replace": "Content Rewards AI"
+    },
+    {
+      "find": "AD_APPLE_NOTES_TEXT_1",
+      "replace": "Introducing Extensible Content: The Ultimate Platform to Craft Compelling Content that Drives Revenue!"
+    },
+    {
+      "find": "backgroundColor",
+      "replace": "#ffffff"
+    },
+    {
+      "find": "nameInput",
+      "replace": "Content Rewards AI"
+    },
+    {
+      "find": "nameFontFamily",
+      "replace": "Helvetica Neue"
+    },
+    {
+      "find": "nameFontSize",
+      "replace": "24"
+    },
+    {
+      "find": "nameColor",
+      "replace": "#000000"
+    },
+    {
+      "find": "textInput",
+      "replace": "Introducing Extensible Content: The Ultimate Platform to Craft Compelling Content that Drives Revenue!"
+    },
+    {
+      "find": "textInsetX",
+      "replace": "60"
+    },
+    {
+      "find": "textFontFamily",
+      "replace": "Helvetica Neue"
+    },
+    {
+      "find": "textFontSize",
+      "replace": "19"
+    },
+    {
+      "find": "textColor",
+      "replace": "#000000"
+    },
+    {
+      "find": "profileImage",
+      "replace": ""
+    },
+    {
+      "find": "outputWidth",
+      "replace": "1080"
+    },
+    {
+      "find": "outputHeight",
+      "replace": "1080"
+    },
+    {
+      "find": "__CFS_TEMPLATE_ID",
+      "replace": "ad-apple-notes"
+    },
+    {
+      "find": "__CFS_TEMPLATE_NAME",
+      "replace": "Text Ad — Apple Notes"
+    },
+    {
+      "find": "__CFS_DESCRIPTION",
+      "replace": "Apple Notes–style card: window header (red/yellow/green), note title, and body text on cream background. ShotStack text assets support effects like typewriter. Export as PNG."
+    },
+    {
+      "find": "__CFS_OUTPUT_TYPE",
+      "replace": "image"
+    },
+    {
+      "find": "__CFS_PRESET_ID",
+      "replace": "instagram_square"
+    },
+    {
+      "find": "__CFS_INPUT_SCHEMA",
+      "replace": "[{\"id\":\"backgroundColor\",\"label\":\"Background\",\"type\":\"color\",\"default\":\"#ffffff\",\"description\":\"Canvas (outer) background; card stays cream.\"},{\"id\":\"nameInput\",\"label\":\"Note Title\",\"type\":\"text\",\"default\":\"Best Ad Strategy\",\"mergeField\":\"AD_APPLE_NOTES_NAME_1\"},{\"id\":\"nameFontFamily\",\"label\":\"Title font\",\"type\":\"text\",\"default\":\"Helvetica Neue\",\"mergeField\":\"AD_APPLE_NOTES_TITLE_FONT_FAMILY\"},{\"id\":\"nameFontSize\",\"label\":\"Title font size\",\"type\":\"number\",\"default\":24,\"mergeField\":\"AD_APPLE_NOTES_TITLE_SIZE\"},{\"id\":\"nameColor\",\"label\":\"Title color\",\"type\":\"color\",\"default\":\"#000000\",\"mergeField\":\"AD_APPLE_NOTES_TITLE_COLOR\"},{\"id\":\"textInput\",\"label\":\"Body\",\"type\":\"textarea\",\"default\":\"Introducing Extensible Content: The Ultimate Platform to Craft Compelling Content that Drives Revenue! Learn strategies for every stage of the sales funnel and turn your content into a powerful sales engine.\",\"mergeField\":\"AD_APPLE_NOTES_TEXT_1\"},{\"id\":\"textInsetX\",\"label\":\"Text left/right inset (px)\",\"type\":\"number\",\"default\":60,\"mergeField\":\"AD_APPLE_NOTES_TEXT_INSET_X\",\"description\":\"Distance from both left and right canvas edges for title/body text.\"},{\"id\":\"textFontFamily\",\"label\":\"Body font\",\"type\":\"text\",\"default\":\"Helvetica Neue\",\"mergeField\":\"AD_APPLE_NOTES_BODY_FONT_FAMILY\"},{\"id\":\"textFontSize\",\"label\":\"Body font size\",\"type\":\"number\",\"default\":19,\"mergeField\":\"AD_APPLE_NOTES_BODY_SIZE\"},{\"id\":\"textColor\",\"label\":\"Body color\",\"type\":\"color\",\"default\":\"#000000\",\"mergeField\":\"AD_APPLE_NOTES_BODY_COLOR\"},{\"id\":\"profileImage\",\"label\":\"Profile Image\",\"type\":\"file\",\"mergeField\":\"AD_APPLE_NOTES_PROFILE_1\"},{\"id\":\"outputWidth\",\"label\":\"Width (px)\",\"type\":\"number\",\"default\":1080},{\"id\":\"outputHeight\",\"label\":\"Height (px)\",\"type\":\"number\",\"default\":1080}]"
+    }
+  ],
+  "output": {
+    "aspectRatio": "1:1",
+    "format": "png",
+    "fps": 25,
+    "resolution": "hd",
+    "size": {
+      "height": 1080,
+      "width": 1080
+    }
+  },
+  "timeline": {
+    "background": "#ffffff",
+    "tracks": [
+      {
+        "clips": [
+          {
+            "alias": "AD_APPLE_NOTES_TEXT_1",
+            "asset": {
+              "align": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "animation": {
+                "duration": 8,
+                "preset": "typewriter"
+              },
+              "font": {
+                "color": "#000000",
+                "family": "Open Sans",
+                "size": 36
+              },
+              "padding": {
+                "left": 60,
+                "right": 52,
+                "top": 175
+              },
+              "style": {
+                "lineHeight": 1.55
+              },
+              "text": "{{ AD_APPLE_NOTES_TEXT_1 }}",
+              "type": "rich-text"
+            },
+            "length": 10,
+            "start": 0
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "AD_APPLE_NOTES_NAME_1",
+            "asset": {
+              "align": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "font": {
+                "color": "#000000",
+                "family": "Open Sans",
+                "size": 48,
+                "weight": "bold"
+              },
+              "padding": {
+                "left": 60,
+                "right": 52,
+                "top": 100
+              },
+              "text": "{{ AD_APPLE_NOTES_NAME_1 }}",
+              "type": "rich-text"
+            },
+            "length": 10,
+            "start": 0
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "btn_green",
+            "asset": {
+              "circle": {
+                "radius": 10
+              },
+              "fill": {
+                "color": "#28c840"
+              },
+              "height": 20,
+              "shape": "circle",
+              "type": "shape",
+              "width": 20
+            },
+            "height": 20,
+            "length": 10,
+            "offset": {
+              "x": 0.101898,
+              "y": -0.046296
+            },
+            "position": "topLeft",
+            "start": 0,
+            "width": 20
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "btn_yellow",
+            "asset": {
+              "circle": {
+                "radius": 10
+              },
+              "fill": {
+                "color": "#febc2e"
+              },
+              "height": 20,
+              "shape": "circle",
+              "type": "shape",
+              "width": 20
+            },
+            "height": 20,
+            "length": 10,
+            "offset": {
+              "x": 0.075898,
+              "y": -0.046296
+            },
+            "position": "topLeft",
+            "start": 0,
+            "width": 20
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "btn_red",
+            "asset": {
+              "circle": {
+                "radius": 10
+              },
+              "fill": {
+                "color": "#ff5f57"
+              },
+              "height": 20,
+              "shape": "circle",
+              "type": "shape",
+              "width": 20
+            },
+            "height": 20,
+            "length": 10,
+            "offset": {
+              "x": 0.05,
+              "y": -0.046296
+            },
+            "position": "topLeft",
+            "start": 0,
+            "width": 20
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "note_header",
+            "asset": {
+              "fill": {
+                "color": "#f9f9f9"
+              },
+              "height": 40,
+              "rectangle": {
+                "cornerRadius": 12,
+                "height": 40,
+                "width": 1000
+              },
+              "shape": "rectangle",
+              "type": "shape",
+              "width": 1000
+            },
+            "height": 40,
+            "length": 10,
+            "offset": {
+              "x": 0.037,
+              "y": -0.037
+            },
+            "position": "topLeft",
+            "start": 0,
+            "width": 1000
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "alias": "note_card",
+            "asset": {
+              "fill": {
+                "color": "#fffbe6"
+              },
+              "height": 1000,
+              "rectangle": {
+                "cornerRadius": 12,
+                "height": 1000,
+                "width": 1000
+              },
+              "shape": "rectangle",
+              "stroke": {
+                "color": "#f0e1a0",
+                "width": 1
+              },
+              "type": "shape",
+              "width": 1000
+            },
+            "height": 1000,
+            "length": 10,
+            "offset": {
+              "x": 0,
+              "y": 0
+            },
+            "position": "center",
+            "start": 0,
+            "width": 1000
+          }
+        ]
+      }
+    ]
+  }
+}

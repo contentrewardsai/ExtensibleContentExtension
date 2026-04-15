@@ -59,6 +59,34 @@
       return;
     }
 
+    if (reqType === 'STORAGE_WRITE') {
+      /* Direct chrome.storage.local.set */
+      var writeData = {};
+      if (payload.key != null && payload.value !== undefined) {
+        writeData[payload.key] = payload.value;
+      } else if (payload.data && typeof payload.data === 'object') {
+        writeData = payload.data;
+      }
+      chrome.storage.local.set(writeData, function () {
+        if (chrome.runtime.lastError) {
+          sendWs({ id: id, response: { ok: false, error: chrome.runtime.lastError.message } });
+        } else {
+          sendWs({ id: id, response: { ok: true } });
+        }
+      });
+      return;
+    }
+
+    if (reqType === 'RELOAD_EXTENSION') {
+      log('⟳ Reloading extension…');
+      sendWs({ id: id, response: { ok: true, message: 'Reloading extension' } });
+      /* Short delay so the WS response is sent before reload kills this page */
+      setTimeout(function () {
+        chrome.runtime.reload();
+      }, 500);
+      return;
+    }
+
     if (reqType === 'FETCH_URL') {
       /* Fetch a chrome.runtime.getURL path (for reading bundled files like step.json) */
       var urlPath = payload.path || '';

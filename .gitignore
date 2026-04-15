@@ -49,6 +49,7 @@ following/*
 !following/README.md
 uploads/*
 !uploads/README.md
+!uploads/testing/
 
 # Workflows: track shared QA/e2e templates and root docs; ignore per-user dirs (wf_*…) and their runs/media
 workflows/*

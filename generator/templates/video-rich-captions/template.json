@@ -1,0 +1,152 @@
+{
+  "timeline": {
+    "background": "#0f172a",
+    "tracks": [
+      {
+        "clips": [
+          {
+            "start": 0,
+            "length": 10,
+            "position": "bottom",
+            "width": 960,
+            "asset": {
+              "type": "rich-caption",
+              "words": [
+                { "text": "Welcome", "start": 0.0, "end": 0.42 },
+                { "text": "to", "start": 0.42, "end": 0.56 },
+                { "text": "rich", "start": 0.56, "end": 0.84 },
+                { "text": "captions.", "start": 0.84, "end": 1.40 },
+                { "text": "This", "start": 1.60, "end": 1.82 },
+                { "text": "template", "start": 1.82, "end": 2.30 },
+                { "text": "shows", "start": 2.30, "end": 2.62 },
+                { "text": "karaoke", "start": 2.62, "end": 3.10 },
+                { "text": "style", "start": 3.10, "end": 3.44 },
+                { "text": "word", "start": 3.44, "end": 3.72 },
+                { "text": "highlighting.", "start": 3.72, "end": 4.40 },
+                { "text": "Each", "start": 4.60, "end": 4.84 },
+                { "text": "word", "start": 4.84, "end": 5.12 },
+                { "text": "lights", "start": 5.12, "end": 5.40 },
+                { "text": "up", "start": 5.40, "end": 5.54 },
+                { "text": "as", "start": 5.54, "end": 5.68 },
+                { "text": "it", "start": 5.68, "end": 5.80 },
+                { "text": "is", "start": 5.80, "end": 5.94 },
+                { "text": "spoken,", "start": 5.94, "end": 6.40 },
+                { "text": "with", "start": 6.60, "end": 6.82 },
+                { "text": "customizable", "start": 6.82, "end": 7.50 },
+                { "text": "fonts,", "start": 7.50, "end": 7.86 },
+                { "text": "colors,", "start": 7.86, "end": 8.26 },
+                { "text": "and", "start": 8.26, "end": 8.44 },
+                { "text": "animations.", "start": 8.44, "end": 9.10 }
+              ],
+              "font": {
+                "family": "Open Sans",
+                "size": 34,
+                "color": "#ffffff",
+                "weight": 700
+              },
+              "stroke": {
+                "width": 2,
+                "color": "#000000",
+                "opacity": 1
+              },
+              "shadow": {
+                "color": "#000000",
+                "blur": 4,
+                "x": 2,
+                "y": 2
+              },
+              "animation": {
+                "style": "karaoke"
+              },
+              "align": {
+                "vertical": "bottom"
+              },
+              "active": {
+                "font": {
+                  "color": "#efbf04"
+                }
+              },
+              "background": {
+                "color": "#000000",
+                "padding": 8,
+                "borderRadius": 4
+              },
+              "padding": {
+                "bottom": 40
+              }
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "start": 0,
+            "length": 10,
+            "asset": {
+              "type": "text-to-speech",
+              "text": "Welcome to rich captions. This template shows karaoke style word highlighting. Each word lights up as it is spoken, with customizable fonts, colors, and animations.",
+              "voice": "Amy"
+            },
+            "alias": "NARRATION"
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "start": 0,
+            "length": 10,
+            "position": "center",
+            "offset": { "x": 0, "y": -0.15 },
+            "asset": {
+              "type": "rich-text",
+              "text": "{{ TITLE_TEXT }}",
+              "font": {
+                "family": "Montserrat",
+                "size": 48,
+                "color": "#94a3b8",
+                "weight": 700
+              },
+              "align": {
+                "horizontal": "center"
+              }
+            },
+            "alias": "TITLE_TEXT"
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "start": 0,
+            "length": 10,
+            "position": "center",
+            "asset": {
+              "type": "shape",
+              "shape": "rectangle",
+              "fill": { "color": "#1e293b" },
+              "rectangle": { "width": 1920, "height": 1080 }
+            },
+            "fit": "none"
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "format": "mp4",
+    "fps": 25,
+    "resolution": "hd",
+    "size": { "width": 1920, "height": 1080 }
+  },
+  "merge": [
+    { "find": "TITLE_TEXT", "replace": "Rich Captions Demo" },
+    { "find": "__CFS_TEMPLATE_ID", "replace": "video-rich-captions" },
+    { "find": "__CFS_TEMPLATE_NAME", "replace": "Video — Rich Captions Demo" },
+    { "find": "__CFS_DESCRIPTION", "replace": "Video template with text-to-speech narration and rich-caption karaoke word highlighting. Edit caption styling in the property panel. Click Play to hear audio and see words highlighted in real time." },
+    { "find": "__CFS_OUTPUT_TYPE", "replace": "video" },
+    { "find": "__CFS_PRESET_ID", "replace": "youtube_16_9" },
+    { "find": "__CFS_INPUT_SCHEMA", "replace": "[{\"id\":\"titleText\",\"label\":\"Title\",\"type\":\"text\",\"default\":\"Rich Captions Demo\",\"mergeField\":\"TITLE_TEXT\"}]" }
+  ]
+}

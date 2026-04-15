@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "name": "Testing",
+  "description": "Built-in testing project. Contains copies of all bundled system templates for end-to-end testing of the generator, editor, and export pipeline.",
+  "colors": {
+    "primary": "#3b82f6",
+    "secondary": "#60a5fa",
+    "accent": "#f59e0b",
+    "background": "#09090b",
+    "text": "#f8fafc"
+  },
+  "logos": {
+    "dark": "",
+    "light": ""
+  },
+  "defaultSocialProfile": {
+    "profileId": "",
+    "platform": ""
+  },
+  "importPollIntervalMs": 10000
+}

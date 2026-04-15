@@ -53,7 +53,7 @@
               <option value="">No project</option>
             </select>
           </div>
-          <p id="templateClipboardBanner" class="gen-template-clipboard-banner" style="display:none;" role="status"></p>
+
 
           <!-- ═══════════════════════════════
                TAB: TEMPLATE
@@ -76,17 +76,15 @@
                     <select id="pluginSelect" class="gen-template-select-main" aria-describedby="templateLoadHelp">
                       <option value="">— Choose template —</option>
                     </select>
-                    <button type="button" id="copyTemplateBtn" class="gen-add-content-btn gen-template-copy-btn" title="Save a copy under uploads/{project}/templates/" disabled aria-label="Copy template to project">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                      Copy
-                    </button>
-                    <button type="button" id="duplicateToProjectBtn" class="gen-add-content-btn gen-template-copy-btn" title="Copy template and media to another project" disabled aria-label="Duplicate to another project">Duplicate…</button>
                   </div>
-                  <p class="gen-template-staged-row">
-                    <button type="button" id="copyTemplateStagedBtn" class="gen-add-content-btn" disabled title="Stage template; switch project then Paste">Copy for paste</button>
-                    <button type="button" id="pasteTemplateStagedBtn" class="gen-add-content-btn" disabled title="Paste staged template into current project">Paste template</button>
-                  </p>
-                  <p id="templateLoadHelp" class="gen-template-hint"><strong>System</strong> templates ship with the extension (<code>generator/templates/</code>); use <strong>Copy</strong> to save an editable <code>uploads/&lt;project&gt;/templates/&lt;id&gt;.json</code> after picking a <strong>Project</strong> above. <strong>This project</strong> lists JSON files in that folder. <strong>Duplicate…</strong> copies to another project (and referenced <code>uploads/…</code> media when crossing projects). <strong>Copy for paste</strong> / <strong>Paste template</strong> move a template between projects in two steps.</p>
+                  <div class="gen-template-copy-row" id="templateCopyRow" style="display:none;">
+                    <label for="duplicateProjectSelect">Copy into</label>
+                    <div class="gen-template-picker-row">
+                      <select id="duplicateProjectSelect"></select>
+                      <button type="button" id="duplicateBtn" class="gen-add-content-btn gen-template-copy-btn" disabled>Duplicate</button>
+                    </div>
+                  </div>
+                  <p id="templateLoadHelp" class="gen-template-hint"><strong>System</strong> templates ship with the extension; select one to copy it into a project. <strong>Project</strong> templates are editable JSON files in your linked folder.</p>
                   <p class="gen-template-hint gen-template-hint-secondary">Bulk create fills data into the selected template.</p>
                   <p class="gen-import-json-wrap" id="importJsonWhenNoTemplateWrap" style="display:none;">
                     <button type="button" id="importJsonWhenNoTemplate" class="gen-add-content-btn">Import JSON</button>
@@ -111,8 +109,6 @@
               </div>
             </div>
 
-            <!-- Step Generator Sections (auto-populated) -->
-            <div id="stepGeneratorSections" class="gen-step-sections"></div>
 
           </div>
 
@@ -211,106 +207,8 @@
               </div>
             </div>
 
-            <!-- Shotstack Cloud Render Accordion -->
-            <div class="gen-accordion">
-              <button class="gen-accordion-trigger" type="button">
-                <span class="gen-accordion-left">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
-                  Shotstack Cloud Render
-                </span>
-                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
-              <div class="gen-accordion-body">
-                <div class="gen-output-render-section" id="genOutputRenderSection">
-                  <div class="gen-prop-group" style="margin-bottom:8px;">
-                    <label>Project</label>
-                    <select id="genRenderProjectSelect" class="gen-prop-input">
-                      <option value="">— Select project —</option>
-                    </select>
-                  </div>
-                  <div class="gen-config-pair" style="margin-bottom:8px;">
-                    <div class="gen-prop-group">
-                      <label>Format</label>
-                      <select id="genRenderFormat" class="gen-prop-input">
-                        <option value="mp4">MP4</option>
-                        <option value="gif">GIF</option>
-                        <option value="jpg">JPG</option>
-                        <option value="png">PNG</option>
-                      </select>
-                    </div>
-                    <div class="gen-prop-group">
-                      <label>Environment</label>
-                      <select id="genRenderEnv" class="gen-prop-input">
-                        <option value="staging">Staging</option>
-                        <option value="production">Production</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="gen-prop-group" style="margin-bottom:10px;">
-                    <span id="genRenderResolution" class="gen-dims-badge" style="font-size:10px;">—</span>
-                  </div>
-                  <button type="button" id="genRenderBtn" class="gen-export-primary" style="width:100%;justify-content:center;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
-                    Render in Cloud
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Upload Post Accordion -->
-            <div class="gen-accordion">
-              <button class="gen-accordion-trigger" type="button">
-                <span class="gen-accordion-left">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-                  Upload Post
-                </span>
-                <svg class="gen-accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
-              <div class="gen-accordion-body">
-                <div class="gen-output-upload-section" id="genOutputUploadSection">
-                  <div class="gen-prop-group" style="margin-bottom:8px;">
-                    <label>Media Source</label>
-                    <select id="genUploadMediaSource" class="gen-prop-input">
-                      <option value="latest">Latest generation</option>
-                      <option value="file">Upload file</option>
-                    </select>
-                  </div>
-                  <div class="gen-config-pair" style="margin-bottom:8px;">
-                    <div class="gen-prop-group">
-                      <label>Profile</label>
-                      <select id="genUploadProfile" class="gen-prop-input">
-                        <option value="">— Select —</option>
-                      </select>
-                    </div>
-                    <div class="gen-prop-group">
-                      <label>Platform</label>
-                      <select id="genUploadPlatform" class="gen-prop-input">
-                        <option value="youtube">YouTube</option>
-                        <option value="tiktok">TikTok</option>
-                        <option value="instagram">Instagram</option>
-                        <option value="twitter">X / Twitter</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="gen-prop-group" style="margin-bottom:8px;">
-                    <label>Title</label>
-                    <input type="text" id="genUploadTitle" class="gen-prop-input" placeholder="Post title">
-                  </div>
-                  <div class="gen-prop-group" style="margin-bottom:8px;">
-                    <label>Description</label>
-                    <textarea id="genUploadDescription" class="gen-prop-input" rows="3" placeholder="Post description"></textarea>
-                  </div>
-                  <div class="gen-upload-preview" id="genUploadPreview" style="display:none;"></div>
-                  <div style="display:flex;gap:6px;margin-top:10px;">
-                    <button type="button" id="genUploadBtn" class="gen-export-primary" style="flex:1;justify-content:center;">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-                      Upload
-                    </button>
-                    <button type="button" id="genScheduleBtn" class="secondary" style="flex:1;justify-content:center;">Schedule</button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <!-- Step Generator Sections (auto-populated: ShotStack, Upload Post, Generation History) -->
+            <div id="stepGeneratorSections" class="gen-step-sections"></div>
 
           </div>
 
@@ -380,6 +278,11 @@
   <script src="../extension/api.js"></script>
   <!-- Inputs and outputs are loaded from generator/inputs/manifest.json and generator/outputs/manifest.json; add new types there (no index.html edit). -->
   <script src="../shared/manifest-loader.js"></script>
+  <!-- Inline template data — fallback for file:// protocol where fetch() is blocked by CORS. Regenerate: node scripts/build-inline-templates.cjs -->
+  <script src="templates-inline.js"></script>
+  <script src="tts/default-tts.js"></script>
+  <script src="tts/tts-audio-cache.js"></script>
+  <script src="stt/default-stt.js"></script>
   <script src="load-from-manifest.js"></script>
 </body>
 </html>

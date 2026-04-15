@@ -95,9 +95,22 @@
     if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     const apiKeyVar = (action.apiKeyVariableKey || '').trim() || 'uploadPostApiKey';
-    const apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
+    var apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
+    var viaBackend = false;
     if (!apiKey || String(apiKey).trim() === '') {
-      throw new Error('Upload Post: API key required. Set apiKeyVariableKey and provide {{' + apiKeyVar + '}} in row (or apiKey).');
+      // No key from row — check local storage
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        try {
+          var localKeyData = await chrome.storage.local.get('uploadPostApiKey');
+          if (localKeyData.uploadPostApiKey && String(localKeyData.uploadPostApiKey).trim()) {
+            apiKey = String(localKeyData.uploadPostApiKey).trim();
+          }
+        } catch (_) {}
+      }
+      if (!apiKey || String(apiKey).trim() === '') {
+        // No local key either — try backend proxy mode
+        viaBackend = true;
+      }
     }
 
     const userVar = (action.userVariableKey || '').trim() || 'user';
@@ -257,15 +270,60 @@
 
     const response = await sendMessage({
       type: 'UPLOAD_POST',
-      apiKey: String(apiKey).trim(),
+      ...(viaBackend ? { viaBackend: true } : { apiKey: String(apiKey).trim() }),
       formFields: formFields,
       timeoutMs: timeoutMs,
     });
 
     if (!response || response.ok === false) {
-      const err = (response && response.error) ? String(response.error) : 'Upload Post request failed';
-      const status = response && response.status != null ? ' HTTP ' + response.status : '';
-      const bodySnippet = response && response.bodyText ? ': ' + String(response.bodyText).trim().slice(0, 120) + (response.bodyText.length > 120 ? '\u2026' : '') : '';
+      const httpStatus = response && response.status != null ? response.status : 0;
+
+      /* Save status regardless of error */
+      if (row && typeof row === 'object') {
+        const saveStatusVar = (action.saveStatusToVariable || '').trim();
+        if (saveStatusVar && httpStatus) row[saveStatusVar] = httpStatus;
+      }
+
+      /* Parse violations from 429 / verification failures */
+      let violations = null;
+      let violationSummary = '';
+      const respJson = response && response.json;
+      if (respJson && Array.isArray(respJson.violations) && respJson.violations.length > 0) {
+        violations = respJson.violations;
+        violationSummary = violations.map(function(v) {
+          if (v.type === 'hard_cap') {
+            return (v.platform || 'unknown') + ': daily cap reached (' + (v.used_last_24h || '?') + '/' + (v.cap || '?') + ' in 24h)';
+          }
+          return (v.platform || '') + ': ' + (v.message || v.type || 'verification failed');
+        }).join('; ');
+      }
+
+      /* Save violations to row variable if configured */
+      if (violations && row && typeof row === 'object') {
+        const violationsVar = (action.saveViolationsToVariable || '').trim();
+        if (violationsVar) row[violationsVar] = violations;
+        /* Also save response */
+        const saveAsVar = (action.saveAsVariable || '').trim();
+        if (saveAsVar) row[saveAsVar] = respJson || response.bodyText || '';
+      }
+
+      /* If cap reached and onCapReached is "skip", log and return silently */
+      const isCapReached = httpStatus === 429 || (violations && violations.some(function(v) { return v.type === 'hard_cap'; }));
+      const onCapReached = (action.onCapReached || 'fail').trim().toLowerCase();
+
+      if (isCapReached && onCapReached === 'skip') {
+        console.warn('[CFS Workflow] uploadPost: cap/verification reached, skipping: ' + (violationSummary || 'HTTP 429'));
+        return; /* skip this row — continue workflow */
+      }
+
+      /* Build error message */
+      const err = violationSummary
+        ? 'Upload Post verification failed: ' + violationSummary
+        : ((response && response.error) ? String(response.error) : 'Upload Post request failed');
+      const status = httpStatus ? ' HTTP ' + httpStatus : '';
+      const bodySnippet = (!violationSummary && response && response.bodyText)
+        ? ': ' + String(response.bodyText).trim().slice(0, 120) + (response.bodyText.length > 120 ? '\u2026' : '')
+        : '';
       throw new Error(err + status + bodySnippet);
     }
 

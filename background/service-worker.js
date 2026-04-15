@@ -20,6 +20,7 @@ importScripts('meteora-dlmm.bundle.js');
 importScripts('meteora-cpamm.bundle.js');
 importScripts('solana-swap.js');
 importScripts('../shared/cfs-always-on-automation.js');
+importScripts('../shared/workflow-edit-history.js');
 importScripts('../shared/cfs-global-token-blocklist.js');
 importScripts('evm-lib.bundle.js');
 importScripts('infinity-sdk.bundle.js');
@@ -91,7 +92,12 @@ async function _cfsRegisterWalletProxyScripts(allowlist) {
 /* Register on startup */
 (async () => {
   try {
-    const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
+    const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist', 'cfsCryptoWeb3Enabled']);
+    if (data.cfsCryptoWeb3Enabled !== true) {
+      /* Crypto disabled — unregister any existing wallet proxy scripts */
+      try { await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] }); } catch (_) {}
+      return;
+    }
     const list = data.cfs_wallet_injection_allowlist;
     await _cfsRegisterWalletProxyScripts(Array.isArray(list) ? list : _CFS_DEFAULT_WALLET_ALLOWLIST);
   } catch (_) {}
@@ -360,10 +366,12 @@ async function scheduleAlarmForNextRun() {
 }
 
 async function setupUploadPostJwtAlarm() {
-  const data = await chrome.storage.local.get(['uploadPostApiKey', 'uploadPostJwtRefreshTime']);
+  const data = await chrome.storage.local.get(['uploadPostApiKey', 'uploadPostJwtRefreshTime', 'whop_auth']);
   const apiKey = data.uploadPostApiKey;
+  const hasLocalKey = apiKey && typeof apiKey === 'string' && apiKey.trim();
+  const hasBackendAuth = data.whop_auth && (data.whop_auth.access_token || data.whop_auth.accessToken);
   await chrome.alarms.clear(UPLOAD_POST_JWT_ALARM);
-  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) return;
+  if (!hasLocalKey && !hasBackendAuth) return;
   const time = data.uploadPostJwtRefreshTime || '23:59';
   const [h, m] = time.split(':').map(n => parseInt(n, 10) || 0);
   const now = new Date();
@@ -375,41 +383,86 @@ async function setupUploadPostJwtAlarm() {
 async function refreshUploadPostJwts() {
   const data = await chrome.storage.local.get(['uploadPostApiKey']);
   const apiKey = data.uploadPostApiKey;
-  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) return;
-  const BASE = 'https://api.upload-post.com/api';
-  const headers = { Authorization: 'Apikey ' + apiKey.trim() };
+  const hasLocalKey = apiKey && typeof apiKey === 'string' && apiKey.trim();
+  // Check for backend auth if no local key
+  let backendToken = null;
+  if (!hasLocalKey) {
+    try {
+      const authData = await new Promise(r => chrome.storage.local.get(['whop_auth'], d => r(d.whop_auth)));
+      backendToken = authData && (authData.access_token || authData.accessToken);
+    } catch (_) {}
+  }
+  if (!hasLocalKey && !backendToken) return;
+
   const startedAt = Date.now();
   let status = 'success';
   let errorMsg = '';
   try {
-    const usersRes = await fetch(BASE + '/uploadposts/users', { headers });
-    const usersJson = await usersRes.json().catch(() => ({}));
-    if (!usersRes.ok) throw new Error(usersJson.error || usersJson.message || 'Failed to fetch profiles');
-    const profiles = usersJson.profiles || [];
-    if (profiles.length === 0) return;
-    const tokens = {};
-    let errors = 0;
-    for (const p of profiles) {
-      try {
-        const res = await fetch(BASE + '/uploadposts/users/generate-jwt', {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: p.username }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (res.ok && json.access_url) {
-          tokens[p.username] = { access_url: json.access_url, refreshedAt: Date.now() };
-        } else {
+    let profiles = [];
+    if (hasLocalKey) {
+      const BASE = 'https://api.upload-post.com/api';
+      const headers = { Authorization: 'Apikey ' + apiKey.trim() };
+      const usersRes = await fetch(BASE + '/uploadposts/users', { headers });
+      const usersJson = await usersRes.json().catch(() => ({}));
+      if (!usersRes.ok) throw new Error(usersJson.error || usersJson.message || 'Failed to fetch profiles');
+      profiles = usersJson.profiles || [];
+      if (profiles.length === 0) return;
+      const tokens = {};
+      let errors = 0;
+      for (const p of profiles) {
+        try {
+          const res = await fetch(BASE + '/uploadposts/users/generate-jwt', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: p.username }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (res.ok && json.access_url) {
+            tokens[p.username] = { access_url: json.access_url, refreshedAt: Date.now() };
+          } else {
+            errors++;
+          }
+        } catch (_) {
           errors++;
         }
-      } catch (_) {
-        errors++;
       }
-    }
-    await chrome.storage.local.set({ uploadPostJwtTokens: tokens });
-    if (errors > 0 && Object.keys(tokens).length === 0) {
-      status = 'failed';
-      errorMsg = `All ${errors} profile JWT refreshes failed`;
+      await chrome.storage.local.set({ uploadPostJwtTokens: tokens });
+      if (errors > 0 && Object.keys(tokens).length === 0) {
+        status = 'failed';
+        errorMsg = `All ${errors} profile JWT refreshes failed`;
+      }
+    } else {
+      // Backend proxy mode
+      const backendHeaders = { Authorization: 'Bearer ' + String(backendToken).trim() };
+      const usersRes = await fetch(WHOP_APP_ORIGIN + '/api/extension/social-post/profiles', { headers: backendHeaders });
+      const usersJson = await usersRes.json().catch(() => ({}));
+      if (!usersRes.ok) throw new Error(usersJson.error || usersJson.message || 'Failed to fetch profiles');
+      profiles = usersJson.profiles || [];
+      if (profiles.length === 0) return;
+      const tokens = {};
+      let errors = 0;
+      for (const p of profiles) {
+        try {
+          const res = await fetch(WHOP_APP_ORIGIN + '/api/extension/social-post/profiles/generate-jwt', {
+            method: 'POST',
+            headers: { ...backendHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: p.username }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (res.ok && json.access_url) {
+            tokens[p.username] = { access_url: json.access_url, refreshedAt: Date.now() };
+          } else {
+            errors++;
+          }
+        } catch (_) {
+          errors++;
+        }
+      }
+      await chrome.storage.local.set({ uploadPostJwtTokens: tokens });
+      if (errors > 0 && Object.keys(tokens).length === 0) {
+        status = 'failed';
+        errorMsg = `All ${errors} profile JWT refreshes failed`;
+      }
     }
   } catch (e) {
     status = 'failed';
@@ -1538,12 +1591,30 @@ async function runRecurringScheduledRuns() {
   }
 }
 
+/** Setup or tear down crypto watch alarms + wallet injection based on cfsCryptoWeb3Enabled. */
+async function _cfsCryptoToggleFeatures(enabled) {
+  if (enabled) {
+    try { if (typeof globalThis.__CFS_solanaWatch_setupAlarm === 'function') globalThis.__CFS_solanaWatch_setupAlarm(); } catch (_) {}
+    try { if (typeof globalThis.__CFS_bscWatch_setupAlarm === 'function') globalThis.__CFS_bscWatch_setupAlarm(); } catch (_) {}
+    try {
+      const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
+      const list = data.cfs_wallet_injection_allowlist;
+      await _cfsRegisterWalletProxyScripts(Array.isArray(list) ? list : _CFS_DEFAULT_WALLET_ALLOWLIST);
+    } catch (_) {}
+  } else {
+    try { await chrome.alarms.clear('cfs_solana_watch_poll'); } catch (_) {}
+    try { await chrome.alarms.clear('cfs_bsc_watch_poll'); } catch (_) {}
+    try { await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] }); } catch (_) {}
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extensible Content installed');
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
     .catch((err) => console.error(err));
   scheduleAlarmForNextRun();
   setupUploadPostJwtAlarm();
+  /* Crypto alarms: always create so ticks can self-gate; the tick function reads cfsCryptoWeb3Enabled */
   try {
     if (typeof globalThis.__CFS_solanaWatch_setupAlarm === 'function') globalThis.__CFS_solanaWatch_setupAlarm();
   } catch (_) {}
@@ -3005,6 +3076,12 @@ function validateMessagePayload(type, msg) {
     case 'CFS_BSC_WALLET_CLEAR':
       break;
     case 'UPLOAD_POST':
+      if (msg.viaBackend) {
+        // Backend proxy mode: apiKey not required; server injects master key
+        if (!msg.formFields || typeof msg.formFields !== 'object') return { valid: false, error: 'formFields required' };
+        if (!Array.isArray(msg.formFields.platform) || msg.formFields.platform.length === 0) return { valid: false, error: 'formFields.platform array required' };
+        break;
+      }
       if (!msg.apiKey || typeof msg.apiKey !== 'string') return { valid: false, error: 'apiKey required' };
       if (!msg.formFields || typeof msg.formFields !== 'object') return { valid: false, error: 'formFields required' };
       if (!msg.formFields.user || typeof msg.formFields.user !== 'string') return { valid: false, error: 'formFields.user required' };
@@ -3197,6 +3274,45 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+/* ═══ MCP Generation Queue ═══
+ * Serializes all generation-related MCP operations so concurrent requests
+ * (open_generator, export_generator, render_local, render_shotstack)
+ * are executed sequentially. Each job waits for the previous one to finish
+ * before running, preventing race conditions like double-exports or
+ * template reloads mid-render.
+ */
+const _mcpGenQueue = [];
+let _mcpGenRunning = false;
+
+function enqueueGeneration(label, task, sendResponse) {
+  const job = { label, task, sendResponse, enqueuedAt: Date.now() };
+  _mcpGenQueue.push(job);
+  console.log(`[CFS] Generation queued: ${label} (queue depth: ${_mcpGenQueue.length})`);
+  if (!_mcpGenRunning) _drainGenQueue();
+  return true; /* keep sendResponse channel open */
+}
+
+async function _drainGenQueue() {
+  if (_mcpGenRunning) return;
+  _mcpGenRunning = true;
+  while (_mcpGenQueue.length > 0) {
+    const job = _mcpGenQueue.shift();
+    const waitMs = Date.now() - job.enqueuedAt;
+    console.log(`[CFS] Generation starting: ${job.label} (waited ${waitMs}ms, remaining: ${_mcpGenQueue.length})`);
+    try {
+      const result = await job.task();
+      if (result && typeof result === 'object') {
+        result.queueInfo = { waitMs, remaining: _mcpGenQueue.length };
+      }
+      job.sendResponse(result);
+    } catch (e) {
+      job.sendResponse({ ok: false, error: e?.message || 'Generation failed', queueInfo: { waitMs, remaining: _mcpGenQueue.length } });
+    }
+  }
+  _mcpGenRunning = false;
+  console.log('[CFS] Generation queue drained — idle');
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') {
     try { console.warn('[CFS] Invalid message: expected object'); } catch (_) {}
@@ -3215,6 +3331,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (type === 'MIC_GRANT_RESULT') {
     sendResponse({ ok: true });
+    return true;
+  }
+  if (type === 'CFS_CRYPTO_WEB3_TOGGLE') {
+    _cfsCryptoToggleFeatures(!!msg.enabled).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
   }
   /** Replies from extension pages → dynamic waiters; do not treat as API requests. */
@@ -6154,6 +6274,62 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'UPLOAD_POST') {
+    // Backend proxy mode: route through extensiblecontent.com (master key stays server-side)
+    if (msg.viaBackend) {
+      const { formFields, timeoutMs } = msg || {};
+      if (!formFields || typeof formFields !== 'object') {
+        sendResponse({ ok: false, error: 'Missing formFields' });
+        return true;
+      }
+      (async () => {
+        try {
+          const authData = await new Promise((resolve) => {
+            chrome.storage.local.get(['whop_auth'], (d) => resolve(d.whop_auth));
+          });
+          const token = authData && (authData.access_token || authData.accessToken);
+          if (!token) {
+            sendResponse({ ok: false, error: 'Not logged in. Sign in via Whop or set a local Upload Post API key.' });
+            return;
+          }
+          const tMs = timeoutMs > 0 ? Number(timeoutMs) : 120000;
+          const ac = new AbortController();
+          const timer = setTimeout(() => ac.abort(), tMs);
+          try {
+            const res = await fetch(WHOP_APP_ORIGIN + '/api/extension/social-post/upload', {
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + String(token).trim(),
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(formFields),
+              signal: ac.signal,
+            });
+            clearTimeout(timer);
+            const bodyText = await res.text();
+            let json;
+            try { if (bodyText && bodyText.trim()) json = JSON.parse(bodyText); } catch (_) {}
+            const responseHeaders = responseHeadersObject(res);
+            if (!res.ok) {
+              sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, bodyText, json, responseHeaders });
+              return;
+            }
+            sendResponse({ ok: true, status: res.status, bodyText, json, responseHeaders });
+          } catch (fetchErr) {
+            clearTimeout(timer);
+            if (fetchErr && fetchErr.name === 'AbortError') {
+              sendResponse({ ok: false, error: 'Request timed out after ' + tMs + ' ms' });
+            } else {
+              sendResponse({ ok: false, error: (fetchErr && fetchErr.message) || 'Backend proxy request failed' });
+            }
+          }
+        } catch (e) {
+          sendResponse({ ok: false, error: (e && e.message) || 'Backend proxy failed' });
+        }
+      })();
+      return true;
+    }
+
+    // Direct mode: local API key → Upload Post API
     const { apiKey, formFields, timeoutMs } = msg || {};
     if (!apiKey || typeof apiKey !== 'string') {
       sendResponse({ ok: false, error: 'Missing API key' });
@@ -6820,6 +6996,121 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (type === 'GET_POSTING_LIMITS') {
+    (async () => {
+      try {
+        const user = msg.user || '';
+        const platforms = msg.platforms || '';
+
+        /* Embedded hard caps — always available */
+        const CAPS = {
+          instagram: 50, tiktok: 15, linkedin: 150, youtube: 10, facebook: 25,
+          twitter: 50, x: 50, threads: 50, pinterest: 20, reddit: 40, bluesky: 50,
+        };
+
+        const pList = platforms ? platforms.split(',').map(p => p.trim().toLowerCase()).filter(Boolean) : Object.keys(CAPS);
+
+        /* Try backend for actual usage */
+        const authData = await new Promise((resolve) => {
+          chrome.storage.local.get(['whop_auth'], (d) => resolve(d.whop_auth));
+        });
+        const token = authData && (authData.access_token || authData.accessToken);
+
+        if (token && user) {
+          try {
+            const qs = new URLSearchParams();
+            qs.set('user', user);
+            if (platforms) qs.set('platforms', platforms);
+            const res = await fetch(WHOP_APP_ORIGIN + '/api/extension/social-post/limits?' + qs.toString(), {
+              headers: { Authorization: 'Bearer ' + String(token).trim() },
+            });
+            if (res.ok) {
+              const json = await res.json().catch(() => null);
+              if (json && json.limits) {
+                /* Merge backend limits with caps */
+                const limits = {};
+                for (const p of pList) {
+                  const bl = json.limits[p] || {};
+                  const cap = typeof bl.cap === 'number' ? bl.cap : (CAPS[p] || null);
+                  const used = typeof bl.used === 'number' ? bl.used : (typeof bl.used_last_24h === 'number' ? bl.used_last_24h : null);
+                  limits[p] = { used, cap, remaining: (used !== null && cap !== null) ? Math.max(0, cap - used) : null };
+                }
+                sendResponse({ ok: true, limits, capsOnly: false, source: 'backend' });
+                return;
+              }
+            }
+          } catch (_) { /* fallback to local count */ }
+        }
+
+        /* Fallback: count posts from local history (last 24h) */
+        try {
+          const historyResp = await new Promise((resolve) => {
+            chrome.runtime.sendMessage({
+              type: 'GET_POST_HISTORY',
+              user: user || undefined,
+            }, (r) => {
+              if (chrome.runtime.lastError) resolve(null);
+              else resolve(r);
+            });
+          });
+
+          if (historyResp && historyResp.ok && Array.isArray(historyResp.posts)) {
+            const now = Date.now();
+            const cutoff = now - (24 * 60 * 60 * 1000);
+            const limits = {};
+            /* Initialize counters */
+            for (const p of pList) {
+              limits[p] = { used: 0, cap: CAPS[p] || null, remaining: null };
+            }
+            /* Count posts per platform in last 24h */
+            for (const post of historyResp.posts) {
+              const postTime = post.posted_at || post.created_at || post.timestamp || post.scheduled_at;
+              let ts = 0;
+              if (typeof postTime === 'number') {
+                ts = postTime > 1e12 ? postTime : postTime * 1000; /* handle seconds vs ms */
+              } else if (postTime) {
+                ts = new Date(postTime).getTime();
+              }
+              if (!ts || isNaN(ts) || ts < cutoff) continue;
+
+              /* Determine which platforms this post went to */
+              let postPlatforms = [];
+              if (Array.isArray(post.platform)) {
+                postPlatforms = post.platform.map(p => String(p).toLowerCase());
+              } else if (post.platform) {
+                postPlatforms = String(post.platform).toLowerCase().split(/[,;\s]+/).filter(Boolean);
+              }
+
+              for (const pp of postPlatforms) {
+                if (limits[pp]) {
+                  limits[pp].used++;
+                }
+              }
+            }
+            /* Calculate remaining */
+            for (const p of pList) {
+              if (limits[p].cap !== null) {
+                limits[p].remaining = Math.max(0, limits[p].cap - limits[p].used);
+              }
+            }
+            sendResponse({ ok: true, limits, capsOnly: false, source: 'local-history' });
+            return;
+          }
+        } catch (_) { /* fallback to caps only */ }
+
+        /* Final fallback: return caps only */
+        const limits = {};
+        for (const p of pList) {
+          limits[p] = { used: null, cap: CAPS[p] || null, remaining: null };
+        }
+        sendResponse({ ok: true, limits, capsOnly: true, source: 'caps-only' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (type === 'REFRESH_UPLOAD_POST_JWTS') {
     refreshUploadPostJwts().then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e?.message }));
     return true;
@@ -6830,15 +7121,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const jobId = msg.jobId;
         if (!jobId) { sendResponse({ ok: false, error: 'jobId required' }); return; }
-        const data = await chrome.storage.local.get(['uploadPostApiKey']);
-        const apiKey = data.uploadPostApiKey;
-        if (!apiKey || !apiKey.trim()) { sendResponse({ ok: false, error: 'API key not set' }); return; }
-        const res = await fetch('https://api.upload-post.com/api/uploadposts/schedule/' + encodeURIComponent(jobId), {
-          method: 'DELETE',
-          headers: { Authorization: 'Apikey ' + apiKey.trim() },
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) { sendResponse({ ok: false, error: json.error || json.message || res.statusText }); return; }
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          // Backend proxy mode
+          var authData = await new Promise(function (resolve) {
+            chrome.storage.local.get(['whop_auth'], function (d) { resolve(d.whop_auth); });
+          });
+          var token = authData && (authData.access_token || authData.accessToken);
+          if (!token) { sendResponse({ ok: false, error: 'Not logged in' }); return; }
+          var res = await fetch(WHOP_APP_ORIGIN + '/api/extension/social-post/scheduled/' + encodeURIComponent(jobId), {
+            method: 'DELETE',
+            headers: { Authorization: 'Bearer ' + String(token).trim() },
+          });
+          var json = {};
+          try { json = await res.json(); } catch (_) {}
+          if (!res.ok) { sendResponse({ ok: false, error: json.error || json.message || res.statusText }); return; }
+        } else {
+          const res = await fetch('https://api.upload-post.com/api/uploadposts/schedule/' + encodeURIComponent(jobId), {
+            method: 'DELETE',
+            headers: { Authorization: 'Apikey ' + auth.apiKey },
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) { sendResponse({ ok: false, error: json.error || json.message || res.statusText }); return; }
+        }
         const stored = await chrome.storage.local.get(['scheduledUploadPosts']);
         const list = Array.isArray(stored.scheduledUploadPosts) ? stored.scheduledUploadPosts : [];
         const filtered = list.filter(p => p.job_id !== jobId && p.request_id !== jobId);
@@ -6868,12 +7173,70 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }).then(res => res.json().then(json => ({ ok: res.ok, status: res.status, json })).catch(() => ({ ok: res.ok, status: res.status, json: {} })));
   }
 
+  /**
+   * Backend proxy helper for social API calls.
+   * Routes through extensiblecontent.com using the user's Whop Bearer token.
+   * The server injects the master Upload Post API key server-side.
+   * @param {string} proxyEndpoint - The backend endpoint path (e.g. '/api/extension/social-post/analytics')
+   * @param {string} method - HTTP method
+   * @param {object} body - JSON body (for POST) or query params (for GET)
+   * @returns {Promise<{ok, status, json}>}
+   */
+  async function uploadPostViaBackend(proxyEndpoint, method, body) {
+    var authData = await new Promise(function (resolve) {
+      chrome.storage.local.get(['whop_auth'], function (d) { resolve(d.whop_auth); });
+    });
+    var token = authData && (authData.access_token || authData.accessToken);
+    if (!token) return { ok: false, status: 0, json: { error: 'Not logged in. Sign in via Whop or set a local Upload Post API key.' } };
+    var url = WHOP_APP_ORIGIN + proxyEndpoint;
+    var opts = { headers: { Authorization: 'Bearer ' + String(token).trim() } };
+    if (method === 'POST') {
+      opts.method = 'POST';
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body || {});
+    }
+    try {
+      var res = await fetch(url, opts);
+      var json = {};
+      try { json = await res.json(); } catch (_) {}
+      return { ok: res.ok, status: res.status, json: json };
+    } catch (e) {
+      return { ok: false, status: 0, json: { error: (e && e.message) || 'Backend proxy request failed' } };
+    }
+  }
+
+  /**
+   * Resolve apiKey: if msg.viaBackend, resolve from local storage; if still empty, return null (caller uses backend).
+   * Returns { apiKey: string|null, viaBackend: boolean }
+   */
+  async function resolveUploadPostApiKey(msg) {
+    if (msg.apiKey && typeof msg.apiKey === 'string' && msg.apiKey.trim()) {
+      return { apiKey: msg.apiKey.trim(), viaBackend: false };
+    }
+    // Try local storage
+    var stored = await new Promise(function (r) { chrome.storage.local.get('uploadPostApiKey', r); });
+    if (stored.uploadPostApiKey && String(stored.uploadPostApiKey).trim()) {
+      return { apiKey: String(stored.uploadPostApiKey).trim(), viaBackend: false };
+    }
+    // No key — use backend proxy
+    return { apiKey: null, viaBackend: true };
+  }
+
   if (type === 'GET_FACEBOOK_PAGES') {
     (async () => {
       try {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var params = {};
+          if (msg.profile) params.profile = msg.profile;
+          var q = new URLSearchParams(params).toString();
+          var r = await uploadPostViaBackend('/api/extension/social-post/facebook-pages' + (q ? '?' + q : ''), 'GET');
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
         const params = {};
         if (msg.profile) params.profile = msg.profile;
-        const r = await uploadPostGet('/uploadposts/facebook/pages', msg.apiKey, params);
+        const r = await uploadPostGet('/uploadposts/facebook/pages', auth.apiKey, params);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -6884,9 +7247,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'GET_LINKEDIN_PAGES') {
     (async () => {
       try {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var params = {};
+          if (msg.profile) params.profile = msg.profile;
+          var q = new URLSearchParams(params).toString();
+          var r = await uploadPostViaBackend('/api/extension/social-post/linkedin-pages' + (q ? '?' + q : ''), 'GET');
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
         const params = {};
         if (msg.profile) params.profile = msg.profile;
-        const r = await uploadPostGet('/uploadposts/linkedin/pages', msg.apiKey, params);
+        const r = await uploadPostGet('/uploadposts/linkedin/pages', auth.apiKey, params);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -6897,9 +7269,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'GET_PINTEREST_BOARDS') {
     (async () => {
       try {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var params = {};
+          if (msg.profile) params.profile = msg.profile;
+          var q = new URLSearchParams(params).toString();
+          var r = await uploadPostViaBackend('/api/extension/social-post/pinterest-boards' + (q ? '?' + q : ''), 'GET');
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
         const params = {};
         if (msg.profile) params.profile = msg.profile;
-        const r = await uploadPostGet('/uploadposts/pinterest/boards', msg.apiKey, params);
+        const r = await uploadPostGet('/uploadposts/pinterest/boards', auth.apiKey, params);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -6910,10 +7291,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'GET_INSTAGRAM_COMMENTS') {
     (async () => {
       try {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var params = {};
+          if (msg.mediaId) params.media_id = msg.mediaId;
+          if (msg.postUrl) params.post_url = msg.postUrl;
+          var q = new URLSearchParams(params).toString();
+          var r = await uploadPostViaBackend('/api/extension/social-post/instagram-comments' + (q ? '?' + q : ''), 'GET');
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
         const params = {};
         if (msg.mediaId) params.media_id = msg.mediaId;
         if (msg.postUrl) params.post_url = msg.postUrl;
-        const r = await uploadPostGet('/uploadposts/comments', msg.apiKey, params);
+        const r = await uploadPostGet('/uploadposts/comments', auth.apiKey, params);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -6924,7 +7315,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'REPLY_INSTAGRAM_COMMENT') {
     (async () => {
       try {
-        const r = await uploadPostPost('/uploadposts/comments/reply', msg.apiKey, {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var r = await uploadPostViaBackend('/api/extension/social-post/reply-comment', 'POST', {
+            comment_id: msg.commentId,
+            message: msg.message,
+          });
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
+        const r = await uploadPostPost('/uploadposts/comments/reply', auth.apiKey, {
           comment_id: msg.commentId,
           message: msg.message,
         });
@@ -6938,7 +7338,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'SEND_INSTAGRAM_DM') {
     (async () => {
       try {
-        const r = await uploadPostPost('/uploadposts/dms/send', msg.apiKey, {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var r = await uploadPostViaBackend('/api/extension/social-post/send-dm', 'POST', {
+            recipient_id: msg.recipientId,
+            message: msg.message,
+          });
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
+        const r = await uploadPostPost('/uploadposts/dms/send', auth.apiKey, {
           recipient_id: msg.recipientId,
           message: msg.message,
         });
@@ -6953,7 +7362,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         if (!msg.profileUsername) { sendResponse({ ok: false, error: 'profileUsername required' }); return; }
-        const r = await uploadPostGet('/analytics/' + encodeURIComponent(msg.profileUsername), msg.apiKey, {});
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var r = await uploadPostViaBackend('/api/extension/social-post/analytics?profile=' + encodeURIComponent(msg.profileUsername), 'GET');
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
+        const r = await uploadPostGet('/analytics/' + encodeURIComponent(msg.profileUsername), auth.apiKey, {});
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -6964,15 +7379,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'GET_POST_ANALYTICS') {
     (async () => {
       try {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (auth.viaBackend) {
+          var params = {};
+          if (msg.requestId) params.request_id = msg.requestId;
+          if (msg.profileUsername) params.profile = msg.profileUsername;
+          if (msg.startDate) params.start_date = msg.startDate;
+          if (msg.endDate) params.end_date = msg.endDate;
+          var q = new URLSearchParams(params).toString();
+          var r = await uploadPostViaBackend('/api/extension/social-post/post-analytics' + (q ? '?' + q : ''), 'GET');
+          sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
+          return;
+        }
         if (msg.requestId) {
-          const r = await uploadPostGet('/uploadposts/post-analytics/' + encodeURIComponent(msg.requestId), msg.apiKey, {});
+          const r = await uploadPostGet('/uploadposts/post-analytics/' + encodeURIComponent(msg.requestId), auth.apiKey, {});
           if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
           sendResponse({ ok: true, json: r.json });
         } else if (msg.profileUsername) {
           const params = {};
           if (msg.startDate) params.start_date = msg.startDate;
           if (msg.endDate) params.end_date = msg.endDate;
-          const r = await uploadPostGet('/uploadposts/total-impressions/' + encodeURIComponent(msg.profileUsername), msg.apiKey, params);
+          const r = await uploadPostGet('/uploadposts/total-impressions/' + encodeURIComponent(msg.profileUsername), auth.apiKey, params);
           if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
           sendResponse({ ok: true, json: r.json });
         } else {
@@ -6983,23 +7410,82 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // --- ShotStack helpers (dual-mode: local key vs. backend proxy) ---
+
+  /**
+   * Resolve ShotStack API key for the given environment.
+   * Returns { apiKey, viaBackend }.
+   */
+  async function resolveShotstackApiKey(environment) {
+    var envKey = environment === 'v1' ? 'shotstackApiKeyProduction' : 'shotstackApiKeyStaging';
+    var stored = await new Promise(function (r) { chrome.storage.local.get([envKey], r); });
+    if (stored[envKey] && String(stored[envKey]).trim()) {
+      return { apiKey: String(stored[envKey]).trim(), viaBackend: false };
+    }
+    // No local key — check if user has backend auth
+    var authData = await new Promise(function (r) { chrome.storage.local.get(['whop_auth'], r); });
+    if (authData.whop_auth && (authData.whop_auth.access_token || authData.whop_auth.accessToken)) {
+      return { apiKey: null, viaBackend: true };
+    }
+    return { apiKey: null, viaBackend: false };
+  }
+
+  /**
+   * Route a ShotStack request through the backend proxy.
+   * @param {string} proxyEndpoint - e.g. '/api/extension/shotstack/render'
+   * @param {string} method - 'GET', 'POST', 'DELETE'
+   * @param {object|string|null} body - JSON body or null
+   * @returns {Promise<{ ok: boolean, status: number, json: object }>}
+   */
+  async function shotstackViaBackend(proxyEndpoint, method, body) {
+    var authData = await new Promise(function (r) { chrome.storage.local.get(['whop_auth'], r); });
+    var token = authData.whop_auth && (authData.whop_auth.access_token || authData.whop_auth.accessToken);
+    if (!token) return { ok: false, status: 0, json: { error: 'Not logged in. Sign in via Whop or set a local ShotStack API key.' } };
+    var headers = { Authorization: 'Bearer ' + String(token).trim() };
+    var opts = { method: method, headers: headers };
+    if (body && method !== 'GET') {
+      headers['Content-Type'] = 'application/json';
+      opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    }
+    try {
+      var res = await fetch(WHOP_APP_ORIGIN + proxyEndpoint, opts);
+      var json = {};
+      try { json = await res.json(); } catch (_) {}
+      return { ok: res.ok, status: res.status, json: json };
+    } catch (e) {
+      return { ok: false, status: 0, json: { error: e?.message || 'Backend proxy request failed' } };
+    }
+  }
+
   // --- ShotStack cloud rendering ---
 
   if (type === 'RENDER_SHOTSTACK') {
     (async () => {
       try {
         const environment = msg.environment || 'stage';
-        const data = await chrome.storage.local.get(['shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
-        const apiKey = environment === 'v1' ? data.shotstackApiKeyProduction : data.shotstackApiKeyStaging;
-        if (!apiKey || !apiKey.trim()) {
-          sendResponse({ ok: false, error: 'ShotStack API key not set for ' + environment + '. Add it in Settings.' });
+        const auth = await resolveShotstackApiKey(environment);
+        if (auth.viaBackend) {
+          // Backend proxy mode — master key stays server-side
+          const payload = { timeline: msg.timeline, output: msg.output, environment };
+          if (msg.merge) payload.merge = msg.merge;
+          const r = await shotstackViaBackend('/api/extension/shotstack/render', 'POST', payload);
+          if (!r.ok) {
+            sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status), json: r.json });
+            return;
+          }
+          const renderId = r.json.renderId || (r.json.response && r.json.response.id) || r.json.id || '';
+          sendResponse({ ok: true, renderId, json: r.json });
+          return;
+        }
+        if (!auth.apiKey) {
+          sendResponse({ ok: false, error: 'ShotStack API key not set for ' + environment + '. Add it in Settings or sign in to use account credits.' });
           return;
         }
         const body = { timeline: msg.timeline, output: msg.output };
         if (msg.merge) body.merge = msg.merge;
         const res = await fetch('https://api.shotstack.io/edit/' + environment + '/render', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-api-key': apiKey.trim() },
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-api-key': auth.apiKey },
           body: JSON.stringify(body),
         });
         const json = await res.json().catch(() => ({}));
@@ -7031,16 +7517,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const environment = msg.environment || 'stage';
-        const data = await chrome.storage.local.get(['shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
-        const apiKey = environment === 'v1' ? data.shotstackApiKeyProduction : data.shotstackApiKeyStaging;
-        if (!apiKey || !apiKey.trim()) {
-          sendResponse({ ok: false, error: 'ShotStack API key not set' });
-          return;
-        }
         const renderId = msg.renderId;
         if (!renderId) { sendResponse({ ok: false, error: 'renderId required' }); return; }
+        const auth = await resolveShotstackApiKey(environment);
+        if (auth.viaBackend) {
+          const r = await shotstackViaBackend('/api/extension/shotstack/render/' + encodeURIComponent(renderId) + '?env=' + encodeURIComponent(environment), 'GET');
+          if (!r.ok) {
+            sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status), json: r.json });
+            return;
+          }
+          const status = r.json.status || (r.json.response && r.json.response.status) || 'unknown';
+          const url = r.json.url || (r.json.response && r.json.response.url) || '';
+          const errorMsg = r.json.error || (r.json.response && r.json.response.error) || '';
+          if (status === 'done') sendResponse({ ok: true, status: 'done', url, json: r.json });
+          else if (status === 'failed') sendResponse({ ok: true, status: 'failed', error: errorMsg || 'Render failed', json: r.json });
+          else sendResponse({ ok: true, status, json: r.json });
+          return;
+        }
+        if (!auth.apiKey) { sendResponse({ ok: false, error: 'ShotStack API key not set' }); return; }
         const res = await fetch('https://api.shotstack.io/edit/' + environment + '/render/' + encodeURIComponent(renderId), {
-          headers: { Accept: 'application/json', 'x-api-key': apiKey.trim() },
+          headers: { Accept: 'application/json', 'x-api-key': auth.apiKey },
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -7068,15 +7564,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const environment = msg.environment || 'stage';
-        const data = await chrome.storage.local.get(['shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
-        const apiKey = environment === 'v1' ? data.shotstackApiKeyProduction : data.shotstackApiKeyStaging;
-        if (!apiKey || !apiKey.trim()) {
-          sendResponse({ ok: false, error: 'ShotStack API key not set for ' + environment });
+        const base64Data = msg.base64Data;
+        if (typeof base64Data !== 'string' || !base64Data.trim()) {
+          sendResponse({ ok: false, error: 'base64Data required (non-empty string)' });
+          return;
+        }
+        const auth = await resolveShotstackApiKey(environment);
+        if (auth.viaBackend) {
+          const r = await shotstackViaBackend('/api/extension/shotstack/ingest/upload', 'POST', { base64Data, environment });
+          if (!r.ok) {
+            sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status), json: r.json });
+            return;
+          }
+          sendResponse({ ok: true, sourceId: r.json.sourceId || r.json.source_id || '' });
+          return;
+        }
+        if (!auth.apiKey) {
+          sendResponse({ ok: false, error: 'ShotStack API key not set for ' + environment + '. Add it in Settings or sign in.' });
           return;
         }
         const signedRes = await fetch('https://api.shotstack.io/ingest/' + environment + '/upload', {
           method: 'POST',
-          headers: { Accept: 'application/json', 'x-api-key': apiKey.trim() },
+          headers: { Accept: 'application/json', 'x-api-key': auth.apiKey },
         });
         const signedJson = await signedRes.json().catch(() => ({}));
         if (!signedRes.ok) {
@@ -7087,11 +7596,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const sourceId = signedJson.data && (signedJson.data.attributes && signedJson.data.attributes.id || signedJson.data.id);
         if (!signedUrl || !sourceId) {
           sendResponse({ ok: false, error: 'Ingest upload: missing signed URL or source ID', json: signedJson });
-          return;
-        }
-        const base64Data = msg.base64Data;
-        if (typeof base64Data !== 'string' || !base64Data.trim()) {
-          sendResponse({ ok: false, error: 'base64Data required (non-empty string)' });
           return;
         }
         const binary = atob(base64Data);
@@ -7119,13 +7623,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const environment = msg.environment || 'stage';
-        const data = await chrome.storage.local.get(['shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
-        const apiKey = environment === 'v1' ? data.shotstackApiKeyProduction : data.shotstackApiKeyStaging;
-        if (!apiKey || !apiKey.trim()) { sendResponse({ ok: false, error: 'API key not set' }); return; }
         const sourceId = msg.sourceId;
         if (!sourceId) { sendResponse({ ok: false, error: 'sourceId required' }); return; }
+        const auth = await resolveShotstackApiKey(environment);
+        if (auth.viaBackend) {
+          const r = await shotstackViaBackend('/api/extension/shotstack/ingest/' + encodeURIComponent(sourceId) + '?env=' + encodeURIComponent(environment), 'GET');
+          if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status), json: r.json }); return; }
+          sendResponse({ ok: true, status: r.json.status || 'unknown', sourceUrl: r.json.sourceUrl || r.json.source || '', attributes: r.json.attributes || r.json, json: r.json });
+          return;
+        }
+        if (!auth.apiKey) { sendResponse({ ok: false, error: 'API key not set' }); return; }
         const res = await fetch('https://api.shotstack.io/ingest/' + environment + '/sources/' + encodeURIComponent(sourceId), {
-          headers: { Accept: 'application/json', 'x-api-key': apiKey.trim() },
+          headers: { Accept: 'application/json', 'x-api-key': auth.apiKey },
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -7145,11 +7654,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const environment = msg.environment || 'stage';
-        const data = await chrome.storage.local.get(['shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
-        const apiKey = environment === 'v1' ? data.shotstackApiKeyProduction : data.shotstackApiKeyStaging;
-        if (!apiKey || !apiKey.trim()) { sendResponse({ ok: false, error: 'API key not set' }); return; }
+        const auth = await resolveShotstackApiKey(environment);
+        if (auth.viaBackend) {
+          const r = await shotstackViaBackend('/api/extension/shotstack/ingest?env=' + encodeURIComponent(environment), 'GET');
+          if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status), json: r.json }); return; }
+          sendResponse({ ok: true, sources: r.json.sources || [] });
+          return;
+        }
+        if (!auth.apiKey) { sendResponse({ ok: false, error: 'API key not set' }); return; }
         const res = await fetch('https://api.shotstack.io/ingest/' + environment + '/sources', {
-          headers: { Accept: 'application/json', 'x-api-key': apiKey.trim() },
+          headers: { Accept: 'application/json', 'x-api-key': auth.apiKey },
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -7172,14 +7686,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const environment = msg.environment || 'stage';
-        const data = await chrome.storage.local.get(['shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
-        const apiKey = environment === 'v1' ? data.shotstackApiKeyProduction : data.shotstackApiKeyStaging;
-        if (!apiKey || !apiKey.trim()) { sendResponse({ ok: false, error: 'API key not set' }); return; }
         const sourceId = msg.sourceId;
         if (!sourceId) { sendResponse({ ok: false, error: 'sourceId required' }); return; }
+        const auth = await resolveShotstackApiKey(environment);
+        if (auth.viaBackend) {
+          const r = await shotstackViaBackend('/api/extension/shotstack/ingest/' + encodeURIComponent(sourceId) + '?env=' + encodeURIComponent(environment), 'DELETE');
+          if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status) }); return; }
+          sendResponse({ ok: true });
+          return;
+        }
+        if (!auth.apiKey) { sendResponse({ ok: false, error: 'API key not set' }); return; }
         const res = await fetch('https://api.shotstack.io/ingest/' + environment + '/sources/' + encodeURIComponent(sourceId), {
           method: 'DELETE',
-          headers: { 'x-api-key': apiKey.trim() },
+          headers: { 'x-api-key': auth.apiKey },
         });
         if (!res.ok && res.status !== 204) {
           const json = await res.json().catch(() => ({}));
@@ -7189,6 +7708,200 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true });
       } catch (e) {
         sendResponse({ ok: false, error: e?.message || 'Ingest delete failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'GET_SHOTSTACK_CREDITS') {
+    (async () => {
+      try {
+        const r = await shotstackViaBackend('/api/extension/shotstack/credits', 'GET');
+        if (!r.ok) {
+          sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status) });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          credits: typeof r.json.credits === 'number' ? r.json.credits : (typeof r.json.shotstack_credits === 'number' ? r.json.shotstack_credits : 0),
+          used_seconds: typeof r.json.used_seconds === 'number' ? r.json.used_seconds : 0,
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Credits check failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'STORE_SHOTSTACK_RENDER') {
+    (async () => {
+      try {
+        const r = await shotstackViaBackend('/api/extension/shotstack/store-render', 'POST', {
+          renderId: msg.renderId,
+          url: msg.url,
+          environment: msg.environment || 'stage',
+          format: msg.format,
+          durationSeconds: msg.durationSeconds,
+        });
+        if (!r.ok) {
+          sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status) });
+          return;
+        }
+        sendResponse({ ok: true, file_url: r.json.file_url, file_id: r.json.file_id });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Store render failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'GET_ACCOUNT_STATUS') {
+    (async () => {
+      try {
+        const status = { loggedIn: false, upgraded: false, email: null, username: null };
+        /* Check login state */
+        const authData = await chrome.storage.local.get(['whop_auth']);
+        const whopAuth = authData.whop_auth;
+        if (whopAuth && (whopAuth.access_token || whopAuth.accessToken)) {
+          status.loggedIn = true;
+          status.email = whopAuth.email || null;
+          status.username = whopAuth.username || whopAuth.user_name || null;
+        }
+        /* Check upgrade (if ExtensionApi available) */
+        try {
+          if (typeof ExtensionApi !== 'undefined' && ExtensionApi.hasUpgraded) {
+            status.upgraded = await ExtensionApi.hasUpgraded();
+          }
+        } catch (_) {}
+        /* Get storage info */
+        try {
+          if (status.loggedIn && typeof ExtensionApi !== 'undefined' && ExtensionApi.getPostStorageInfo) {
+            const storageResp = await ExtensionApi.getPostStorageInfo();
+            if (storageResp && storageResp.ok !== false) {
+              status.storageUsedBytes = storageResp.used_bytes || storageResp.usedBytes || 0;
+              status.storageLimitBytes = storageResp.limit_bytes || storageResp.limitBytes || 0;
+              status.storageFileCount = storageResp.file_count || storageResp.fileCount || 0;
+            }
+          }
+        } catch (_) {}
+        /* Get ShotStack credits */
+        try {
+          if (status.loggedIn) {
+            const creditsR = await shotstackViaBackend('/api/extension/shotstack/credits', 'GET');
+            if (creditsR.ok) {
+              status.shotstackCredits = typeof creditsR.json.credits === 'number' ? creditsR.json.credits : (typeof creditsR.json.shotstack_credits === 'number' ? creditsR.json.shotstack_credits : 0);
+            }
+          }
+        } catch (_) {}
+        /* Check local keys */
+        try {
+          const keys = await chrome.storage.local.get(['uploadPostApiKey', 'shotstackApiKeyStaging', 'shotstackApiKeyProduction']);
+          status.hasLocalUploadPostKey = !!(keys.uploadPostApiKey && String(keys.uploadPostApiKey).trim());
+          status.hasLocalShotstackStaging = !!(keys.shotstackApiKeyStaging && String(keys.shotstackApiKeyStaging).trim());
+          status.hasLocalShotstackProduction = !!(keys.shotstackApiKeyProduction && String(keys.shotstackApiKeyProduction).trim());
+        } catch (_) {}
+        sendResponse({ ok: true, status });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Account status check failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'GET_STORAGE_INFO') {
+    (async () => {
+      try {
+        if (typeof ExtensionApi === 'undefined' || !ExtensionApi.getPostStorageInfo) {
+          sendResponse({ ok: false, error: 'Not logged in or API unavailable' });
+          return;
+        }
+        const resp = await ExtensionApi.getPostStorageInfo();
+        if (!resp || resp.ok === false) {
+          sendResponse({ ok: false, error: (resp && (resp.error || resp.message)) || 'Failed to get storage info' });
+          return;
+        }
+        const info = {
+          usedBytes: resp.used_bytes || resp.usedBytes || 0,
+          limitBytes: resp.limit_bytes || resp.limitBytes || 0,
+          fileCount: resp.file_count || resp.fileCount || 0,
+        };
+        info.percentUsed = info.limitBytes > 0 ? Math.round((info.usedBytes / info.limitBytes) * 10000) / 100 : 0;
+        sendResponse({ ok: true, info });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Storage info failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'GET_STORAGE_FILES') {
+    (async () => {
+      try {
+        if (typeof ExtensionApi === 'undefined' || !ExtensionApi.getPostStorageFiles) {
+          sendResponse({ ok: false, error: 'Not logged in or API unavailable' });
+          return;
+        }
+        const params = {};
+        if (msg.page) params.page = msg.page;
+        if (msg.limit) params.limit = msg.limit;
+        const resp = await ExtensionApi.getPostStorageFiles(params);
+        if (!resp || resp.ok === false) {
+          sendResponse({ ok: false, error: (resp && (resp.error || resp.message)) || 'Failed to list files' });
+          return;
+        }
+        sendResponse({ ok: true, files: resp.files || resp.data || [] });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'List files failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'DELETE_STORAGE_FILE') {
+    (async () => {
+      try {
+        const fileId = (msg.fileId || '').trim();
+        if (!fileId) { sendResponse({ ok: false, error: 'fileId required' }); return; }
+        if (typeof ExtensionApi === 'undefined' || !ExtensionApi.deletePostStorageFile) {
+          sendResponse({ ok: false, error: 'Not logged in or API unavailable' });
+          return;
+        }
+        const resp = await ExtensionApi.deletePostStorageFile(fileId);
+        if (!resp || resp.ok === false) {
+          sendResponse({ ok: false, error: (resp && (resp.error || resp.message)) || 'Delete failed' });
+          return;
+        }
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Delete file failed' });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'GET_SHOTSTACK_RENDERS') {
+    (async () => {
+      try {
+        let endpoint = '/api/extension/shotstack/renders';
+        const params = new URLSearchParams();
+        if (msg.limit) params.set('limit', String(msg.limit));
+        if (msg.environment) params.set('env', msg.environment);
+        const qs = params.toString();
+        if (qs) endpoint += '?' + qs;
+        const r = await shotstackViaBackend(endpoint, 'GET');
+        if (!r.ok) {
+          /* Graceful fallback: endpoint may not exist yet */
+          if (r.status === 404 || (r.json && /not found/i.test(r.json.error || ''))) {
+            sendResponse({ ok: true, renders: [], _notYetAvailable: true });
+            return;
+          }
+          sendResponse({ ok: false, error: r.json.error || r.json.message || ('HTTP ' + r.status) });
+          return;
+        }
+        sendResponse({ ok: true, renders: r.json.renders || r.json.data || [] });
+      } catch (e) {
+        /* If backend is unreachable, return empty gracefully */
+        sendResponse({ ok: true, renders: [], _notYetAvailable: true });
       }
     })();
     return true;
@@ -7206,30 +7919,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         var replyId = 'pr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
         var apiPosts = [];
         var localPosts = [];
-        var storedData = await chrome.storage.local.get('uploadPostApiKey');
-        var apiKey = storedData.uploadPostApiKey || '';
-        if (type === 'GET_POST_HISTORY' && apiKey) {
+        var auth = await resolveUploadPostApiKey(msg);
+        if (type === 'GET_POST_HISTORY') {
           try {
-            var histUrl = 'https://api.upload-post.com/api/uploadposts/history';
-            var params = [];
-            if (msg.user) params.push('user=' + encodeURIComponent(msg.user));
-            if (msg.limit) params.push('limit=' + encodeURIComponent(msg.limit));
-            if (params.length) histUrl += '?' + params.join('&');
-            var histResp = await fetch(histUrl, { headers: { 'Authorization': 'Apikey ' + apiKey } });
-            if (histResp.ok) {
-              var histJson = await histResp.json();
-              apiPosts = Array.isArray(histJson) ? histJson : (histJson.data || histJson.results || []);
+            if (auth.viaBackend) {
+              var qp = [];
+              if (msg.user) qp.push('user=' + encodeURIComponent(msg.user));
+              if (msg.limit) qp.push('limit=' + encodeURIComponent(msg.limit));
+              var r = await uploadPostViaBackend('/api/extension/social-post/history' + (qp.length ? '?' + qp.join('&') : ''), 'GET');
+              if (r.ok) apiPosts = Array.isArray(r.json) ? r.json : (r.json.data || r.json.results || r.json.posts || []);
+            } else if (auth.apiKey) {
+              var histUrl = 'https://api.upload-post.com/api/uploadposts/history';
+              var params = [];
+              if (msg.user) params.push('user=' + encodeURIComponent(msg.user));
+              if (msg.limit) params.push('limit=' + encodeURIComponent(msg.limit));
+              if (params.length) histUrl += '?' + params.join('&');
+              var histResp = await fetch(histUrl, { headers: { 'Authorization': 'Apikey ' + auth.apiKey } });
+              if (histResp.ok) {
+                var histJson = await histResp.json();
+                apiPosts = Array.isArray(histJson) ? histJson : (histJson.data || histJson.results || []);
+              }
             }
           } catch (_) {}
         }
-        if (type === 'GET_SCHEDULED_POSTS' && apiKey) {
+        if (type === 'GET_SCHEDULED_POSTS') {
           try {
-            var schedUrl = 'https://api.upload-post.com/api/uploadposts/schedule';
-            if (msg.user) schedUrl += '?user=' + encodeURIComponent(msg.user);
-            var schedResp = await fetch(schedUrl, { headers: { 'Authorization': 'Apikey ' + apiKey } });
-            if (schedResp.ok) {
-              var schedJson = await schedResp.json();
-              apiPosts = Array.isArray(schedJson) ? schedJson : (schedJson.data || schedJson.scheduled || []);
+            if (auth.viaBackend) {
+              var sqp = [];
+              if (msg.user) sqp.push('user=' + encodeURIComponent(msg.user));
+              var sr = await uploadPostViaBackend('/api/extension/social-post/scheduled' + (sqp.length ? '?' + sqp.join('&') : ''), 'GET');
+              if (sr.ok) apiPosts = Array.isArray(sr.json) ? sr.json : (sr.json.data || sr.json.scheduled || sr.json.posts || []);
+            } else if (auth.apiKey) {
+              var schedUrl = 'https://api.upload-post.com/api/uploadposts/schedule';
+              if (msg.user) schedUrl += '?user=' + encodeURIComponent(msg.user);
+              var schedResp = await fetch(schedUrl, { headers: { 'Authorization': 'Apikey ' + auth.apiKey } });
+              if (schedResp.ok) {
+                var schedJson = await schedResp.json();
+                apiPosts = Array.isArray(schedJson) ? schedJson : (schedJson.data || schedJson.scheduled || []);
+              }
             }
           } catch (_) {}
         }
@@ -7346,6 +8073,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'GET_FOLLOWING_DATA' || type === 'MUTATE_FOLLOWING') {
     (async () => {
       try {
+        /* ── Step 1: Try the sidepanel (it has live caches and is faster) ── */
         var replyId = 'fr_' + Date.now();
         var result = null;
         var responded = false;
@@ -7361,15 +8089,116 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         for (var tab of tabs) {
           try { chrome.tabs.sendMessage(tab.id, msg); } catch (_) {}
         }
+        /* For GET, use a shorter wait (5s) since we have a fallback; for MUTATE, keep 10s */
+        var waitMs = type === 'GET_FOLLOWING_DATA' ? 5000 : 10000;
         var start = Date.now();
-        while (!responded && Date.now() - start < 10000) {
+        while (!responded && Date.now() - start < waitMs) {
           await new Promise(function(r) { setTimeout(r, 200); });
         }
         chrome.runtime.onMessage.removeListener(handler);
         if (responded && result) {
           sendResponse({ ok: result.ok !== false, data: result.data, error: result.error });
-        } else {
-          sendResponse({ ok: false, error: 'Sidepanel did not respond. Make sure the sidepanel is open.' });
+          return;
+        }
+
+        /* ── Step 2: Sidepanel not available ── */
+        /* For mutations, we always need the sidepanel */
+        if (type === 'MUTATE_FOLLOWING') {
+          sendResponse({ ok: false, error: 'Sidepanel did not respond. Mutations require the sidepanel to be open.' });
+          return;
+        }
+
+        /* ── Step 3: Fallback — read Following data directly from the project folder ── */
+        console.log('[CFS] GET_FOLLOWING_DATA: Sidepanel not available, falling back to project folder');
+        let release;
+        try {
+          release = await acquireOffscreen('projectFolderIo');
+          await new Promise((r) => setTimeout(r, 120));
+
+          /* List files in the "following" directory */
+          const listRes = await new Promise((resolve) => {
+            chrome.runtime.sendMessage(
+              { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'listDir', relativePath: 'following' },
+              (res) => {
+                if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+                else resolve(res || { ok: false, error: 'No response' });
+              }
+            );
+          });
+
+          if (!listRes.ok || !Array.isArray(listRes.entries)) {
+            sendResponse({ ok: false, error: listRes.error || 'Could not read following directory. Is a project folder set?', source: 'projectFolder' });
+            return;
+          }
+
+          /* Read each .json file in the following directory */
+          const jsonFiles = listRes.entries.filter(e => e.type === 'file' && e.name.endsWith('.json'));
+          const followingData = [];
+
+          for (const entry of jsonFiles) {
+            const readRes = await new Promise((resolve) => {
+              chrome.runtime.sendMessage(
+                { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'read', relativePath: 'following/' + entry.name, encoding: 'text' },
+                (res) => {
+                  if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+                  else resolve(res || { ok: false, error: 'No response' });
+                }
+              );
+            });
+
+            if (!readRes.ok || !readRes.content) continue;
+            try {
+              const obj = JSON.parse(readRes.content);
+              const profile = obj.profile && typeof obj.profile === 'object' ? obj.profile : null;
+              if (!profile || !profile.id) continue;
+              if (profile.deleted === true || profile.deleted === 'true') continue;
+
+              const accounts = (Array.isArray(obj.accounts) ? obj.accounts : []).filter(a => !(a.deleted === true || a.deleted === 'true'));
+              const phones = (Array.isArray(obj.phones) ? obj.phones : []).filter(r => !(r.deleted === true || r.deleted === 'true'));
+              const emails = (Array.isArray(obj.emails) ? obj.emails : []).filter(r => !(r.deleted === true || r.deleted === 'true'));
+              const addresses = (Array.isArray(obj.addresses) ? obj.addresses : []).filter(r => !(r.deleted === true || r.deleted === 'true'));
+              const notes = (Array.isArray(obj.notes) ? obj.notes : []).filter(r => !(r.deleted === true || r.deleted === 'true'));
+              const wallets = (Array.isArray(obj.wallets) ? obj.wallets : []).filter(r => !(r.deleted === true || r.deleted === 'true'));
+
+              followingData.push({
+                profile: {
+                  id: String(profile.id || '').trim(),
+                  name: String(profile.name || '').trim(),
+                  user: String(profile.user || '').trim(),
+                  birthday: String(profile.birthday || '').trim(),
+                },
+                accounts: accounts.map(a => ({
+                  id: String(a.id ?? a.ID ?? '').trim(),
+                  handle: String(a.handle || '').trim(),
+                  platform: String(a.platform || '').trim(),
+                  url: String(a.url || '').trim(),
+                  profile: String(profile.id).trim(),
+                })),
+                phones,
+                emails,
+                addresses,
+                notes,
+                wallets,
+              });
+            } catch (_) { /* skip malformed JSON */ }
+          }
+
+          /* Apply filters if provided */
+          let filtered = followingData;
+          if (msg.nameFilter) {
+            const nf = msg.nameFilter.toLowerCase();
+            filtered = followingData.filter(r => r.profile.name && r.profile.name.toLowerCase().includes(nf));
+          } else if (msg.profileId) {
+            const match = followingData.find(r => r.profile.id === msg.profileId);
+            filtered = match || null;
+          } else if (msg.profileName) {
+            const match = followingData.find(r => r.profile.name && r.profile.name.toLowerCase() === msg.profileName.toLowerCase());
+            filtered = match || null;
+          }
+
+          sendResponse({ ok: true, data: filtered, source: 'projectFolder' });
+        } finally {
+          if (release) release();
         }
       } catch (e) {
         sendResponse({ ok: false, error: e?.message || 'Failed' });
@@ -7391,7 +8220,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const workflows = store.workflows || {};
         const existing = workflows[id];
         if (existing && merge !== true) {
-          // Full replace
+          // Full replace — record edit history before replacing
+          const previousActions = existing.analyzed?.actions ? JSON.parse(JSON.stringify(existing.analyzed.actions)) : [];
+          const previousName = existing.name || 'Unnamed workflow';
           const wf = {
             id,
             name: name || existing.name || 'Unnamed workflow',
@@ -7406,16 +8237,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             created_by: existing.created_by || 'mcp',
             urlPattern: urlPattern !== undefined ? urlPattern : (existing.urlPattern || null),
             generationSettings: existing.generationSettings || {},
+            _editHistory: existing._editHistory || [],
+            _editPointer: existing._editPointer != null ? existing._editPointer : -1,
           };
+          if (typeof WorkflowEditHistory !== 'undefined') {
+            if (Array.isArray(actions)) {
+              WorkflowEditHistory.push(wf, 'replaceActions', { actions: actions, previousActions: previousActions }, 'mcp');
+            }
+            if (name != null && name !== previousName) {
+              WorkflowEditHistory.push(wf, 'rename', { name: name, previousName: previousName }, 'mcp');
+            }
+          }
           workflows[id] = wf;
         } else if (existing && merge === true) {
-          // Merge: update only provided fields
+          // Merge: update only provided fields — record edits
+          const previousName = existing.name;
+          const previousActions = existing.analyzed?.actions ? JSON.parse(JSON.stringify(existing.analyzed.actions)) : [];
           if (name != null) existing.name = name;
           if (Array.isArray(actions)) existing.analyzed = { actions };
           if (urlPattern !== undefined) existing.urlPattern = urlPattern;
           existing.version = (existing.version || 0) + 1;
+          if (typeof WorkflowEditHistory !== 'undefined') {
+            if (Array.isArray(actions)) {
+              WorkflowEditHistory.push(existing, 'replaceActions', { actions: actions, previousActions: previousActions }, 'mcp');
+            }
+            if (name != null && name !== previousName) {
+              WorkflowEditHistory.push(existing, 'rename', { name: name, previousName: previousName }, 'mcp');
+            }
+          }
         } else {
-          // New workflow
+          // New workflow — start with empty history
           workflows[id] = {
             id,
             name: name || 'Unnamed workflow',
@@ -7430,6 +8281,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             created_by: 'mcp',
             urlPattern: urlPattern || null,
             generationSettings: {},
+            _editHistory: [],
+            _editPointer: -1,
           };
         }
         await chrome.storage.local.set({ workflows });
@@ -7457,6 +8310,814 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+   * MCP Generator / Template management handlers
+   * ═══════════════════════════════════════════════════════════════════════════ */
+
+  if (type === 'CFS_MCP_LIST_TEMPLATES') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_MCP_LIST_TEMPLATES', projectId: msg.projectId || '' },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to list templates' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_GET_TEMPLATE') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_MCP_GET_TEMPLATE', templateId: msg.templateId, projectId: msg.projectId || '' },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to get template' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_SAVE_TEMPLATE') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_SAVE_TEMPLATE',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              templateJson: msg.templateJson,
+              overwrite: msg.overwrite !== false,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to save template' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_DUPLICATE_TEMPLATE') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        /* 1. Load the source template */
+        const getRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_GET_TEMPLATE',
+              templateId: msg.templateId,
+              projectId: msg.sourceProjectId || '',
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        if (!getRes.ok || !getRes.template) {
+          sendResponse({ ok: false, error: getRes.error || 'Source template not found' });
+          return;
+        }
+        const shotstack = JSON.parse(JSON.stringify(getRes.template));
+        const newId = (msg.newTemplateId || '').trim() || (msg.templateId + '-copy');
+        const origName = getRes.meta?.name || msg.templateId;
+        const newName = (msg.newName || '').trim() || (origName + ' (copy)');
+        /* 2. Update __CFS_ merge metadata */
+        if (Array.isArray(shotstack.merge)) {
+          shotstack.merge = shotstack.merge.map((m) => {
+            if (m.find === '__CFS_TEMPLATE_ID') return { ...m, replace: newId };
+            if (m.find === '__CFS_TEMPLATE_NAME') return { ...m, replace: newName };
+            return m;
+          });
+        }
+        /* 3. Queue save with media replication */
+        const destPid = msg.destProjectId || msg.sourceProjectId || '';
+        const srcPid = msg.sourceProjectId || '';
+        const crossProject = !!srcPid && srcPid !== destPid;
+        chrome.storage.local.set({
+          cfs_pending_template_save: {
+            templateId: newId,
+            templateJson: shotstack,
+            overwrite: false,
+            projectId: destPid,
+            projectName: destPid,
+            sourceProjectId: srcPid,
+            replicateUploadsAssets: crossProject,
+            at: Date.now(),
+          },
+        }, () => {
+          sendResponse({
+            ok: true,
+            newTemplateId: newId,
+            newName,
+            destProjectId: destPid,
+            crossProject,
+            message: `Duplicated "${msg.templateId}" as "${newId}" in project "${destPid}"` +
+              (crossProject ? ' (media assets will be copied)' : ''),
+          });
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to duplicate template' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_SET_TEMPLATE_OUTPUT') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_SET_TEMPLATE_OUTPUT',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              outputType: msg.outputType,
+              width: msg.width,
+              height: msg.height,
+              aspectRatio: msg.aspectRatio,
+              resolution: msg.resolution,
+              presetId: msg.presetId,
+              fps: msg.fps,
+              format: msg.format,
+              duration: msg.duration,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to set template output' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_ADD_LAYER') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_ADD_LAYER',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              layer: msg.layer,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to add layer' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_EDIT_LAYER') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_EDIT_LAYER',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              identifier: msg.identifier,
+              updates: msg.updates,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to edit layer' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_DELETE_LAYER') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_DELETE_LAYER',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              identifier: msg.identifier,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to delete layer' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_LIST_LAYERS') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_LIST_LAYERS',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to list layers' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_MOVE_LAYER') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_MOVE_LAYER',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              identifier: msg.identifier,
+              toTrackIndex: msg.toTrackIndex,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to move layer' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_SET_MERGE_FIELDS') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_SET_MERGE_FIELDS',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+              fields: msg.fields,
+              deleteFields: msg.deleteFields,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to set merge fields' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_LIST_MERGE_FIELDS') {
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_LIST_MERGE_FIELDS',
+              templateId: msg.templateId,
+              projectId: msg.projectId || '',
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Failed to list merge fields' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_MCP_RENDER_LOCAL') {
+    return enqueueGeneration('render_local', async () => {
+      let release;
+      try {
+        const projStore = await chrome.storage.local.get(['selectedProjectId']);
+        const generatorProjectId = (msg.projectId || projStore.selectedProjectId || '').trim();
+        release = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'CFS_MCP_RENDER_LOCAL',
+              templateId: msg.templateId,
+              projectId: generatorProjectId,
+              outputType: msg.outputType,
+              inputMap: msg.inputMap,
+              filename: msg.filename,
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        return response;
+      } finally {
+        if (release) release();
+      }
+    }, sendResponse);
+  }
+
+  if (type === 'CFS_MCP_RENDER_SHOTSTACK') {
+    return enqueueGeneration('render_shotstack', async () => {
+      const environment = msg.environment || 'stage';
+      const timeoutMs = msg.timeoutMs || 300000;
+      const outputFormat = msg.outputFormat || 'mp4';
+      const renderStrategy = (msg.renderStrategy || 'shotstack').trim().toLowerCase();
+
+      /* Helper: run local generator as fallback */
+      async function runLocalGenerator() {
+        let localRelease = await acquireOffscreen('generator');
+        await new Promise((r) => setTimeout(r, 200));
+        try {
+          const genRes = await new Promise((resolve) => {
+            chrome.runtime.sendMessage(
+              {
+                type: 'RUN_GENERATOR',
+                pluginId: msg.templateId,
+                inputs: msg.inputMap || {},
+              },
+              (res) => {
+                if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+                else resolve(res || { ok: false, error: 'No response' });
+              }
+            );
+          });
+          return genRes;
+        } finally {
+          if (localRelease) localRelease();
+        }
+      }
+
+      /* Helper: check ShotStack credits */
+      async function checkCreditsAvailable() {
+        try {
+          const credResp = await shotstackViaBackend('/api/extension/shotstack/credits', 'GET');
+          if (credResp.ok) {
+            const c = typeof credResp.json.credits === 'number' ? credResp.json.credits
+              : (typeof credResp.json.shotstack_credits === 'number' ? credResp.json.shotstack_credits : null);
+            return { available: c !== null && c > 0, credits: c };
+          }
+        } catch (_) {}
+        return { available: null, credits: null }; /* unknown — proceed optimistically */
+      }
+
+      /* ── Strategy: local ── */
+      if (renderStrategy === 'local') {
+        const localRes = await runLocalGenerator();
+        if (!localRes.ok) return { ok: false, error: 'Local render failed: ' + (localRes.error || 'unknown'), renderMethod: 'local' };
+        return { ok: true, data: localRes.data, type: localRes.type, renderMethod: 'local' };
+      }
+
+      /* ── Strategy: credit-gate ── check credits before cloud render */
+      if (renderStrategy === 'credit-gate' && environment === 'v1') {
+        const { available, credits } = await checkCreditsAvailable();
+        if (available === false) {
+          /* No credits — use local */
+          const localRes = await runLocalGenerator();
+          if (!localRes.ok) return { ok: false, error: 'credit-gate: no credits (' + credits + ') and local render failed: ' + (localRes.error || 'unknown'), renderMethod: 'local' };
+          return { ok: true, data: localRes.data, type: localRes.type, renderMethod: 'local', creditsFallback: true, credits };
+        }
+        /* Has credits or unknown — proceed to cloud render below */
+      }
+
+      /* ── Strategy: local-first ── try local, then cloud */
+      if (renderStrategy === 'local-first') {
+        const localRes = await runLocalGenerator();
+        if (localRes.ok) return { ok: true, data: localRes.data, type: localRes.type, renderMethod: 'local' };
+        /* Local failed — fall through to cloud render */
+      }
+
+      /* Step 1: Load the template */
+      let release = await acquireOffscreen('generator');
+      await new Promise((r) => setTimeout(r, 200));
+      const loadRes = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: 'CFS_MCP_GET_TEMPLATE',
+            templateId: msg.templateId,
+            projectId: msg.projectId || '',
+          },
+          (res) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+            else resolve(res || { ok: false, error: 'No response' });
+          }
+        );
+      });
+      if (release) release();
+      if (!loadRes.ok || !loadRes.template) {
+        return { ok: false, error: loadRes.error || 'Template not found' };
+      }
+
+      const template = loadRes.template;
+      /* Apply merge values if inputMap provided */
+      const merge = [];
+      if (msg.inputMap && typeof msg.inputMap === 'object') {
+        for (const [k, v] of Object.entries(msg.inputMap)) {
+          merge.push({ find: k, replace: String(v) });
+        }
+      }
+      /* Also include template's existing merge as defaults */
+      if (Array.isArray(template.merge)) {
+        template.merge.forEach((m) => {
+          if (m && m.find && !merge.some((x) => x.find === m.find)) {
+            merge.push(m);
+          }
+        });
+      }
+
+      /* Adjust output format */
+      if (!template.output) template.output = {};
+      template.output.format = outputFormat;
+
+      /* Pre-check: estimate duration and compare against credits for production */
+      if (environment === 'v1' && template.timeline && (renderStrategy === 'shotstack' || renderStrategy === 'shotstack-first')) {
+        let maxEnd = 0, hasUnknownDur = false;
+        const tracks = Array.isArray(template.timeline.tracks) ? template.timeline.tracks : [];
+        for (const track of tracks) {
+          if (!track || !Array.isArray(track.clips)) continue;
+          for (const clip of track.clips) {
+            if (!clip) continue;
+            const clipStart = typeof clip.start === 'number' ? clip.start : parseFloat(clip.start) || 0;
+            let clipLen = clip.length;
+            if (typeof clipLen === 'string') {
+              const t = clipLen.trim().toLowerCase();
+              if (t === 'auto' || t === 'end') { hasUnknownDur = true; continue; }
+              clipLen = parseFloat(clipLen) || 0;
+            } else if (typeof clipLen !== 'number') { continue; }
+            const clipEnd = clipStart + clipLen;
+            if (clipEnd > maxEnd) maxEnd = clipEnd;
+          }
+        }
+        const creditsNeeded = maxEnd > 0 ? Math.ceil(maxEnd / 60) : 0;
+        if (creditsNeeded > 0) {
+          const { available, credits: credCount } = await checkCreditsAvailable();
+          if (available === false || (credCount !== null && creditsNeeded > credCount)) {
+            if (renderStrategy === 'shotstack-first') {
+              /* Fall through to cloud render which will fail, then local fallback will catch it */
+            } else {
+              return {
+                ok: false,
+                error: 'Insufficient ShotStack credits: ' + credCount + ' credit(s) available but ~' + creditsNeeded + ' needed for ' + Math.round(maxEnd) + 's video.' + (hasUnknownDur ? ' (some clips have unknown duration)' : ''),
+                credits: credCount, creditsNeeded, estimatedDuration: maxEnd,
+              };
+            }
+          }
+        }
+      }
+
+      /* Step 2: Submit to ShotStack (dual-mode: local key or backend proxy) */
+      const ssAuth = await resolveShotstackApiKey(environment);
+      const renderBody = { timeline: template.timeline, output: template.output };
+      if (merge.length) renderBody.merge = merge;
+
+      let renderId = '';
+      if (ssAuth.viaBackend) {
+        // Backend proxy mode — master key stays server-side
+        const renderPayload = { ...renderBody, environment };
+        const proxyRes = await shotstackViaBackend('/api/extension/shotstack/render', 'POST', renderPayload);
+        if (!proxyRes.ok) {
+          return { ok: false, error: proxyRes.json.error || proxyRes.json.message || ('HTTP ' + proxyRes.status), json: proxyRes.json };
+        }
+        renderId = proxyRes.json.renderId || (proxyRes.json.response && proxyRes.json.response.id) || proxyRes.json.id || '';
+      } else if (ssAuth.apiKey) {
+        const renderHttpRes = await fetch('https://api.shotstack.io/edit/' + environment + '/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-api-key': ssAuth.apiKey },
+          body: JSON.stringify(renderBody),
+        });
+        const renderJson = await renderHttpRes.json().catch(() => ({}));
+        if (!renderHttpRes.ok) {
+          let errMsg = renderJson.message || renderJson.error || ('HTTP ' + renderHttpRes.status);
+          const allErrors = renderJson.errors || (renderJson.response && renderJson.response.errors) || [];
+          if (Array.isArray(allErrors) && allErrors.length) {
+            errMsg += ': ' + allErrors.map((e) => (e.field ? e.field + ': ' : '') + (e.message || e)).join('; ');
+          }
+          return { ok: false, error: errMsg, json: renderJson };
+        }
+        renderId = renderJson.response && renderJson.response.id ? renderJson.response.id : (renderJson.id || '');
+      } else {
+        return { ok: false, error: 'ShotStack API key not set for ' + environment + '. Add it in Settings or sign in to use account credits.' };
+      }
+      if (!renderId) {
+        return { ok: false, error: 'No render ID returned' };
+      }
+
+      /* Step 3: Poll for completion (dual-mode) */
+      const startTime = Date.now();
+      let pollInterval = 3000;
+      async function poll() {
+        if (Date.now() - startTime > timeoutMs) {
+          return { ok: false, error: 'Render timed out after ' + timeoutMs + 'ms', renderId };
+        }
+        let status = 'unknown', url = '', errorMsg = '';
+        if (ssAuth.viaBackend) {
+          const pollProxy = await shotstackViaBackend('/api/extension/shotstack/render/' + encodeURIComponent(renderId) + '?env=' + encodeURIComponent(environment), 'GET');
+          if (!pollProxy.ok) {
+            return { ok: false, error: pollProxy.json.error || pollProxy.json.message || ('HTTP ' + pollProxy.status), renderId };
+          }
+          status = pollProxy.json.status || (pollProxy.json.response && pollProxy.json.response.status) || 'unknown';
+          url = pollProxy.json.url || (pollProxy.json.response && pollProxy.json.response.url) || '';
+          errorMsg = pollProxy.json.error || (pollProxy.json.response && pollProxy.json.response.error) || '';
+        } else {
+          const pollHttpRes = await fetch('https://api.shotstack.io/edit/' + environment + '/render/' + encodeURIComponent(renderId), {
+            headers: { Accept: 'application/json', 'x-api-key': ssAuth.apiKey },
+          });
+          const pollJson = await pollHttpRes.json().catch(() => ({}));
+          if (!pollHttpRes.ok) {
+            return { ok: false, error: pollJson.message || pollJson.error || ('HTTP ' + pollHttpRes.status), renderId };
+          }
+          status = pollJson.response && pollJson.response.status ? pollJson.response.status : 'unknown';
+          url = pollJson.response && pollJson.response.url ? pollJson.response.url : '';
+          errorMsg = pollJson.response && pollJson.response.error ? pollJson.response.error : '';
+        }
+        if (status === 'done') {
+          /* Queue a generation record so it appears in history and is available to other steps */
+          try {
+            const outputType = (outputFormat === 'mp4' || outputFormat === 'gif') ? 'video' : 'audio';
+            const genPayload = {
+              projectId: msg.projectId || '',
+              folder: 'generations',
+              templateId: msg.templateId || 'unknown',
+              source: 'shotstack-' + environment,
+              outputType,
+              format: outputFormat,
+              renderId,
+              url,
+              timestamp: Date.now(),
+            };
+            const genList = await chrome.storage.local.get([PENDING_GENERATIONS_KEY]);
+            const pending = Array.isArray(genList[PENDING_GENERATIONS_KEY]) ? genList[PENDING_GENERATIONS_KEY] : [];
+            pending.push({ ...genPayload, queuedAt: Date.now() });
+            await chrome.storage.local.set({ [PENDING_GENERATIONS_KEY]: pending });
+          } catch (_) { /* best-effort */ }
+          /* Store render in Supabase if user has backend auth (best-effort) */
+          try {
+            await shotstackViaBackend('/api/extension/shotstack/store-render', 'POST', {
+              renderId, url, environment, format: outputFormat,
+            });
+          } catch (_) { /* ignore — backend may not have storage endpoints yet */ }
+          return { ok: true, status: 'done', url, renderId, renderMethod: 'shotstack' };
+        }
+        if (status === 'failed') {
+          return { ok: false, error: errorMsg || 'Render failed', renderId };
+        }
+        /* Still rendering — wait and poll again */
+        await new Promise((r) => setTimeout(r, pollInterval));
+        if (pollInterval < 10000) pollInterval += 1000;
+        return poll();
+      }
+      const cloudResult = await poll();
+
+      /* If cloud succeeded, return it */
+      if (cloudResult.ok) return cloudResult;
+
+      /* If strategy supports fallback to local, try local generator */
+      if (renderStrategy === 'shotstack-first' || renderStrategy === 'credit-gate') {
+        try {
+          const localFallback = await runLocalGenerator();
+          if (localFallback.ok) {
+            return {
+              ok: true, data: localFallback.data, type: localFallback.type,
+              renderMethod: 'local', cloudError: cloudResult.error,
+            };
+          }
+        } catch (_) {}
+      }
+
+      /* Return original cloud failure */
+      return cloudResult;
+    }, sendResponse);
+  }
+
+  if (type === 'CFS_MCP_OPEN_GENERATOR') {
+    return enqueueGeneration('open_generator', async () => {
+      const generatorUrl = chrome.runtime.getURL('generator/index.html');
+      if (msg.projectId) {
+        await chrome.storage.local.set({ selectedProjectId: msg.projectId });
+      }
+      /* Open or focus the Generator tab */
+      const tabs = await chrome.tabs.query({});
+      let tab = tabs.find((t) => t.url && t.url.indexOf('generator/index.html') > -1);
+      if (tab) {
+        await chrome.tabs.update(tab.id, { active: true });
+        if (tab.windowId) await chrome.windows.update(tab.windowId, { focused: true });
+        await chrome.tabs.reload(tab.id);
+      } else {
+        tab = await chrome.tabs.create({ url: generatorUrl, active: true });
+      }
+
+      /* Wait for the Generator page to fully load */
+      const tabId = tab.id;
+      await new Promise((resolve) => {
+        const check = () => {
+          chrome.tabs.get(tabId, (t) => {
+            if (chrome.runtime.lastError || !t) { resolve(); return; }
+            if (t.status === 'complete') { resolve(); return; }
+            setTimeout(check, 300);
+          });
+        };
+        setTimeout(check, 500);
+      });
+      /* Extra wait for Generator JS to initialize (template list loads async) */
+      await new Promise((r) => setTimeout(r, 2000));
+
+      /* Helper: send message to tab with retries (handles page still loading) */
+      async function sendToTab(tabId, message, maxRetries = 8, interval = 800) {
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          const res = await new Promise((resolve) => {
+            chrome.tabs.sendMessage(tabId, message, (r) => {
+              if (chrome.runtime.lastError) resolve({ _err: chrome.runtime.lastError.message });
+              else resolve(r || { ok: false, error: 'No response' });
+            });
+          });
+          if (!res._err) return res;
+          /* "Receiving end does not exist" means page listener not ready yet */
+          if (res._err.includes('Receiving end') && attempt < maxRetries - 1) {
+            await new Promise((r) => setTimeout(r, interval));
+            continue;
+          }
+          return { ok: false, error: res._err };
+        }
+        return { ok: false, error: 'Max retries reached' };
+      }
+
+      /* Step 2: Select template via tabs.sendMessage */
+      if (msg.templateId) {
+        const selectRes = await sendToTab(tabId, { type: 'CFS_MCP_SELECT_TEMPLATE', templateId: msg.templateId });
+        if (!selectRes.ok) {
+          return { ok: false, tabId, error: selectRes.error, available: selectRes.available };
+        }
+        /* Wait for template to load and editor to initialize */
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+
+      /* Step 3: Switch FORMAT TYPE via tabs.sendMessage */
+      if (msg.outputType) {
+        const fmtRes = await sendToTab(tabId, { type: 'CFS_MCP_SET_FORMAT_TYPE', outputType: msg.outputType });
+        if (!fmtRes.ok) {
+          return { ok: false, tabId, error: fmtRes.error };
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      return {
+        ok: true,
+        tabId,
+        message: 'Generator page opened'
+          + (msg.templateId ? ' with template "' + msg.templateId + '"' : '')
+          + (msg.outputType ? ', format=' + msg.outputType : ''),
+      };
+    }, sendResponse);
+  }
+
+  if (type === 'CFS_MCP_EXPORT_GENERATOR') {
+    return enqueueGeneration('export_generator', async () => {
+      const tabs = await chrome.tabs.query({});
+      const tab = tabs.find((t) => t.url && t.url.indexOf('generator/index.html') > -1);
+      if (!tab) {
+        return { ok: false, error: 'Generator page is not open. Use open_generator_page first.' };
+      }
+      const tabId = tab.id;
+      const outputType = msg.outputType || 'video';
+      const result = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { type: 'CFS_MCP_CLICK_EXPORT', outputType }, (res) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+          else resolve(res || { ok: false, error: 'No response from Generator page' });
+        });
+      });
+      return result;
+    }, sendResponse);
   }
 
   // MCP server: start via Native Messaging.

@@ -147,18 +147,23 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     }
   });
 
-  test('Unit tests button opens test/unit-tests.html in a new tab', async ({ extensionContext, extensionId }) => {
-    const btn = sidepanelPage.getByTestId(CFS_E2E_TESTID.sidepanelUnitTests).filter({ visible: true });
+  test('Settings button opens settings.html#tab-tests with Tests tab active', async ({ extensionContext, extensionId }) => {
+    const btn = sidepanelPage.getByTestId(CFS_E2E_TESTID.sidepanelSettings).filter({ visible: true });
     await expect(btn).toBeVisible({ timeout: 15_000 });
     const pagePromise = extensionContext.waitForEvent('page');
     await btn.click();
     const newTab = await pagePromise;
     try {
       await newTab.waitForURL(
-        (u) => String(u).includes('/test/unit-tests.html'),
+        (u) => String(u).includes('/settings/settings.html'),
         { timeout: 30_000 },
       );
-      expect(newTab.url()).toBe(`chrome-extension://${extensionId}/test/unit-tests.html`);
+      expect(newTab.url()).toContain('settings/settings.html#tab-tests');
+      // Verify the Tests tab is active and the "Open unit tests page" button is visible
+      await newTab.waitForLoadState('domcontentloaded');
+      await new Promise((r) => setTimeout(r, 1000));
+      const unitTestsBtn = newTab.getByTestId(CFS_E2E_TESTID.settingsOpenUnitTestsPage);
+      await expect(unitTestsBtn).toBeVisible({ timeout: 10_000 });
     } finally {
       await newTab.close().catch(() => {});
     }

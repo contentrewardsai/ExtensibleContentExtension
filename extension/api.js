@@ -685,23 +685,26 @@
 
   /**
    * GET /api/extension/upload-post-key (auth)
-   * @returns {Promise<{ ok: boolean, upload_post_api_key?: string, upload_post_profile_user?: string, error?: string }>}
+   * Returns only the profile user — the API key is NO LONGER sent to the client.
+   * Backend-connected users post through the server proxy instead.
+   * @returns {Promise<{ ok: boolean, upload_post_profile_user?: string, error?: string }>}
    */
-  async function getUploadPostApiKey() {
+  async function getUploadPostProfile() {
     const res = await safeApiFetch('/api/extension/upload-post-key');
     if (!res.ok) {
       // 404 = endpoint not implemented yet; treat as no key
       if (res.status === 404) return { ok: true };
       return res;
     }
-    const key = res.upload_post_api_key ?? res.data?.upload_post_api_key;
     const profileUser = res.upload_post_profile_user ?? res.data?.upload_post_profile_user;
     return {
       ok: true,
-      ...(typeof key === 'string' && key.trim() ? { upload_post_api_key: key.trim() } : {}),
       ...(typeof profileUser === 'string' && profileUser.trim() ? { upload_post_profile_user: profileUser.trim() } : {}),
     };
   }
+
+  /** @deprecated Use getUploadPostProfile instead. No longer returns API key. */
+  const getUploadPostApiKey = getUploadPostProfile;
 
   /**
    * True if another backend slot is available (client pre-check; server still enforces).
@@ -848,6 +851,350 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Social Post Proxy — routes Upload Post operations through the backend
+  // so the master API key never leaves the server.
+  // ---------------------------------------------------------------------------
+
+  const SOCIAL_POST_PREFIX = '/api/extension/social-post';
+
+  /**
+   * POST /api/extension/social-post/upload (auth) — proxy upload through backend.
+   * @param {object} payload — JSON body (postType, platform, title, description, video_url, photo_urls, etc.)
+   * @returns {Promise<{ ok: boolean, json?: object, error?: string }>}
+   */
+  async function proxyUploadPost(payload) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/upload', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * GET /api/extension/social-post/status (auth)
+   * @param {{ request_id?: string, job_id?: string }} params
+   */
+  async function proxyUploadPostStatus(params) {
+    const q = new URLSearchParams();
+    if (params.request_id) q.set('request_id', params.request_id);
+    if (params.job_id) q.set('job_id', params.job_id);
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/status?' + q.toString());
+  }
+
+  /** GET /api/extension/social-post/scheduled (auth) */
+  async function proxyUploadPostScheduled() {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/scheduled');
+  }
+
+  /**
+   * DELETE /api/extension/social-post/scheduled/:jobId (auth)
+   * @param {string} jobId
+   */
+  async function proxyUploadPostCancelScheduled(jobId) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/scheduled/' + encodeURIComponent(jobId), {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * GET /api/extension/social-post/history (auth)
+   * @param {{ page?: number, limit?: number, profile_username?: string }} [params]
+   */
+  async function proxyUploadPostHistory(params) {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.profile_username) q.set('profile_username', params.profile_username);
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/history?' + q.toString());
+  }
+
+  /** GET /api/extension/social-post/profiles (auth) */
+  async function proxyUploadPostProfiles() {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/profiles');
+  }
+
+  /**
+   * POST /api/extension/social-post/profiles/generate-jwt (auth)
+   * @param {{ username: string, redirect_url?: string, platforms?: string[] }} params
+   */
+  async function proxyUploadPostGenerateJwt(params) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/profiles/generate-jwt', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  // -- Storage (Supabase bucket) --
+
+  /** GET /api/extension/social-post/storage (auth) — check available space */
+  async function getPostStorageInfo() {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/storage');
+  }
+
+  /**
+   * GET /api/extension/social-post/storage/files (auth)
+   * @param {{ page?: number, limit?: number }} [params]
+   */
+  async function getPostStorageFiles(params) {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/storage/files?' + q.toString());
+  }
+
+  /**
+   * DELETE /api/extension/social-post/storage/files/:fileId (auth)
+   * @param {string} fileId
+   */
+  async function deletePostStorageFile(fileId) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/storage/files/' + encodeURIComponent(fileId), {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * POST /api/extension/social-post/storage/upload (auth) — get presigned upload URL
+   * @param {{ filename: string, content_type: string, size_bytes: number }} params
+   * @returns {Promise<{ ok: boolean, upload_url?: string, file_id?: string, file_url?: string, error?: string }>}
+   */
+  async function getPostStorageUploadUrl(params) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/storage/upload', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  // -- Analytics & Social Actions (proxied) --
+
+  /**
+   * POST /api/extension/social-post/analytics (auth)
+   * @param {object} payload — { profile_username, platform, ... }
+   */
+  async function proxyAnalytics(payload) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/analytics', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * POST /api/extension/social-post/send-dm (auth)
+   * @param {object} payload — { profile_username, recipient_id, message }
+   */
+  async function proxySendDm(payload) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/send-dm', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * POST /api/extension/social-post/reply-comment (auth)
+   * @param {object} payload — { profile_username, comment_id, message }
+   */
+  async function proxyReplyComment(payload) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/reply-comment', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * GET /api/extension/social-post/facebook-pages (auth)
+   * @param {string} profileUsername
+   */
+  async function proxyGetFacebookPages(profileUsername) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/facebook-pages?profile_username=' + encodeURIComponent(profileUsername));
+  }
+
+  /**
+   * GET /api/extension/social-post/linkedin-pages (auth)
+   * @param {string} profileUsername
+   */
+  async function proxyGetLinkedInPages(profileUsername) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/linkedin-pages?profile_username=' + encodeURIComponent(profileUsername));
+  }
+
+  /**
+   * GET /api/extension/social-post/pinterest-boards (auth)
+   * @param {string} profileUsername
+   */
+  async function proxyGetPinterestBoards(profileUsername) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/pinterest-boards?profile_username=' + encodeURIComponent(profileUsername));
+  }
+
+  /**
+   * GET /api/extension/social-post/instagram-comments (auth)
+   * @param {string} profileUsername
+   * @param {string} postId
+   */
+  async function proxyGetInstagramComments(profileUsername, postId) {
+    const q = new URLSearchParams({ profile_username: profileUsername, post_id: postId });
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/instagram-comments?' + q.toString());
+  }
+
+  /**
+   * GET /api/extension/social-post/post-analytics (auth)
+   * @param {string} profileUsername
+   * @param {string} postId
+   */
+  async function proxyGetPostAnalytics(profileUsername, postId) {
+    const q = new URLSearchParams({ profile_username: profileUsername, post_id: postId });
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/post-analytics?' + q.toString());
+  }
+
+  // -- FFmpeg (proxied) --
+
+  /**
+   * POST /api/extension/social-post/ffmpeg (auth) — proxy FFmpeg conversion
+   * Uses raw fetch for multipart.
+   * @param {FormData} formData — file, command, output_extension
+   */
+  async function proxyFfmpegSubmit(formData) {
+    const { token } = await getToken();
+    if (!token) return { ok: false, error: 'Not logged in' };
+    try {
+      const res = await fetch(APP_ORIGIN + SOCIAL_POST_PREFIX + '/ffmpeg', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: formData,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: json.message || json.error || res.statusText, status: res.status, json };
+      return { ok: true, ...json };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Network error' };
+    }
+  }
+
+  /**
+   * GET /api/extension/social-post/ffmpeg/:jobId (auth)
+   * @param {string} jobId
+   */
+  async function proxyFfmpegStatus(jobId) {
+    return safeApiFetch(SOCIAL_POST_PREFIX + '/ffmpeg/' + encodeURIComponent(jobId));
+  }
+
+  /**
+   * GET /api/extension/social-post/ffmpeg/:jobId/download (auth)
+   * Returns blob.
+   * @param {string} jobId
+   */
+  async function proxyFfmpegDownload(jobId) {
+    const { token } = await getToken();
+    if (!token) return { ok: false, error: 'Not logged in' };
+    try {
+      const res = await fetch(APP_ORIGIN + SOCIAL_POST_PREFIX + '/ffmpeg/' + encodeURIComponent(jobId) + '/download', {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { ok: false, error: text || res.statusText };
+      }
+      const blob = await res.blob();
+      const ct = res.headers.get('content-type') || 'video/mp4';
+      return { ok: true, blob, contentType: ct };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Network error' };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ShotStack Proxy — routes ShotStack operations through the backend
+  // so the master ShotStack API key never leaves the server.
+  // ---------------------------------------------------------------------------
+
+  const SHOTSTACK_PREFIX = '/api/extension/shotstack';
+
+  /**
+   * POST /api/extension/shotstack/render (auth) — submit render through backend.
+   * Backend injects master key and optionally debits credits (production only).
+   * @param {{ timeline: object, output: object, merge?: Array, environment: string }} payload
+   * @returns {Promise<{ ok: boolean, renderId?: string, json?: object, error?: string }>}
+   */
+  async function proxyShotstackRender(payload) {
+    return safeApiFetch(SHOTSTACK_PREFIX + '/render', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * GET /api/extension/shotstack/render/:renderId (auth) — poll render status.
+   * @param {string} renderId
+   * @param {string} environment - 'stage' or 'v1'
+   * @returns {Promise<{ ok: boolean, status?: string, url?: string, error?: string, json?: object }>}
+   */
+  async function proxyShotstackPoll(renderId, environment) {
+    const q = new URLSearchParams({ env: environment || 'stage' });
+    return safeApiFetch(SHOTSTACK_PREFIX + '/render/' + encodeURIComponent(renderId) + '?' + q.toString());
+  }
+
+  /**
+   * POST /api/extension/shotstack/ingest/upload (auth) — get signed URL for ingest.
+   * @param {string} base64Data - Base64-encoded file data
+   * @param {string} environment
+   * @returns {Promise<{ ok: boolean, sourceId?: string, error?: string }>}
+   */
+  async function proxyShotstackIngestUpload(base64Data, environment) {
+    return safeApiFetch(SHOTSTACK_PREFIX + '/ingest/upload', {
+      method: 'POST',
+      body: JSON.stringify({ base64Data, environment: environment || 'stage' }),
+    });
+  }
+
+  /**
+   * GET /api/extension/shotstack/ingest/:sourceId (auth)
+   * @param {string} sourceId
+   * @param {string} environment
+   */
+  async function proxyShotstackIngestStatus(sourceId, environment) {
+    const q = new URLSearchParams({ env: environment || 'stage' });
+    return safeApiFetch(SHOTSTACK_PREFIX + '/ingest/' + encodeURIComponent(sourceId) + '?' + q.toString());
+  }
+
+  /**
+   * GET /api/extension/shotstack/ingest (auth) — list ingested sources.
+   * @param {string} environment
+   */
+  async function proxyShotstackIngestList(environment) {
+    const q = new URLSearchParams({ env: environment || 'stage' });
+    return safeApiFetch(SHOTSTACK_PREFIX + '/ingest?' + q.toString());
+  }
+
+  /**
+   * DELETE /api/extension/shotstack/ingest/:sourceId (auth)
+   * @param {string} sourceId
+   * @param {string} environment
+   */
+  async function proxyShotstackIngestDelete(sourceId, environment) {
+    const q = new URLSearchParams({ env: environment || 'stage' });
+    return safeApiFetch(SHOTSTACK_PREFIX + '/ingest/' + encodeURIComponent(sourceId) + '?' + q.toString(), {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * GET /api/extension/shotstack/credits (auth) — check remaining render credits.
+   * @returns {Promise<{ ok: boolean, credits?: number, used_seconds?: number, error?: string }>}
+   */
+  async function getShotstackCredits() {
+    return safeApiFetch(SHOTSTACK_PREFIX + '/credits');
+  }
+
+  /**
+   * POST /api/extension/shotstack/store-render (auth) — download CDN output → Supabase.
+   * Called after a successful render to persist the output before the CDN URL expires (24h).
+   * @param {{ renderId: string, url: string, environment: string, format?: string, durationSeconds?: number }} params
+   * @returns {Promise<{ ok: boolean, file_url?: string, file_id?: string, error?: string }>}
+   */
+  async function storeShotstackRender(params) {
+    return safeApiFetch(SHOTSTACK_PREFIX + '/store-render', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
   global.ExtensionApi = {
     APP_ORIGIN,
     WORKFLOW_STEP_MEDIA_MAX_BYTES,
@@ -883,7 +1230,8 @@
     deleteFollowing,
     getSocialMediaProfiles,
     addRemoveSocialMedia,
-    getUploadPostApiKey,
+    getUploadPostProfile,
+    getUploadPostApiKey, // deprecated alias
     hasUpgraded,
     canAddConnectedProfile,
     canAddBackendConnectedProfile,
@@ -896,5 +1244,41 @@
     addWorkflowQuestionQA,
     addWorkflowAnswerQA,
     postKnowledgeVote,
+    // Social Post Proxy
+    proxyUploadPost,
+    proxyUploadPostStatus,
+    proxyUploadPostScheduled,
+    proxyUploadPostCancelScheduled,
+    proxyUploadPostHistory,
+    proxyUploadPostProfiles,
+    proxyUploadPostGenerateJwt,
+    // Storage
+    getPostStorageInfo,
+    getPostStorageFiles,
+    deletePostStorageFile,
+    getPostStorageUploadUrl,
+    // Analytics & Social Actions
+    proxyAnalytics,
+    proxySendDm,
+    proxyReplyComment,
+    proxyGetFacebookPages,
+    proxyGetLinkedInPages,
+    proxyGetPinterestBoards,
+    proxyGetInstagramComments,
+    proxyGetPostAnalytics,
+    // FFmpeg
+    proxyFfmpegSubmit,
+    proxyFfmpegStatus,
+    proxyFfmpegDownload,
+    // ShotStack Proxy
+    proxyShotstackRender,
+    proxyShotstackPoll,
+    proxyShotstackIngestUpload,
+    proxyShotstackIngestStatus,
+    proxyShotstackIngestList,
+    proxyShotstackIngestDelete,
+    getShotstackCredits,
+    storeShotstackRender,
   };
 })(typeof window !== 'undefined' ? window : self);
+

@@ -26,12 +26,14 @@
   var _sharedEstimateWords = global.__CFS_estimateWords || function (text, offset) {
     var tokens = (text || '').toString().trim().split(/\s+/).filter(Boolean);
     var t = offset || 0;
-    return tokens.map(function (tok) {
+    return tokens.map(function (tok, idx) {
       var clean = tok.replace(/[^\w]/g, '');
-      var dur = Math.max(0.2, Math.min(0.7, (clean.length || 3) * 0.045));
-      if (/[,.!?;:]$/.test(tok)) dur += 0.12;
+      var dur = Math.max(0.25, Math.min(0.8, (clean.length || 3) * 0.06));
       var out = { text: tok, start: Number(t.toFixed(3)), end: Number((t + dur).toFixed(3)) };
       t += dur;
+      if (/[.!?]$/.test(tok)) t += 0.40;
+      else if (/[,;:]$/.test(tok)) t += 0.25;
+      else if (idx < tokens.length - 1) t += 0.08;
       return out;
     });
   };
@@ -49,13 +51,18 @@
     var words = (typeof transcriptOrResult === 'object' && transcriptOrResult && Array.isArray(transcriptOrResult.words))
       ? transcriptOrResult.words
       : estimateWords(text);
+    /* Calibrate timing model when we receive real word-level data from STT */
+    if (transcriptOrResult && Array.isArray(transcriptOrResult.words) && transcriptOrResult.words.length >= 3) {
+      var calibrate = global.__CFS_calibrateFromWords;
+      if (typeof calibrate === 'function') calibrate(transcriptOrResult.words);
+    }
     var found = null;
     for (var ti = 0; ti < template.timeline.tracks.length; ti++) {
       var tr = template.timeline.tracks[ti];
       var clips = tr && Array.isArray(tr.clips) ? tr.clips : [];
       for (var ci = 0; ci < clips.length; ci++) {
         var clip = clips[ci];
-        if (clip && clip.asset && clip.asset.type === 'caption') { found = clip; break; }
+        if (clip && clip.asset && (clip.asset.type === 'caption' || clip.asset.type === 'rich-caption')) { found = clip; break; }
       }
       if (found) break;
     }
@@ -68,11 +75,11 @@
         length: 10,
         position: 'bottom',
         width: 960,
-        asset: { type: 'caption', text: '' }
+        asset: { type: 'rich-caption', text: '', font: { family: 'Open Sans', size: 32, color: '#ffffff', weight: 700 }, stroke: { width: 2, color: '#000000', opacity: 1 }, animation: { style: 'karaoke' }, align: { vertical: 'bottom' }, active: { font: { color: '#efbf04' } } }
       };
       template.timeline.tracks[targetTrack].clips.push(found);
     }
-    if (!found.asset) found.asset = { type: 'caption' };
+    if (!found.asset) found.asset = { type: 'rich-caption' };
     found.asset.text = text || '';
     found.asset.words = words;
     if (found.asset.words.length) {
@@ -187,9 +194,26 @@
       var template = api.getTemplate();
       var values = api.getValues();
       var url = getFirstAudioOrVideoUrl(template, values);
-      if (!url) {
+
+      /* Check for text-to-speech clips if no audio/video URL */
+      var ttsClipInfo = null;
+      if (!url && template && template.timeline && Array.isArray(template.timeline.tracks)) {
+        for (var ti = 0; ti < template.timeline.tracks.length && !ttsClipInfo; ti++) {
+          var clips = (template.timeline.tracks[ti] && template.timeline.tracks[ti].clips) || [];
+          for (var ci = 0; ci < clips.length; ci++) {
+            var a = clips[ci] && clips[ci].asset;
+            if (a && a.type === 'text-to-speech' && a.text) {
+              var ttsText = applyMergeToStr(a.text, values);
+              ttsClipInfo = { text: ttsText, voice: a.localVoice || a.voice || 'Amy' };
+              break;
+            }
+          }
+        }
+      }
+
+      if (!url && !ttsClipInfo) {
         if (typeof global.alert === 'function') {
-          global.alert('No audio or video clip with a source URL found. Add an audio or video track and set its source (or fill merge variables like {{ AUDIO }} / {{ VIDEO }}).');
+          global.alert('No audio, video, or text-to-speech clip found. Add an audio track, or a text-to-speech clip first.');
         }
         return;
       }
@@ -198,35 +222,74 @@
       statusEl.setAttribute('role', 'status');
       statusEl.className = 'cfs-generate-captions-status';
       statusEl.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);color:#fff;padding:14px 24px;border-radius:8px;z-index:10000;font-size:14px;';
-      statusEl.textContent = 'Generating captions...';
+      statusEl.textContent = ttsClipInfo ? 'Generating speech…' : 'Generating captions...';
       document.body.appendChild(statusEl);
       function removeStatus() {
         if (statusEl && statusEl.parentNode) statusEl.parentNode.removeChild(statusEl);
       }
-      fetch(url, { mode: 'cors' })
-        .then(function (res) {
-          if (!res.ok) throw new Error('Could not load audio: ' + (res.status || ''));
-          return res.blob();
-        })
-        .then(function (blob) {
-          return sttGenerate(blob, { language: lang });
-        })
-        .then(function (result) {
-          if (result && (result.text || (result.words && result.words.length))) {
-            syncCaptionLayer(api, result);
-            var targetField = chooseTargetField(values);
-            if (targetField && typeof api.setValue === 'function') api.setValue(targetField, result.text || '');
+
+      if (ttsClipInfo) {
+        /* TTS → STT pipeline */
+        var ttsGen = global.__CFS_ttsGenerate;
+        if (typeof ttsGen === 'function') {
+          Promise.resolve(ttsGen(ttsClipInfo.text)).then(function (audioBlob) {
+            if (!audioBlob || audioBlob.size < 500) {
+              /* Silent placeholder — use estimateWords */
+              var estWords = estimateWords(ttsClipInfo.text);
+              syncCaptionLayer(api, { words: estWords, text: ttsClipInfo.text });
+              if (typeof api.refreshPreview === 'function') api.refreshPreview();
+              return;
+            }
+            statusEl.textContent = 'Transcribing…';
+            return Promise.resolve(sttGenerate(audioBlob, { language: lang })).then(function (result) {
+              if (!result || !result.words || !result.words.length) {
+                var estW = estimateWords(ttsClipInfo.text);
+                syncCaptionLayer(api, { words: estW, text: ttsClipInfo.text });
+              } else {
+                syncCaptionLayer(api, result);
+              }
+              if (typeof api.refreshPreview === 'function') api.refreshPreview();
+            });
+          }).catch(function (err) {
+            /* Fallback to estimateWords */
+            var estW2 = estimateWords(ttsClipInfo.text);
+            syncCaptionLayer(api, { words: estW2, text: ttsClipInfo.text });
             if (typeof api.refreshPreview === 'function') api.refreshPreview();
-          } else if (typeof global.alert === 'function') {
-            global.alert('STT returned no text. Check the audio and try again.');
-          }
-        })
-        .catch(function (err) {
-          if (typeof global.alert === 'function') {
-            global.alert('Generate captions failed: ' + (err && err.message ? err.message : String(err)));
-          }
-        })
-        .then(removeStatus, removeStatus);
+          }).then(removeStatus, removeStatus);
+        } else {
+          /* No TTS engine — use estimateWords directly */
+          var estW3 = estimateWords(ttsClipInfo.text);
+          syncCaptionLayer(api, { words: estW3, text: ttsClipInfo.text });
+          if (typeof api.refreshPreview === 'function') api.refreshPreview();
+          removeStatus();
+        }
+      } else {
+        /* Direct audio/video URL → STT */
+        fetch(url, { mode: 'cors' })
+          .then(function (res) {
+            if (!res.ok) throw new Error('Could not load audio: ' + (res.status || ''));
+            return res.blob();
+          })
+          .then(function (blob) {
+            return sttGenerate(blob, { language: lang });
+          })
+          .then(function (result) {
+            if (result && (result.text || (result.words && result.words.length))) {
+              syncCaptionLayer(api, result);
+              var targetField = chooseTargetField(values);
+              if (targetField && typeof api.setValue === 'function') api.setValue(targetField, result.text || '');
+              if (typeof api.refreshPreview === 'function') api.refreshPreview();
+            } else if (typeof global.alert === 'function') {
+              global.alert('STT returned no text. Check the audio and try again.');
+            }
+          })
+          .catch(function (err) {
+            if (typeof global.alert === 'function') {
+              global.alert('Generate captions failed: ' + (err && err.message ? err.message : String(err)));
+            }
+          })
+          .then(removeStatus, removeStatus);
+      }
     });
   }
 

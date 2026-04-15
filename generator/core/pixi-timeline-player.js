@@ -1318,13 +1318,12 @@
     }
   }
 
-  /** Caption clips: render as text (asset.text or words[].text) with optional style (lineHeight, align, background, stroke, shadow). */
-  function createCaption(clipMeta, asset, merge, canvasW) {
+  /** Caption clips: render using offscreen canvas for per-word styled rendering with animation support. */
+  function createCaption(clipMeta, asset, merge, canvasW, mainCanvasH) {
     function parseWordTime(raw) {
       if (raw == null || raw === '') return null;
       var n = Number(raw);
       if (!isFinite(n)) return null;
-      /* Support ms-based timings from some speech tools. */
       if (n > 1000) return n / 1000;
       return n;
     }
@@ -1350,26 +1349,6 @@
       }
       return out;
     }
-    function buildWindowedText(words, relTimeSec) {
-      if (!words.length) return '';
-      var currentIdx = -1;
-      for (var i = 0; i < words.length; i++) {
-        if (relTimeSec >= words[i].start && relTimeSec < words[i].end) { currentIdx = i; break; }
-      }
-      if (currentIdx < 0) {
-        if (relTimeSec >= words[words.length - 1].end) currentIdx = words.length - 1;
-        else currentIdx = 0;
-      }
-      var startIdx = Math.max(0, currentIdx - 4);
-      var endIdx = Math.min(words.length, currentIdx + 5);
-      var parts = [];
-      for (var k = startIdx; k < endIdx; k++) {
-        var token = words[k].text;
-        if (k === currentIdx) token = '[' + token + ']';
-        parts.push(token);
-      }
-      return parts.join(' ');
-    }
 
     var parsedWords = parseCaptionWords(asset.words);
     var rawText = asset.text || '';
@@ -1379,59 +1358,346 @@
     if (!rawText && asset.src) rawText = String(asset.src);
     rawText = applyMerge(String(rawText || ''), merge);
     if (!rawText.trim()) return null;
-    var style = asset.style || {};
-    var text = applyTextTransform(rawText, style.textTransform || asset.textTransform);
-    var built = buildTextStyleOpts(asset);
-    var styleOpts = built.opts;
-    var fontSize = built.fontSize;
-    if (!styleOpts.fill && styleOpts.fill !== 0) styleOpts.fill = 0xffffff;
-    if (!styleOpts.fontSize) styleOpts.fontSize = 32;
-    var wrapW = resolveWrapWidth(clipMeta, asset, canvasW);
-    if (wrapW > 0) {
-      styleOpts.wordWrap = true;
-      styleOpts.wordWrapWidth = wrapW;
+
+    /* ── Parse styling from asset ── */
+    var font = asset.font || {};
+    var fontSize = Number(font.size) || 32;
+    var fontFamily = font.family || 'Open Sans, Arial, sans-serif';
+    var fontWeight = font.weight || 'bold';
+    var baseFillStr = font.color || '#ffffff';
+    var activeStyle = asset.active || {};
+    var activeFont = activeStyle.font || {};
+    var activeFillStr = activeFont.color || '#efbf04';
+    var animStyle = (asset.animation && asset.animation.style) || 'karaoke';
+    var animDir = (asset.animation && asset.animation.direction) || 'up';
+
+    /* Background */
+    var bgObj = asset.background || {};
+    var bgColor = typeof bgObj === 'string' ? bgObj : (bgObj.color || null);
+    var bgOpacity = typeof bgObj === 'object' ? (bgObj.opacity != null ? Number(bgObj.opacity) : 1) : 1;
+    if (bgColor && bgOpacity <= 0) {
+      bgColor = null; /* Fully transparent — skip background drawing */
+    } else if (bgColor && bgOpacity < 1) {
+      /* Convert hex to rgba */
+      var _br = parseInt(bgColor.slice(1, 3), 16) || 0;
+      var _bg = parseInt(bgColor.slice(3, 5), 16) || 0;
+      var _bb = parseInt(bgColor.slice(5, 7), 16) || 0;
+      bgColor = 'rgba(' + _br + ',' + _bg + ',' + _bb + ',' + bgOpacity.toFixed(2) + ')';
     }
-    var pixiText = createPixiText(text, styleOpts);
-    var alignment = resolveAlignment(asset);
-    setTextAnchorH(pixiText, alignment.h);
-    var bgColorVal = asset.background || (style.background && (typeof style.background === 'string' ? style.background : style.background.color));
-    var bgColor = typeof bgColorVal === 'object' && bgColorVal !== null ? bgColorVal.color : bgColorVal;
-    if (bgColor) {
-      var container = new PIXI.Container();
-      var g = new PIXI.Graphics();
-      var pad = 4;
-      var tw = wrapW > 0 ? wrapW : (pixiText.width || 200);
-      var bc = typeof bgColor === 'string' ? bgColor : (bgColor.color || '#000000');
-      var th = (pixiText.height || fontSize * 1.2) + pad * 2;
-      g.rect(0, 0, tw + pad * 2, th);
-      if (typeof g.fill === 'function') g.fill(parseColor(bc));
-      g.x = (clipMeta.x || 0) - pad;
-      g.y = clipMeta.y || 0;
-      container.addChild(g);
-      pixiText.x = pad;
-      pixiText.y = pad;
-      container.addChild(pixiText);
-      container.x = 0;
-      container.y = 0;
-      if (parsedWords.length) {
-        container._cfsUpdateTextAtTime = function (relTimeSec) {
-          var nextText = buildWindowedText(parsedWords, relTimeSec);
-          if (nextText && pixiText.text !== nextText) pixiText.text = nextText;
-        };
+    var bgPad = typeof bgObj === 'object' ? (Number(bgObj.padding) || 8) : 8;
+    var bgRadius = typeof bgObj === 'object' ? (Number(bgObj.borderRadius) || 4) : 4;
+
+    /* Wrap width */
+    var wrapW = canvasW ? canvasW - 40 : 900;
+    if (asset.width) wrapW = Number(asset.width);
+    if (clipMeta.clip && clipMeta.clip.width) wrapW = Number(clipMeta.clip.width);
+
+    /* ── If no words, fall back to static text ── */
+    if (!parsedWords.length) {
+      var built = buildTextStyleOpts(asset);
+      var styleOpts = built.opts;
+      if (!styleOpts.fill && styleOpts.fill !== 0) styleOpts.fill = 0xffffff;
+      if (!styleOpts.fontSize) styleOpts.fontSize = fontSize;
+      if (wrapW > 0) { styleOpts.wordWrap = true; styleOpts.wordWrapWidth = wrapW; }
+      var pixiText = createPixiText(rawText, styleOpts);
+      pixiText.x = clipMeta.x || 0;
+      pixiText.y = clipMeta.y || 0;
+      if (pixiText.eventMode !== undefined) pixiText.eventMode = 'none';
+      return pixiText;
+    }
+
+    /* ── Create offscreen canvas for per-word rendering ── */
+    var offCanvas = document.createElement('canvas');
+    var canvasH = Math.ceil(fontSize * 2.4 + bgPad * 2);
+    offCanvas.width = wrapW + bgPad * 2;
+    offCanvas.height = canvasH;
+    var ctx = offCanvas.getContext('2d');
+
+    /* Helper: measure text with current font */
+    function setFont(size, weight) {
+      ctx.font = (weight || fontWeight) + ' ' + Math.round(size) + 'px ' + fontFamily;
+    }
+
+    /* ── Display settings ── */
+    var displayObj = asset.display || {};
+    var WORDS_PER_LINE = displayObj.wordsPerLine || 4;
+    var NUM_LINES = displayObj.lines || 2;
+    var CHUNK_SIZE = WORDS_PER_LINE * NUM_LINES;
+
+    /* Helper: compute word window (SRT-style fixed chunks) */
+    function getWordWindow(activeIdx, relTimeSec) {
+      var numChunks = Math.ceil(parsedWords.length / CHUNK_SIZE);
+      /* Always determine chunk by TIME to prevent boundary flicker */
+      var activeChunk = 0;
+      for (var ci = numChunks - 1; ci >= 0; ci--) {
+        var firstWord = parsedWords[ci * CHUNK_SIZE];
+        if (firstWord && relTimeSec >= firstWord.start) { activeChunk = ci; break; }
       }
-      if (container.eventMode !== undefined) container.eventMode = 'none';
-      return container;
+      /* If we're past the last word's end in this chunk but before the next
+         chunk's first word starts, stay on the current chunk to prevent flicker */
+      var windowStart = activeChunk * CHUNK_SIZE;
+      var windowEnd = Math.min(windowStart + CHUNK_SIZE - 1, parsedWords.length - 1);
+      var lastWordEnd = parsedWords[windowEnd].end || 0;
+      if (relTimeSec >= lastWordEnd && activeChunk < numChunks - 1) {
+        var nextChunkStart = parsedWords[(activeChunk + 1) * CHUNK_SIZE];
+        if (nextChunkStart && relTimeSec < nextChunkStart.start) {
+          /* In the gap — stay on current chunk */
+        } else if (nextChunkStart && relTimeSec >= nextChunkStart.start) {
+          /* Move to next chunk */
+          windowStart = (activeChunk + 1) * CHUNK_SIZE;
+          windowEnd = Math.min(windowStart + CHUNK_SIZE - 1, parsedWords.length - 1);
+        }
+      }
+      return { start: windowStart, end: windowEnd };
     }
-    pixiText.x = clipMeta.x || 0;
-    pixiText.y = clipMeta.y || 0;
-    if (parsedWords.length) {
-      pixiText._cfsUpdateTextAtTime = function (relTimeSec) {
-        var nextText = buildWindowedText(parsedWords, relTimeSec);
-        if (nextText && pixiText.text !== nextText) pixiText.text = nextText;
-      };
+
+    /* Helper: draw rounded rect */
+    function roundRect(cx, x, y, w, h, r) {
+      r = Math.min(r, w / 2, h / 2);
+      cx.beginPath();
+      cx.moveTo(x + r, y);
+      cx.lineTo(x + w - r, y);
+      cx.quadraticCurveTo(x + w, y, x + w, y + r);
+      cx.lineTo(x + w, y + h - r);
+      cx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      cx.lineTo(x + r, y + h);
+      cx.quadraticCurveTo(x, y + h, x, y + h - r);
+      cx.lineTo(x, y + r);
+      cx.quadraticCurveTo(x, y, x + r, y);
+      cx.closePath();
     }
-    if (pixiText.eventMode !== undefined) pixiText.eventMode = 'none';
-    return pixiText;
+
+    /* ── Main render function called each frame ── */
+    var lineHeight = Math.ceil(fontSize * 1.4);
+    offCanvas.height = Math.ceil(lineHeight * NUM_LINES + bgPad * 2 + fontSize * 0.5);
+    var canvasH = offCanvas.height;
+    ctx = offCanvas.getContext('2d');
+
+    function renderFrame(relTimeSec) {
+      var cw = offCanvas.width, ch = offCanvas.height;
+      ctx.clearRect(0, 0, cw, ch);
+
+      /* Find active word */
+      var activeIdx = -1;
+      for (var i = 0; i < parsedWords.length; i++) {
+        if (relTimeSec >= parsedWords[i].start && relTimeSec < parsedWords[i].end) { activeIdx = i; break; }
+      }
+      if (activeIdx < 0) {
+        for (var i2 = parsedWords.length - 1; i2 >= 0; i2--) {
+          if (relTimeSec >= parsedWords[i2].end) { activeIdx = i2; break; }
+        }
+      }
+
+      /* Word window (SRT chunks) */
+      var win = getWordWindow(activeIdx, relTimeSec);
+
+      /* Measure each word width */
+      setFont(fontSize, fontWeight);
+      var spaceW = ctx.measureText(' ').width;
+
+      /* Layout words into lines based on WORDS_PER_LINE */
+      var lines = [];
+      var currentLine = [];
+      for (var w = win.start; w <= win.end; w++) {
+        currentLine.push({ wordIdx: w, width: ctx.measureText(parsedWords[w].text).width });
+        if (currentLine.length >= WORDS_PER_LINE || w === win.end) {
+          lines.push(currentLine);
+          currentLine = [];
+        }
+      }
+
+      /* Background — measure total block size */
+      var maxLineW = 0;
+      for (var li = 0; li < lines.length; li++) {
+        var lw = 0;
+        for (var lj = 0; lj < lines[li].length; lj++) {
+          lw += lines[li][lj].width;
+          if (lj < lines[li].length - 1) lw += spaceW;
+        }
+        lines[li]._totalW = lw;
+        if (lw > maxLineW) maxLineW = lw;
+      }
+      var textBlockW = Math.min(maxLineW, cw - bgPad * 2);
+      var textBlockH = lines.length * lineHeight;
+
+      /* Center the background block horizontally */
+      var bgX = Math.max(0, (cw - textBlockW - bgPad * 2) / 2);
+      if (bgColor) {
+        ctx.fillStyle = bgColor;
+        roundRect(ctx, bgX, 0, textBlockW + bgPad * 2, textBlockH + bgPad * 2, bgRadius);
+        ctx.fill();
+      }
+
+      /* ── Draw words with animation-specific styling ── */
+      for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        var lineWords = lines[lineIdx];
+        var lineW = lineWords._totalW || 0;
+        /* Center each line horizontally within the canvas */
+        var curX = Math.max(bgPad, (cw - lineW) / 2);
+        var textY = bgPad + fontSize + lineIdx * lineHeight;
+
+        for (var wi = 0; wi < lineWords.length; wi++) {
+          var wordIdx = lineWords[wi].wordIdx;
+          var wWidth = lineWords[wi].width;
+          var isActive = wordIdx === activeIdx;
+          var word = parsedWords[wordIdx];
+
+          /* Defaults */
+          var drawColor = baseFillStr;
+          var drawSize = fontSize;
+          var drawWeight = fontWeight;
+          var drawAlpha = 1;
+          var drawOffsetY = 0;
+
+          switch (animStyle) {
+            case 'karaoke':
+              if (isActive) { drawColor = activeFillStr; }
+              break;
+
+            case 'highlight':
+              if (isActive) {
+                ctx.globalAlpha = 0.7;
+                ctx.fillStyle = activeFillStr;
+                roundRect(ctx, curX - 3, textY - fontSize + 2, wWidth + 6, fontSize + 6, 3);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                drawColor = bgColor || '#000000';
+              }
+              break;
+
+            case 'pop':
+              if (isActive) {
+                var popProgress = 0;
+                if (word.end > word.start) popProgress = Math.min(1, (relTimeSec - word.start) / ((word.end - word.start) * 0.3));
+                var popScale = popProgress < 1 ? (1 + 0.3 * Math.sin(popProgress * Math.PI)) : 1;
+                drawSize = fontSize * popScale;
+                drawColor = activeFillStr;
+                drawOffsetY = -(drawSize - fontSize) / 2;
+              }
+              break;
+
+            case 'fade':
+              if (wordIdx < activeIdx) {
+                drawAlpha = 1;
+              } else if (isActive) {
+                var fadeIn = 0;
+                if (word.end > word.start) fadeIn = Math.min(1, (relTimeSec - word.start) / ((word.end - word.start) * 0.5));
+                drawAlpha = fadeIn;
+                drawColor = activeFillStr;
+              } else {
+                drawAlpha = 0.15;
+              }
+              break;
+
+            case 'slide':
+              if (isActive) {
+                var slideProgress = 0;
+                if (word.end > word.start) slideProgress = Math.min(1, (relTimeSec - word.start) / ((word.end - word.start) * 0.3));
+                var ease = 1 - Math.pow(1 - slideProgress, 3);
+                var dist = fontSize * 0.8;
+                if (animDir === 'up') drawOffsetY = (1 - ease) * dist;
+                else if (animDir === 'down') drawOffsetY = -(1 - ease) * dist;
+                else if (animDir === 'left') curX -= (1 - ease) * dist;
+                else if (animDir === 'right') curX += (1 - ease) * dist;
+                drawColor = activeFillStr;
+                drawAlpha = ease;
+              } else if (wordIdx > activeIdx) {
+                drawAlpha = 0.3;
+              }
+              break;
+
+            case 'bounce':
+              if (isActive) {
+                var bounceT = 0;
+                if (word.end > word.start) bounceT = Math.min(1, (relTimeSec - word.start) / (word.end - word.start));
+                var bounceH = fontSize * 0.4 * Math.abs(Math.sin(bounceT * Math.PI * 2.5)) * (1 - bounceT);
+                drawOffsetY = -bounceH;
+                drawColor = activeFillStr;
+              }
+              break;
+
+            case 'typewriter':
+              var totalChars = 0;
+              for (var tc = win.start; tc <= win.end; tc++) {
+                totalChars += parsedWords[tc].text.length;
+                if (tc < win.end) totalChars += 1;
+              }
+              var firstWordStart = parsedWords[win.start].start;
+              var lastWordEnd = parsedWords[win.end].end;
+              var span = Math.max(0.1, lastWordEnd - firstWordStart);
+              var charProgress = Math.min(1, Math.max(0, (relTimeSec - firstWordStart) / span));
+              var visibleChars = Math.floor(charProgress * totalChars);
+              var charsBefore = 0;
+              for (var cb = win.start; cb < wordIdx; cb++) {
+                charsBefore += parsedWords[cb].text.length + 1;
+              }
+              var charsInWord = parsedWords[wordIdx].text.length;
+              if (charsBefore >= visibleChars) {
+                drawAlpha = 0;
+              } else if (charsBefore + charsInWord > visibleChars) {
+                var visCount = visibleChars - charsBefore;
+                var partialText = parsedWords[wordIdx].text.substring(0, visCount);
+                setFont(drawSize, drawWeight);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = activeFillStr;
+                ctx.fillText(partialText, curX, textY + drawOffsetY);
+                curX += wWidth + spaceW;
+                continue;
+              } else {
+                drawAlpha = 1;
+              }
+              break;
+
+            case 'none':
+            default:
+              break;
+          }
+
+          /* Draw the word */
+          setFont(drawSize, drawWeight);
+          ctx.globalAlpha = drawAlpha;
+          ctx.fillStyle = drawColor;
+          ctx.fillText(parsedWords[wordIdx].text, curX, textY + drawOffsetY);
+          ctx.globalAlpha = 1;
+          curX += wWidth + spaceW;
+        }
+      }
+    }
+
+    /* Initial render */
+    renderFrame(0);
+
+    /* Create Pixi sprite from the canvas */
+    var tex = PIXI.Texture.from(offCanvas, { scaleMode: 'linear' });
+    var sprite = new PIXI.Sprite(tex);
+    sprite.x = clipMeta.x || 0;
+    sprite.y = clipMeta.y || 0;
+    /* Clamp Y so caption doesn't extend below the main canvas edge */
+    var mainH = mainCanvasH || 1080;
+    if (sprite.y + offCanvas.height > mainH) {
+      sprite.y = Math.max(0, mainH - offCanvas.height);
+    }
+    if (sprite.eventMode !== undefined) sprite.eventMode = 'none';
+
+    /* Update function called by seek() */
+    sprite._cfsUpdateTextAtTime = function (relTimeSec) {
+      renderFrame(relTimeSec);
+      /* Force texture update */
+      if (tex.source && typeof tex.source.update === 'function') {
+        tex.source.update();
+      } else if (tex.update) {
+        tex.update();
+      } else if (typeof tex.updateUvs === 'function') {
+        tex.updateUvs();
+      }
+      /* For PIXI v7/v8: mark base texture dirty */
+      if (tex.baseTexture && tex.baseTexture.resource) {
+        if (typeof tex.baseTexture.resource.update === 'function') tex.baseTexture.resource.update();
+        tex.baseTexture.update();
+      }
+    };
+
+    return sprite;
   }
 
   /** Luma clips: not rendered in Pixi; show a placeholder so the track is visible. Round-trip preserved in JSON. Used when luma mask cannot be applied (no src or no renderer). */
@@ -1575,7 +1841,7 @@
       var scr = Number(asset.circle.radius) || 50;
       elemW = elemH = scr * 2;
     }
-    if (asset.type === 'caption') {
+    if (asset.type === 'caption' || asset.type === 'rich-caption') {
       elemW = clip.width != null ? Number(clip.width) : canvasW;
       elemH = clip.height != null ? Number(clip.height) : 80;
     }
@@ -1614,6 +1880,7 @@
     var type = (asset.type || '').toLowerCase();
     if (type === 'text') type = 'title';
     if (type === 'rich-text') type = 'title';
+    if (type === 'rich-caption') type = 'caption';
 
     var shapeKind = (asset.shape || '').toLowerCase();
     var obj = null;
@@ -1648,7 +1915,7 @@
     else if (type === 'image' && asset.src) obj = createImage(clipMeta, asset, merge, blobUrlMap, canvasW, canvasH);
     else if (type === 'video' && asset.src) obj = createVideo(clipMeta, asset, merge, blobUrlMap, canvasW, canvasH);
     else if (type === 'svg' && asset.src) obj = createSvg(clipMeta, asset, merge, blobUrlMap, canvasW, canvasH);
-    else if (type === 'caption') obj = createCaption(clipMeta, asset, merge, canvasW);
+    else if (type === 'caption') obj = createCaption(clipMeta, asset, merge, canvasW, canvasH);
     else if (type === 'luma') obj = createLumaPlaceholder(clipMeta, asset);
     else if (type === 'text-to-image') {
       var ttiAsset = { width: asset.width || canvasW, height: asset.height || canvasH, fill: '#2a2a3a' };

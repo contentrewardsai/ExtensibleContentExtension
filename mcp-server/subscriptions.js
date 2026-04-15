@@ -15,6 +15,12 @@
  *  - asterPosition: poll Aster futures position status
  */
 import { z } from 'zod';
+import { CRYPTO_DISABLED_MSG } from './crypto-gate.js';
+
+/** Subscription types that require crypto to be enabled. */
+const CRYPTO_SUB_TYPES = new Set([
+  'tokenPrice', 'walletBalance', 'dlmmPosition', 'clmmPosition', 'asterPosition', 'watchActivity',
+]);
 
 /** Active subscriptions. */
 const subscriptions = new Map();
@@ -191,6 +197,12 @@ export function registerSubscriptions(server, ctx) {
         .describe('Poll interval in seconds (min 5, max 3600). Defaults vary by type.'),
     },
     async ({ type, params, intervalSeconds }) => {
+      /* Gate crypto subscription types */
+      if (CRYPTO_SUB_TYPES.has(type)) {
+        const gateErr = await ctx.cryptoGate.guard('subscribe/' + type);
+        if (gateErr) return gateErr;
+      }
+
       const id = makeSubId();
       const intervalMs = (intervalSeconds || DEFAULT_INTERVALS[type] || 30) * 1000;
       const poller = buildPoller(ctx, type, params);

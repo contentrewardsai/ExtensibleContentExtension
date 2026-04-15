@@ -53,6 +53,8 @@ WARNING: This is a real on-chain deployment that costs gas (~0.003 BNB on BSC).`
       confirm: confirmField,
     },
     async ({ swapRouter, rpcUrl, chainId, confirm }) => {
+      const gateErr = await ctx.cryptoGate.guard('deploy_flash_receiver');
+      if (gateErr) return gateErr;
       const dryRun = await isDryRunEnabled(ctx);
 
       const payload = {
@@ -112,6 +114,8 @@ WARNING: Real on-chain transaction that costs gas.`,
       confirm: confirmField,
     },
     async ({ poolAddress, borrowToken0, borrowAmount, callbackContract, swapOutputToken, slippageBps, rpcUrl, chainId, confirm }) => {
+      const gateErr = await ctx.cryptoGate.guard('pancake_flash_execute');
+      if (gateErr) return gateErr;
       const dryRun = await isDryRunEnabled(ctx);
 
       const payload = {

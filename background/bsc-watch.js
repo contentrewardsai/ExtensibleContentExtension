@@ -1913,6 +1913,7 @@
 
   global.__CFS_bscWatch_tick = function () {
     return storageLocalGet([
+      'cfsCryptoWeb3Enabled',
       BUNDLE_KEY,
       CURSORS_KEY,
       TOKEN_CURSORS_KEY,
@@ -1922,6 +1923,12 @@
       SOL_BUNDLE_KEY,
     ])
       .then(function (stored) {
+        if (stored.cfsCryptoWeb3Enabled !== true) {
+          return finishTick(
+            { ok: true, idle: true, reason: 'crypto_disabled' },
+            { ok: true, idle: true, reason: 'crypto_disabled', watchedCount: 0 },
+          );
+        }
         var apiKey = String(stored[API_KEY_STORAGE] || '').trim();
         if (!apiKey) {
           return finishTick(

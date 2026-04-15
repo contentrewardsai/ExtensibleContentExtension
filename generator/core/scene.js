@@ -182,14 +182,18 @@
         if (isText(obj)) {
           var origClipForText = obj.get ? obj.get('cfsOriginalClip') : obj.cfsOriginalClip;
           var origTemplateText = origClipForText && origClipForText.asset ? (origClipForText.asset.text || '') : '';
-          var isEmbeddedPlaceholder = origTemplateText && !(/^\s*\{\{\s*[A-Za-z0-9_]+\s*\}\}\s*$/.test(origTemplateText));
+          /* Use cfsRawText (live user edits) if available, otherwise fall back to original clip text */
+          var liveRawText = (typeof obj.get === 'function' ? obj.get('cfsRawText') : obj.cfsRawText);
+          var templateSource = (liveRawText != null && String(liveRawText) !== '') ? String(liveRawText) : origTemplateText;
+          var isEmbeddedPlaceholder = templateSource && !(/^\s*\{\{\s*[A-Za-z0-9_]+\s*\}\}\s*$/.test(templateSource));
           var nextText;
           if (isEmbeddedPlaceholder) {
-            nextText = applyPlaceholders(origTemplateText);
+            nextText = applyPlaceholders(templateSource);
           } else {
             nextText = String(val != null ? val : '');
           }
-          obj.set('cfsRawText', nextText);
+          /* Only update cfsRawText if it wasn't already set by the user (preserve user edits) */
+          if (liveRawText == null || liveRawText === '') obj.set('cfsRawText', nextText);
           if (obj.type === 'textbox' && obj.cfsWrapText !== false) {
             var boxW = Number(obj.width);
             var maxLines = null;
@@ -1114,13 +1118,14 @@
             cfsTrackIndex: trackIdx,
             cfsAudioType: 'text-to-speech',
             cfsTtsVoice: asset.voice || 'Amy',
+            cfsTtsLocalVoice: asset.localVoice || '',
             cfsTtsText: asset.text || '',
           };
           if (ttsMergeName) ttsObj.cfsMergeKey = ttsMergeName;
           ttsObj.cfsOriginalClip = originalClip;
           objects.push(ttsObj);
         }
-        if (asset.type === 'caption') {
+        if (asset.type === 'caption' || asset.type === 'rich-caption') {
           var capFont = asset.font || {};
           var capBg = asset.background || {};
           var capW = clip.width != null ? Number(clip.width) : (asset.width != null ? Number(asset.width) : Math.round(width * 0.85));
@@ -1151,10 +1156,24 @@
             cfsLengthWasEnd: clip.length === 'end',
             cfsTrackIndex: trackIdx,
             cfsWrapText: true,
+            cfsIsCaption: true,
           };
           if (capBg.color && typeof capBg.color === 'string') {
-            capObj.backgroundColor = capBg.color;
-            capObj.cfsTextBackground = capBg.color;
+            var capBgOpacity = capBg.opacity != null ? Number(capBg.opacity) : 1;
+            if (capBgOpacity <= 0) {
+              /* Fully transparent — don't set backgroundColor at all */
+            } else if (capBgOpacity < 1) {
+              /* Convert hex to rgba */
+              var _r = parseInt(capBg.color.slice(1, 3), 16) || 0;
+              var _g = parseInt(capBg.color.slice(3, 5), 16) || 0;
+              var _b = parseInt(capBg.color.slice(5, 7), 16) || 0;
+              capObj.backgroundColor = 'rgba(' + _r + ',' + _g + ',' + _b + ',' + capBgOpacity.toFixed(2) + ')';
+              capObj.cfsTextBackground = capBg.color;
+            } else {
+              capObj.backgroundColor = capBg.color;
+              capObj.cfsTextBackground = capBg.color;
+            }
+            capObj.cfsCaptionBgOpacity = capBgOpacity;
           }
           if (capBg.padding != null) capObj.cfsCaptionPadding = Number(capBg.padding);
           if (capBg.borderRadius != null) capObj.cfsCaptionBorderRadius = Number(capBg.borderRadius);
@@ -1164,6 +1183,14 @@
           capObj.cfsTopPct = capPos.top / height;
           capObj.cfsWidthPct = capW / width;
           capObj.cfsOriginalClip = originalClip;
+          /* Store word timing + active styling for live-seek karaoke rendering */
+          if (Array.isArray(asset.words) && asset.words.length) {
+            capObj.cfsCaptionWords = asset.words;
+          }
+          if (asset.active) capObj.cfsCaptionActive = asset.active;
+          if (asset.font) capObj.cfsCaptionFont = asset.font;
+          if (asset.animation) capObj.cfsCaptionAnimation = asset.animation;
+          if (asset.display) capObj.cfsCaptionDisplay = asset.display;
           addTweenToObject(capObj, clip);
           objects.push(capObj);
         }
@@ -1331,6 +1358,304 @@
         applyAnimationAtTime(obj, timeSec, start, length);
       } else {
         restoreBaseState(obj);
+      }
+    });
+    /* ── Active-word caption highlighting ── */
+    objects.forEach(function (obj) {
+      /* Promote caption data from cfsOriginalClip.asset if top-level props are missing
+         (loadFromJSON doesn't persist custom properties not in Fabric's class definition,
+          but cfsOriginalClip survives because it's a serialized deep object) */
+      if (!obj.cfsIsCaption && obj.cfsOriginalClip && obj.cfsOriginalClip.asset) {
+        var origAsset = obj.cfsOriginalClip.asset;
+        if (origAsset.type === 'caption' || origAsset.type === 'rich-caption') {
+          obj.cfsIsCaption = true;
+          if (Array.isArray(origAsset.words) && origAsset.words.length) obj.cfsCaptionWords = origAsset.words;
+          if (origAsset.active) obj.cfsCaptionActive = origAsset.active;
+          if (origAsset.font) obj.cfsCaptionFont = origAsset.font;
+          if (origAsset.animation) obj.cfsCaptionAnimation = origAsset.animation;
+          if (origAsset.display) obj.cfsCaptionDisplay = origAsset.display;
+        }
+      }
+      if (!obj.cfsIsCaption || !obj.cfsCaptionWords || !obj.cfsCaptionWords.length) return;
+      if (!obj.visible) return;
+      var clipStart = obj.cfsStart != null ? obj.cfsStart : 0;
+      var localTime = timeSec - clipStart;
+      var words = obj.cfsCaptionWords;
+      var anim = (obj.cfsCaptionAnimation && obj.cfsCaptionAnimation.style) || 'karaoke';
+      var activeStyle = obj.cfsCaptionActive || {};
+      var activeFontColor = (activeStyle.font && activeStyle.font.color) ? activeStyle.font.color : '#efbf04';
+      var activeBgColor = (activeStyle.font && activeStyle.font.background) ? activeStyle.font.background : null;
+      var activeBgOpacity = (activeStyle.font && activeStyle.font.backgroundOpacity != null) ? activeStyle.font.backgroundOpacity : 1;
+      var baseFontColor = (obj.cfsCaptionFont && obj.cfsCaptionFont.color) ? obj.cfsCaptionFont.color : (obj.fill || '#ffffff');
+      var baseFontBg = (obj.cfsCaptionFont && obj.cfsCaptionFont.background) ? obj.cfsCaptionFont.background : null;
+      var baseFontBgOpacity = (obj.cfsCaptionFont && obj.cfsCaptionFont.backgroundOpacity != null) ? obj.cfsCaptionFont.backgroundOpacity : 1;
+
+      /* Helper to convert hex + opacity to rgba string */
+      function hexToRgba(hex, opacity) {
+        if (!hex) return null;
+        if (opacity >= 1) return hex;
+        var r = 0, g = 0, b = 0;
+        if (hex.length === 7) {
+          r = parseInt(hex.slice(1, 3), 16);
+          g = parseInt(hex.slice(3, 5), 16);
+          b = parseInt(hex.slice(5, 7), 16);
+        } else if (hex.length === 4) {
+          r = parseInt(hex[1] + hex[1], 16);
+          g = parseInt(hex[2] + hex[2], 16);
+          b = parseInt(hex[3] + hex[3], 16);
+        }
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + opacity.toFixed(2) + ')';
+      }
+
+      /* Find active word at current time */
+      var activeIdx = -1;
+      for (var wi = 0; wi < words.length; wi++) {
+        if (localTime >= words[wi].start && localTime < words[wi].end) { activeIdx = wi; break; }
+      }
+      if (activeIdx < 0) {
+        for (var wi2 = words.length - 1; wi2 >= 0; wi2--) {
+          if (localTime >= words[wi2].end) { activeIdx = wi2; break; }
+        }
+      }
+
+      /* Display window: SRT-style fixed chunks.
+         Each chunk stays visible until its last word finishes,
+         then advances to the next chunk.
+         Configurable via cfsCaptionDisplay: { wordsPerLine, lines } */
+      var capDisplay = obj.cfsCaptionDisplay || {};
+      var WORDS_PER_LINE = capDisplay.wordsPerLine || 4;
+      var NUM_LINES = capDisplay.lines || 2;
+      var CHUNK_SIZE = WORDS_PER_LINE * NUM_LINES;
+      var numChunks = Math.ceil(words.length / CHUNK_SIZE);
+      /* Always determine chunk by TIME, not word index.
+         This prevents flicker at chunk boundaries when the fallback activeIdx
+         points to the last word of a previous chunk. */
+      var activeChunk = 0;
+      for (var ci = numChunks - 1; ci >= 0; ci--) {
+        var chunkFirstWord = words[ci * CHUNK_SIZE];
+        if (chunkFirstWord && localTime >= chunkFirstWord.start) { activeChunk = ci; break; }
+      }
+      var windowStart = activeChunk * CHUNK_SIZE;
+      var windowEnd = Math.min(windowStart + CHUNK_SIZE - 1, words.length - 1);
+      /* Gap handling: if time is past current chunk's last word but before
+         next chunk's first word, stay on current chunk to prevent flicker */
+      var lastWordInChunk = words[windowEnd];
+      if (lastWordInChunk && localTime >= lastWordInChunk.end && activeChunk < numChunks - 1) {
+        var nextFirst = words[(activeChunk + 1) * CHUNK_SIZE];
+        if (nextFirst && localTime >= nextFirst.start) {
+          /* Advance to next chunk */
+          windowStart = (activeChunk + 1) * CHUNK_SIZE;
+          windowEnd = Math.min(windowStart + CHUNK_SIZE - 1, words.length - 1);
+        }
+        /* else: stay on current chunk (in the gap) */
+      }
+
+      /* Build display text with line breaks at wordsPerLine boundary */
+      var displayParts = [];
+      for (var d = windowStart; d <= windowEnd; d++) {
+        displayParts.push(words[d].text);
+        /* Insert newline after every WORDS_PER_LINE words (except after the last word) */
+        if ((d - windowStart + 1) % WORDS_PER_LINE === 0 && d < windowEnd) {
+          displayParts.push('\n');
+        }
+      }
+      var displayText = displayParts.join(' ').replace(/ \n /g, '\n');
+      if (obj.set && obj.text !== displayText) {
+        /* Save original width/center before any shrinking */
+        if (obj._cfsOrigWidth == null) obj._cfsOrigWidth = obj.width;
+        if (obj._cfsOrigCenterX == null) obj._cfsOrigCenterX = (obj.left || 0) + (obj.width || 0) / 2;
+        /* Restore full width before setting text so words don't get clipped by previous shrink */
+        if (obj._cfsOrigWidth && obj.width < obj._cfsOrigWidth) {
+          obj.set('width', obj._cfsOrigWidth);
+          obj.set('left', obj._cfsOrigCenterX - obj._cfsOrigWidth / 2);
+        }
+        obj.set('text', displayText);
+        if (typeof obj.initDimensions === 'function') obj.initDimensions();
+        /* Auto-shrink width to fit text so background doesn't extend beyond words.
+           Re-center horizontally so the caption stays centered on the canvas. */
+        var padding = (obj.cfsCaptionPadding || 0) * 2;
+        var calcWidth = (obj.calcTextWidth ? obj.calcTextWidth() : obj.width) + padding + 8;
+        var newWidth = Math.min(obj._cfsOrigWidth, Math.max(50, calcWidth));
+        if (Math.abs(obj.width - newWidth) > 2) {
+          obj.set('width', newWidth);
+          obj.set('left', obj._cfsOrigCenterX - newWidth / 2);
+          if (typeof obj.initDimensions === 'function') obj.initDimensions();
+        }
+      }
+
+      /* Apply character-level styles via obj.styles (Fabric.js rendering API) */
+      if (anim !== 'none') {
+        /* Compute active word character range in the flat display text */
+        var activeCharStart = -1, activeCharEnd = -1;
+        if (activeIdx >= windowStart && activeIdx <= windowEnd) {
+          var charOffset = 0;
+          for (var ci = windowStart; ci < activeIdx; ci++) charOffset += words[ci].text.length + 1;
+          activeCharStart = charOffset;
+          activeCharEnd = charOffset + words[activeIdx].text.length;
+        }
+
+        /* Compute per-word char ranges for styles that need them */
+        var wordCharRanges = [];
+        var wco = 0;
+        for (var wr = windowStart; wr <= windowEnd; wr++) {
+          wordCharRanges.push({ start: wco, end: wco + words[wr].text.length, wordIdx: wr });
+          wco += words[wr].text.length + 1; /* +1 for space */
+        }
+
+        /* Typewriter: compute how many chars should be visible */
+        var twVisibleChars = -1;
+        if (anim === 'typewriter') {
+          var totalDisplayChars = displayText.length;
+          var twFirstStart = words[windowStart].start;
+          var twLastEnd = words[windowEnd].end;
+          var twSpan = Math.max(0.1, twLastEnd - twFirstStart);
+          var twProgress = Math.min(1, Math.max(0, (localTime - twFirstStart) / twSpan));
+          twVisibleChars = Math.floor(twProgress * totalDisplayChars);
+        }
+
+        /* Use Fabric's internal wrapped lines to build correctly-indexed styles */
+        var wrappedLines = obj._textLines || [displayText];
+        var charStyles = {};
+        var flatIdx = 0;
+        for (var li = 0; li < wrappedLines.length; li++) {
+          var lineLen = Array.isArray(wrappedLines[li]) ? wrappedLines[li].length : (typeof wrappedLines[li] === 'string' ? wrappedLines[li].length : 0);
+          var lineChars = {};
+          for (var ch = 0; ch < lineLen; ch++) {
+            var isActiveChar = (flatIdx >= activeCharStart && flatIdx < activeCharEnd);
+            var charStyle = {};
+
+            switch (anim) {
+              case 'karaoke':
+                if (isActiveChar) {
+                  charStyle.fill = activeFontColor;
+                } else {
+                  charStyle.fill = baseFontColor;
+                }
+                break;
+
+              case 'highlight':
+                charStyle.fill = baseFontColor;
+                if (isActiveChar) {
+                  charStyle.textBackgroundColor = activeBgColor ? hexToRgba(activeBgColor, activeBgOpacity) : activeFontColor;
+                  charStyle.fill = activeFontColor;
+                } else if (baseFontBg) {
+                  charStyle.textBackgroundColor = hexToRgba(baseFontBg, baseFontBgOpacity);
+                }
+                break;
+
+              case 'pop':
+                if (isActiveChar) {
+                  /* Simulate pop with larger font size */
+                  var popWord = words[activeIdx];
+                  var popT = 0;
+                  if (popWord.end > popWord.start) popT = Math.min(1, (localTime - popWord.start) / ((popWord.end - popWord.start) * 0.3));
+                  var popScale = popT < 1 ? (1 + 0.25 * Math.sin(popT * Math.PI)) : 1;
+                  var baseFontSize = obj.fontSize || 34;
+                  charStyle.fontSize = Math.round(baseFontSize * popScale);
+                  charStyle.fill = activeFontColor;
+                } else {
+                  charStyle.fill = baseFontColor;
+                }
+                break;
+
+              case 'fade':
+                /* Words before active: full opacity; active: fading in; future: dim */
+                var fadeWordIdx = -1;
+                for (var fw = 0; fw < wordCharRanges.length; fw++) {
+                  if (flatIdx >= wordCharRanges[fw].start && flatIdx < wordCharRanges[fw].end) { fadeWordIdx = wordCharRanges[fw].wordIdx; break; }
+                }
+                if (fadeWordIdx >= 0 && fadeWordIdx < activeIdx) {
+                  charStyle.fill = baseFontColor;
+                } else if (isActiveChar) {
+                  charStyle.fill = activeFontColor;
+                } else {
+                  /* Future words: dim */
+                  charStyle.fill = baseFontColor;
+                  charStyle.opacity = 0.15;
+                  /* Fabric doesn't have per-char opacity, use a dimmed color */
+                  var bc = baseFontColor || '#ffffff';
+                  if (bc === '#ffffff' || bc === 'white') charStyle.fill = '#333333';
+                  else charStyle.fill = '#444444';
+                }
+                break;
+
+              case 'slide':
+                if (isActiveChar) {
+                  charStyle.fill = activeFontColor;
+                  /* Fabric doesn't support per-char offset natively, use color to indicate */
+                  var slideWord = words[activeIdx];
+                  var slideT = 0;
+                  if (slideWord.end > slideWord.start) slideT = Math.min(1, (localTime - slideWord.start) / ((slideWord.end - slideWord.start) * 0.3));
+                  if (slideT < 1) {
+                    /* Show word as fading in during slide (Fabric can't actually slide individual chars) */
+                    var dimLevel = Math.round(51 + 204 * slideT);
+                    var hex = dimLevel.toString(16).padStart(2, '0');
+                    charStyle.fill = activeFontColor;
+                  }
+                } else if (flatIdx >= activeCharEnd) {
+                  /* Future words dim */
+                  var bc2 = baseFontColor || '#ffffff';
+                  if (bc2 === '#ffffff' || bc2 === 'white') charStyle.fill = '#666666';
+                  else charStyle.fill = '#555555';
+                } else {
+                  charStyle.fill = baseFontColor;
+                }
+                break;
+
+              case 'bounce':
+                if (isActiveChar) {
+                  charStyle.fill = activeFontColor;
+                  /* Simulate bounce with font size oscillation */
+                  var bWord = words[activeIdx];
+                  var bT = 0;
+                  if (bWord.end > bWord.start) bT = Math.min(1, (localTime - bWord.start) / (bWord.end - bWord.start));
+                  var bounceScale = 1 + 0.2 * Math.abs(Math.sin(bT * Math.PI * 2.5)) * (1 - bT);
+                  var bBaseFontSize = obj.fontSize || 34;
+                  charStyle.fontSize = Math.round(bBaseFontSize * bounceScale);
+                } else {
+                  charStyle.fill = baseFontColor;
+                }
+                break;
+
+              case 'typewriter':
+                if (flatIdx < twVisibleChars) {
+                  /* Visible */
+                  if (flatIdx >= twVisibleChars - 1) {
+                    charStyle.fill = activeFontColor; /* cursor char */
+                  } else {
+                    charStyle.fill = baseFontColor;
+                  }
+                } else {
+                  /* Hidden — use transparent-ish color */
+                  charStyle.fill = 'rgba(0,0,0,0)';
+                }
+                break;
+
+              default:
+                /* Includes 'karaoke' fallback */
+                if (isActiveChar) {
+                  charStyle.fill = activeFontColor;
+                } else {
+                  charStyle.fill = baseFontColor;
+                }
+                break;
+            }
+
+            lineChars[ch] = charStyle;
+            flatIdx++;
+          }
+          /* Account for the space/newline between wrapped lines */
+          flatIdx++;
+          charStyles[li] = lineChars;
+        }
+        obj.styles = charStyles;
+        obj.dirty = true;
+      } else {
+        /* anim === 'none': clear any previously-applied per-character styles */
+        if (obj.styles && Object.keys(obj.styles).length) {
+          obj.styles = {};
+          obj.dirty = true;
+        }
       }
     });
     canvas.renderAll();
@@ -1504,15 +1829,49 @@
       return;
     }
     var relTime = timeSec - clipStart;
-    var animDur = typeof anim.duration === 'number' ? anim.duration : Math.min(clipLength || 2, 2);
+    var animDur = (typeof anim.duration === 'number' || typeof anim.duration === 'string')
+      ? Number(anim.duration) || Math.min(clipLength || 2, 2)
+      : Math.min(clipLength || 2, 2);
     var preset = (anim.preset || '').toLowerCase();
     var progress = animDur > 0 ? Math.min(1, Math.max(0, relTime / animDur)) : 1;
 
     if (preset === 'typewriter') {
-      var rawText = obj._cfsAnimOrigText || (obj.text != null ? obj.text : '');
-      if (obj._cfsAnimOrigText == null) obj._cfsAnimOrigText = rawText;
+      /* Resolve full text from multiple sources (priority order):
+         1. cfsRawText — resolved merge-field text, always up-to-date
+         2. _cfsAnimOrigText — cached from a prior pass
+         3. cfsOriginalClip.asset.text — the original template clip text
+         4. obj.text — may already be truncated by a prior typewriter pass */
+      var sourceText = '';
+      if (obj.cfsRawText != null && String(obj.cfsRawText) !== '') {
+        sourceText = String(obj.cfsRawText);
+      } else if (obj._cfsAnimOrigText && obj._cfsAnimOrigText.length > 0) {
+        sourceText = obj._cfsAnimOrigText;
+      } else if (obj.cfsOriginalClip && obj.cfsOriginalClip.asset && obj.cfsOriginalClip.asset.text) {
+        sourceText = String(obj.cfsOriginalClip.asset.text);
+      } else {
+        sourceText = (obj.text != null ? obj.text : '');
+      }
+      obj._cfsAnimOrigText = sourceText;
+      var rawText = sourceText;
       var charsToShow = Math.floor(rawText.length * progress);
       var newText = rawText.slice(0, charsToShow);
+      /* Debug: log typewriter state — remove after fixing */
+      if (typeof console !== 'undefined' && !obj._cfsAnimLogThrottle) {
+        obj._cfsAnimLogThrottle = true;
+        console.log('[CFS typewriter]', {
+          name: obj.name,
+          rawTextLen: rawText.length,
+          rawTextFirst50: rawText.slice(0, 50),
+          cfsRawText: (obj.cfsRawText || '').toString().slice(0, 50),
+          origClipText: (obj.cfsOriginalClip && obj.cfsOriginalClip.asset ? (obj.cfsOriginalClip.asset.text || '') : '').slice(0, 50),
+          progress: progress,
+          animDur: animDur,
+          relTime: relTime,
+          charsToShow: charsToShow,
+          newText: newText.slice(0, 50)
+        });
+        setTimeout(function () { obj._cfsAnimLogThrottle = false; }, 2000);
+      }
       if (obj.set && obj.text !== newText) obj.set('text', newText);
     } else if (preset === 'fadein' || preset === 'fade-in') {
       if (obj._cfsAnimOrigOpacity == null) obj._cfsAnimOrigOpacity = obj.opacity != null ? obj.opacity : 1;

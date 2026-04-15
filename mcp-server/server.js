@@ -278,6 +278,11 @@ function readStorage(keys) {
   return relayRequest('STORAGE_READ', { keys });
 }
 
+/** Shorthand: write to chrome.storage.local through the relay. */
+function writeStorage(key, value) {
+  return relayRequest('STORAGE_WRITE', { key, value });
+}
+
 /** Shorthand: fetch a bundled extension file via the relay. */
 function fetchExtensionFile(path) {
   return relayRequest('FETCH_URL', { path });
@@ -300,8 +305,11 @@ import { registerSystemTools } from './tools/system.js';
 import { registerResources } from './tools/resources.js';
 import { registerPrompts } from './tools/prompts.js';
 import { registerSubscriptions, getSubscriptionStatus, clearAllSubscriptions } from './subscriptions.js';
+import { createCryptoGate } from './crypto-gate.js';
 import { registerSidebarTools, registerSidebarRoutes } from './tools/sidebar.js';
 import { registerProjectTools } from './tools/project-files.js';
+import { registerGeneratorTools } from './tools/generator.js';
+import { registerExtensionUpdateTools } from './tools/extension-update.js';
 
 /* ── MCP Server factory ── */
 
@@ -309,11 +317,15 @@ import { registerProjectTools } from './tools/project-files.js';
 const ctx = {
   sendMessage: sendExtensionMessage,
   readStorage,
+  writeStorage,
   fetchExtensionFile,
   isRelayConnected: () => relaySocket && relaySocket.readyState === 1,
   /** Expose relayRequest for sidebar tools to use BACKEND_FETCH reqType. */
   _relayRequest: relayRequest,
 };
+
+/** Crypto gate — checks cfsCryptoWeb3Enabled toggle before crypto tools run. */
+ctx.cryptoGate = createCryptoGate(ctx);
 
 /** Create a fresh McpServer with all tools registered. */
 function createMcpServer() {
@@ -339,6 +351,8 @@ function createMcpServer() {
   registerSubscriptions(server, ctx);
   registerSidebarTools(server, ctx);
   registerProjectTools(server, ctx);
+  registerGeneratorTools(server, ctx);
+  registerExtensionUpdateTools(server, ctx);
   return server;
 }
 
@@ -481,11 +495,7 @@ async function saveExternalMcpEndpoints() {
     list.push({ id, ...ep });
   }
   try {
-    await sendExtensionMessage({
-      type: 'STORAGE_WRITE',
-      key: 'cfs_external_mcp_endpoints',
-      value: list,
-    }).catch(() => {});
+    await writeStorage('cfs_external_mcp_endpoints', list).catch(() => {});
   } catch (_) {}
 }
 
@@ -551,8 +561,17 @@ app.delete('/api/mcp-endpoints/:id', authMiddleware, async (req, res) => {
  * @returns {Promise<object>}  The JSON-RPC response body (may contain .result or .error)
  */
 async function mcpClientRequest(ep, method, params, timeoutMs = 30000) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json, text/event-stream',
+  };
   if (ep.token) headers['Authorization'] = 'Bearer ' + ep.token;
+
+  /* Attach cached session ID if we have one */
+  const cached = externalMcpSessions.get(ep.url);
+  if (cached?.sessionId) {
+    headers['Mcp-Session-Id'] = cached.sessionId;
+  }
 
   const jsonRpcBody = {
     jsonrpc: '2.0',
@@ -567,6 +586,14 @@ async function mcpClientRequest(ep, method, params, timeoutMs = 30000) {
     body: JSON.stringify(jsonRpcBody),
     signal: AbortSignal.timeout(timeoutMs),
   });
+
+  /* Capture session ID from response headers */
+  const respSessionId = resp.headers.get('mcp-session-id');
+  if (respSessionId && cached) {
+    cached.sessionId = respSessionId;
+  } else if (respSessionId) {
+    externalMcpSessions.set(ep.url, { sessionId: respSessionId });
+  }
 
   const text = await resp.text();
   if (!resp.ok) {
@@ -596,16 +623,18 @@ const externalMcpSessions = new Map();
  */
 async function mcpClientInitialize(ep) {
   const cached = externalMcpSessions.get(ep.url);
-  if (cached && cached.sessionId) return cached;
+  if (cached && cached.sessionId && cached.serverName) return cached;
 
   const resp = await mcpClientRequest(ep, 'initialize', {
-    protocolVersion: '2025-03-26',
+    protocolVersion: '2024-11-05',
     capabilities: {},
     clientInfo: { name: 'extensible-content-mcp-client', version: '1.0.0' },
   });
 
   const result = resp?.result || resp;
-  const sessionId = null; // Server may return session in headers — we'll manage without for now
+  /* Session ID is captured by mcpClientRequest from response headers */
+  const capturedSession = externalMcpSessions.get(ep.url);
+  const sessionId = capturedSession?.sessionId || null;
   const info = {
     sessionId,
     serverName: result?.serverInfo?.name || null,
@@ -614,11 +643,15 @@ async function mcpClientInitialize(ep) {
   };
   externalMcpSessions.set(ep.url, info);
 
-  /* Send initialized notification (best-effort) */
+  /* Send initialized notification (best-effort) — must include session ID */
   try {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    };
     if (ep.token) headers['Authorization'] = 'Bearer ' + ep.token;
-    fetch(ep.url, {
+    if (sessionId) headers['Mcp-Session-Id'] = sessionId;
+    await fetch(ep.url, {
       method: 'POST',
       headers,
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),

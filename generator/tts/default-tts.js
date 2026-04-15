@@ -3,11 +3,14 @@
  *
  * Fallback chain:
  *   1. API endpoint — set window.__CFS_ttsApiUrl
- *   2. chrome.tabCapture + speechSynthesis — the extension captures the generator
- *      tab's audio while the browser's built-in voices speak. No prompt, no dialog,
- *      no external service. Works because chrome.tabCapture intercepts tab audio
- *      before it reaches the speakers (the tab is silently muted during capture).
- *   3. Silent WAV placeholder — so clip timing is correct even when capture is unavailable.
+ *   2. Kokoro-82M via QC sandbox — runs entirely in-browser via WASM,
+ *      no external service needed. ~50 MB model auto-downloads on first
+ *      use and is cached. Produces high-quality WAV audio.
+ *   3. chrome.tabCapture + speechSynthesis — captures the tab's audio
+ *      while the browser speaks. Works from normal web pages but NOT from
+ *      chrome-extension:// pages.
+ *   4. Silent WAV placeholder — so clip timing is correct even when all
+ *      strategies fail.
  *
  * Or set window.__CFS_ttsGenerate before this script loads.
  */
@@ -67,7 +70,49 @@
     });
   }
 
-  /* ---- Strategy 2: chrome.tabCapture + speechSynthesis ---- */
+  /* ---- Strategy 2: Kokoro via QC sandbox ---- */
+
+  function ttsViaKokoro(text, options) {
+    return new Promise(function (resolve, reject) {
+      chrome.runtime.sendMessage({
+        type: 'QC_CALL',
+        method: 'synthesizeSpeech',
+        args: [text, { voice: (options && options.voice) || '' }],
+      }, function (resp) {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!resp || !resp.ok) {
+          var innerResult = resp && resp.result;
+          var innerError = innerResult && innerResult.error;
+          reject(new Error(innerError || (resp && resp.error) || 'Kokoro TTS failed'));
+          return;
+        }
+        var result = resp.result || resp;
+        if (!result.audioBase64) {
+          reject(new Error(result.error || 'No audio returned'));
+          return;
+        }
+        /* Decode base64 → Blob */
+        try {
+          var binary = atob(result.audioBase64);
+          var bytes = new Uint8Array(binary.length);
+          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          var blob = new Blob([bytes], { type: result.contentType || 'audio/wav' });
+          if (blob.size < 100) {
+            reject(new Error('Kokoro returned too-small audio (' + blob.size + ' bytes)'));
+            return;
+          }
+          resolve(blob);
+        } catch (e) {
+          reject(new Error('Failed to decode Kokoro audio: ' + (e && e.message)));
+        }
+      });
+    });
+  }
+
+  /* ---- Strategy 3: chrome.tabCapture + speechSynthesis ---- */
 
   function ttsViaTabCapture(text, options) {
     return new Promise(function (resolve, reject) {
@@ -132,14 +177,31 @@
 
   /* ---- main entry ---- */
 
+  var _ttsAudioWarned = false;
+
   function ttsGenerate(text, options) {
     if (global.__CFS_ttsApiUrl && typeof fetch !== 'undefined') {
       return ttsViaApi(text, options);
     }
 
-    if (hasChromeRuntime() && global.speechSynthesis && typeof global.SpeechSynthesisUtterance !== 'undefined') {
-      return ttsViaTabCapture(text, options).catch(function (err) {
-        console.warn('[CFS TTS] tabCapture failed (' + (err && err.message ? err.message : err) + '); silent placeholder.');
+    if (hasChromeRuntime()) {
+      /* Primary: Kokoro via QC sandbox (works from extension pages, no tabCapture needed). */
+      return ttsViaKokoro(text, options).catch(function (err1) {
+        console.warn('[CFS TTS] Kokoro failed (' + (err1 && err1.message ? err1.message : err1) + '); trying tabCapture.');
+        /* Fallback: direct tabCapture (works from normal web pages). */
+        if (global.speechSynthesis && typeof global.SpeechSynthesisUtterance !== 'undefined') {
+          return ttsViaTabCapture(text, options).catch(function (err2) {
+            if (!_ttsAudioWarned) {
+              _ttsAudioWarned = true;
+              console.warn('[CFS TTS] All TTS strategies failed. Export audio will be silent.');
+            }
+            return silentWav(estimateDurationSec(text));
+          });
+        }
+        if (!_ttsAudioWarned) {
+          _ttsAudioWarned = true;
+          console.warn('[CFS TTS] All TTS strategies failed. Export audio will be silent.');
+        }
         return silentWav(estimateDurationSec(text));
       });
     }

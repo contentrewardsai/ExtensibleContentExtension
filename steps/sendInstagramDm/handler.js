@@ -9,8 +9,14 @@
     if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     const apiKeyVar = (action.apiKeyVariableKey || '').trim() || 'uploadPostApiKey';
-    const apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
-    if (!apiKey || String(apiKey).trim() === '') throw new Error('Send Instagram DM: API key required.');
+    var apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
+    var viaBackend = false;
+    if (!apiKey || String(apiKey).trim() === '') {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        try { var ld = await chrome.storage.local.get('uploadPostApiKey'); if (ld.uploadPostApiKey && String(ld.uploadPostApiKey).trim()) apiKey = String(ld.uploadPostApiKey).trim(); } catch (_) {}
+      }
+      if (!apiKey || String(apiKey).trim() === '') viaBackend = true;
+    }
 
     const recipientVar = (action.recipientIdVariableKey || '').trim() || 'recipientId';
     const recipientId = getRowValue(row, recipientVar, 'recipientId', 'recipient_id', 'igsid');
@@ -22,7 +28,7 @@
 
     const response = await sendMessage({
       type: 'SEND_INSTAGRAM_DM',
-      apiKey: String(apiKey).trim(),
+      ...(viaBackend ? { viaBackend: true } : { apiKey: String(apiKey).trim() }),
       recipientId: String(recipientId).trim(),
       message: String(message).trim(),
     });

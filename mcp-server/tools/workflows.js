@@ -132,4 +132,62 @@ export function registerWorkflowTools(server, ctx) {
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
   );
+
+  /* ── Step-building helpers ── */
+
+  server.tool(
+    'build_assert_step',
+    'Build an assertCondition step action object for use in create_workflow / update_workflow. Returns the action JSON to insert into a workflow actions array.',
+    {
+      condition: z.string().describe('Condition expression (same syntax as runIf): {{credits}} > 0, {{acct.loggedIn}}, etc.'),
+      errorMessage: z.string().optional().describe('Error message if condition fails. Supports {{variable}} templates.'),
+      runIf: z.string().optional().describe('Optional runIf guard for the assert step itself'),
+    },
+    async ({ condition, errorMessage, runIf }) => {
+      const action = {
+        type: 'assertCondition',
+        condition,
+        errorMessage: errorMessage || 'Assertion failed: condition is false',
+      };
+      if (runIf) action.runIf = runIf;
+      return { content: [{ type: 'text', text: JSON.stringify(action, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    'build_log_step',
+    'Build a logMessage step action object for use in create_workflow / update_workflow.',
+    {
+      message: z.string().describe('Message template. Supports {{variable}} syntax.'),
+      level: z.enum(['info', 'warn', 'error']).optional().describe('Log level (default info)'),
+      saveAsVariable: z.string().optional().describe('Save resolved message to this row variable'),
+    },
+    async ({ message, level, saveAsVariable }) => {
+      const action = {
+        type: 'logMessage',
+        message,
+        level: level || 'info',
+      };
+      if (saveAsVariable) action.saveAsVariable = saveAsVariable;
+      return { content: [{ type: 'text', text: JSON.stringify(action, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    'build_set_variables_step',
+    'Build a setBatchVariable step action object for use in create_workflow / update_workflow.',
+    {
+      assignments: z.array(z.object({
+        variable: z.string().describe('Row variable name to set'),
+        value: z.string().describe('Value or template expression (e.g. "{{nested.path}}", "42", "true")'),
+      })).describe('Array of variable assignments'),
+    },
+    async ({ assignments }) => {
+      const action = {
+        type: 'setBatchVariable',
+        assignments,
+      };
+      return { content: [{ type: 'text', text: JSON.stringify(action, null, 2) }] };
+    }
+  );
 }

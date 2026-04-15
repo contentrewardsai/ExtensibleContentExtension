@@ -8,8 +8,16 @@
   function getBaseUrl() {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
       return chrome.runtime.getURL('');
-    if (typeof location !== 'undefined' && location.origin)
-      return location.origin + '/';
+    /* Derive extension root from current page URL.  index.html lives at
+       generator/index.html, so stripping the filename gives generator/ and
+       going up one more level gives the extension root.  Works for file://,
+       http://, and any other protocol without hardcoding paths. */
+    if (typeof location !== 'undefined' && location.href) {
+      var dir = location.href.substring(0, location.href.lastIndexOf('/') + 1);
+      // dir = .../generator/  →  go up one level to extension root
+      var parent = dir.substring(0, dir.slice(0, -1).lastIndexOf('/') + 1);
+      return parent || dir;
+    }
     return '';
   }
 
