@@ -113,4 +113,64 @@ export function registerSystemTools(server, ctx) {
       }
     }
   );
+
+  /* ── Account & Storage tools ── */
+
+  server.tool(
+    'get_account_status',
+    'Get account status including plan tier, upgrade status, connected profiles, ShotStack credits, storage quota, email/username, and local key status.',
+    {},
+    async () => {
+      const res = await ctx.sendMessage({ type: 'GET_ACCOUNT_STATUS' });
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'get_shotstack_credits',
+    'Check remaining ShotStack render credits. Staging renders are free; production renders debit credits (1 credit = 1 minute, billed by the second).',
+    {},
+    async () => {
+      const res = await ctx.sendMessage({ type: 'GET_SHOTSTACK_CREDITS' });
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'get_storage_info',
+    'Check backend storage usage, quota, file count, and percent used.',
+    {},
+    async () => {
+      const res = await ctx.sendMessage({ type: 'GET_STORAGE_INFO' });
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'list_storage_files',
+    'List files stored in backend account storage.',
+    {
+      page: z.number().int().optional().describe('Page number (default 1)'),
+      limit: z.number().int().optional().describe('Results per page (default 20)'),
+    },
+    async ({ page, limit }) => {
+      const payload = { type: 'GET_STORAGE_FILES' };
+      if (page != null) payload.page = page;
+      if (limit != null) payload.limit = limit;
+      const res = await ctx.sendMessage(payload);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'delete_storage_file',
+    'Delete a file from backend storage by its file ID.',
+    {
+      fileId: z.string().describe('File ID to delete'),
+    },
+    async ({ fileId }) => {
+      const res = await ctx.sendMessage({ type: 'DELETE_STORAGE_FILE', fileId });
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
 }

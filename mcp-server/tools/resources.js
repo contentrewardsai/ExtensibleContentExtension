@@ -5,6 +5,7 @@
  * (workflows, steps, wallets, schedules, following) without calling tools.
  */
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CRYPTO_DISABLED_MSG } from '../crypto-gate.js';
 
 /** In-memory cache for step definitions (loaded once from extension bundle). */
 const stepCache = new Map();
@@ -69,8 +70,8 @@ export function registerResources(server, ctx) {
   /* ── Workflows ── */
 
   server.resource(
-    'extensible://workflows',
     'All Workflows',
+    'extensible://workflows',
     async () => {
       const res = await ctx.readStorage(['workflows']);
       const wfs = (res?.data?.workflows) || {};
@@ -92,8 +93,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://workflows/{workflowId}', { list: undefined }),
     'Workflow Details',
+    new ResourceTemplate('extensible://workflows/{workflowId}', { list: undefined }),
     async (uri, { workflowId }) => {
       const res = await ctx.readStorage(['workflows']);
       const wf = res?.data?.workflows?.[workflowId];
@@ -108,8 +109,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://workflows/{workflowId}/steps', { list: undefined }),
     'Workflow Steps with Definitions',
+    new ResourceTemplate('extensible://workflows/{workflowId}/steps', { list: undefined }),
     async (uri, { workflowId }) => {
       const res = await ctx.readStorage(['workflows']);
       const wf = res?.data?.workflows?.[workflowId];
@@ -138,8 +139,8 @@ export function registerResources(server, ctx) {
   /* ── Steps (catalog) ── */
 
   server.resource(
-    'extensible://steps',
     'All Step Type Definitions',
+    'extensible://steps',
     async () => {
       const defs = await getAllStepDefinitions(ctx);
       const ids = await getStepManifest(ctx);
@@ -164,8 +165,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://steps/{stepId}', { list: undefined }),
     'Step Type Definition (with README documentation)',
+    new ResourceTemplate('extensible://steps/{stepId}', { list: undefined }),
     async (uri, { stepId }) => {
       const def = await getStepDefinition(ctx, stepId);
       const readme = await getStepReadme(ctx, stepId);
@@ -190,8 +191,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://steps/{stepId}/readme', { list: undefined }),
     'Step README Documentation (Markdown)',
+    new ResourceTemplate('extensible://steps/{stepId}/readme', { list: undefined }),
     async (uri, { stepId }) => {
       const readme = await getStepReadme(ctx, stepId);
       return {
@@ -205,8 +206,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    'extensible://steps/categories',
     'Steps Grouped by Category',
+    'extensible://steps/categories',
     async () => {
       const defs = await getAllStepDefinitions(ctx);
       const cats = {};
@@ -228,8 +229,8 @@ export function registerResources(server, ctx) {
   /* ── Generators (templates) ── */
 
   server.resource(
-    'extensible://generators',
     'Generator Templates',
+    'extensible://generators',
     async () => {
       try {
         const res = await ctx.fetchExtensionFile('generator/templates/manifest.json');
@@ -281,8 +282,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://generators/{templateId}', { list: undefined }),
     'Generator Template Details',
+    new ResourceTemplate('extensible://generators/{templateId}', { list: undefined }),
     async (uri, { templateId }) => {
       try {
         const res = await ctx.fetchExtensionFile('generator/templates/' + templateId + '/template.json');
@@ -309,8 +310,8 @@ export function registerResources(server, ctx) {
   /* ── Schedules ── */
 
   server.resource(
-    'extensible://schedules',
     'Scheduled Workflows',
+    'extensible://schedules',
     async () => {
       const res = await ctx.sendMessage({ type: 'GET_SCHEDULED_WORKFLOW_RUNS' });
       return {
@@ -326,8 +327,8 @@ export function registerResources(server, ctx) {
   /* ── Run History ── */
 
   server.resource(
-    'extensible://run-history',
     'Workflow Run History',
+    'extensible://run-history',
     async () => {
       const res = await ctx.readStorage(['workflowRunHistory']);
       return {
@@ -340,12 +341,48 @@ export function registerResources(server, ctx) {
     }
   );
 
+  /* ── Upload Post Activity ── */
+
+  server.resource(
+    'Upload Post History',
+    'extensible://upload-post/history',
+    async () => {
+      const res = await ctx.sendMessage({ type: 'GET_POST_HISTORY', limit: 50 });
+      return {
+        contents: [{
+          uri: 'extensible://upload-post/history',
+          mimeType: 'application/json',
+          text: JSON.stringify(res, null, 2),
+        }],
+      };
+    }
+  );
+
+  server.resource(
+    'Scheduled Posts',
+    'extensible://upload-post/scheduled',
+    async () => {
+      const res = await ctx.sendMessage({ type: 'GET_SCHEDULED_POSTS' });
+      return {
+        contents: [{
+          uri: 'extensible://upload-post/scheduled',
+          mimeType: 'application/json',
+          text: JSON.stringify(res, null, 2),
+        }],
+      };
+    }
+  );
+
   /* ── Wallets ── */
 
   server.resource(
-    'extensible://wallets',
     'Extension Wallets',
+    'extensible://wallets',
     async () => {
+      const cryptoEnabled = await ctx.cryptoGate.isCryptoEnabled();
+      if (!cryptoEnabled) {
+        return { contents: [{ uri: 'extensible://wallets', mimeType: 'application/json', text: JSON.stringify({ error: CRYPTO_DISABLED_MSG, cryptoGated: true }, null, 2) }] };
+      }
       const res = await ctx.readStorage(['cfsWallets']);
       const wallets = (res?.data?.cfsWallets || []).map(w => ({
         label: w.label || '',
@@ -363,9 +400,13 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://wallets/{chain}', { list: undefined }),
     'Wallets by Chain',
+    new ResourceTemplate('extensible://wallets/{chain}', { list: undefined }),
     async (uri, { chain }) => {
+      const cryptoEnabled = await ctx.cryptoGate.isCryptoEnabled();
+      if (!cryptoEnabled) {
+        return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify({ error: CRYPTO_DISABLED_MSG, cryptoGated: true }, null, 2) }] };
+      }
       const res = await ctx.readStorage(['cfsWallets']);
       const wallets = (res?.data?.cfsWallets || [])
         .filter(w => (w.chain || '').toLowerCase() === chain.toLowerCase())
@@ -383,8 +424,8 @@ export function registerResources(server, ctx) {
   /* ── Following ── */
 
   server.resource(
-    'extensible://following',
     'Following Profiles',
+    'extensible://following',
     async () => {
       const res = await ctx.sendMessage({ type: 'GET_FOLLOWING_DATA' });
       return {
@@ -398,28 +439,32 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    new ResourceTemplate('extensible://following/{profileId}', { list: undefined }),
     'Following Profile Details',
+    new ResourceTemplate('extensible://following/{profileId}', { list: undefined }),
     async (uri, { profileId }) => {
       const res = await ctx.sendMessage({ type: 'GET_FOLLOWING_DATA' });
-      const profiles = res?.profiles || res?.data || [];
-      const profile = Array.isArray(profiles)
-        ? profiles.find(p => p.id === profileId)
+      const entries = res?.data || res?.profiles || [];
+      const entry = Array.isArray(entries)
+        ? entries.find(e => (e.profile?.id || e.id) === profileId)
         : null;
       return {
         contents: [{
           uri: uri.href,
           mimeType: 'application/json',
-          text: profile ? JSON.stringify(profile, null, 2) : '{"error":"Profile not found"}',
+          text: entry ? JSON.stringify(entry, null, 2) : '{"error":"Profile not found"}',
         }],
       };
     }
   );
 
   server.resource(
-    'extensible://following/watch/solana',
     'Solana Watch Activity',
+    'extensible://following/watch/solana',
     async () => {
+      const cryptoEnabled = await ctx.cryptoGate.isCryptoEnabled();
+      if (!cryptoEnabled) {
+        return { contents: [{ uri: 'extensible://following/watch/solana', mimeType: 'application/json', text: JSON.stringify({ error: CRYPTO_DISABLED_MSG, cryptoGated: true }, null, 2) }] };
+      }
       const res = await ctx.sendMessage({ type: 'CFS_SOLANA_WATCH_GET_ACTIVITY' });
       return {
         contents: [{
@@ -432,9 +477,13 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    'extensible://following/watch/bsc',
     'BSC Watch Activity',
+    'extensible://following/watch/bsc',
     async () => {
+      const cryptoEnabled = await ctx.cryptoGate.isCryptoEnabled();
+      if (!cryptoEnabled) {
+        return { contents: [{ uri: 'extensible://following/watch/bsc', mimeType: 'application/json', text: JSON.stringify({ error: CRYPTO_DISABLED_MSG, cryptoGated: true }, null, 2) }] };
+      }
       const res = await ctx.sendMessage({ type: 'CFS_BSC_WATCH_GET_ACTIVITY' });
       return {
         contents: [{
@@ -447,8 +496,8 @@ export function registerResources(server, ctx) {
   );
 
   server.resource(
-    'extensible://following/automation-status',
     'Following Automation Status',
+    'extensible://following/automation-status',
     async () => {
       const res = await ctx.sendMessage({ type: 'CFS_FOLLOWING_AUTOMATION_STATUS' });
       return {
@@ -464,8 +513,8 @@ export function registerResources(server, ctx) {
   /* ── Status ── */
 
   server.resource(
-    'extensible://status',
     'Extension Status',
+    'extensible://status',
     async () => {
       const connected = ctx.isRelayConnected();
       return {
@@ -482,4 +531,276 @@ export function registerResources(server, ctx) {
       };
     }
   );
+
+  /* ── MCP Endpoints / Topology ── */
+
+  const mcpPort = () => process.env.EC_MCP_PORT || '3100';
+  const mcpToken = () => process.env._EC_MCP_TOKEN || '';
+  const mcpSelfFetch = async (path) => {
+    const resp = await fetch('http://127.0.0.1:' + mcpPort() + path, {
+      headers: { 'Authorization': 'Bearer ' + mcpToken() },
+      signal: AbortSignal.timeout(10000),
+    });
+    return resp.json();
+  };
+
+  server.resource(
+    'External MCP Endpoints',
+    'extensible://mcp-endpoints',
+    async () => {
+      let endpoints = [];
+      try {
+        const data = await mcpSelfFetch('/api/mcp-endpoints');
+        endpoints = data?.endpoints || [];
+      } catch (_) {}
+
+      /* For each enabled endpoint, try to fetch server info + tools list */
+      const enriched = [];
+      for (const ep of endpoints) {
+        const entry = {
+          id: ep.id,
+          name: ep.name,
+          url: ep.url,
+          enabled: ep.enabled,
+          hasToken: ep.hasToken,
+          serverInfo: null,
+          tools: [],
+          status: 'unknown',
+        };
+        if (ep.enabled) {
+          try {
+            const testData = await mcpSelfFetch('/api/mcp-endpoints/' + encodeURIComponent(ep.id) + '/test');
+            if (testData.ok) {
+              entry.serverInfo = { name: testData.serverName, version: testData.serverVersion };
+              entry.status = 'connected';
+              entry.toolCount = testData.toolCount;
+            } else {
+              entry.status = 'error';
+              entry.error = testData.error;
+            }
+          } catch (e) {
+            entry.status = 'unreachable';
+            entry.error = e.message;
+          }
+          /* Fetch tool names if connected */
+          if (entry.status === 'connected') {
+            try {
+              const toolsData = await mcpSelfFetch('/api/mcp-endpoints/' + encodeURIComponent(ep.id) + '/tools');
+              entry.tools = (toolsData?.tools || []).map(t => ({ name: t.name, description: t.description }));
+              entry.toolCount = entry.tools.length;
+            } catch (_) {}
+          }
+        } else {
+          entry.status = 'disabled';
+        }
+        enriched.push(entry);
+      }
+
+      return {
+        contents: [{
+          uri: 'extensible://mcp-endpoints',
+          mimeType: 'application/json',
+          text: JSON.stringify({
+            totalEndpoints: enriched.length,
+            connected: enriched.filter(e => e.status === 'connected').length,
+            disabled: enriched.filter(e => e.status === 'disabled').length,
+            endpoints: enriched,
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
+  server.resource(
+    'External MCP Endpoint Details',
+    new ResourceTemplate('extensible://mcp-endpoints/{id}', { list: undefined }),
+    async (uri, params) => {
+      const epId = params.id;
+      let ep = null;
+      let tools = [];
+      let testResult = null;
+
+      try {
+        const listData = await mcpSelfFetch('/api/mcp-endpoints');
+        ep = (listData?.endpoints || []).find(e => e.id === epId);
+      } catch (_) {}
+
+      if (!ep) {
+        return {
+          contents: [{
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify({ ok: false, error: 'Endpoint not found: ' + epId }),
+          }],
+        };
+      }
+
+      if (ep.enabled) {
+        try {
+          const testResp = await fetch('http://127.0.0.1:' + mcpPort() + '/api/mcp-endpoints/' + encodeURIComponent(epId) + '/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + mcpToken() },
+            signal: AbortSignal.timeout(15000),
+          });
+          testResult = await testResp.json();
+        } catch (e) {
+          testResult = { ok: false, error: e.message };
+        }
+
+        try {
+          const toolsData = await mcpSelfFetch('/api/mcp-endpoints/' + encodeURIComponent(epId) + '/tools');
+          tools = (toolsData?.tools || []).map(t => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          }));
+        } catch (_) {}
+      }
+
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify({
+            id: ep.id,
+            name: ep.name,
+            url: ep.url,
+            enabled: ep.enabled,
+            hasToken: ep.hasToken,
+            connection: testResult ? {
+              status: testResult.ok ? 'connected' : 'error',
+              serverName: testResult.serverName || null,
+              serverVersion: testResult.serverVersion || null,
+              error: testResult.error || null,
+            } : { status: 'disabled' },
+            tools,
+            toolCount: tools.length,
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
+  server.resource(
+    'MCP Network Topology',
+    'extensible://mcp-topology',
+    async () => {
+      /* Gather info about THIS server */
+      const selfInfo = {
+        name: 'Extensible Content MCP Server',
+        port: parseInt(mcpPort()),
+        localEndpoint: 'http://127.0.0.1:' + mcpPort() + '/mcp',
+        tunnelEndpoint: process.env._EC_MCP_TUNNEL_URL
+          ? process.env._EC_MCP_TUNNEL_URL + '/mcp'
+          : null,
+        tunnelProvider: process.env._EC_MCP_TUNNEL_PROVIDER || null,
+        relayConnected: ctx.isRelayConnected(),
+      };
+
+      /* Count own tools */
+      let ownToolCount = null;
+      try {
+        const initHeaders = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          'Authorization': 'Bearer ' + mcpToken(),
+        };
+        const initRes = await fetch('http://127.0.0.1:' + mcpPort() + '/mcp', {
+          method: 'POST', headers: initHeaders,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'topology-self-check', version: '1.0.0' } },
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+        const sid = initRes.headers.get('mcp-session-id');
+        if (sid) initHeaders['Mcp-Session-Id'] = sid;
+        await fetch('http://127.0.0.1:' + mcpPort() + '/mcp', {
+          method: 'POST', headers: initHeaders,
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+          signal: AbortSignal.timeout(3000),
+        });
+        const toolsRes = await fetch('http://127.0.0.1:' + mcpPort() + '/mcp', {
+          method: 'POST', headers: initHeaders,
+          body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+          signal: AbortSignal.timeout(5000),
+        });
+        const toolsText = await toolsRes.text();
+        let toolsData;
+        try { toolsData = JSON.parse(toolsText); } catch (_) {
+          for (const line of toolsText.split('\n').reverse()) {
+            if (line.startsWith('data: ')) { toolsData = JSON.parse(line.slice(6)); break; }
+          }
+        }
+        ownToolCount = toolsData?.result?.tools?.length || null;
+      } catch (_) {}
+      selfInfo.toolCount = ownToolCount;
+
+      /* Gather external endpoints */
+      let externals = [];
+      try {
+        const data = await mcpSelfFetch('/api/mcp-endpoints');
+        const eps = data?.endpoints || [];
+        for (const ep of eps) {
+          const node = {
+            id: ep.id,
+            name: ep.name,
+            url: ep.url,
+            enabled: ep.enabled,
+            status: 'unknown',
+            serverName: null,
+            serverVersion: null,
+            toolCount: null,
+            direction: 'outbound',
+          };
+          if (ep.enabled) {
+            try {
+              const testResp = await fetch('http://127.0.0.1:' + mcpPort() + '/api/mcp-endpoints/' + encodeURIComponent(ep.id) + '/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + mcpToken() },
+                signal: AbortSignal.timeout(10000),
+              });
+              const testData = await testResp.json();
+              node.status = testData.ok ? 'connected' : 'error';
+              node.serverName = testData.serverName || null;
+              node.serverVersion = testData.serverVersion || null;
+              node.toolCount = testData.toolCount || null;
+              if (!testData.ok) node.error = testData.error;
+            } catch (e) {
+              node.status = 'unreachable';
+              node.error = e.message;
+            }
+          } else {
+            node.status = 'disabled';
+          }
+          externals.push(node);
+        }
+      } catch (_) {}
+
+      const topology = {
+        description: 'MCP network topology showing this server and all connected external MCP endpoints.',
+        thisServer: selfInfo,
+        externalEndpoints: externals,
+        summary: {
+          totalNodes: 1 + externals.length,
+          connectedNodes: 1 + externals.filter(e => e.status === 'connected').length,
+          totalToolsAvailable: (ownToolCount || 0) + externals.filter(e => e.status === 'connected').reduce((sum, e) => sum + (e.toolCount || 0), 0),
+        },
+        chainingSupport: {
+          outbound: 'This server can proxy tool calls to external endpoints via call_external_mcp_tool.',
+          inbound: 'External servers can connect to this server at ' + selfInfo.localEndpoint + (selfInfo.tunnelEndpoint ? ' or ' + selfInfo.tunnelEndpoint : '') + '.',
+          bidirectional: 'Two servers can register each other as external endpoints for full bidirectional chaining.',
+        },
+      };
+
+      return {
+        contents: [{
+          uri: 'extensible://mcp-topology',
+          mimeType: 'application/json',
+          text: JSON.stringify(topology, null, 2),
+        }],
+      };
+    }
+  );
 }
+

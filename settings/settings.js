@@ -886,7 +886,7 @@
       const profiles = mergeProfiles(local, remote);
       setStatus(statusEl, '', '');
       if (profiles.length === 0) {
-        listEl.innerHTML = '<p class="hint">No profiles found. Save an UploadPost API key to load profiles.</p>';
+        listEl.innerHTML = '<p class="hint">No profiles found. Save an Upload Post API key or sign in to load profiles.</p>';
         return;
       }
       const jwtData = await chrome.storage.local.get(JWT_TOKENS_KEY);
@@ -1037,6 +1037,46 @@
         else { input.type = 'password'; btn.textContent = 'Show'; }
       });
     });
+  }
+
+  // --- ShotStack Credits ---
+
+  async function loadShotstackCredits() {
+    const creditsSection = document.getElementById('ssCreditsSection');
+    const creditsDisplay = document.getElementById('ssCreditsDisplay');
+    const creditsStatus = document.getElementById('ssCreditsStatus');
+    if (!creditsSection || !creditsDisplay) return;
+    // Only show for logged-in users
+    const isLoggedIn = window.ExtensionApi && typeof window.ExtensionApi.isLoggedIn === 'function' && window.ExtensionApi.isLoggedIn();
+    if (!isLoggedIn) { creditsSection.style.display = 'none'; return; }
+    creditsSection.style.display = '';
+    creditsDisplay.textContent = 'Loading...';
+    try {
+      const resp = await new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: 'GET_SHOTSTACK_CREDITS' }, resolve);
+      });
+      if (resp && resp.ok && typeof resp.credits === 'number') {
+        const mins = resp.credits;
+        creditsDisplay.textContent = mins + ' credit' + (mins !== 1 ? 's' : '') + ' remaining (' + mins + ' minute' + (mins !== 1 ? 's' : '') + ')';
+        if (resp.used_seconds) {
+          creditsDisplay.textContent += ' · ' + resp.used_seconds + 's used';
+        }
+      } else {
+        creditsDisplay.textContent = 'Unable to load credits';
+        if (creditsStatus) { creditsStatus.textContent = (resp && resp.error) || ''; creditsStatus.style.display = 'block'; creditsStatus.className = 'status-msg error'; }
+      }
+    } catch (_) {
+      creditsDisplay.textContent = 'Unable to load credits';
+    }
+  }
+
+  function setupShotstackCredits() {
+    const refreshBtn = document.getElementById('ssCreditsRefreshBtn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => loadShotstackCredits());
+    }
+    // Load on page init after a short delay (wait for auth state)
+    setTimeout(() => loadShotstackCredits(), 1500);
   }
 
   // --- Platform Defaults ---
@@ -3104,27 +3144,33 @@
         try {
           const projectRoot = await getStoredProjectFolderHandle();
           if (projectRoot) {
-            const mcpDir = await projectRoot.getDirectoryHandle('mcp-server');
-            const distDir = await mcpDir.getDirectoryHandle('dist');
-            startIn = distDir;
+            const perm = await projectRoot.requestPermission({ mode: 'read' });
+            if (perm === 'granted') {
+              const mcpDir = await projectRoot.getDirectoryHandle('mcp-server');
+              const distDir = await mcpDir.getDirectoryHandle('dist');
+              startIn = distDir;
 
-            /* While we have FS access, write extensionId into ec-mcp-config.json
-               so native messaging works for Start/Stop */
-            try {
-              let cfg = {};
+              /* While we have FS access, write extensionId into ec-mcp-config.json
+                 so native messaging works for Start/Stop */
               try {
-                const cfgFile = await distDir.getFileHandle('ec-mcp-config.json');
-                const file = await cfgFile.getFile();
-                cfg = JSON.parse(await file.text());
+                const rwPerm = await projectRoot.requestPermission({ mode: 'readwrite' });
+                if (rwPerm === 'granted') {
+                  let cfg = {};
+                  try {
+                    const cfgFile = await distDir.getFileHandle('ec-mcp-config.json');
+                    const file = await cfgFile.getFile();
+                    cfg = JSON.parse(await file.text());
+                  } catch (_) {}
+                  if (!cfg.extensionId || cfg.extensionId !== chrome.runtime.id) {
+                    cfg.extensionId = chrome.runtime.id;
+                    const cfgHandle = await distDir.getFileHandle('ec-mcp-config.json', { create: true });
+                    const writable = await cfgHandle.createWritable();
+                    await writable.write(JSON.stringify(cfg, null, 2));
+                    await writable.close();
+                  }
+                }
               } catch (_) {}
-              if (!cfg.extensionId || cfg.extensionId !== chrome.runtime.id) {
-                cfg.extensionId = chrome.runtime.id;
-                const cfgHandle = await distDir.getFileHandle('ec-mcp-config.json', { create: true });
-                const writable = await cfgHandle.createWritable();
-                await writable.write(JSON.stringify(cfg, null, 2));
-                await writable.close();
-              }
-            } catch (_) {}
+            }
           }
         } catch (_) {}
 
@@ -3383,6 +3429,23 @@
       if (tunnelUrlDisplay) tunnelUrlDisplay.textContent = url + '/mcp';
       if (tunnelStatusDot) tunnelStatusDot.style.background = 'var(--success)';
       if (tunnelStatusLabel) tunnelStatusLabel.textContent = 'Active';
+      tunnelUpdateRemoteConfig();
+    }
+
+    function tunnelBuildRemoteConfig() {
+      var tunnelUrl = (tunnelUrlDisplay?.textContent || '').replace(/\/mcp$/, '');
+      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
+      return {
+        'extensible-content-remote': {
+          url: tunnelUrl + '/mcp',
+          headers: { Authorization: 'Bearer ' + token },
+        },
+      };
+    }
+
+    function tunnelUpdateRemoteConfig() {
+      var configEl = document.getElementById('cfsMcpTunnelRemoteConfig');
+      if (configEl) configEl.textContent = JSON.stringify(tunnelBuildRemoteConfig(), null, 2);
     }
 
     /* Copy URL */
@@ -3393,15 +3456,7 @@
 
     /* Copy remote config */
     document.getElementById('cfsMcpTunnelCopyConfig')?.addEventListener('click', async function() {
-      var tunnelUrl = (tunnelUrlDisplay?.textContent || '').replace(/\/mcp$/, '');
-      var token = (document.getElementById('cfsMcpTokenInput')?.value || '').trim();
-      var config = {
-        'extensible-content-remote': {
-          url: tunnelUrl + '/mcp',
-          headers: { Authorization: 'Bearer ' + token },
-        },
-      };
-      try { await navigator.clipboard.writeText(JSON.stringify(config, null, 2)); } catch (_) {}
+      try { await navigator.clipboard.writeText(JSON.stringify(tunnelBuildRemoteConfig(), null, 2)); } catch (_) {}
     });
 
     /* Poll tunnel status from /health endpoint */
@@ -3623,6 +3678,138 @@
     cfsMcpExtRefreshList();
   }
 
+  // --- Crypto & Web3 Master Toggle ---
+
+  const CFS_CRYPTO_WEB3_ENABLED_KEY = 'cfsCryptoWeb3Enabled';
+
+  function cfsCryptoWeb3UpdateVisibility(enabled) {
+    const content = document.getElementById('cfsCryptoWeb3Content');
+    if (content) content.style.display = enabled ? '' : 'none';
+  }
+
+  async function setupCryptoWeb3Toggle() {
+    const checkbox = document.getElementById('cfsCryptoWeb3Enabled');
+    if (!checkbox) return;
+
+    /* Load stored value, auto-enable if existing crypto config detected */
+    const data = await chrome.storage.local.get([
+      CFS_CRYPTO_WEB3_ENABLED_KEY,
+      'cfs_solana_wallets',
+      'cfs_bsc_wallets',
+      'cfsPulseSolanaWatchBundle',
+      'cfsPulseBscWatchBundle',
+      'cfs_bscscan_api_key',
+    ]);
+
+    let enabled = data[CFS_CRYPTO_WEB3_ENABLED_KEY] === true;
+
+    /* Auto-enable for users who already have crypto config */
+    if (!enabled && data[CFS_CRYPTO_WEB3_ENABLED_KEY] === undefined) {
+      const hasConfig =
+        (Array.isArray(data.cfs_solana_wallets) && data.cfs_solana_wallets.length > 0) ||
+        (Array.isArray(data.cfs_bsc_wallets) && data.cfs_bsc_wallets.length > 0) ||
+        (data.cfsPulseSolanaWatchBundle && Array.isArray(data.cfsPulseSolanaWatchBundle.entries) && data.cfsPulseSolanaWatchBundle.entries.length > 0) ||
+        (data.cfsPulseBscWatchBundle && Array.isArray(data.cfsPulseBscWatchBundle.entries) && data.cfsPulseBscWatchBundle.entries.length > 0) ||
+        (typeof data.cfs_bscscan_api_key === 'string' && data.cfs_bscscan_api_key.trim().length > 0);
+      if (hasConfig) {
+        enabled = true;
+        await chrome.storage.local.set({ [CFS_CRYPTO_WEB3_ENABLED_KEY]: true });
+      }
+    }
+
+    checkbox.checked = enabled;
+    cfsCryptoWeb3UpdateVisibility(enabled);
+
+    checkbox.addEventListener('change', async () => {
+      const on = checkbox.checked;
+      await chrome.storage.local.set({ [CFS_CRYPTO_WEB3_ENABLED_KEY]: on });
+      cfsCryptoWeb3UpdateVisibility(on);
+      /* Notify service worker to toggle crypto alarms + wallet injection */
+      try {
+        chrome.runtime.sendMessage({ type: 'CFS_CRYPTO_WEB3_TOGGLE', enabled: on });
+      } catch (_) {}
+    });
+  }
+
+  // --- Post Media Storage Management ---
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB'];
+    var i = Math.floor(Math.log(bytes) / Math.log(1024));
+    if (i >= units.length) i = units.length - 1;
+    return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+  }
+
+  async function loadPostStorageInfo() {
+    var section = document.getElementById('postStorageSection');
+    if (!section) return;
+    if (typeof window.ExtensionApi === 'undefined' || typeof window.ExtensionApi.isLoggedIn !== 'function') {
+      section.style.display = 'none';
+      return;
+    }
+    try {
+      var loggedIn = await window.ExtensionApi.isLoggedIn();
+      if (!loggedIn) { section.style.display = 'none'; return; }
+      // Check if user has a local key — if so, storage section is less relevant but still useful
+      section.style.display = '';
+    } catch (_) { section.style.display = 'none'; return; }
+
+    try {
+      var info = await window.ExtensionApi.getPostStorageInfo();
+      if (!info || !info.ok) return;
+      var fill = document.getElementById('storageUsageFill');
+      var text = document.getElementById('storageUsageText');
+      var pct = info.max_bytes > 0 ? Math.min(100, (info.used_bytes / info.max_bytes) * 100) : 0;
+      if (fill) fill.style.width = pct.toFixed(1) + '%';
+      if (text) text.textContent = formatBytes(info.used_bytes) + ' / ' + formatBytes(info.max_bytes);
+      if (pct > 90 && fill) fill.style.background = '#dc2626';
+      else if (pct > 70 && fill) fill.style.background = '#f59e0b';
+    } catch (_) {}
+  }
+
+  async function loadPostStorageFiles() {
+    var listEl = document.getElementById('storageFilesList');
+    if (!listEl) return;
+    if (typeof window.ExtensionApi === 'undefined' || typeof window.ExtensionApi.getPostStorageFiles !== 'function') return;
+    try {
+      var res = await window.ExtensionApi.getPostStorageFiles({ limit: 50 });
+      if (!res || !res.ok) { listEl.innerHTML = '<p class="hint" style="font-style:italic;">Could not load files.</p>'; return; }
+      var files = res.files || [];
+      if (files.length === 0) {
+        listEl.innerHTML = '<p class="hint" style="font-style:italic;">No uploaded files.</p>';
+        return;
+      }
+      listEl.innerHTML = files.map(function(f) {
+        return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border,#e5e5e7);font-size:0.82rem;">' +
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (f.filename || '') + '">' + (f.filename || 'unknown') + '</span>' +
+          '<span style="min-width:60px;text-align:right;color:var(--hint-fg,#888);">' + formatBytes(f.size_bytes) + '</span>' +
+          '<button type="button" class="btn btn-small" data-delete-file="' + (f.id || '') + '" style="background:#dc2626;color:#fff;padding:2px 8px;">Delete</button>' +
+          '</div>';
+      }).join('');
+      listEl.querySelectorAll('[data-delete-file]').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          var fileId = btn.dataset.deleteFile;
+          if (!fileId) return;
+          btn.disabled = true;
+          btn.textContent = '...';
+          try {
+            await window.ExtensionApi.deletePostStorageFile(fileId);
+          } catch (_) {}
+          await loadPostStorageInfo();
+          await loadPostStorageFiles();
+        });
+      });
+    } catch (_) {
+      listEl.innerHTML = '<p class="hint" style="font-style:italic;">Error loading files.</p>';
+    }
+  }
+
+  async function loadPostStorage() {
+    await loadPostStorageInfo();
+    await loadPostStorageFiles();
+  }
+
   // --- Init ---
 
 
@@ -3636,6 +3823,7 @@
   async function init() {
     setupToggleVisibility();
     setupShotstackToggle();
+    setupShotstackCredits();
     await loadApiKey();
     await loadApifyToken();
     await loadAsterFuturesSettings();
@@ -3650,6 +3838,7 @@
     loadJwtLastRefresh();
     loadProfiles();
 
+    await setupCryptoWeb3Toggle();
     setupSolanaSection();
     setupCryptoTestWalletsSettingsSection();
     await initFollowingAutomationGlobalSection();
@@ -3665,6 +3854,8 @@
     document.getElementById('testApifyTokenBtn')?.addEventListener('click', testApifyToken);
     document.getElementById('saveAsterFuturesKeysBtn')?.addEventListener('click', saveAsterFuturesKeys);
     document.getElementById('saveAsterFuturesRiskBtn')?.addEventListener('click', saveAsterFuturesRisk);
+    await loadPostStorage();
+    document.getElementById('refreshStorageBtn')?.addEventListener('click', loadPostStorage);
     document.getElementById('refreshProfilesBtn')?.addEventListener('click', loadProfiles);
     document.getElementById('saveJwtTimeBtn')?.addEventListener('click', saveJwtTime);
     document.getElementById('refreshJwtNowBtn')?.addEventListener('click', refreshJwtNow);

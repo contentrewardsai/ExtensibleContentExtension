@@ -8,6 +8,8 @@ const confirmField = z.boolean().optional().describe('Set to true to execute (re
 export function registerMeteoraTools(server, ctx) {
   function meteoraWrite(name, desc, schema, buildPayload) {
     server.tool(name, desc, { ...schema, confirm: confirmField }, async (args) => {
+      const gateErr = await ctx.cryptoGate.guard(name);
+      if (gateErr) return gateErr;
       let dryRun = true;
       try {
         const dryRunRes = await ctx.readStorage(['cfsMcpDryRunConfirmation']);

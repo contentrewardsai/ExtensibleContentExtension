@@ -1,0 +1,22 @@
+{
+  "id": "assertCondition",
+  "label": "Assert Condition",
+  "category": "flow",
+  "description": "Halt the workflow with an error if a condition is false. Use to guard against insufficient credits, full storage, missing variables, etc. Condition uses the same syntax as runIf (comparisons, {{variable}} paths, truthiness).",
+  "defaultAction": {
+    "type": "assertCondition",
+    "runIf": "",
+    "condition": "{{shotstackCredits.credits}} > 0",
+    "errorMessage": "Condition not met"
+  },
+  "inputs": [
+    { "key": "condition", "description": "Expression to evaluate (same syntax as runIf)" },
+    { "key": "errorMessage", "description": "Error message if condition is false (supports {{variable}} templates)" }
+  ],
+  "outputs": [],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip this assert when empty/falsy." },
+    { "key": "condition", "label": "Condition (required)", "inputType": "text", "placeholder": "{{credits}} > 0", "hint": "Expression: {{var}} > 0, {{acct.loggedIn}}, {{storageInfo.percentUsed}} < 90, etc." },
+    { "key": "errorMessage", "label": "Error message if false", "inputType": "text", "placeholder": "Condition not met", "hint": "Shown when the workflow halts. Supports {{variable}} templates." }
+  ]
+}

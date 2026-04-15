@@ -9,8 +9,14 @@
     if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     const apiKeyVar = (action.apiKeyVariableKey || '').trim() || 'uploadPostApiKey';
-    const apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
-    if (!apiKey || String(apiKey).trim() === '') throw new Error('Get Instagram Comments: API key required.');
+    var apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
+    var viaBackend = false;
+    if (!apiKey || String(apiKey).trim() === '') {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        try { var ld = await chrome.storage.local.get('uploadPostApiKey'); if (ld.uploadPostApiKey && String(ld.uploadPostApiKey).trim()) apiKey = String(ld.uploadPostApiKey).trim(); } catch (_) {}
+      }
+      if (!apiKey || String(apiKey).trim() === '') viaBackend = true;
+    }
 
     const mediaIdVar = (action.mediaIdVariableKey || '').trim();
     const mediaId = mediaIdVar ? getRowValue(row, mediaIdVar, 'mediaId', 'media_id') : undefined;
@@ -22,7 +28,7 @@
 
     const response = await sendMessage({
       type: 'GET_INSTAGRAM_COMMENTS',
-      apiKey: String(apiKey).trim(),
+      ...(viaBackend ? { viaBackend: true } : { apiKey: String(apiKey).trim() }),
       mediaId: mediaId ? String(mediaId).trim() : undefined,
       postUrl: postUrl ? String(postUrl).trim() : undefined,
     });

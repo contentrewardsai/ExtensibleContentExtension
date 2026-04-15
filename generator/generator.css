@@ -127,30 +127,32 @@ body {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   font-size: 11px;
   font-weight: 500;
   border: none;
   border-radius: var(--gen-radius-md);
   cursor: pointer;
   transition: all var(--gen-transition);
-  color: var(--gen-muted);
+  color: #71717a;
   background: transparent;
 }
 
 .gen-tab-btn:hover {
-  color: var(--gen-text-secondary);
+  color: #a1a1aa;
   background: rgba(39, 39, 42, 0.5);
 }
 
 .gen-tab-btn.active {
-  color: var(--gen-text);
-  background: var(--gen-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  color: #fafafa;
+  background: #27272a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .gen-tab-btn svg {
   flex-shrink: 0;
+  width: 12px;
+  height: 12px;
 }
 
 /* --- Tab Content --- */
@@ -177,7 +179,7 @@ body {
 
 /* --- Accordion Sections --- */
 .gen-accordion {
-  border-bottom: 1px solid var(--gen-border-subtle);
+  border-bottom: 1px solid rgba(39, 39, 42, 0.6);
 }
 
 .gen-accordion:last-child {
@@ -192,16 +194,18 @@ body {
   padding: 10px 16px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--gen-text);
+  color: #e4e4e7;
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background var(--gen-transition);
+  transition: background var(--gen-transition), color var(--gen-transition);
   text-align: left;
+  letter-spacing: 0.01em;
 }
 
 .gen-accordion-trigger:hover {
-  background: rgba(39, 39, 42, 0.4);
+  background: rgba(39, 39, 42, 0.45);
+  color: #fafafa;
 }
 
 .gen-accordion-trigger .gen-accordion-left {
@@ -211,22 +215,39 @@ body {
 }
 
 .gen-accordion-trigger .gen-accordion-left svg {
-  color: var(--gen-muted);
+  color: #71717a;
   flex-shrink: 0;
+  transition: color var(--gen-transition);
+}
+
+.gen-accordion-trigger:hover .gen-accordion-left svg {
+  color: #a1a1aa;
+}
+
+.gen-accordion-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .gen-accordion-extra {
   font-weight: 400;
   font-size: 10px;
-  color: var(--gen-text-secondary);
-  margin-left: 4px;
-  opacity: 0.7;
+  color: #52525b;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gen-accordion-trigger .gen-accordion-chevron {
-  color: var(--gen-muted);
-  transition: transform var(--gen-transition);
+  color: #52525b;
+  transition: transform var(--gen-transition), color var(--gen-transition);
   flex-shrink: 0;
+}
+
+.gen-accordion-trigger:hover .gen-accordion-chevron {
+  color: #71717a;
 }
 
 .gen-accordion.open > .gen-accordion-trigger .gen-accordion-chevron {
@@ -235,7 +256,7 @@ body {
 
 .gen-accordion-body {
   display: none;
-  padding: 4px 16px 14px;
+  padding: 4px 16px 16px;
   background: rgba(9, 9, 11, 0.2);
 }
 
@@ -248,7 +269,7 @@ body {
 .gen-form-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   margin-bottom: 10px;
 }
 
@@ -264,9 +285,10 @@ body {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--gen-muted);
-  margin-bottom: 2px;
+  margin-bottom: 1px;
+  line-height: 1;
 }
 
 /* Inputs & Selects */
@@ -283,15 +305,16 @@ select,
 input[type="text"],
 input[type="number"] {
   width: 100%;
-  padding: 7px 10px;
-  background: var(--gen-bg);
-  border: 1px solid var(--gen-border);
+  padding: 6px 10px;
+  background: #09090b;
+  border: 1px solid #27272a;
   border-radius: var(--gen-radius-sm);
   color: var(--gen-text);
-  font-size: 12px;
+  font-size: 11px;
   font-family: inherit;
   transition: border-color var(--gen-transition), box-shadow var(--gen-transition);
   outline: none;
+  line-height: 1.4;
 }
 
 select:focus,
@@ -299,15 +322,15 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 textarea:focus {
   border-color: var(--gen-accent);
-  box-shadow: 0 0 0 1px var(--gen-accent-glow);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
 
 select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2352525b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 28px;
+  padding-right: 24px;
 }
 
 .gen-variable-item input[type="color"] {
@@ -347,6 +370,14 @@ select {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.gen-template-copy-row {
+  margin-top: 8px;
+}
+.gen-template-copy-row > label {
+  display: block; font-size: 11px; font-weight: 600; margin-bottom: 2px; color: var(--gen-text-secondary);
+}
+.gen-template-copy-row select { flex: 1; min-width: 0; }
 
 .gen-template-select-main {
   flex: 1;
@@ -783,53 +814,87 @@ select {
 }
 
 /* ========================================================================
-   Properties Panel — Sectioned Inspector
+   Properties Panel — NLE-Style Sectioned Inspector
    ======================================================================== */
 .gen-properties-panel {
   margin-top: 0;
+  padding: 0;
 }
 
 .gen-properties-panel .cfs-editor-panel-heading {
   display: none;
 }
 
-/* Section headers */
+/* Properties form container — tighter padding to match the reference */
+.gen-properties-panel .cfs-properties-form {
+  padding: 4px 0 0;
+}
+
+/* ── Section headers (LAYOUT & POSITION, TYPOGRAPHY, etc.) ── */
 .gen-prop-section-label {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--gen-muted);
-  border-bottom: 1px solid var(--gen-border-subtle);
-  padding-bottom: 6px;
-  margin-top: 16px;
-  margin-bottom: 10px;
+  letter-spacing: 0.07em;
+  color: #52525b;
+  border-bottom: 1px solid #27272a;
+  padding: 0 0 4px;
+  margin: 16px 0 8px;
+  line-height: 1;
+}
+
+.gen-prop-section-label::after {
+  display: none; /* removed gradient — using solid border now */
 }
 
 .gen-prop-section-label:first-child {
-  margin-top: 0;
+  margin-top: 2px;
+  padding-top: 0;
 }
 
-/* Layout grids */
+/* ── Layout grids ── */
 .gen-prop-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .gen-prop-grid-4 {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* Auto-pair: 2-column layout for side-by-side fields */
+.gen-prop-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
-/* Form group */
+/* Auto-quad: 4-column layout for compact fields */
+.gen-prop-quad {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* ── Form group ── */
 .gen-prop-group {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  margin-bottom: 8px;
+}
+
+/* When inside a grid, remove the extra bottom margin */
+.gen-prop-pair > .gen-prop-group,
+.gen-prop-quad > .gen-prop-group {
+  margin-bottom: 0;
 }
 
 .gen-prop-group > label,
@@ -837,81 +902,114 @@ select {
   font-size: 10px;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #a1a1aa;
+  letter-spacing: 0.07em;
+  color: #71717a;
+  line-height: 1;
 }
 
-/* Inputs */
+/* ── Inputs ── */
 .gen-prop-input {
   width: 100%;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: 11px;
   font-family: inherit;
-  background: var(--gen-field-bg);
-  border: 1px solid var(--gen-border);
+  background: #09090b;
+  border: 1px solid #27272a;
   border-radius: var(--gen-radius-sm);
   color: var(--gen-text);
   transition: border-color var(--gen-transition), box-shadow var(--gen-transition);
   outline: none;
+  line-height: 1.4;
 }
 
 .gen-prop-input:focus {
   border-color: var(--gen-accent);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
 
 .gen-prop-input::placeholder {
-  color: var(--gen-muted);
+  color: #52525b;
+}
+
+/* Numeric inputs in the property panel — monospaced for alignment */
+.gen-prop-input[type="number"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  -moz-appearance: textfield;
+}
+
+.gen-prop-input[type="number"]::-webkit-inner-spin-button,
+.gen-prop-input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0;
+}
+
+.gen-prop-input[type="number"]:hover::-webkit-inner-spin-button,
+.gen-prop-input[type="number"]:hover::-webkit-outer-spin-button {
+  opacity: 0.6;
 }
 
 textarea.gen-prop-input {
   resize: vertical;
-  min-height: 60px;
-  font-family: ui-monospace, monospace;
+  min-height: 56px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   line-height: 1.5;
+  padding: 6px 10px;
 }
 
 select.gen-prop-input {
   appearance: none;
-  background-color: var(--gen-field-bg);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2371717a' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  -webkit-appearance: none;
+  background-color: #09090b;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2352525b' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 26px;
+  background-position: right 8px center;
+  padding-right: 24px;
+  cursor: pointer;
 }
 
-/* Segmented control (Fixed / Responsive) */
+select.gen-prop-input:hover {
+  border-color: #3f3f46;
+}
+
+/* ── Segmented control (Fixed / Responsive) ── */
 .gen-segmented-control {
   display: flex;
-  background: var(--gen-field-bg);
-  border: 1px solid var(--gen-border);
+  background: #09090b;
+  border: 1px solid #27272a;
   border-radius: var(--gen-radius-sm);
-  padding: 3px;
-  margin-bottom: 10px;
+  padding: 2px;
+  margin-bottom: 12px;
+  gap: 2px;
 }
 
 .gen-segmented-btn {
   flex: 1;
-  padding: 6px 4px;
+  padding: 5px 4px;
   font-size: 10px;
   font-weight: 500;
   text-align: center;
-  color: var(--gen-muted);
+  color: #71717a;
   background: transparent;
   border: none;
   border-radius: 3px;
   cursor: pointer;
   transition: background var(--gen-transition), color var(--gen-transition), box-shadow var(--gen-transition);
+  letter-spacing: 0.01em;
+}
+
+.gen-segmented-btn:hover {
+  color: #a1a1aa;
+  background: rgba(39, 39, 42, 0.3);
 }
 
 .gen-segmented-btn.active {
-  background: #3f3f46;
+  background: #27272a;
   color: #fafafa;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-/* Color + text input pair */
+/* ── Color + text input pair ── */
 .gen-color-pair {
   display: flex;
   gap: 4px;
@@ -922,22 +1020,28 @@ select.gen-prop-input {
   width: 32px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--gen-border);
+  border: 1px solid #27272a;
   border-radius: var(--gen-radius-sm);
   cursor: pointer;
-  background: var(--gen-field-bg);
+  background: #09090b;
+  transition: border-color var(--gen-transition);
 }
 
-/* Alignment buttons */
+.gen-color-swatch:hover {
+  border-color: #3f3f46;
+}
+
+/* ── Alignment buttons ── */
 .gen-align-group {
   display: flex;
-  gap: 2px;
-  background: var(--gen-field-bg);
-  border: 1px solid var(--gen-border);
-  padding: 4px;
+  gap: 1px;
+  background: #09090b;
+  border: 1px solid #27272a;
+  padding: 3px;
   border-radius: var(--gen-radius-sm);
   width: max-content;
-  margin-top: 8px;
+  margin-top: 2px;
+  margin-bottom: 10px;
 }
 
 .gen-align-btn {
@@ -950,14 +1054,14 @@ select.gen-prop-input {
   background: transparent;
   border: none;
   border-radius: 3px;
-  color: var(--gen-muted);
+  color: #71717a;
   cursor: pointer;
   transition: all var(--gen-transition);
 }
 
 .gen-align-btn:hover {
-  background: #3f3f46;
-  color: var(--gen-text);
+  background: rgba(39, 39, 42, 0.6);
+  color: #e4e4e7;
 }
 
 .gen-align-btn.active {
@@ -974,28 +1078,32 @@ select.gen-prop-input {
    Merge Field Cards
    ======================================================================== */
 .gen-merge-card {
-  background: rgba(30, 58, 138, 0.14);
-  border: 1px solid rgba(59, 130, 246, 0.28);
-  border-radius: var(--gen-radius-md);
-  padding: 10px;
+  background: rgba(24, 24, 27, 0.6);
+  border: 1px solid #27272a;
+  border-radius: var(--gen-radius-sm);
+  padding: 8px;
   margin-bottom: 8px;
   position: relative;
   transition: border-color var(--gen-transition), background var(--gen-transition);
 }
 
+.gen-merge-card:hover {
+  border-color: #3f3f46;
+}
+
 .gen-merge-card.unlinked {
-  background: rgba(153, 27, 27, 0.08);
-  border-color: rgba(153, 27, 27, 0.3);
+  background: rgba(69, 10, 10, 0.15);
+  border-color: rgba(153, 27, 27, 0.35);
 }
 
 .gen-merge-unlinked-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(153, 27, 27, 0.15);
-  border: 1px solid rgba(153, 27, 27, 0.25);
-  border-radius: var(--gen-radius-sm);
-  padding: 4px 8px;
+  background: rgba(153, 27, 27, 0.12);
+  border: 1px solid rgba(153, 27, 27, 0.2);
+  border-radius: 3px;
+  padding: 5px 8px;
   margin-bottom: 6px;
 }
 
@@ -1016,9 +1124,9 @@ select.gen-prop-input {
 .gen-merge-unlinked-actions button {
   font-size: 10px;
   padding: 2px 8px;
-  border-radius: var(--gen-radius-sm);
+  border-radius: 3px;
   border: 1px solid rgba(153, 27, 27, 0.3);
-  background: rgba(153, 27, 27, 0.2);
+  background: rgba(153, 27, 27, 0.15);
   cursor: pointer;
   transition: all var(--gen-transition);
 }
@@ -1049,37 +1157,37 @@ select.gen-prop-input {
 .gen-merge-brace {
   font-family: ui-monospace, monospace;
   font-size: 10px;
-  color: var(--gen-muted);
+  color: #52525b;
 }
 
 .gen-merge-key-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 4px 6px;
   font-size: 10px;
   font-family: ui-monospace, monospace;
   color: #60a5fa;
-  background: rgba(23, 37, 84, 0.45);
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  border-radius: var(--gen-radius-sm);
+  background: rgba(23, 37, 84, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
   outline: none;
 }
 
 .gen-merge-key-input:focus {
   border-color: var(--gen-accent);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);
 }
 
 .gen-merge-card-delete {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 18px;
-  height: 18px;
+  top: -5px;
+  right: -5px;
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.12);
   border: none;
   border-radius: 50%;
   color: var(--gen-danger);
@@ -1108,20 +1216,20 @@ select.gen-prop-input {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   font-size: 10px;
   font-weight: 500;
   color: #60a5fa;
-  background: var(--gen-field-bg);
-  border: 1px solid var(--gen-border);
+  background: #09090b;
+  border: 1px solid #27272a;
   border-radius: var(--gen-radius-sm);
   cursor: pointer;
   transition: all var(--gen-transition);
 }
 
 .gen-merge-add-btn:hover {
-  background: rgba(30, 58, 138, 0.2);
-  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(30, 58, 138, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .gen-merge-add-btn svg {
@@ -1129,38 +1237,264 @@ select.gen-prop-input {
   height: 12px;
 }
 
+/* ── Inline Merge Field Container (Template text section) ── */
+.gen-merge-fields-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gen-merge-tpl-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+}
+
+.gen-merge-tpl-code {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(9, 9, 11, 0.8);
+  border: 1px solid #27272a;
+  color: #a1a1aa;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* ── Editable template text textarea ── */
+textarea.gen-merge-tpl-code.gen-merge-tpl-editable {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 40px;
+  max-height: 160px;
+  outline: none;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  color: #d4d4d8;
+}
+textarea.gen-merge-tpl-code.gen-merge-tpl-editable:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  color: #e4e4e7;
+}
+textarea.gen-merge-tpl-code.gen-merge-tpl-editable::placeholder {
+  color: #52525b;
+  font-style: italic;
+}
+
+/* ── Merge Field Block (card per placeholder) ── */
+.gen-merge-field-block {
+  background: rgba(23, 37, 84, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.gen-merge-field-block:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(23, 37, 84, 0.18);
+}
+
+.gen-merge-field-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e4e4e7;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.gen-merge-field-key-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.12);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* ── Merge Field Row (Default/Value row) ── */
+.gen-merge-field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.gen-merge-field-row-label {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  color: #52525b;
+  min-width: 46px;
+  text-align: right;
+}
+
+.gen-merge-field-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  background: rgba(9, 9, 11, 0.7);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 3px;
+  color: #e4e4e7;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.gen-merge-field-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);
+}
+
+.gen-merge-field-input::placeholder {
+  color: #3f3f46;
+}
+
+/* ── Merge Field Color Swatch ── */
+.gen-merge-color-swatch {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  background: #09090b;
+  flex-shrink: 0;
+  transition: border-color 150ms ease;
+}
+
+.gen-merge-color-swatch:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+/* ── Merge Field Hex Value ── */
+.gen-merge-field-hex {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #a1a1aa;
+}
+
 /* ========================================================================
    Delete Clip Button
    ======================================================================== */
 .gen-delete-clip-btn {
-  width: 100%;
-  padding: 8px 10px;
+  flex: 1;
+  padding: 6px 10px;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
   text-align: center;
   color: #f87171;
-  background: rgba(127, 29, 29, 0.22);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(69, 10, 10, 0.3);
+  border: 1px solid rgba(153, 27, 27, 0.5);
   border-radius: var(--gen-radius-sm);
   cursor: pointer;
   transition: all var(--gen-transition);
+  margin-top: 2px;
 }
 
 .gen-delete-clip-btn:hover {
-  background: rgba(127, 29, 29, 0.35);
+  background: rgba(127, 29, 29, 0.5);
   border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+/* ── Properties Header Bar ── */
+.gen-props-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.gen-props-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gen-props-header-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--gen-muted);
+  flex-shrink: 0;
+}
+
+.gen-props-header-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gen-text);
+  letter-spacing: 0.01em;
+}
+
+.gen-props-header-type {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gen-text-secondary);
+  padding: 2px 8px;
+  border-radius: var(--gen-radius-sm);
+  background: var(--gen-surface);
+  border: 1px solid var(--gen-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gen-props-header-type svg {
+  width: 10px;
+  height: 10px;
+  color: var(--gen-muted);
+}
+
+/* ── Properties Editing Indicator ── */
+.gen-properties-panel .cfs-properties-editing {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--gen-text);
+  margin-bottom: 6px;
+  padding: 0;
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Section containers for grouped content ── */
+.gen-prop-section-wrap {
+  background: var(--gen-field-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: var(--gen-radius-md);
+  padding: 10px;
+  margin-bottom: 8px;
 }
 
 /* Empty / hint states */
 .gen-prop-empty {
   font-size: 10px;
-  color: var(--gen-muted);
+  color: #52525b;
   font-style: italic;
-  padding: 10px 12px;
+  padding: 12px 16px;
   text-align: center;
-  border: 1px dashed var(--gen-border-subtle);
+  border: 1px dashed rgba(39, 39, 42, 0.8);
   border-radius: var(--gen-radius-sm);
-  background: rgba(0, 0, 0, 0.15);
+  margin: 8px 16px;
+  letter-spacing: 0.01em;
 }
 
 /* Code / pre-style template snippets in inspector (low specificity; inline styles may still win) */
@@ -1814,7 +2148,10 @@ button.primary:hover,
 /* ========================================================================
    Step Generator Sections
    ======================================================================== */
-.gen-step-sections { margin-top: 8px; }
+.gen-step-sections { margin-top: 8px; display: flex; flex-direction: column; }
+/* Ordering: ShotStack (default 0) → Generations (1) → Upload Post (2) */
+#cfs-generation-history-section { order: 1; }
+#cfs-uploadpost-gen-section { order: 2; }
 .gen-step-section { border-top: 1px solid var(--gen-border); padding: 10px 16px 6px; }
 .gen-step-section .gen-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gen-muted); margin-bottom: 6px; }
 .gen-step-section .step-gen-field { margin-bottom: 8px; }
@@ -2091,4 +2428,859 @@ button.primary:hover,
   background: var(--gen-accent, #3b82f6);
   color: #fff;
   border-color: var(--gen-accent, #3b82f6);
+}
+
+/* ========================================================================
+   Properties Panel — Polish & Micro-interactions
+   ======================================================================== */
+
+/* Accent checkboxes */
+.gen-properties-panel input[type="checkbox"],
+.cfs-properties-form input[type="checkbox"] {
+  accent-color: #3b82f6;
+}
+
+/* Hide-on-image row styling */
+.cfs-prop-hide-on-image-row {
+  margin-bottom: 8px;
+  padding: 6px 0;
+}
+
+.cfs-prop-hide-on-image-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 11px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: #a1a1aa !important;
+  transition: color 150ms ease;
+}
+
+.cfs-prop-hide-on-image-row label:hover {
+  color: #e4e4e7 !important;
+}
+
+.cfs-prop-hide-on-image-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+/* Convert to merge field button styling */
+.cfs-properties-form .cfs-btn-secondary {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(9, 9, 11, 0.8);
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.cfs-properties-form .cfs-btn-secondary:hover {
+  background: #27272a;
+  border-color: #3f3f46;
+  color: #e4e4e7;
+}
+
+/* Smooth section transitions */
+.cfs-properties-form-wrap {
+  animation: genFadeIn 150ms ease;
+}
+
+/* Input number arrows — subtle on hover */
+.cfs-properties-form input[type="number"]::-webkit-inner-spin-button,
+.cfs-properties-form input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.cfs-properties-form input[type="number"]:hover::-webkit-inner-spin-button,
+.cfs-properties-form input[type="number"]:hover::-webkit-outer-spin-button {
+  opacity: 0.4;
+}
+
+/* Linked field info badge */
+.cfs-prop-linked {
+  font-size: 10px;
+  color: #52525b;
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+.cfs-prop-linked strong {
+  color: #a1a1aa;
+  font-weight: 500;
+}
+
+/* ========================================================================
+   Properties Panel — Round 2 Refinement (React Reference Parity)
+   ======================================================================== */
+
+/* ── Editing Heading Badge Row (inline-styles in JS, reinforce via classes) ── */
+.cfs-properties-form > div:first-child {
+  margin-bottom: 10px;
+}
+
+/* ── Tighter form container spacing ── */
+.gen-properties-panel .cfs-properties-form {
+  padding: 6px 14px 14px;
+}
+
+.gen-properties-panel .cfs-properties-form-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── Property rows: tighter gaps ── */
+.gen-properties-panel .cfs-prop-row {
+  margin-bottom: 8px;
+  gap: 4px;
+}
+
+/* ── Auto-pair rows: 2-column grid for adjacent prop rows ── */
+.gen-properties-panel .cfs-prop-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.gen-properties-panel .cfs-prop-pair > .cfs-prop-row {
+  margin-bottom: 0;
+}
+
+/* ── Section labels polish ── */
+.gen-properties-panel .cfs-prop-section-label,
+.gen-properties-panel .gen-prop-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #52525b;
+  border-bottom: 1px solid #27272a;
+  padding: 0 0 4px;
+  margin: 14px 0 8px;
+  line-height: 1;
+}
+
+.gen-properties-panel .cfs-prop-section-label:first-child,
+.gen-properties-panel .gen-prop-section-label:first-child {
+  margin-top: 0;
+}
+
+/* ── Labels inside property rows ── */
+.gen-properties-panel .cfs-prop-row > label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  line-height: 1;
+  margin-bottom: 0;
+}
+
+/* ── Inputs: crisp, compact, consistent ── */
+.gen-properties-panel .cfs-prop-row input[type="text"],
+.gen-properties-panel .cfs-prop-row input[type="number"],
+.gen-properties-panel .cfs-prop-row input[type="url"],
+.gen-properties-panel .cfs-prop-row textarea,
+.gen-properties-panel .cfs-prop-row select {
+  padding: 5px 8px;
+  font-size: 11px;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  color: #e4e4e7;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  width: 100%;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
+.gen-properties-panel .cfs-prop-row input:focus,
+.gen-properties-panel .cfs-prop-row textarea:focus,
+.gen-properties-panel .cfs-prop-row select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+/* ── Number inputs: monospace for alignment ── */
+.gen-properties-panel .cfs-prop-row input[type="number"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  -moz-appearance: textfield;
+}
+
+/* ── Select: custom chevron ── */
+.gen-properties-panel .cfs-prop-row select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2352525b' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+  cursor: pointer;
+}
+
+.gen-properties-panel .cfs-prop-row select:hover {
+  border-color: #3f3f46;
+}
+
+/* ── Textarea: mono, taller, resizable ── */
+.gen-properties-panel .cfs-prop-row textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── Inline color + text pair ── */
+.gen-properties-panel .cfs-color-pair,
+.cfs-properties-form .cfs-color-pair {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.gen-properties-panel input[type="color"],
+.cfs-properties-form input[type="color"] {
+  width: 32px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #09090b;
+  flex-shrink: 0;
+}
+
+.gen-properties-panel input[type="color"]:hover,
+.cfs-properties-form input[type="color"]:hover {
+  border-color: #3f3f46;
+}
+
+/* ── Dimension widget: combined W×H inside single border ── */
+.gen-dimensions-widget {
+  display: flex;
+  align-items: center;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: border-color 150ms ease;
+}
+
+.gen-dimensions-widget:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+.gen-dimensions-widget input {
+  flex: 1;
+  background: transparent;
+  border: none !important;
+  box-shadow: none !important;
+  text-align: center;
+  padding: 5px 6px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #e4e4e7;
+  outline: none;
+  min-width: 0;
+}
+
+.gen-dimensions-widget .gen-dims-sep {
+  color: #52525b;
+  font-size: 10px;
+  flex-shrink: 0;
+  user-select: none;
+  padding: 0 2px;
+}
+
+/* ── Segmented Control (Fixed / Responsive) refinement ── */
+.gen-segmented-control {
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.gen-segmented-btn {
+  padding: 4px 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border-radius: 3px;
+  transition: all 120ms ease;
+}
+
+.gen-segmented-btn.active {
+  background: #27272a;
+  color: #fafafa;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Alignment buttons refinement ── */
+.gen-align-group {
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 2px;
+  gap: 1px;
+}
+
+.gen-align-btn {
+  width: 28px;
+  height: 24px;
+  border-radius: 3px;
+  transition: all 120ms ease;
+}
+
+.gen-align-btn:hover {
+  background: rgba(39, 39, 42, 0.6);
+  color: #e4e4e7;
+}
+
+.gen-align-btn.active {
+  background: #3f3f46;
+  color: #fafafa;
+}
+
+/* ── Property accordion extra text ── */
+#propsAccordionExtra {
+  font-size: 10px;
+  font-weight: 400;
+  color: #52525b;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Checkbox row improvements ── */
+.cfs-prop-hide-on-image-row {
+  padding: 4px 0 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.3);
+}
+
+.cfs-prop-hide-on-image-row label {
+  font-size: 11px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: #a1a1aa !important;
+  gap: 8px;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.cfs-prop-hide-on-image-row label:hover {
+  color: #e4e4e7 !important;
+}
+
+.cfs-prop-hide-on-image-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #3b82f6;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* ── Merge field cards polish ── */
+.gen-merge-card {
+  background: rgba(24, 24, 27, 0.6);
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 6px;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.gen-merge-card:hover {
+  border-color: #3f3f46;
+  background: rgba(24, 24, 27, 0.8);
+}
+
+/* ── Delete clip button polish ── */
+.gen-delete-clip-btn,
+.cfs-btn-delete {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 5px 10px;
+  background: rgba(69, 10, 10, 0.25);
+  border: 1px solid rgba(153, 27, 27, 0.45);
+  border-radius: 4px;
+  color: #f87171;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-align: center;
+}
+
+.gen-delete-clip-btn:hover,
+.cfs-btn-delete:hover {
+  background: rgba(127, 29, 29, 0.45);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+/* ── Secondary / action buttons in property panel ── */
+.cfs-properties-form .cfs-btn-secondary,
+.cfs-properties-form .cfs-prop-buttons button {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.cfs-properties-form .cfs-btn-secondary:hover,
+.cfs-properties-form .cfs-prop-buttons button:hover {
+  background: #27272a;
+  border-color: #3f3f46;
+  color: #e4e4e7;
+}
+
+/* ── "Add merge field" button ── */
+.gen-merge-add-btn {
+  font-size: 10px;
+  font-weight: 500;
+  color: #60a5fa;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.gen-merge-add-btn:hover {
+  background: rgba(30, 58, 138, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* ── Empty state — dashed center ── */
+.gen-prop-empty {
+  font-size: 10px;
+  color: #52525b;
+  font-style: italic;
+  padding: 10px 14px;
+  text-align: center;
+  border: 1px dashed rgba(39, 39, 42, 0.8);
+  border-radius: 4px;
+  margin: 6px 14px;
+  letter-spacing: 0.01em;
+}
+
+/* ── Canvas Configuration section: tighter grids ── */
+.gen-accordion-body .gen-prop-grid-2 {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.gen-accordion-body .gen-prop-grid-4 {
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+/* ── "Save as JSON" and action buttons in accordion bodies ── */
+.gen-accordion-body button {
+  font-family: inherit;
+}
+
+.gen-accordion-body button.secondary,
+.gen-accordion-body .gen-save-btn {
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--gen-bg);
+  border: 1px solid var(--gen-border);
+  border-radius: 4px;
+  color: var(--gen-text-secondary);
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-align: center;
+}
+
+.gen-accordion-body button.secondary:hover,
+.gen-accordion-body .gen-save-btn:hover {
+  background: #27272a;
+  border-color: #3f3f46;
+  color: var(--gen-text);
+}
+
+/* ── Track clips: uniform spacing ── */
+.gen-track-clip {
+  padding: 4px 10px 4px 16px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.25);
+}
+
+.gen-track-clip.active {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+}
+
+/* ── Tool icon buttons: consistent sizing ── */
+.gen-tool-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+}
+
+.gen-tool-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Zoom / Resolution label row ── */
+.gen-accordion-body .gen-form-label,
+.gen-accordion-body .gen-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  margin-bottom: 2px;
+}
+
+/* ── Format type dropdown refinements ── */
+.gen-accordion-body select {
+  padding: 5px 24px 5px 8px;
+  font-size: 11px;
+}
+
+/* ── Template picker section tighter ── */
+.gen-template-list {
+  padding: 10px 14px;
+}
+
+.gen-template-list label {
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+/* ── Accordion body tighter ── */
+.gen-accordion-body {
+  padding: 4px 14px 14px;
+}
+
+/* ── Properties header bar tighter ── */
+.gen-props-header {
+  margin-bottom: 2px;
+}
+
+/* ── Fade in for forms ── */
+.cfs-properties-form {
+  animation: genFadeIn 200ms ease;
+}
+
+
+
+/* ── Subtle inset for section wraps ── */
+.gen-prop-section-wrap {
+  background: rgba(5, 5, 7, 0.5);
+  border: 1px solid rgba(39, 39, 42, 0.5);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 6px;
+}
+
+/* ── Compact project row ── */
+.gen-project-row-sidebar {
+  padding: 8px 14px 10px;
+}
+
+/* ── Sidebar scrollable area smooth ── */
+.gen-sidebar-scrollable {
+  scroll-behavior: smooth;
+}
+
+/* ── Plugin description box tighter ── */
+.gen-plugin-description {
+  font-size: 10px;
+  padding: 6px 8px;
+  line-height: 1.5;
+  background: rgba(9, 9, 11, 0.5);
+  border: 1px solid rgba(39, 39, 42, 0.4);
+  border-radius: 4px;
+  color: #52525b;
+}
+
+/* ── Inline-style override: ensure form inputs inside cfs-properties-form respect the design ── */
+.cfs-properties-form input[style*="width"],
+.cfs-properties-form input[style*="max-width"] {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+/* ── Merge field key input inside property form ── */
+.cfs-properties-form input.cfs-prop-audio-url,
+.cfs-properties-form .cfs-prop-row input {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* ── Hint text ── */
+.cfs-prop-hint {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #52525b;
+  background: rgba(9, 9, 11, 0.5);
+  border: 1px solid rgba(39, 39, 42, 0.4);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+/* ── Wrap checkbox row ── */
+.gen-prop-group input[type="checkbox"] {
+  width: 14px !important;
+  height: 14px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── Color pair clear/X button ── */
+.gen-color-pair .gen-tool-icon-btn {
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  color: #52525b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 150ms ease;
+  flex-shrink: 0;
+}
+
+.gen-color-pair .gen-tool-icon-btn:hover {
+  background: #27272a;
+  border-color: #3f3f46;
+  color: #f87171;
+}
+
+.gen-color-pair .gen-tool-icon-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── Section label: fine-tuned divider ── */
+.gen-prop-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #52525b;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.6);
+  padding-bottom: 4px;
+  margin: 14px 0 8px;
+  line-height: 1;
+}
+
+.gen-prop-section-label:first-child {
+  margin-top: 4px;
+}
+
+/* ── Gen-prop-input tighter padding ── */
+.gen-prop-input {
+  padding: 5px 8px;
+}
+
+/* ── Fill row — non-merge mode: inline swatch + label ── */
+.gen-merge-field-block > label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  margin-bottom: 2px;
+}
+
+/* ── Segmented control: tighter margin ── */
+.gen-segmented-control {
+  margin-bottom: 8px;
+}
+
+/* ── Quad grid: tighter ── */
+.gen-prop-quad {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* ── Accordion body link between section-labels ── */
+.gen-accordion-body > .gen-prop-section-label + .gen-prop-group {
+  margin-top: 0;
+}
+
+/* ── Prop row label in cfs-properties-form: also apply uppercase ── */
+.cfs-properties-form .gen-prop-group > label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  line-height: 1;
+}
+
+/* ── Editor right-column property panel: tight overrides ── */
+.cfs-editor-property-panel .gen-prop-group {
+  margin-bottom: 6px;
+  gap: 2px;
+}
+
+.cfs-editor-property-panel .gen-prop-input {
+  padding: 4px 6px;
+  font-size: 10px;
+}
+
+.cfs-editor-property-panel .gen-prop-section-label {
+  font-size: 9px;
+  margin: 10px 0 6px;
+}
+
+/* ── Tweens/effects forms ── */
+.gen-tween-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.gen-tween-pair > .gen-prop-group {
+  margin-bottom: 0;
+}
+
+/* ── Editable merge key input ── */
+.gen-merge-key-input {
+  background: rgba(59,130,246,0.15);
+  border: 1px solid rgba(59,130,246,0.35);
+  border-radius: 3px;
+  color: #93c5fd;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  min-width: 60px;
+  max-width: 120px;
+  text-transform: uppercase;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.gen-merge-key-input:focus {
+  border-color: #3b82f6;
+  background: rgba(59,130,246,0.25);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+/* ── Merge field type badge (Image, Video, etc.) ── */
+.gen-merge-field-type-badge {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a1a1aa;
+  background: rgba(161,161,170,0.12);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* ── Unlinked merge field card ── */
+.gen-merge-field-block.gen-merge-field-unlinked {
+  background: rgba(185,28,28,0.08);
+  border: 1px solid rgba(239,68,68,0.25);
+}
+.gen-merge-field-block.gen-merge-field-unlinked:hover {
+  background: rgba(185,28,28,0.12);
+}
+.gen-merge-unlinked-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.gen-merge-unlinked-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gen-merge-unlinked-label svg { stroke: #ef4444; flex-shrink: 0; }
+.gen-merge-unlinked-actions {
+  display: flex;
+  gap: 4px;
+}
+.gen-merge-addback,
+.gen-merge-delete-mf {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gen-merge-addback {
+  background: rgba(34,197,94,0.12);
+  color: #4ade80;
+  border-color: rgba(34,197,94,0.25);
+}
+.gen-merge-addback:hover { background: rgba(34,197,94,0.22); }
+.gen-merge-delete-mf {
+  background: rgba(239,68,68,0.10);
+  color: #f87171;
+  border-color: rgba(239,68,68,0.20);
+}
+.gen-merge-delete-mf:hover { background: rgba(239,68,68,0.20); }
+
+/* ── Editor toast notification ── */
+.gen-editor-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  background: #18181b;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #3f3f46;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+.gen-editor-toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }

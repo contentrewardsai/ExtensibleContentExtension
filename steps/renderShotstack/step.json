@@ -2,7 +2,7 @@
   "id": "renderShotstack",
   "label": "Render with ShotStack",
   "category": "data",
-  "description": "Render video or audio via the ShotStack cloud API. Uses the current generator template JSON or a ShotStack JSON from a workflow variable. Polls for completion and saves the result URL. Optional: queue the render URL for Library → Save pending generations when projectId (and/or defaultProjectId) is set; empty both = do not queue.",
+  "description": "Render video or audio via the ShotStack cloud API. Uses the current generator template JSON or a ShotStack JSON from a workflow variable. Polls for completion and saves the result URL. Supports render strategy: ShotStack-first with local fallback, local-first with ShotStack fallback, and credit-gated modes for production renders.",
   "defaultAction": {
     "type": "renderShotstack",
     "runIf": "",
@@ -10,8 +10,12 @@
     "environment": "stage",
     "outputFormat": "mp4",
     "resolutionScale": "auto",
+    "renderStrategy": "shotstack",
+    "localFallbackPluginId": "",
+    "localFallbackInputMap": "",
     "saveAsVariable": "shotstackResult",
     "saveRenderIdVariable": "",
+    "saveRenderMethodVariable": "",
     "timeoutMs": 300000,
     "projectId": "",
     "defaultProjectId": ""
@@ -21,12 +25,16 @@
     { "key": "environment", "description": "ShotStack API environment: stage (sandbox, watermarked) or v1 (production)." },
     { "key": "outputFormat", "description": "Output format: mp4, gif, mp3, wav." },
     { "key": "resolutionScale", "description": "Resolution scaling: auto (cap at 1080p equivalent), or a specific scale like 0.5, 1." },
+    { "key": "renderStrategy", "description": "Render strategy: shotstack (cloud only), local (browser only), shotstack-first (try cloud, fallback to local), local-first (try local, fallback to cloud), credit-gate (cloud if credits available, else local)." },
+    { "key": "localFallbackPluginId", "description": "Template ID for local rendering fallback (required for strategies that use local rendering)." },
+    { "key": "localFallbackInputMap", "description": "JSON object mapping merge field names to row variables for local rendering fallback." },
     { "key": "projectId", "description": "Project ID for queuing the render URL (pending generations). Empty = resolve from row / Library default / defaultProjectId." },
     { "key": "defaultProjectId", "description": "Fallback project id when projectId is empty." }
   ],
   "outputs": [
     { "key": "saveAsVariable", "description": "Row variable to store the rendered file URL." },
-    { "key": "saveRenderIdVariable", "description": "Row variable to store the ShotStack render ID." }
+    { "key": "saveRenderIdVariable", "description": "Row variable to store the ShotStack render ID." },
+    { "key": "saveRenderMethodVariable", "description": "Row variable to store which method was used: 'shotstack' or 'local'." }
   ],
   "formSchema": [
     { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
@@ -34,8 +42,18 @@
     { "key": "environment", "label": "Environment", "inputType": "select", "options": [{ "value": "stage", "label": "Staging (watermarked)" }, { "value": "v1", "label": "Production" }] },
     { "key": "outputFormat", "label": "Output format", "inputType": "select", "options": [{ "value": "mp4", "label": "MP4 (video)" }, { "value": "gif", "label": "GIF (animated)" }, { "value": "mp3", "label": "MP3 (audio)" }, { "value": "wav", "label": "WAV (audio)" }] },
     { "key": "resolutionScale", "label": "Resolution scale", "inputType": "text", "placeholder": "auto", "hint": "'auto' caps at 1080p equivalent. Or set a number like 0.5, 1, 1.5." },
+    { "key": "renderStrategy", "label": "Render strategy", "inputType": "select", "options": [
+      { "value": "shotstack", "label": "ShotStack only (fail if unavailable)" },
+      { "value": "local", "label": "Local only (browser PixiJS)" },
+      { "value": "shotstack-first", "label": "ShotStack first → local fallback" },
+      { "value": "local-first", "label": "Local first → ShotStack fallback" },
+      { "value": "credit-gate", "label": "ShotStack if credits available → else local" }
+    ], "hint": "How to handle rendering. 'credit-gate' checks credits before production renders and falls back to local if insufficient." },
+    { "key": "localFallbackPluginId", "label": "Local template ID (for local/fallback)", "inputType": "text", "placeholder": "e.g. ad-apple-notes", "hint": "Generator template ID used for local rendering. Required when strategy involves local rendering." },
+    { "key": "localFallbackInputMap", "label": "Local input map (JSON, optional)", "inputType": "textarea", "placeholder": "{\"title\": \"{{title}}\", \"image\": \"{{imageUrl}}\"}", "hint": "Merge field values for local rendering. JSON object mapping field names to row variables." },
     { "key": "saveAsVariable", "label": "Save result URL to variable", "inputType": "text", "placeholder": "shotstackResult" },
     { "key": "saveRenderIdVariable", "label": "Save render ID to variable", "inputType": "text", "placeholder": "" },
+    { "key": "saveRenderMethodVariable", "label": "Save render method to variable", "inputType": "text", "placeholder": "", "hint": "Stores 'shotstack' or 'local' indicating which method was used." },
     { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "placeholder": "300000", "min": 30000, "hint": "Max wait for render completion. Default 5 minutes." },
     { "key": "projectId", "label": "Project ID (for generation queue)", "inputType": "text", "placeholder": "{{projectId}}", "hint": "Saves render URL to pending generations when set. Template vars; if empty, uses Library uploads default or defaultProjectId below." },
     { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "default", "hint": "When projectId field is empty after templates." }

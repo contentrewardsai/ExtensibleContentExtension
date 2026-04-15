@@ -1,0 +1,32 @@
+{
+  "id": "uploadToStorage",
+  "label": "Upload to Storage",
+  "category": "data",
+  "description": "Upload a file (video, image, or document) to your extensiblecontent.com account storage. Returns a public URL that can be used in later workflow steps (e.g. Upload Post). Requires a logged-in backend account with an upgraded plan.",
+  "defaultAction": {
+    "type": "uploadToStorage",
+    "runIf": "",
+    "fileVariableKey": "fileUrl",
+    "filenameVariableKey": "",
+    "contentTypeVariableKey": "",
+    "saveUrlToVariable": "uploadedFileUrl",
+    "saveFileIdToVariable": "uploadedFileId"
+  },
+  "inputs": [
+    { "key": "fileVariableKey", "description": "Row variable containing the file to upload — a data: URI, blob: URI, or a URL to fetch" },
+    { "key": "filenameVariableKey", "description": "Row variable for the filename (optional, auto-detected if empty)" },
+    { "key": "contentTypeVariableKey", "description": "Row variable for the content type / MIME (optional, auto-detected)" }
+  ],
+  "outputs": [
+    { "key": "saveUrlToVariable", "description": "Row variable to store the public URL of the uploaded file" },
+    { "key": "saveFileIdToVariable", "description": "Row variable to store the file ID (useful for later deletion)" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "fileVariableKey", "label": "File variable key", "inputType": "text", "placeholder": "fileUrl", "hint": "Row variable with a data: URI, blob: URI, or URL to fetch and upload." },
+    { "key": "filenameVariableKey", "label": "Filename variable key (optional)", "inputType": "text", "placeholder": "filename", "hint": "Override filename. Auto-detected from URL if empty." },
+    { "key": "contentTypeVariableKey", "label": "Content type variable key (optional)", "inputType": "text", "placeholder": "contentType", "hint": "Override MIME type. Auto-detected if empty." },
+    { "key": "saveUrlToVariable", "label": "Save URL to variable", "inputType": "text", "placeholder": "uploadedFileUrl" },
+    { "key": "saveFileIdToVariable", "label": "Save file ID to variable", "inputType": "text", "placeholder": "uploadedFileId" }
+  ]
+}

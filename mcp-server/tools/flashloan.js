@@ -37,10 +37,6 @@ export function registerFlashloanTools(server, ctx) {
 
   /* ══════════════════════════════════════════════════════════════
    * jupiter_flashloan_open
-   *
-   * Opens a flashloan session. Returns a sessionId that tracks the
-   * borrow parameters. Intermediary instructions (swaps, etc.) are
-   * added via jupiter_flashloan_add_swap.
    * ══════════════════════════════════════════════════════════════ */
   server.tool(
     'jupiter_flashloan_open',
@@ -56,6 +52,8 @@ After opening, add operations with jupiter_flashloan_add_swap, then execute with
       borrowAmount: z.string().describe('Amount to borrow in raw smallest units (e.g. 100000000 for 100 USDC)'),
     },
     async ({ borrowMint, borrowAmount }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_flashloan_open');
+      if (gateErr) return gateErr;
       cleanExpiredSessions();
       const sessionId = generateSessionId();
       flashloanSessions.set(sessionId, {
@@ -82,10 +80,6 @@ After opening, add operations with jupiter_flashloan_add_swap, then execute with
 
   /* ══════════════════════════════════════════════════════════════
    * jupiter_flashloan_add_swap
-   *
-   * Add a Jupiter swap as an intermediary operation within the
-   * flashloan. Multiple swaps can be added (e.g. A→B then B→A for
-   * arbitrage).
    * ══════════════════════════════════════════════════════════════ */
   server.tool(
     'jupiter_flashloan_add_swap',
@@ -104,6 +98,8 @@ Each swap uses Jupiter V2 /build to get raw instructions (not /order, since we n
       excludeDexes: z.string().optional().describe('Exclude specific DEXes (comma-separated)'),
     },
     async ({ sessionId, inputMint, outputMint, amount, slippageBps, dexes, excludeDexes }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_flashloan_add_swap');
+      if (gateErr) return gateErr;
       cleanExpiredSessions();
       const session = flashloanSessions.get(sessionId);
       if (!session) {
@@ -142,12 +138,6 @@ Each swap uses Jupiter V2 /build to get raw instructions (not /order, since we n
 
   /* ══════════════════════════════════════════════════════════════
    * jupiter_flashloan_execute
-   *
-   * Assembles the full atomic transaction:
-   *   [ComputeBudget, borrowIx, ...swapIxs, paybackIx]
-   *
-   * Signs with the automation wallet and sends to the network.
-   * If payback fails, the entire transaction reverts (zero risk).
    * ══════════════════════════════════════════════════════════════ */
   server.tool(
     'jupiter_flashloan_execute',
@@ -161,6 +151,8 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
       confirm: confirmField,
     },
     async ({ sessionId, confirm }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_flashloan_execute');
+      if (gateErr) return gateErr;
       cleanExpiredSessions();
       const session = flashloanSessions.get(sessionId);
       if (!session) {
@@ -200,14 +192,7 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
         };
       }
 
-      /* Execute via extension service worker
-       *
-       * We send CFS_JUPITER_FLASHLOAN to the extension with the full session data.
-       * The extension's solana-swap.js handler will:
-       *   1. Fetch swap instructions via Jupiter V2 /build for each intermediary op
-       *   2. Construct borrow + payback instructions using the Lend program
-       *   3. Assemble the full tx, sign, and send
-       */
+      /* Execute via extension service worker */
       const payload = {
         type: 'CFS_JUPITER_FLASHLOAN',
         borrowMint: session.borrowMint,
@@ -230,8 +215,6 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
 
   /* ══════════════════════════════════════════════════════════════
    * jupiter_flashloan_cancel
-   *
-   * Cancel an open flashloan session without executing.
    * ══════════════════════════════════════════════════════════════ */
   server.tool(
     'jupiter_flashloan_cancel',
@@ -240,6 +223,8 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
       sessionId: z.string().describe('Flashloan session ID to cancel'),
     },
     async ({ sessionId }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_flashloan_cancel');
+      if (gateErr) return gateErr;
       const existed = flashloanSessions.delete(sessionId);
       return {
         content: [{
@@ -256,8 +241,6 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
 
   /* ══════════════════════════════════════════════════════════════
    * jupiter_flashloan_status
-   *
-   * Check the status of an open flashloan session.
    * ══════════════════════════════════════════════════════════════ */
   server.tool(
     'jupiter_flashloan_status',
@@ -266,6 +249,8 @@ If the payback fails (e.g. arbitrage didn't profit enough), the ENTIRE transacti
       sessionId: z.string().describe('Flashloan session ID'),
     },
     async ({ sessionId }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_flashloan_status');
+      if (gateErr) return gateErr;
       cleanExpiredSessions();
       const session = flashloanSessions.get(sessionId);
       if (!session) {

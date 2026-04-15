@@ -35,12 +35,14 @@
   var estimateWords = global.__CFS_estimateWords || function (text, offset) {
     var tokens = (text || '').toString().trim().split(/\s+/).filter(Boolean);
     var t = offset || 0;
-    return tokens.map(function (tok) {
+    return tokens.map(function (tok, idx) {
       var clean = tok.replace(/[^\w]/g, '');
-      var dur = Math.max(0.2, Math.min(0.7, (clean.length || 3) * 0.045));
-      if (/[,.!?;:]$/.test(tok)) dur += 0.12;
+      var dur = Math.max(0.25, Math.min(0.8, (clean.length || 3) * 0.06));
       var out = { text: tok, start: Number(t.toFixed(3)), end: Number((t + dur).toFixed(3)) };
       t += dur;
+      if (/[.!?]$/.test(tok)) t += 0.40;
+      else if (/[,;:]$/.test(tok)) t += 0.25;
+      else if (idx < tokens.length - 1) t += 0.08;
       return out;
     });
   };
@@ -63,25 +65,44 @@
 
   /* ---- Strategy 2: Whisper via QC sandbox ---- */
 
-  function sttViaWhisperSandbox(audioBlob, options) {
+  function blobToBase64(blob) {
     return new Promise(function (resolve, reject) {
-      chrome.runtime.sendMessage(
-        { type: 'QC_CALL', method: 'transcribeAudio', args: [audioBlob] },
-        function (response) {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
+      var reader = new FileReader();
+      reader.onloadend = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(new Error('FileReader failed')); };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function sttViaWhisperSandbox(audioBlob, options) {
+    /* Convert blob to base64 data URL string — Blobs can't serialize through
+       chrome.runtime.sendMessage but strings can. The QC sandbox's 
+       transcribeAudio accepts both Blobs and data URL strings. */
+    return blobToBase64(audioBlob).then(function (dataUrl) {
+      return new Promise(function (resolve, reject) {
+        chrome.runtime.sendMessage(
+          { type: 'QC_CALL', method: 'transcribeAudio', args: [dataUrl] },
+          function (response) {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+              return;
+            }
+            if (!response || !response.ok) {
+              reject(new Error((response && response.error) || 'Whisper transcription failed'));
+              return;
+            }
+            var result = response.result || {};
+            var text = String(result.text || '').trim();
+            var words = normalizeWords(result.words) || (text ? estimateWords(text, 0) : []);
+            /* Calibrate timing model from real Whisper word timings */
+            if (Array.isArray(result.words) && result.words.length >= 3) {
+              var cal = global.__CFS_calibrateFromWords;
+              if (typeof cal === 'function') cal(words);
+            }
+            resolve({ text: text, words: words });
           }
-          if (!response || !response.ok) {
-            reject(new Error((response && response.error) || 'Whisper transcription failed'));
-            return;
-          }
-          var result = response.result || {};
-          var text = String(result.text || '').trim();
-          var words = normalizeWords(result.words) || (text ? estimateWords(text, 0) : []);
-          resolve({ text: text, words: words });
-        }
-      );
+        );
+      });
     });
   }
 

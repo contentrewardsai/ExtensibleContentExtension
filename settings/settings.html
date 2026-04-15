@@ -204,12 +204,37 @@
       <button type="button" id="toggleKeyVisibility" class="btn btn-small">Show</button>
       <button type="button" id="saveApiKeyBtn" class="btn btn-primary btn-small">Save</button>
     </div>
+    <p class="hint" style="margin-top:4px;font-size:0.85em;opacity:0.7;">
+      Optional. Enter your own Upload Post API key for direct posting. If blank and logged in,
+      posts route securely through your extensiblecontent.com account (requires upgraded plan with connected profiles).
+    </p>
     <p id="apiKeyStatus" class="status-msg" style="display:none"></p>
+  </div>
+
+  <div class="section" id="postStorageSection" style="display:none">
+    <h2>Post Media Storage</h2>
+    <p class="hint">Media uploaded for backend-connected posting is stored in your account. Delete files to free space.</p>
+    <div id="storageUsageBar" style="margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;height:8px;border-radius:4px;background:var(--border-color,#333);overflow:hidden;">
+          <div id="storageUsageFill" style="height:100%;width:0%;background:var(--accent-color,#6c5ce7);transition:width .3s;border-radius:4px;"></div>
+        </div>
+        <span id="storageUsageText" style="font-size:0.8em;opacity:0.7;">—</span>
+      </div>
+    </div>
+    <div id="storageFilesList" style="max-height:200px;overflow-y:auto;"></div>
+    <div style="margin-top:8px;">
+      <button type="button" id="refreshStorageBtn" class="btn btn-small">Refresh</button>
+    </div>
   </div>
 
   <div class="section" id="shotstackKeysSection">
     <h2>ShotStack Keys</h2>
     <p class="hint">API keys for ShotStack cloud video/audio rendering. Get keys from <a href="https://dashboard.shotstack.io/" target="_blank" rel="noopener noreferrer">dashboard.shotstack.io</a>.</p>
+    <p class="hint" style="margin-top:4px;font-size:0.85em;opacity:0.7;">
+      Optional. If not set and you are signed in, renders route securely through your extensiblecontent.com account.
+      Staging renders are free. Production renders use your account credits (1 credit = 1 minute, billed by the second).
+    </p>
     <div class="form-row">
       <label for="shotstackStagingKeyInput">Staging API Key</label>
       <input type="password" id="shotstackStagingKeyInput" placeholder="Staging key (watermarked renders)">
@@ -223,6 +248,15 @@
       <button type="button" id="saveSsProductionKeyBtn" class="btn btn-primary btn-small">Save</button>
     </div>
     <p id="ssKeyStatus" class="status-msg" style="display:none"></p>
+    <div id="ssCreditsSection" class="jwt-section" style="margin-top:12px;display:none;">
+      <h3 style="margin-top:0;">ShotStack Render Credits</h3>
+      <p class="hint" style="margin-top:0;">Credits for production renders via your account. Staging is always free.</p>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="ssCreditsDisplay" style="font-size:0.95rem;font-weight:600;">—</span>
+        <button type="button" id="ssCreditsRefreshBtn" class="btn btn-small">Refresh</button>
+      </div>
+      <p id="ssCreditsStatus" class="status-msg" style="display:none"></p>
+    </div>
   </div>
 
   <div class="section" id="cfsLlmSection">
@@ -414,13 +448,22 @@
     </div>
     <p id="pdStatus" class="status-msg" style="display:none"></p>
   </div>
-
       </div><!-- /tab-social -->
 
       <!-- TAB: CRYPTO & WEB3 -->
       <div id="tab-crypto" class="tab-pane">
         <h1>Crypto & Web3</h1>
         <p class="tab-description">Configure automation wallets, RPCs, and test environments securely.</p>
+
+        <div class="section" style="background:var(--card-bg,#fafafa);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:1rem;">
+            <input type="checkbox" id="cfsCryptoWeb3Enabled" data-testid="cfs-crypto-web3-enabled" style="width:18px;height:18px;accent-color:var(--accent,#7c5cff);">
+            Enable Crypto & Web3 Functionality
+          </label>
+          <p class="hint" style="margin:6px 0 0 28px;">When enabled, crypto workflow steps (Raydium, PancakeSwap, Aster, etc.), wallet injection, and background chain watchers (Solana, BSC, file watch) become active. When disabled, all crypto features are hidden and inactive.</p>
+        </div>
+
+        <div id="cfsCryptoWeb3Content" style="display:none;">
 
         <div class="section" id="solanaWalletSection">
     <h2>Solana automation wallet</h2>
@@ -722,6 +765,8 @@
     </div>
   </div>
 
+        </div><!-- /cfsCryptoWeb3Content -->
+
       </div><!-- /tab-crypto -->
 
       <!-- TAB: ADVANCED / MCP -->
@@ -837,21 +882,15 @@
       <div id="cfsMcpTunnelUrlPanel" style="display:none;margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;">
         <p style="margin:0 0 4px;font-size:0.82rem;font-weight:600;color:var(--accent,#7c5cff);">🔗 Public MCP Endpoint</p>
         <code id="cfsMcpTunnelUrlDisplay" style="font-size:0.88rem;word-break:break-all;display:block;margin-bottom:6px;"></code>
+        <p style="margin:0 0 4px;font-size:0.82rem;color:var(--muted);">Copy this JSON into your AI client's MCP configuration to connect remotely.</p>
+        <pre id="cfsMcpTunnelRemoteConfig" style="background:var(--muted-bg,#f4f4f5);border:1px solid var(--border);border-radius:4px;padding:10px;font-size:0.82rem;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:0 0 8px 0;"></pre>
         <div class="form-row" style="gap:8px;margin:0;">
           <button type="button" id="cfsMcpTunnelCopyUrl" class="btn btn-primary btn-small">Copy MCP URL</button>
           <button type="button" id="cfsMcpTunnelCopyConfig" class="btn btn-small">Copy remote config</button>
         </div>
       </div>
 
-      <details style="margin-top:10px;font-size:0.82rem;">
-        <summary style="cursor:pointer;font-weight:600;color:var(--hint-fg,#888);">Installing cloudflared / ngrok (if not bundled)</summary>
-        <div style="margin-top:6px;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
-          <p style="margin:0 0 4px;"><strong>Cloudflare (macOS):</strong> <code>brew install cloudflared</code></p>
-          <p style="margin:0 0 4px;"><strong>Cloudflare (other):</strong> <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" rel="noopener noreferrer">Download cloudflared ↗</a></p>
-          <p style="margin:0 0 4px;"><strong>ngrok (macOS):</strong> <code>brew install ngrok</code></p>
-          <p style="margin:0;"><strong>ngrok (other):</strong> <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer">Download ngrok ↗</a></p>
-        </div>
-      </details>
+
     </div>
 
     <div class="jwt-section" style="margin-top:12px;">

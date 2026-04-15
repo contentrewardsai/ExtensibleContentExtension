@@ -16,6 +16,8 @@ export function registerAsterTools(server, ctx) {
       params: z.record(z.string(), z.any()).optional().describe('Operation-specific query params (e.g. { symbol: "BTCUSDT" })'),
     },
     async ({ operation, params }) => {
+      const gateErr = await ctx.cryptoGate.guard('aster_futures_market');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_ASTER_FUTURES', asterCategory: 'market', operation };
       if (params) Object.assign(payload, params);
       const res = await ctx.sendMessage(payload);
@@ -31,6 +33,8 @@ export function registerAsterTools(server, ctx) {
       params: z.record(z.string(), z.any()).optional(),
     },
     async ({ operation, params }) => {
+      const gateErr = await ctx.cryptoGate.guard('aster_spot_market');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_ASTER_FUTURES', asterCategory: 'spotMarket', operation };
       if (params) Object.assign(payload, params);
       const res = await ctx.sendMessage(payload);
@@ -48,6 +52,8 @@ export function registerAsterTools(server, ctx) {
       params: z.record(z.string(), z.any()).optional(),
     },
     async ({ operation, params }) => {
+      const gateErr = await ctx.cryptoGate.guard('aster_futures_account');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_ASTER_FUTURES', asterCategory: 'account', operation };
       if (params) Object.assign(payload, params);
       const res = await ctx.sendMessage(payload);
@@ -63,6 +69,8 @@ export function registerAsterTools(server, ctx) {
       params: z.record(z.string(), z.any()).optional(),
     },
     async ({ operation, params }) => {
+      const gateErr = await ctx.cryptoGate.guard('aster_spot_account');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_ASTER_FUTURES', asterCategory: 'spotAccount', operation };
       if (params) Object.assign(payload, params);
       const res = await ctx.sendMessage(payload);
@@ -80,6 +88,8 @@ export function registerAsterTools(server, ctx) {
       params: z.record(z.string(), z.any()).optional(),
     },
     async ({ operation, params }) => {
+      const gateErr = await ctx.cryptoGate.guard('aster_futures_analysis');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_ASTER_FUTURES', asterCategory: 'analysis', operation };
       if (params) Object.assign(payload, params);
       const res = await ctx.sendMessage(payload);
@@ -91,6 +101,8 @@ export function registerAsterTools(server, ctx) {
 
   function asterTrade(name, desc, category, schema, buildPayload) {
     server.tool(name, desc, { ...schema, confirm: confirmField }, async (args) => {
+      const gateErr = await ctx.cryptoGate.guard(name);
+      if (gateErr) return gateErr;
       const dryRunRes = await ctx.readStorage(['cfsMcpDryRunConfirmation']);
       const dryRun = !(dryRunRes && dryRunRes.data && dryRunRes.data.cfsMcpDryRunConfirmation === false);
       const payload = buildPayload(args);
@@ -150,6 +162,8 @@ export function registerAsterTools(server, ctx) {
       listenKeyKeepaliveIntervalMs: z.number().int().min(60000).max(3600000).optional().describe('Keepalive interval'),
     },
     async ({ wsUrl, matchEvent, matchSubstring, timeoutMs, maxMessages, skipEventTypes, listenKey, listenKeyKeepaliveIntervalMs }) => {
+      const gateErr = await ctx.cryptoGate.guard('aster_user_stream_wait');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_ASTER_USER_STREAM_WAIT', wsUrl };
       if (matchEvent) payload.matchEvent = matchEvent;
       if (matchSubstring) payload.matchSubstring = matchSubstring;

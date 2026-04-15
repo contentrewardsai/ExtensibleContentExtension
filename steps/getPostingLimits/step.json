@@ -1,0 +1,26 @@
+{
+  "id": "getPostingLimits",
+  "label": "Get Posting Limits",
+  "category": "social",
+  "description": "Check daily posting limits and current usage per platform. Returns cap, used count, and remaining posts for each platform. When the backend endpoint is unavailable, returns known hard caps with unknown usage.",
+  "defaultAction": {
+    "type": "getPostingLimits",
+    "runIf": "",
+    "userVariableKey": "user",
+    "platforms": "tiktok,instagram",
+    "saveAsVariable": "postingLimits"
+  },
+  "inputs": [
+    { "key": "userVariableKey", "description": "Row variable for Upload Post user identifier" },
+    { "key": "platforms", "description": "Comma-separated platforms to check (e.g. tiktok,instagram,youtube)" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Saves { limits: { tiktok: { used: 3, cap: 15, remaining: 12 }, ... }, capsOnly: false }" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "userVariableKey", "label": "User variable key", "inputType": "text", "placeholder": "user", "hint": "Upload Post user identifier. Required for actual usage counts." },
+    { "key": "platforms", "label": "Platforms to check", "inputType": "text", "placeholder": "tiktok,instagram,youtube", "hint": "Comma-separated. Supports: instagram, tiktok, linkedin, youtube, facebook, twitter, threads, pinterest, reddit, bluesky." },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "postingLimits" }
+  ]
+}

@@ -287,7 +287,7 @@
 
       if (obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox') {
         /* Pass through caption clips using their original clip data. */
-        if (obj.cfsOriginalClip && obj.cfsOriginalClip.asset && obj.cfsOriginalClip.asset.type === 'caption') {
+        if (obj.cfsOriginalClip && obj.cfsOriginalClip.asset && (obj.cfsOriginalClip.asset.type === 'caption' || obj.cfsOriginalClip.asset.type === 'rich-caption')) {
           var capClip = JSON.parse(JSON.stringify(obj.cfsOriginalClip));
           capClip.start = start;
           capClip.length = length;

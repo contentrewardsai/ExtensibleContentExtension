@@ -30,6 +30,8 @@
       extraFieldsVariableKey: '',
       saveAsVariable: '',
       saveStatusToVariable: '',
+      saveViolationsToVariable: '',
+      onCapReached: 'fail',
       savePostManifestToDisk: true,
       timeoutMs: 120000,
     },
@@ -47,6 +49,8 @@
       if (saveVar) out.push({ rowKey: saveVar, label: saveVar, hint: 'response' });
       var statusVar = (action.saveStatusToVariable || '').trim();
       if (statusVar) out.push({ rowKey: statusVar, label: statusVar, hint: 'status' });
+      var violationsVar = (action.saveViolationsToVariable || '').trim();
+      if (violationsVar) out.push({ rowKey: violationsVar, label: violationsVar, hint: 'violations array' });
       return out;
     },
   });

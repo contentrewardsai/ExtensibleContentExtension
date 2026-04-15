@@ -1,0 +1,23 @@
+{
+  "id": "cancelScheduledPost",
+  "label": "Cancel Scheduled Post",
+  "description": "Cancel a future scheduled social media post by its job ID. Supports local API key and backend proxy.",
+  "category": "social",
+  "defaultAction": {
+    "type": "cancelScheduledPost",
+    "runIf": "",
+    "jobIdVariableKey": "jobId",
+    "saveAsVariable": "cancelResult"
+  },
+  "inputs": [
+    { "key": "jobIdVariableKey", "description": "Row variable containing the scheduled job ID to cancel" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store cancellation result" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "jobIdVariableKey", "label": "Job ID variable key", "inputType": "text", "placeholder": "jobId", "hint": "Row variable with the scheduled post job ID." },
+    { "key": "saveAsVariable", "label": "Save result to variable", "inputType": "text", "placeholder": "cancelResult" }
+  ]
+}

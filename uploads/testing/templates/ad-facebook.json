@@ -1,0 +1,102 @@
+{
+  "timeline": {
+    "background": "#ffffff",
+    "tracks": [
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "shape",
+              "shape": "rectangle",
+              "fill": { "color": "#ffffff" },
+              "rectangle": { "width": 500, "height": 540 }
+            },
+            "start": 0,
+            "length": 10,
+            "position": "center",
+            "alias": "card_bg"
+          },
+          {
+            "asset": {
+              "type": "image",
+              "src": "{{ PROFILE_IMAGE }}",
+              "left": 20,
+              "top": 20,
+              "width": 48,
+              "height": 48,
+              "alias": "PROFILE_IMAGE"
+            },
+            "start": 0,
+            "length": 10
+          },
+          {
+            "asset": {
+              "type": "title",
+              "text": "{{ NAME_INPUT }}",
+              "style": "minimal",
+              "left": 78,
+              "top": 20,
+              "fontSize": 16,
+              "fontFamily": "Arial, sans-serif",
+              "fontWeight": "bold",
+              "fill": "#000000",
+              "alias": "NAME_INPUT"
+            },
+            "start": 0,
+            "length": 10
+          },
+          {
+            "asset": {
+              "type": "title",
+              "text": "{{ HANDLE_INPUT }}",
+              "style": "minimal",
+              "left": 78,
+              "top": 42,
+              "fontSize": 14,
+              "fontFamily": "Arial, sans-serif",
+              "fill": "#657786",
+              "alias": "HANDLE_INPUT"
+            },
+            "start": 0,
+            "length": 10
+          },
+          {
+            "asset": {
+              "type": "title",
+              "text": "{{ TEXT_INPUT }}",
+              "style": "minimal",
+              "left": 20,
+              "top": 88,
+              "right": 20,
+              "wrap": true,
+              "fontSize": 15,
+              "fontFamily": "Arial, sans-serif",
+              "fill": "#000000",
+              "alias": "TEXT_INPUT"
+            },
+            "start": 0,
+            "length": 10
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "format": "png",
+    "resolution": "sd",
+    "aspectRatio": "1:1",
+    "size": { "width": 500, "height": 540 }
+  },
+  "merge": [
+    { "find": "NAME_INPUT", "replace": "Content Rewards AI" },
+    { "find": "HANDLE_INPUT", "replace": "@contentrewardsai" },
+    { "find": "TEXT_INPUT", "replace": "Introducing Extensible Content: The Ultimate Platform to Craft Compelling Content that Drives Revenue!" },
+    { "find": "PROFILE_IMAGE", "replace": "" },
+    { "find": "__CFS_TEMPLATE_ID", "replace": "ad-facebook" },
+    { "find": "__CFS_TEMPLATE_NAME", "replace": "Text Ad — Social Media with Profile Image" },
+    { "find": "__CFS_DESCRIPTION", "replace": "Social media–style ad card: profile image, name, handle, and body text on white background with padding. Export as PNG." },
+    { "find": "__CFS_OUTPUT_TYPE", "replace": "image" },
+    { "find": "__CFS_PRESET_ID", "replace": "instagram_square" },
+    { "find": "__CFS_INPUT_SCHEMA", "replace": "[{\"id\":\"backgroundColor\",\"label\":\"Background\",\"type\":\"color\",\"default\":\"#ffffff\"},{\"id\":\"nameInput\",\"label\":\"Name\",\"type\":\"text\",\"default\":\"Best Ad Strategy\",\"mergeField\":\"NAME_INPUT\"},{\"id\":\"nameFontFamily\",\"label\":\"Name font\",\"type\":\"text\",\"default\":\"Arial, sans-serif\"},{\"id\":\"nameFontSize\",\"label\":\"Name font size\",\"type\":\"number\",\"default\":16},{\"id\":\"nameColor\",\"label\":\"Name color\",\"type\":\"color\",\"default\":\"#000000\"},{\"id\":\"handleInput\",\"label\":\"Handle\",\"type\":\"text\",\"default\":\"@bestadstrategy\",\"mergeField\":\"HANDLE_INPUT\"},{\"id\":\"handleFontFamily\",\"label\":\"Handle font\",\"type\":\"text\",\"default\":\"Arial, sans-serif\"},{\"id\":\"handleFontSize\",\"label\":\"Handle font size\",\"type\":\"number\",\"default\":14},{\"id\":\"handleColor\",\"label\":\"Handle color\",\"type\":\"color\",\"default\":\"#657786\"},{\"id\":\"textInput\",\"label\":\"Ad Text\",\"type\":\"textarea\",\"default\":\"Introducing Extensible Content: The Ultimate Platform to Craft Compelling Content that Drives Revenue! Learn strategies for every stage of the sales funnel and turn your content into a powerful sales engine.\",\"mergeField\":\"TEXT_INPUT\"},{\"id\":\"textFontFamily\",\"label\":\"Ad text font\",\"type\":\"text\",\"default\":\"Arial, sans-serif\"},{\"id\":\"textFontSize\",\"label\":\"Ad text font size\",\"type\":\"number\",\"default\":15},{\"id\":\"textColor\",\"label\":\"Ad text color\",\"type\":\"color\",\"default\":\"#000000\"},{\"id\":\"profileImage\",\"label\":\"Profile Image\",\"type\":\"file\",\"mergeField\":\"PROFILE_IMAGE\"},{\"id\":\"outputWidth\",\"label\":\"Width (px)\",\"type\":\"number\",\"default\":500},{\"id\":\"outputHeight\",\"label\":\"Height (px)\",\"type\":\"number\",\"default\":540}]" }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "logMessage",
+  "label": "Log Message",
+  "category": "flow",
+  "description": "Log a message during workflow execution. Supports {{variable}} templates. Messages appear in browser console with [CFS Workflow] prefix. Optionally save the resolved message to a row variable.",
+  "defaultAction": {
+    "type": "logMessage",
+    "runIf": "",
+    "message": "Credits remaining: {{shotstackCredits.credits}}",
+    "level": "info",
+    "saveAsVariable": ""
+  },
+  "inputs": [
+    { "key": "message", "description": "Message template with {{variable}} support" }
+  ],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Optional row variable to store the resolved message" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "message", "label": "Message", "inputType": "textarea", "placeholder": "Credits: {{shotstackCredits.credits}}, Storage: {{storageInfo.percentUsed}}%", "hint": "Supports {{variable}} templates. Resolved at runtime." },
+    { "key": "level", "label": "Log level", "inputType": "select", "options": ["info", "warn", "error"], "hint": "Determines console method and prefix." },
+    { "key": "saveAsVariable", "label": "Save resolved message to variable (optional)", "inputType": "text", "placeholder": "" }
+  ]
+}

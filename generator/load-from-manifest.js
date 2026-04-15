@@ -31,11 +31,23 @@
         }, Promise.resolve());
       };
 
+  /* ── Hardcoded fallbacks for file:// protocol where fetch() is blocked ── */
+  var FALLBACK_INPUT_SCRIPTS = [
+    'inputs/text.js', 'inputs/textarea.js', 'inputs/number.js',
+    'inputs/color.js', 'inputs/select.js', 'inputs/checkbox.js',
+    'inputs/list.js', 'inputs/file.js', 'inputs/hidden.js',
+    'inputs/voice.js', 'inputs/video.js', 'inputs/audio.js'
+  ];
+  var FALLBACK_OUTPUT_SCRIPTS = [
+    'outputs/image.js', 'outputs/video.js', 'outputs/audio.js', 'outputs/book.js'
+  ];
+
   var tailScripts = [
     '../shared/step-comment.js',
     '../shared/book-builder.js',
     '../shared/walkthrough-export.js',
     'core/estimate-words.js',
+    'core/srt.js',
     'core/wrap-text.js',
     'tts/default-tts.js',
     'stt/default-stt.js',
@@ -53,6 +65,7 @@
     'step-generator-ui-loader.js',
     'editor/fabric-to-timeline.js',
     'editor/timeline-options.js',
+    'editor/chunk-utils.js',
     'editor/timeline-panel.js',
     '../lib/ffmpeg/ffmpeg.js',
     '../shared/ffmpeg-local.js',
@@ -70,6 +83,10 @@
       .then(function (inputManifest) {
         if (manifestLoader && manifestLoader.checkManifestVersion) manifestLoader.checkManifestVersion(inputManifest, 'generatorInputs');
         var scripts = (inputManifest.scripts || []);
+        if (!scripts.length) {
+          console.warn('[CFS] inputs/manifest.json fetch returned no scripts — using file:// fallback');
+          scripts = FALLBACK_INPUT_SCRIPTS;
+        }
         return loadScriptFn(base + 'inputs/registry.js').then(function () {
           return loadScriptsInOrder(scripts);
         });
@@ -80,6 +97,10 @@
       .then(function (outputManifest) {
         if (manifestLoader && manifestLoader.checkManifestVersion) manifestLoader.checkManifestVersion(outputManifest, 'generatorOutputs');
         var scripts = (outputManifest.scripts || []);
+        if (!scripts.length) {
+          console.warn('[CFS] outputs/manifest.json fetch returned no scripts — using file:// fallback');
+          scripts = FALLBACK_OUTPUT_SCRIPTS;
+        }
         return loadScriptFn(base + 'outputs/registry.js').then(function () {
           return loadScriptsInOrder(scripts);
         });

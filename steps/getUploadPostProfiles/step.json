@@ -1,0 +1,19 @@
+{
+  "id": "getUploadPostProfiles",
+  "label": "Get Upload Post Profiles",
+  "description": "List all connected UploadPost profiles with platform connections and JWT status. Supports local key and backend proxy.",
+  "category": "social",
+  "defaultAction": {
+    "type": "getUploadPostProfiles",
+    "runIf": "",
+    "saveAsVariable": "uploadPostProfiles"
+  },
+  "inputs": [],
+  "outputs": [
+    { "key": "saveAsVariable", "description": "Row variable to store array of profile objects" }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "saveAsVariable", "label": "Save to variable", "inputType": "text", "placeholder": "uploadPostProfiles" }
+  ]
+}

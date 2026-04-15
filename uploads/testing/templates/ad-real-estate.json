@@ -1,0 +1,358 @@
+{
+  "timeline": {
+    "background": "#06b6d4",
+    "tracks": [
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "audio",
+              "src": "https://templates.shotstack.io/basic/asset/audio/music/unminus/white.mp3",
+              "volume": 0.8,
+              "effect": "fadeInFadeOut"
+            },
+            "start": 0,
+            "length": 32
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 48,
+              "html": "<p data-html-type=\"text\">{{ PROPERTY_ADDRESS }}</p>",
+              "css": "p { margin: 0; padding: 6px 16px; box-sizing: border-box; color: #ffffff; font-size: 36px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; font-weight: bold; background-color: #06b6d4; }"
+            },
+            "start": 0.4,
+            "length": 7.5,
+            "position": "top",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 48,
+              "html": "<p data-html-type=\"text\">{{ PROPERTY_ADDRESS }}</p>",
+              "css": "p { margin: 0; padding: 6px 16px; box-sizing: border-box; color: #ffffff; font-size: 36px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; font-weight: bold; background-color: #06b6d4; }"
+            },
+            "start": 8.4,
+            "length": 7.5,
+            "position": "top",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 48,
+              "html": "<p data-html-type=\"text\">{{ PROPERTY_ADDRESS }}</p>",
+              "css": "p { margin: 0; padding: 6px 16px; box-sizing: border-box; color: #ffffff; font-size: 36px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; font-weight: bold; background-color: #06b6d4; }"
+            },
+            "start": 16.4,
+            "length": 7.5,
+            "position": "top",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 48,
+              "html": "<p data-html-type=\"text\">{{ PROPERTY_ADDRESS }}</p>",
+              "css": "p { margin: 0; padding: 6px 16px; box-sizing: border-box; color: #ffffff; font-size: 36px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; font-weight: bold; background-color: #06b6d4; }"
+            },
+            "start": 24.4,
+            "length": 7.5,
+            "position": "top",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 40,
+              "html": "<p data-html-type=\"text\">{{ PRICE }}  ·  {{ BEDROOMS }} bed  ·  {{ BATHROOMS }} bath</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 28px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 0.6,
+            "length": 7.3,
+            "position": "top",
+            "offset": { "x": 0, "y": -0.08333333333333333 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 40,
+              "html": "<p data-html-type=\"text\">{{ PRICE }}  ·  {{ BEDROOMS }} bed  ·  {{ BATHROOMS }} bath</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 28px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 8.6,
+            "length": 7.3,
+            "position": "top",
+            "offset": { "x": 0, "y": -0.08333333333333333 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 40,
+              "html": "<p data-html-type=\"text\">{{ PRICE }}  ·  {{ BEDROOMS }} bed  ·  {{ BATHROOMS }} bath</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 28px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 16.6,
+            "length": 7.3,
+            "position": "top",
+            "offset": { "x": 0, "y": -0.08333333333333333 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 40,
+              "html": "<p data-html-type=\"text\">{{ PRICE }}  ·  {{ BEDROOMS }} bed  ·  {{ BATHROOMS }} bath</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 28px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 24.6,
+            "length": 7.3,
+            "position": "top",
+            "offset": { "x": 0, "y": -0.08333333333333333 },
+            "transition": { "in": "fade" }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 38,
+              "html": "<p data-html-type=\"text\">{{ AGENT_NAME }}  ·  {{ AGENT_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 24px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 1,
+            "length": 7,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0.09375 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 38,
+              "html": "<p data-html-type=\"text\">{{ AGENT_NAME }}  ·  {{ AGENT_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 24px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 9,
+            "length": 7,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0.09375 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 38,
+              "html": "<p data-html-type=\"text\">{{ AGENT_NAME }}  ·  {{ AGENT_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 24px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 17,
+            "length": 7,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0.09375 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 38,
+              "html": "<p data-html-type=\"text\">{{ AGENT_NAME }}  ·  {{ AGENT_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px; box-sizing: border-box; color: #ffffff; font-size: 24px; line-height: 1.15; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 25,
+            "length": 7,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0.09375 },
+            "transition": { "in": "fade" }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 54,
+              "html": "<p data-html-type=\"text\">{{ OFFICE_ADDRESS }}  ·  {{ OFFICE_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px 8px; box-sizing: border-box; color: #ffffff; font-size: 20px; line-height: 1.25; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 1.2,
+            "length": 6.8,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 54,
+              "html": "<p data-html-type=\"text\">{{ OFFICE_ADDRESS }}  ·  {{ OFFICE_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px 8px; box-sizing: border-box; color: #ffffff; font-size: 20px; line-height: 1.25; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 9.2,
+            "length": 6.8,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 54,
+              "html": "<p data-html-type=\"text\">{{ OFFICE_ADDRESS }}  ·  {{ OFFICE_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px 8px; box-sizing: border-box; color: #ffffff; font-size: 20px; line-height: 1.25; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 17.2,
+            "length": 6.8,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          },
+          {
+            "asset": {
+              "type": "html",
+              "width": 1024,
+              "height": 54,
+              "html": "<p data-html-type=\"text\">{{ OFFICE_ADDRESS }}  ·  {{ OFFICE_PHONE }}</p>",
+              "css": "p { margin: 0; padding: 4px 16px 8px; box-sizing: border-box; color: #ffffff; font-size: 20px; line-height: 1.25; font-family: Arial, sans-serif; text-align: center; background-color: #06b6d4; }"
+            },
+            "start": 25.2,
+            "length": 6.8,
+            "position": "bottom",
+            "offset": { "x": 0, "y": 0 },
+            "transition": { "in": "fade" }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "html",
+              "width": 700,
+              "height": 46,
+              "html": "<p data-html-type=\"text\">Book your tour today</p>",
+              "css": "p { color: #ffffff; font-size: 32px; font-family: Arial, sans-serif; text-align: center; font-weight: bold; background-color: #06b6d4; }"
+            },
+            "start": 24.5,
+            "length": 7.5,
+            "position": "center",
+            "transition": { "in": "fade" }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "asset": {
+              "type": "image",
+              "src": "{{ MAIN_IMAGE }}"
+            },
+            "start": 0,
+            "length": 8,
+            "position": "center",
+            "transition": { "in": "fade" },
+            "effect": "zoomOutSlow",
+            "fit": "cover"
+          },
+          {
+            "asset": {
+              "type": "image",
+              "src": "{{ IMAGE_1 }}"
+            },
+            "start": 8,
+            "length": 8,
+            "position": "center",
+            "transition": { "in": "fade" },
+            "effect": "zoomInSlow",
+            "fit": "cover"
+          },
+          {
+            "asset": {
+              "type": "image",
+              "src": "{{ IMAGE_2 }}"
+            },
+            "start": 16,
+            "length": 8,
+            "position": "center",
+            "transition": { "in": "fade" },
+            "effect": "zoomIn",
+            "fit": "cover"
+          },
+          {
+            "asset": {
+              "type": "image",
+              "src": "{{ IMAGE_3 }}"
+            },
+            "start": 24,
+            "length": 8,
+            "position": "center",
+            "transition": { "in": "fade" },
+            "effect": "zoomInSlow",
+            "fit": "cover"
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "format": "mp4",
+    "fps": 25,
+    "size": {
+      "width": 1024,
+      "height": 576
+    }
+  },
+  "merge": [
+    { "find": "PROPERTY_ADDRESS", "replace": "192 Summers Lane" },
+    { "find": "PRICE", "replace": "$549,000" },
+    { "find": "BEDROOMS", "replace": "3" },
+    { "find": "BATHROOMS", "replace": "2" },
+    { "find": "AGENT_NAME", "replace": "Jane Smith" },
+    { "find": "AGENT_PHONE", "replace": "+1 234 567 890" },
+    { "find": "OFFICE_PHONE", "replace": "+1 800 555 0100" },
+    { "find": "OFFICE_ADDRESS", "replace": "100 Main St, Suite 200" },
+    { "find": "MAIN_IMAGE", "replace": "https://cdn.pixabay.com/photo/2014/07/10/17/18/large-home-389271_1280.jpg" },
+    { "find": "IMAGE_1", "replace": "https://cdn.pixabay.com/photo/2016/11/18/17/20/living-room-1835923_1280.jpg" },
+    { "find": "IMAGE_2", "replace": "https://cdn.pixabay.com/photo/2016/12/30/07/59/kitchen-1940174_1280.jpg" },
+    { "find": "IMAGE_3", "replace": "https://cdn.pixabay.com/photo/2015/10/20/18/27/furniture-998265_1280.jpg" },
+    { "find": "__CFS_TEMPLATE_ID", "replace": "ad-real-estate" },
+    { "find": "__CFS_TEMPLATE_NAME", "replace": "Real Estate — Real Brand" },
+    { "find": "__CFS_DESCRIPTION", "replace": "Real estate listing video. Real Aqua #06b6d4 background, Onyx #1a1a1a text. Property address, price, beds/baths, agent name, agent phone, office phone, office address above and below photos. No blocking boxes." },
+    { "find": "__CFS_OUTPUT_TYPE", "replace": "video" },
+    { "find": "__CFS_PRESET_ID", "replace": "youtube_16_9" },
+    { "find": "__CFS_INPUT_SCHEMA", "replace": "[{\"id\":\"propertyAddress\",\"label\":\"Property address\",\"type\":\"text\",\"default\":\"192 Summers Lane\",\"mergeField\":\"PROPERTY_ADDRESS\"},{\"id\":\"price\",\"label\":\"Price\",\"type\":\"text\",\"default\":\"$549,000\",\"mergeField\":\"PRICE\"},{\"id\":\"bedrooms\",\"label\":\"Bedrooms\",\"type\":\"text\",\"default\":\"3\",\"mergeField\":\"BEDROOMS\"},{\"id\":\"bathrooms\",\"label\":\"Bathrooms\",\"type\":\"text\",\"default\":\"2\",\"mergeField\":\"BATHROOMS\"},{\"id\":\"agentName\",\"label\":\"Agent name\",\"type\":\"text\",\"default\":\"Jane Smith\",\"mergeField\":\"AGENT_NAME\"},{\"id\":\"agentPhone\",\"label\":\"Agent phone\",\"type\":\"text\",\"default\":\"+1 234 567 890\",\"mergeField\":\"AGENT_PHONE\"},{\"id\":\"officePhone\",\"label\":\"Office phone\",\"type\":\"text\",\"default\":\"+1 800 555 0100\",\"mergeField\":\"OFFICE_PHONE\"},{\"id\":\"officeAddress\",\"label\":\"Office address\",\"type\":\"text\",\"default\":\"100 Main St, Suite 200\",\"mergeField\":\"OFFICE_ADDRESS\"},{\"id\":\"mainImage\",\"label\":\"Hero image\",\"type\":\"file\",\"mergeField\":\"MAIN_IMAGE\"},{\"id\":\"image1\",\"label\":\"Image 2\",\"type\":\"file\",\"mergeField\":\"IMAGE_1\"},{\"id\":\"image2\",\"label\":\"Image 3\",\"type\":\"file\",\"mergeField\":\"IMAGE_2\"},{\"id\":\"image3\",\"label\":\"Image 4\",\"type\":\"file\",\"mergeField\":\"IMAGE_3\"}]" }
+  ]
+}

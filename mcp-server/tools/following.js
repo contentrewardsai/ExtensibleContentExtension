@@ -31,6 +31,8 @@ export function registerFollowingTools(server, ctx) {
     'Force an immediate Solana watch poll cycle to check for new transactions.',
     {},
     async () => {
+      const gateErr = await ctx.cryptoGate.guard('refresh_solana_watch');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_SOLANA_WATCH_REFRESH_NOW' });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -42,6 +44,8 @@ export function registerFollowingTools(server, ctx) {
     'Force an immediate BSC watch poll cycle to check for new transactions.',
     {},
     async () => {
+      const gateErr = await ctx.cryptoGate.guard('refresh_bsc_watch');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_BSC_WATCH_REFRESH_NOW' });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -53,6 +57,8 @@ export function registerFollowingTools(server, ctx) {
     'Clear all Solana watch activity history.',
     {},
     async () => {
+      const gateErr = await ctx.cryptoGate.guard('clear_solana_watch_activity');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_SOLANA_WATCH_CLEAR_ACTIVITY' });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -64,6 +70,8 @@ export function registerFollowingTools(server, ctx) {
     'Clear all BSC watch activity history.',
     {},
     async () => {
+      const gateErr = await ctx.cryptoGate.guard('clear_bsc_watch_activity');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_BSC_WATCH_CLEAR_ACTIVITY' });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }

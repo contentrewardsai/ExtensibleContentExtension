@@ -9,15 +9,21 @@
     if (typeof CFS_runIfCondition !== 'undefined' && CFS_runIfCondition.skipWhenRunIf(action, row, getRowValue)) return;
 
     const apiKeyVar = (action.apiKeyVariableKey || '').trim() || 'uploadPostApiKey';
-    const apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
-    if (!apiKey || String(apiKey).trim() === '') throw new Error('Get LinkedIn Pages: API key required.');
+    var apiKey = getRowValue(row, apiKeyVar, 'apiKey', 'uploadPostApiKey');
+    var viaBackend = false;
+    if (!apiKey || String(apiKey).trim() === '') {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        try { var ld = await chrome.storage.local.get('uploadPostApiKey'); if (ld.uploadPostApiKey && String(ld.uploadPostApiKey).trim()) apiKey = String(ld.uploadPostApiKey).trim(); } catch (_) {}
+      }
+      if (!apiKey || String(apiKey).trim() === '') viaBackend = true;
+    }
 
     const profileVar = (action.profileVariableKey || '').trim();
     const profile = profileVar ? getRowValue(row, profileVar) : undefined;
 
     const response = await sendMessage({
       type: 'GET_LINKEDIN_PAGES',
-      apiKey: String(apiKey).trim(),
+      ...(viaBackend ? { viaBackend: true } : { apiKey: String(apiKey).trim() }),
       profile: profile ? String(profile).trim() : undefined,
     });
 

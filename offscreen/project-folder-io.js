@@ -193,20 +193,22 @@
           for (var di = 0; di < parts.length; di++) {
             dir = await dir.getDirectoryHandle(parts[di], { create: false });
           }
-          var files = [];
+          var entries = [];
           for await (var entry of dir.values()) {
             if (entry.kind === 'file') {
               try {
                 var fileObj = await entry.getFile();
-                files.push({ name: entry.name, size: fileObj.size, type: fileObj.type, lastModified: fileObj.lastModified });
+                entries.push({ name: entry.name, kind: 'file', size: fileObj.size, type: fileObj.type, lastModified: fileObj.lastModified });
               } catch (_fe) {
-                files.push({ name: entry.name, size: 0, type: '', lastModified: 0 });
+                entries.push({ name: entry.name, kind: 'file', size: 0, type: '', lastModified: 0 });
               }
+            } else if (entry.kind === 'directory') {
+              entries.push({ name: entry.name, kind: 'directory' });
             }
           }
-          sendResponse({ ok: true, files: files });
+          sendResponse({ ok: true, entries: entries, files: entries });
         } catch (e) {
-          if (e && e.name === 'NotFoundError') sendResponse({ ok: true, files: [] });
+          if (e && e.name === 'NotFoundError') sendResponse({ ok: true, entries: [], files: [] });
           else sendResponse({ ok: false, error: (e && e.message) || 'listDir failed' });
         }
         return;

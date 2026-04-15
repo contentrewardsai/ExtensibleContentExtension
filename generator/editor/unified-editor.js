@@ -211,6 +211,7 @@
     };
     var lastTotalDuration = 10;
     var lastClips = [];
+    var lastRenderedClips = []; /* Clips array as rendered — indices match what user clicks */
 
     function isCanvasOutputType(type) {
       return ['image', 'video', 'book', 'text'].indexOf(type) >= 0;
@@ -919,11 +920,14 @@
     var undoPatches = [];
     var redoPatches = [];
     var timelineMinTracks = 2;
+    var selectedClipIndices = new Set();
+    var lockedTracks = new Set();
+    var razorMode = false;
     var maxHistory = 100;
     var isUndoRedo = false;
     var isInternalCanvasMutation = false;
     var saveStateTimer = null;
-    var CFS_RESPONSIVE_KEYS = ['dataURL', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsLengthAuto', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsOriginalClip', 'name', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsRadiusPct', 'cfsFontSizePct', 'cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsWrapText', 'cfsRichText', 'cfsRawText', 'cfsLetterSpacing', 'cfsLineHeight', 'cfsTextTransform', 'cfsTextDecoration', 'cfsGradient', 'cfsStroke', 'cfsShadow', 'cfsAlignHorizontal', 'cfsAlignVertical', 'cfsAnimation', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsTextBgFor', 'cfsHideOnImage'];
+    var CFS_RESPONSIVE_KEYS = ['dataURL', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsLengthAuto', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsOriginalClip', 'name', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsRadiusPct', 'cfsFontSizePct', 'cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsWrapText', 'cfsRichText', 'cfsRawText', 'cfsLetterSpacing', 'cfsLineHeight', 'cfsTextTransform', 'cfsTextDecoration', 'cfsGradient', 'cfsStroke', 'cfsShadow', 'cfsAlignHorizontal', 'cfsAlignVertical', 'cfsAnimation', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsLocalVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsTextBgFor', 'cfsHideOnImage', 'cfsIsCaption', 'cfsCaptionWords', 'cfsCaptionActive', 'cfsCaptionFont', 'cfsCaptionAnimation', 'cfsCaptionDisplay'];
 
     /** Get canvas state for preset switch. Prefer toObject (accepts propertiesToInclude); toJSON may not. */
     function getCanvasStateForPresetSwitch(c) {
@@ -939,9 +943,13 @@
     function applyScaledGeometryFromState(fabricCanvas, stateObjects) {
       if (!fabricCanvas || !fabricCanvas.getObjects || !stateObjects || !stateObjects.length) return;
       var loadedObjs = fabricCanvas.getObjects();
-      (stateObjects || []).forEach(function (orig, i) {
-        var obj = loadedObjs[i];
+      /* Build name→orig lookup for name-based matching (loadFromJSON may skip objects) */
+      var origByName = {};
+      stateObjects.forEach(function (o) { if (o && o.name) origByName[o.name] = o; });
+      loadedObjs.forEach(function (obj, i) {
         if (!obj || !obj.set) return;
+        var orig = (obj.name && origByName[obj.name]) ? origByName[obj.name] : stateObjects[i];
+        if (!orig) return;
         if (orig.left != null) obj.set('left', orig.left);
         if (orig.top != null) obj.set('top', orig.top);
         if (obj.type !== 'circle') {
@@ -1048,7 +1056,7 @@
       if (obj.__cfsWrapping) return;
       var w = Number(obj.width);
       if (!(w > 0)) return;
-      var raw = obj.cfsRawText != null ? String(obj.cfsRawText) : String(obj.text || '');
+      var raw = String(obj.text || '');
       var wrapped = forceWrapTextForWidth(raw, obj.fontFamily, obj.fontSize, obj.fontWeight, Math.max(1, w - 4));
       if (wrapped === String(obj.text || '')) return;
       obj.__cfsWrapping = true;
@@ -1220,23 +1228,49 @@
       c.requestRenderAll();
     }
 
+    /* ── Merge state snapshot/restore — hoisted to create() scope so pushUndo/undo/redo can access them ── */
+    var _mergeDefaults = {};
+
+    /** Snapshot the template.merge array for undo purposes. */
+    function snapshotMergeState() {
+      if (!template || !Array.isArray(template.merge)) return null;
+      try { return JSON.parse(JSON.stringify(template.merge)); } catch (e) { return null; }
+    }
+
+    /** Restore template.merge from a snapshot. */
+    function restoreMergeState(snapshot) {
+      if (!template || !Array.isArray(snapshot)) return;
+      template.merge = snapshot;
+      /* Rebuild _mergeDefaults */
+      Object.keys(_mergeDefaults).forEach(function (k) { delete _mergeDefaults[k]; });
+      template.merge.forEach(function (m) {
+        if (!m) return;
+        var k = (m.find != null ? m.find : m.search);
+        if (k != null && String(k).indexOf('__CFS_') !== 0) _mergeDefaults[String(k)] = (m.replace != null ? m.replace : m.value);
+      });
+    }
+
     function pushUndo(stateOverride) {
       if (!canvas || isUndoRedo || isInternalCanvasMutation) return;
       try {
         var newState = stateOverride || canvas.toJSON(CFS_RESPONSIVE_KEYS);
         if (newState && newState.width == null) newState.width = canvas.getWidth ? canvas.getWidth() : (canvas.width || 0);
         if (newState && newState.height == null) newState.height = canvas.getHeight ? canvas.getHeight() : (canvas.height || 0);
-        if (!fabricHead) { fabricHead = newState; updateUndoRedoButtons(); return; }
+        if (!fabricHead) { fabricHead = newState; _mergeHead = snapshotMergeState(); updateUndoRedoButtons(); return; }
         if (!cfsJsonDiff) { fabricHead = newState; return; }
         var reversePatch = cfsJsonDiff(newState, fabricHead);
-        if (!reversePatch.length) return;
-        undoPatches.unshift({ ops: reversePatch, at: Date.now(), isSave: false });
+        var curMerge = snapshotMergeState();
+        var mergeChanged = JSON.stringify(curMerge) !== JSON.stringify(_mergeHead);
+        if (!reversePatch.length && !mergeChanged) return;
+        undoPatches.unshift({ ops: reversePatch, at: Date.now(), isSave: false, mergeSnapshot: _mergeHead });
         if (undoPatches.length > maxHistory) undoPatches.pop();
         redoPatches.length = 0;
         fabricHead = newState;
+        _mergeHead = curMerge;
         updateUndoRedoButtons();
       } catch (e) { /* ignore */ }
     }
+    var _mergeHead = null;
 
     /** After template load / injectMergeData, sync fabricHead to the visible canvas and clear patches so Undo does not revert to pre-merge placeholders. */
     function resetEditorUndoBaseline() {
@@ -1246,6 +1280,7 @@
         if (s && s.width == null) s.width = canvas.getWidth ? canvas.getWidth() : (canvas.width || 0);
         if (s && s.height == null) s.height = canvas.getHeight ? canvas.getHeight() : (canvas.height || 0);
         fabricHead = s;
+        _mergeHead = snapshotMergeState();
         undoPatches.length = 0;
         redoPatches.length = 0;
         updateUndoRedoButtons();
@@ -1267,26 +1302,50 @@
       if (redoBtn) redoBtn.disabled = !redoPatches.length;
     }
 
+    var _isRestoring = false;
+    var _pendingRestoreAction = null;
+
     function restoreState(state) {
       if (!canvas || !state) return;
+      _isRestoring = true;
       isUndoRedo = true;
-      try {
-        canvas.loadFromJSON(state, function () {
-          ensureCanvasObjectsSelectable(canvas);
-            fixTextBaseline(canvas);
-            applyResponsivePositions(canvas);
-            refreshTextboxWrapping(canvas);
-            constrainToBounds(canvas);
-            canvas.renderAll();
-            refreshLayersPanel();
-            refreshPropertyPanel();
-            refreshTimeline();
-            invalidateFabricTextLayout(canvas);
-          });
-      } finally {
-        setTimeout(function () { isUndoRedo = false; }, 0);
-      }
-      updateUndoRedoButtons();
+      canvas.loadFromJSON(state, function () {
+        ensureCanvasObjectsSelectable(canvas);
+        fixTextBaseline(canvas);
+        applyResponsivePositions(canvas);
+        refreshTextboxWrapping(canvas);
+        constrainToBounds(canvas);
+        canvas.renderAll();
+        refreshLayersPanel();
+        refreshPropertyPanel();
+        refreshTimeline();
+        invalidateFabricTextLayout(canvas);
+        /* Re-sync fabricHead to the actual canvas state AFTER all post-load
+           modifications (text wrapping, responsive positions, constrain-to-bounds,
+           text layout invalidation).  Without this, the canvas differs from
+           fabricHead and the next pushUndo() creates a spurious entry that
+           wipes redoPatches. */
+        try {
+          var syncState = canvas.toJSON(CFS_RESPONSIVE_KEYS);
+          if (syncState && syncState.width == null) syncState.width = canvas.getWidth ? canvas.getWidth() : (canvas.width || 0);
+          if (syncState && syncState.height == null) syncState.height = canvas.getHeight ? canvas.getHeight() : (canvas.height || 0);
+          fabricHead = syncState;
+        } catch (e) { /* ignore */ }
+        updateUndoRedoButtons();
+        _isRestoring = false;
+        /* Reset isUndoRedo AFTER loadFromJSON callback completes, so
+           object:added/removed events fired during the load don't trigger
+           pushUndo (which would wipe redoPatches). */
+        setTimeout(function () {
+          isUndoRedo = false;
+          /* If an undo/redo was requested while we were restoring, execute it now. */
+          if (_pendingRestoreAction) {
+            var fn = _pendingRestoreAction;
+            _pendingRestoreAction = null;
+            fn();
+          }
+        }, 0);
+      });
     }
 
     function withInternalCanvasMutation(fn) {
@@ -1298,25 +1357,29 @@
     }
 
     function undo() {
+      if (_isRestoring) { _pendingRestoreAction = undo; return; }
       if (!undoPatches.length || !fabricHead || !canvas) return;
       if (!cfsJsonPatch || !cfsJsonDiff) return;
       var entry = undoPatches.shift();
       var prevState = cfsJsonPatch(fabricHead, entry.ops);
       var forwardPatch = cfsJsonDiff(prevState, fabricHead);
-      redoPatches.unshift({ ops: forwardPatch, at: entry.at, isSave: entry.isSave });
+      redoPatches.unshift({ ops: forwardPatch, at: entry.at, isSave: entry.isSave, mergeSnapshot: _mergeHead });
       fabricHead = prevState;
+      if (entry.mergeSnapshot) { _mergeHead = entry.mergeSnapshot; restoreMergeState(entry.mergeSnapshot); }
       restoreState(fabricHead);
       editEvents.emit('edit:undo', {});
     }
 
     function redo() {
+      if (_isRestoring) { _pendingRestoreAction = redo; return; }
       if (!redoPatches.length || !fabricHead || !canvas) return;
       if (!cfsJsonPatch || !cfsJsonDiff) return;
       var entry = redoPatches.shift();
       var nextState = cfsJsonPatch(fabricHead, entry.ops);
       var reversePatch = cfsJsonDiff(nextState, fabricHead);
-      undoPatches.unshift({ ops: reversePatch, at: entry.at, isSave: entry.isSave });
+      undoPatches.unshift({ ops: reversePatch, at: entry.at, isSave: entry.isSave, mergeSnapshot: _mergeHead });
       fabricHead = nextState;
+      if (entry.mergeSnapshot) { _mergeHead = entry.mergeSnapshot; restoreMergeState(entry.mergeSnapshot); }
       restoreState(fabricHead);
       editEvents.emit('edit:redo', {});
     }
@@ -1532,8 +1595,7 @@
         var idx = item.idx;
         var w = item.w;
         var txt = (obj.get('text') || '').toString();
-        var rawTxt = (obj.get && obj.get('cfsRawText') != null) ? String(obj.get('cfsRawText')) : null;
-        var textToUse = rawTxt != null ? rawTxt : txt;
+        var textToUse = txt;
         var left = obj.get('left') || 0;
         var top = obj.get('top') || 0;
         var fontSize = obj.get('fontSize') || 24;
@@ -1572,7 +1634,8 @@
         newObj.set('cfsLength', cfsLength);
         if (cfsTrackIndex != null) newObj.set('cfsTrackIndex', cfsTrackIndex);
         newObj.set('cfsWrapText', true);
-        newObj.set('cfsRawText', rawTxt);
+        var cfsRawTextVal = (obj.get && obj.get('cfsRawText') != null) ? obj.get('cfsRawText') : null;
+        if (cfsRawTextVal != null) newObj.set('cfsRawText', cfsRawTextVal);
         if (cfsRightPx != null) newObj.set('cfsRightPx', cfsRightPx);
         if (obj.get && obj.get('cfsRichText')) newObj.set('cfsRichText', true);
         if (obj.get && obj.get('cfsAnimation')) newObj.set('cfsAnimation', obj.get('cfsAnimation'));
@@ -1728,8 +1791,218 @@
       return Promise.all(promises);
     }
 
+    /** Auto-migrate legacy caption clips → rich-caption on template load. */
+    function migrateCaptionsToRichCaption(tmpl) {
+      if (!tmpl || !tmpl.timeline || !Array.isArray(tmpl.timeline.tracks)) return;
+      tmpl.timeline.tracks.forEach(function (track) {
+        if (!track || !Array.isArray(track.clips)) return;
+        track.clips.forEach(function (clip) {
+          if (clip && clip.asset && (clip.asset.type === 'caption' || clip.asset.type === 'rich-caption')) {
+            clip.asset.type = 'rich-caption';
+          }
+        });
+      });
+    }
+    /**
+     * Auto-generate a rich-caption track when a template has TTS but no captions.
+     * Uses estimateWords for word-level timing so karaoke highlighting works out of the box.
+     * Returns true if captions were added.
+     */
+    function ensureCaptionsForTts(tpl) {
+      if (!tpl || !tpl.timeline || !Array.isArray(tpl.timeline.tracks)) return false;
+      /* 1. Collect TTS clips */
+      var ttsClips = [];
+      tpl.timeline.tracks.forEach(function (track) {
+        (track.clips || []).forEach(function (clip) {
+          if (clip.asset && clip.asset.type === 'text-to-speech' && clip.asset.text) {
+            ttsClips.push(clip);
+          }
+        });
+      });
+      if (!ttsClips.length) return false;
+      /* 2. Check if any caption track already exists */
+      var hasCaptions = tpl.timeline.tracks.some(function (track) {
+        return (track.clips || []).some(function (clip) {
+          return clip.asset && (clip.asset.type === 'rich-caption' || clip.asset.type === 'caption');
+        });
+      });
+      if (hasCaptions) return false;
+      /* 3. Generate estimated words for each TTS clip → inject caption track */
+      var estimateWords = (typeof window !== 'undefined') && window.__CFS_estimateWords;
+      if (!estimateWords) return false;
+      var captionClips = [];
+      ttsClips.forEach(function (ttsClip) {
+        var startOffset = Number(ttsClip.start) || 0;
+        /* Word timings must be relative to the clip start (0-based) because
+           seekToTime converts to localTime = timeSec - clipStart before matching.
+           Use estimateWordsInSpan if clip has a known duration for precise distribution. */
+        var ttsLen = Number(ttsClip.length) || 0;
+        var spanEstimate = (typeof window !== 'undefined') && window.__CFS_estimateWordsInSpan;
+        var words = (ttsLen > 0 && spanEstimate)
+          ? spanEstimate(ttsClip.asset.text, 0, ttsLen)
+          : estimateWords(ttsClip.asset.text, 0);
+        if (!words || !words.length) return;
+        /* Determine clip length from TTS clip or estimate from word timings */
+        var lastWord = words[words.length - 1];
+        var estDuration = lastWord ? (lastWord.end + 0.5) : 10;
+        var clipLength = ttsLen || estDuration;
+        captionClips.push({
+          start: startOffset,
+          length: clipLength,
+          position: 'bottom',
+          asset: {
+            type: 'rich-caption',
+            words: words,
+            font: { family: 'Open Sans', size: 34, color: '#ffffff', weight: 700 },
+            active: { font: { color: '#efbf04' } },
+            background: { color: '#000000', padding: 8, borderRadius: 4 },
+            animation: { style: 'karaoke' },
+            _autoGenerated: true
+          }
+        });
+      });
+      if (!captionClips.length) return false;
+      /* Insert as first track (topmost visual layer) */
+      tpl.timeline.tracks.unshift({ clips: captionClips });
+      return true; /* captions were added */
+    }
+
+    /**
+     * Regenerate caption words from current TTS clips.
+     * Call this whenever TTS text, timing, or related audio/video structure changes.
+     * Only updates existing caption tracks; does not create new ones (use ensureCaptionsForTts for that).
+     */
+    function regenerateCaptionsFromTts(tpl) {
+      if (!tpl || !tpl.timeline || !Array.isArray(tpl.timeline.tracks)) return false;
+      /* 1. Collect TTS clips */
+      var ttsClips = [];
+      tpl.timeline.tracks.forEach(function (track) {
+        (track.clips || []).forEach(function (clip) {
+          if (clip.asset && clip.asset.type === 'text-to-speech' && clip.asset.text) {
+            ttsClips.push(clip);
+          }
+        });
+      });
+      if (!ttsClips.length) return false;
+      /* 2. Find existing caption tracks */
+      var captionTracks = [];
+      tpl.timeline.tracks.forEach(function (track, idx) {
+        (track.clips || []).forEach(function (clip, ci) {
+          if (clip.asset && (clip.asset.type === 'rich-caption' || clip.asset.type === 'caption')) {
+            captionTracks.push({ trackIdx: idx, clipIdx: ci, clip: clip });
+          }
+        });
+      });
+      if (!captionTracks.length) return false;
+      /* 3. Generate word-level timings from TTS text */
+      var estimateWords = (typeof window !== 'undefined') && window.__CFS_estimateWords;
+      var spanEstimate = (typeof window !== 'undefined') && window.__CFS_estimateWordsInSpan;
+      if (!estimateWords) return false;
+      var updated = false;
+      /* Match TTS clips to caption clips by order (first TTS → first caption, etc.) */
+      for (var i = 0; i < Math.min(ttsClips.length, captionTracks.length); i++) {
+        var ttsClip = ttsClips[i];
+        var capEntry = captionTracks[i];
+        var startOffset = Number(ttsClip.start) || 0;
+        /* Word timings must be relative to clip start (0-based) — seekToTime
+           computes localTime = timeSec - clipStart before matching words.
+           Use estimateWordsInSpan if clip duration is known. */
+        var ttsLen = Number(ttsClip.length) || 0;
+        var words = (ttsLen > 0 && spanEstimate)
+          ? spanEstimate(ttsClip.asset.text, 0, ttsLen)
+          : estimateWords(ttsClip.asset.text, 0);
+        if (!words || !words.length) continue;
+        /* Update caption clip */
+        capEntry.clip.asset.words = words;
+        capEntry.clip.asset._autoGenerated = true;
+        capEntry.clip.start = startOffset;
+        var lastWord = words[words.length - 1];
+        var estDuration = lastWord ? (lastWord.end + 0.5) : 10;
+        capEntry.clip.length = ttsLen || estDuration;
+        updated = true;
+      }
+      return updated;
+    }
+
+    /**
+     * Auto-populate an empty caption track (one without words) from TTS text.
+     * Called when user manually adds a caption track.
+     */
+    function autoPopulateCaptionFromTts(tpl) {
+      if (!tpl || !tpl.timeline || !Array.isArray(tpl.timeline.tracks)) return false;
+      var estimateWords = (typeof window !== 'undefined') && window.__CFS_estimateWords;
+      var spanEstimate = (typeof window !== 'undefined') && window.__CFS_estimateWordsInSpan;
+      if (!estimateWords) return false;
+      /* Find TTS clips */
+      var ttsClips = [];
+      tpl.timeline.tracks.forEach(function (track) {
+        (track.clips || []).forEach(function (clip) {
+          if (clip.asset && clip.asset.type === 'text-to-speech' && clip.asset.text) {
+            ttsClips.push(clip);
+          }
+        });
+      });
+      if (!ttsClips.length) return false;
+      /* Find empty caption clips (no words property or empty words array) */
+      var populated = false;
+      var ttsIdx = 0;
+      tpl.timeline.tracks.forEach(function (track) {
+        (track.clips || []).forEach(function (clip) {
+          if (clip.asset && (clip.asset.type === 'rich-caption' || clip.asset.type === 'caption')) {
+            if ((!clip.asset.words || !clip.asset.words.length) && ttsIdx < ttsClips.length) {
+              var ttsClip = ttsClips[ttsIdx];
+              var startOffset = Number(ttsClip.start) || 0;
+              /* Word timings must be 0-based (seekToTime subtracts clipStart).
+                 Use estimateWordsInSpan if clip duration is known. */
+              var ttsLen = Number(ttsClip.length) || 0;
+              var words = (ttsLen > 0 && spanEstimate)
+                ? spanEstimate(ttsClip.asset.text, 0, ttsLen)
+                : estimateWords(ttsClip.asset.text, 0);
+              if (words && words.length) {
+                clip.asset.words = words;
+                clip.asset.type = 'rich-caption';
+                clip.asset._autoGenerated = true;
+                clip.start = startOffset;
+                var lastWord = words[words.length - 1];
+                clip.length = ttsLen || (lastWord ? lastWord.end + 0.5 : 10);
+                if (!clip.asset.animation) clip.asset.animation = { style: 'karaoke' };
+                if (!clip.asset.active) clip.asset.active = { font: { color: '#efbf04' } };
+                populated = true;
+              }
+              ttsIdx++;
+            }
+          }
+        });
+      });
+      return populated;
+    }
+
+    /**
+     * Check if a clip type is one whose changes can invalidate captions.
+     * Moving an image/shape/text does NOT invalidate captions.
+     * Changing TTS text, audio timing, or video timing DOES.
+     */
+    function isCaptionInvalidatingType(type) {
+      return type === 'text-to-speech' || type === 'audio' || type === 'video';
+    }
+
+    /* Debounced caption regeneration (500ms) — prevents rapid-fire updates */
+    var _captionRegenTimer = null;
+    function debouncedRegenerateCaptions() {
+      if (_captionRegenTimer) clearTimeout(_captionRegenTimer);
+      _captionRegenTimer = setTimeout(function () {
+        _captionRegenTimer = null;
+        if (regenerateCaptionsFromTts(template)) {
+          if (typeof refreshTimeline === 'function') refreshTimeline();
+          if (canvas && typeof canvas.renderAll === 'function') canvas.renderAll();
+        }
+      }, 500);
+    }
+
     function loadTemplateIntoCanvas(fabricCanvas, onDone) {
       if (!fabricCanvas) return;
+      migrateCaptionsToRichCaption(template);
+      ensureCaptionsForTts(template);
       var fontLoadResult = (template && template.timeline && typeof global.__CFS_loadTimelineFonts === 'function')
         ? global.__CFS_loadTimelineFonts(template) : null;
       var doBuild = function () {
@@ -1752,6 +2025,8 @@
           width = targetW > 0 ? targetW : structure.width;
           height = targetH > 0 ? targetH : structure.height;
           var stateToLoad = fabricState;
+          /* Preserve original structure objects BEFORE loadFromJSON (which may mutate input) */
+          var origObjectsSnapshot = JSON.parse(JSON.stringify(structure.objects));
           withInternalCanvasMutation(function () {
           fabricCanvas.loadFromJSON(stateToLoad, function () {
           if (fabricCanvas.setDimensions) {
@@ -1760,13 +2035,28 @@
           }
           ensureCanvasObjectsSelectable(fabricCanvas);
           var loadedObjs = fabricCanvas.getObjects();
-          var keys = ['cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsLineHeight', 'cfsWrapText', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsRichText', 'cfsAnimation', 'cfsLengthAuto', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsStroke', 'cfsShadow', 'cfsTextTransform', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsAlignVertical', 'cfsAlignHorizontal', 'cfsLetterSpacing', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsFontSizePct', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsHideOnImage'];
-          (stateToLoad.objects || structure.objects || []).forEach(function (orig, i) {
-            var obj = loadedObjs[i];
+          var keys = ['cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsLineHeight', 'cfsWrapText', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsTrackIndex', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'cfsSvgSrc', 'cfsRichText', 'cfsAnimation', 'cfsLengthAuto', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsStroke', 'cfsShadow', 'cfsTextTransform', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsAlignVertical', 'cfsAlignHorizontal', 'cfsLetterSpacing', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsLocalVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius', 'cfsFontSizePct', 'cfsImageToVideo', 'cfsItvPrompt', 'cfsItvAspectRatio', 'cfsHideOnImage', 'cfsIsCaption', 'cfsCaptionWords', 'cfsCaptionActive', 'cfsCaptionFont', 'cfsCaptionAnimation', 'cfsCaptionDisplay', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct'];
+          var origObjects = origObjectsSnapshot;
+          /* Build name→orig lookup for name-based matching (loadFromJSON may skip/reorder objects) */
+          var origByName = {};
+          origObjects.forEach(function (o) { if (o && o.name) origByName[o.name] = o; });
+          loadedObjs.forEach(function (obj, i) {
             if (!obj || !obj.set) return;
-            keys.forEach(function (k) { if (orig[k] != null) obj.set(k, orig[k]); });
+            /* Match by name first, then fall back to index */
+            var orig = (obj.name && origByName[obj.name]) ? origByName[obj.name] : origObjects[i];
+            if (!orig) return;
+            keys.forEach(function (k) {
+              if (orig[k] != null) {
+                /* Use Fabric set() for known Fabric props, direct assignment for custom cfs* props */
+                if (k.indexOf('cfs') === 0) {
+                  obj[k] = orig[k];
+                } else {
+                  obj.set(k, orig[k]);
+                }
+              }
+            });
           });
-          applyScaledGeometryFromState(fabricCanvas, stateToLoad.objects || structure.objects);
+          applyScaledGeometryFromState(fabricCanvas, origObjectsSnapshot);
           setResponsivePercentagesOnCanvas(fabricCanvas);
           fixTextBaseline(fabricCanvas);
           if (coreScene && coreScene.injectMergeData) coreScene.injectMergeData(fabricCanvas, buildMergeValuesForInject());
@@ -1790,7 +2080,7 @@
           resetEditorUndoBaseline();
           /* Delayed passes: re-apply scaled geometry in case Fabric/canvas dimensions weren't ready; refreshTextboxWrapping fixes textbox height */
           setTimeout(function () {
-            applyScaledGeometryFromState(fabricCanvas, stateToLoad.objects || structure.objects);
+            applyScaledGeometryFromState(fabricCanvas, origObjectsSnapshot);
             if (coreScene && coreScene.applyFitToImages) coreScene.applyFitToImages(fabricCanvas, width, height);
             syncCanvasToPresetDimensions();
             applyResponsivePositions(fabricCanvas);
@@ -1802,6 +2092,22 @@
             updateCanvasWrapAlignment();
             refreshLayersPanel();
             refreshPropertyPanel();
+            /* Reset caption auto-shrink cache: applyScaledGeometryFromState may have
+               reset the width back to the original, but seekToTime won't re-shrink
+               because the text is already set. Clear cached values so seekToTime
+               re-captures and re-shrinks with correct geometry. */
+            fabricCanvas.getObjects().forEach(function (obj) {
+              if (obj.cfsIsCaption) {
+                obj._cfsOrigWidth = null;
+                obj._cfsOrigCenterX = null;
+                /* Force text-change guard to re-fire */
+                if (obj.set && obj.text) {
+                  var t = obj.text;
+                  obj.set('text', '');
+                  obj.set('text', t);
+                }
+              }
+            });
             applySeekForOutputPreview(fabricCanvas);
             resetEditorUndoBaseline();
             if (typeof onDone === 'function') onDone();
@@ -1809,6 +2115,17 @@
           if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.ready === 'object') {
             document.fonts.ready.then(function () {
               setTimeout(function () {
+                /* Reset caption auto-shrink cache so seekToTime recalculates with correct font metrics */
+                fabricCanvas.getObjects().forEach(function (obj) {
+                  if (obj.cfsIsCaption) {
+                    obj._cfsOrigWidth = null;
+                    obj._cfsOrigCenterX = null;
+                    /* Force text-change guard to re-fire by temporarily clearing text */
+                    var savedText = obj.text;
+                    if (obj.set) obj.set('text', '');
+                    if (obj.set) obj.set('text', savedText);
+                  }
+                });
                 invalidateFabricTextLayout(fabricCanvas);
                 applyResponsivePositions(fabricCanvas);
                 refreshTextboxWrapping(fabricCanvas);
@@ -2010,7 +2327,7 @@
             (stateToLoad.objects || []).forEach(function (orig, i) {
               var obj = loadedObjs[i];
               if (!obj || !obj.set) return;
-              ['cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsLineHeight', 'cfsWrapText', 'cfsRichText', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsSvgSrc', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsLengthAuto', 'cfsTrackIndex', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'name', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsRadiusPct', 'cfsFontSizePct', 'cfsAnimation', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsStroke', 'cfsShadow', 'cfsTextTransform', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsAlignVertical', 'cfsAlignHorizontal', 'cfsLetterSpacing', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius'].forEach(function (k) {
+              ['cfsRightPx', 'cfsBottomPx', 'cfsMaxHeightPx', 'cfsLineHeight', 'cfsWrapText', 'cfsRichText', 'cfsVideoSrc', 'cfsVideoVolume', 'cfsSvgSrc', 'cfsStart', 'cfsLength', 'cfsLengthWasEnd', 'cfsLengthAuto', 'cfsTrackIndex', 'cfsFadeIn', 'cfsFadeOut', 'cfsMergeKey', 'cfsVideoWidth', 'cfsVideoHeight', 'cfsVideoMetadata', 'name', 'cfsResponsive', 'cfsLeftPct', 'cfsTopPct', 'cfsWidthPct', 'cfsHeightPct', 'cfsRadiusPct', 'cfsFontSizePct', 'cfsAnimation', 'cfsShapeLine', 'cfsLineLength', 'cfsLineThickness', 'cfsTransition', 'cfsEffect', 'cfsFit', 'cfsScale', 'cfsOriginalClip', 'cfsClipOpacity', 'cfsTextBackground', 'backgroundColor', 'cfsStroke', 'cfsShadow', 'cfsTextTransform', 'cfsFilter', 'cfsChromaKey', 'cfsFlip', 'cfsAlignVertical', 'cfsAlignHorizontal', 'cfsLetterSpacing', 'cfsOpacityTween', 'cfsOffsetTween', 'cfsRotateTween', 'cfsAudioType', 'cfsTtsVoice', 'cfsTtsLocalVoice', 'cfsTtsText', 'cfsCaptionSrc', 'cfsCaptionPadding', 'cfsCaptionBorderRadius'].forEach(function (k) {
                 if (orig[k] != null) obj.set(k, orig[k]);
               });
               /* Apply scaled geometry from stateToLoad; fallback to manual scale if values seem wrong */
@@ -2776,37 +3093,45 @@
               }
               /* Click handler */
               clipRow.addEventListener('click', function () {
+                /* Clear all non-visual clip selections first */
+                selectedAudioClip = null;
+                selectedCaptionClip = null;
+                selectedTtsClip = null;
+                selectedHtmlClip = null;
+                selectedLumaClip = null;
+                selectedTextToImageClip = null;
+                selectedImageToVideoClip = null;
                 if (matchObj) {
                   canvas.setActiveObject(matchObj);
                   canvas.renderAll();
                 } else if (isAudio) {
-                  if (canvas.discardActiveObject) canvas.discardActiveObject();
-                  canvas.renderAll();
                   selectedAudioClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
                 } else if (isCaption) {
-                  if (canvas.discardActiveObject) canvas.discardActiveObject();
-                  canvas.renderAll();
                   selectedCaptionClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
                 } else if (isTts) {
-                  if (canvas.discardActiveObject) canvas.discardActiveObject();
-                  canvas.renderAll();
                   selectedTtsClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
                 } else if (isHtml) {
-                  if (canvas.discardActiveObject) canvas.discardActiveObject();
-                  canvas.renderAll();
                   selectedHtmlClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
                 } else if (isLuma) {
-                  if (canvas.discardActiveObject) canvas.discardActiveObject();
-                  canvas.renderAll();
                   selectedLumaClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
                 } else if (isTextToImage) {
-                  if (canvas.discardActiveObject) canvas.discardActiveObject();
-                  canvas.renderAll();
                   selectedTextToImageClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
-                } else if (isImageToVideo) {
                   if (canvas.discardActiveObject) canvas.discardActiveObject();
                   canvas.renderAll();
+                } else if (isImageToVideo) {
                   selectedImageToVideoClip = { templateTrackIndex: tIdx, templateClipIndex: ci, clip: clip };
+                  if (canvas.discardActiveObject) canvas.discardActiveObject();
+                  canvas.renderAll();
                 }
                 refreshLayersPanel();
                 refreshPropertyPanel();
@@ -2908,6 +3233,7 @@
       if (!template || !template.timeline || !Array.isArray(template.timeline.tracks)) return;
       var tracks = template.timeline.tracks;
       if (index < 0 || index >= tracks.length) return;
+      var deletedTrack = tracks[index];
       /* Remove canvas objects on this track */
       if (canvas && canvas.getObjects) {
         var toRemove = [];
@@ -2920,6 +3246,10 @@
           if (obj.cfsTrackIndex > index) obj.cfsTrackIndex--;
         });
       }
+      /* Check if deleted track had caption-invalidating clips */
+      var deletedHadTtsOrAudio = (deletedTrack.clips || []).some(function (c) {
+        return c.asset && isCaptionInvalidatingType(c.asset.type);
+      });
       tracks.splice(index, 1);
       /* Clear selection if it was on deleted track */
       if (selectedAudioClip && selectedAudioClip.templateTrackIndex === index) selectedAudioClip = null;
@@ -2932,6 +3262,8 @@
       refreshPropertyPanel();
       refreshTimeline();
       canvas.renderAll();
+      /* If a TTS/audio track was deleted, captions may need regeneration */
+      if (deletedHadTtsOrAudio) debouncedRegenerateCaptions();
     }
 
     /** Add a new empty track to the template timeline. */
@@ -3209,192 +3541,508 @@
             return;
         }
       }
-      if (!obj && selectedCaptionClip && template && template.timeline && Array.isArray(template.timeline.tracks)) {
+      if (selectedCaptionClip && template && template.timeline && Array.isArray(template.timeline.tracks)) {
         var capTr = template.timeline.tracks[selectedCaptionClip.templateTrackIndex];
         var capClip = capTr && capTr.clips && capTr.clips[selectedCaptionClip.templateClipIndex];
-        if (capClip && (capClip.asset || {}).type === 'caption') {
+        var capAssetType = (capClip && capClip.asset) ? capClip.asset.type : '';
+        if (capAssetType === 'caption' || capAssetType === 'rich-caption') {
+          var capAsset = capClip.asset;
           var capForm = document.createElement('div');
           capForm.className = 'cfs-properties-form';
           var capHeading = document.createElement('div');
           capHeading.className = 'cfs-properties-editing';
-          capHeading.textContent = 'Editing: Caption';
+          capHeading.textContent = 'Editing: Rich Caption';
           capForm.appendChild(capHeading);
+
+          /* Chunk-specific text editor when a chunk is selected from the timeline */
+          var selectedChunkIdx = (selectedCaptionClip && selectedCaptionClip.selectedChunkIndex != null) ? selectedCaptionClip.selectedChunkIndex : -1;
+          if (selectedChunkIdx >= 0 && capAsset.words && capAsset.words.length && global.__CFS_chunkUtils) {
+            var capChunks = global.__CFS_chunkUtils.buildCaptionChunks(capAsset.words, capAsset.display || {});
+            var selChunk = capChunks[selectedChunkIdx];
+            if (selChunk) {
+              var chunkSection = document.createElement('div');
+              chunkSection.style.cssText = 'background:#1a2e1a;border:1px solid #22c55e;border-radius:6px;padding:10px 12px;margin:6px 0;';
+              var chunkTitle = document.createElement('div');
+              chunkTitle.style.cssText = 'font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#4ade80;margin-bottom:6px;';
+              chunkTitle.textContent = 'Chunk ' + (selectedChunkIdx + 1) + ' of ' + capChunks.length + ' (' + selChunk.timeStart.toFixed(2) + 's – ' + selChunk.timeEnd.toFixed(2) + 's)';
+              chunkSection.appendChild(chunkTitle);
+              var chunkTextarea = document.createElement('textarea');
+              chunkTextarea.style.cssText = 'width:100%;min-height:48px;resize:vertical;background:#09090b;border:1px solid #27272a;border-radius:4px;color:#e4e4e7;padding:6px 8px;font-size:12px;font-family:inherit;';
+              chunkTextarea.value = selChunk.text;
+              chunkTextarea.addEventListener('change', function () {
+                var newText = chunkTextarea.value.trim();
+                if (!newText) return;
+                var newWords = newText.split(/\s+/);
+                var a = getCapAsset();
+                if (!a || !a.words) return;
+                /* Replace the words in this chunk's range */
+                var oldWords = a.words.splice(selChunk.wordStartIdx, selChunk.wordEndIdx - selChunk.wordStartIdx + 1);
+                /* Distribute timing across new words */
+                var tStart = oldWords.length ? oldWords[0].start : selChunk.timeStart;
+                var tEnd = oldWords.length ? oldWords[oldWords.length - 1].end : selChunk.timeEnd;
+                var tSpan = tEnd - tStart;
+                var replacements = newWords.map(function (w, wi) {
+                  return { text: w, start: tStart + (tSpan * wi / newWords.length), end: tStart + (tSpan * (wi + 1) / newWords.length) };
+                });
+                Array.prototype.splice.apply(a.words, [selChunk.wordStartIdx, 0].concat(replacements));
+                saveStateDebounced();
+                debouncedRegenerateCaptions();
+                refreshTimeline();
+                if (coreScene && coreScene.seekToTime && canvas) { coreScene.seekToTime(canvas, currentPlayheadSec); canvas.renderAll(); }
+              });
+              chunkSection.appendChild(chunkTextarea);
+              capForm.appendChild(chunkSection);
+            }
+          } else if (capAsset._autoGenerated) {
+            /* Info banner when captions were auto-generated from TTS */
+            var autoGenBanner = document.createElement('div');
+            autoGenBanner.style.cssText = 'background:#1e3a5f;border:1px solid #2563eb;border-radius:6px;padding:8px 12px;margin:6px 0;font-size:0.82rem;color:#93c5fd;display:flex;align-items:flex-start;gap:8px;';
+            autoGenBanner.innerHTML = '<span style="flex-shrink:0;font-size:1rem;">ℹ️</span>' +
+              '<span>Captions auto-generated from TTS text with estimated timing. ' +
+              'Click <strong>Generate captions from audio</strong> above for more precise word timing.</span>';
+            capForm.appendChild(autoGenBanner);
+          }
           var capWrap = document.createElement('div');
           capWrap.className = 'cfs-properties-form-wrap';
+
+          /* ── Helper to get/update the asset safely ── */
+          function getCapAsset() {
+            var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
+            if (!c) return null;
+            if (!c.asset) c.asset = { type: 'rich-caption' };
+            return c.asset;
+          }
+
+          /* ── Curated Google Fonts list ── */
+          var GOOGLE_FONTS = [
+            'Open Sans', 'Roboto', 'Inter', 'Lato', 'Montserrat', 'Oswald', 'Poppins',
+            'Raleway', 'Nunito', 'Ubuntu', 'Playfair Display', 'Merriweather', 'Bebas Neue',
+            'Outfit', 'Space Grotesk', 'DM Sans', 'Rubik', 'Karla', 'Lexend', 'Archivo Black',
+            'Bangers', 'Permanent Marker', 'Luckiest Guy', 'Anton', 'Righteous'
+          ];
+
+          /* ── SRC / ALIAS ── */
+          var capSrcRow = document.createElement('div');
+          capSrcRow.className = 'cfs-prop-row';
+          capSrcRow.innerHTML = '<label>Source URL / alias: </label><input type="text" class="gen-prop-input" style="width:100%;" placeholder="URL to .srt/.vtt or alias://clip_name">';
+          var capSrcInput = capSrcRow.querySelector('input');
+          capSrcInput.value = capAsset.src || '';
+          capSrcInput.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; var v = capSrcInput.value.trim(); if (v) a.src = v; else delete a.src; saveStateDebounced(); refreshTimeline(); });
+          capWrap.appendChild(capSrcRow);
+
+          /* ── BOX BACKGROUND (moved to top for visibility) ── */
+          var boxBgSection = document.createElement('div');
+          boxBgSection.className = 'cfs-prop-section';
+          boxBgSection.innerHTML = '<div class="cfs-prop-section-title">Box Background</div>';
+          var boxBgObj = capAsset.background || {};
+          var boxBgRow = document.createElement('div');
+          boxBgRow.className = 'cfs-prop-row';
+          boxBgRow.innerHTML = '<input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (boxBgObj.color || '#000000') + '">' +
+            '<label style="margin-left:4px;font-size:11px;"><input type="checkbox" class="cfs-cap-box-bg-on"' + (boxBgObj.color ? ' checked' : '') + '> On</label>' +
+            '<label style="margin-left:6px;font-size:11px;">Transparency %</label>' +
+            '<input type="number" class="gen-prop-input cfs-cap-box-bg-op" min="0" max="100" step="5" value="' + Math.round(100 - (boxBgObj.opacity != null ? boxBgObj.opacity : 1) * 100) + '" style="width:48px;margin-left:2px;">';
+          var boxBgColorIn = boxBgRow.querySelector('input[type=color]');
+          var boxBgCheckIn = boxBgRow.querySelector('.cfs-cap-box-bg-on');
+          var boxBgOpIn = boxBgRow.querySelector('.cfs-cap-box-bg-op');
+          function isCaptionObj(obj) {
+            if (obj.cfsIsCaption) return true;
+            if (obj.cfsOriginalClip && obj.cfsOriginalClip.asset) {
+              var t = obj.cfsOriginalClip.asset.type;
+              return t === 'caption' || t === 'rich-caption';
+            }
+            return false;
+          }
+          function computeBgString(color, transparency) {
+            var op = Math.min(1, Math.max(0, 1 - transparency / 100));
+            if (op <= 0) return '';
+            if (op >= 1) return color;
+            var rr = parseInt(color.slice(1, 3), 16) || 0;
+            var gg = parseInt(color.slice(3, 5), 16) || 0;
+            var bb = parseInt(color.slice(5, 7), 16) || 0;
+            return 'rgba(' + rr + ',' + gg + ',' + bb + ',' + op.toFixed(2) + ')';
+          }
+          function syncBoxBg() {
+            var a = getCapAsset(); if (!a) return;
+            if (!a.background) a.background = {};
+            var transparency = Math.min(100, Math.max(0, Number(boxBgOpIn.value) || 0));
+            var opacity = Math.min(1, Math.max(0, 1 - transparency / 100));
+            if (boxBgCheckIn.checked) {
+              a.background.color = boxBgColorIn.value || '#000000';
+              a.background.opacity = opacity;
+            } else {
+              delete a.background.color;
+              delete a.background.opacity;
+            }
+            /* Update Fabric.js canvas object immediately */
+            if (canvas && canvas.getObjects) {
+              var bgStr = boxBgCheckIn.checked ? computeBgString(boxBgColorIn.value || '#000000', transparency) : '';
+              canvas.getObjects().forEach(function (obj) {
+                if (!isCaptionObj(obj)) return;
+                obj.set('backgroundColor', bgStr);
+                obj.set('cfsTextBackground', bgStr || undefined);
+                obj.dirty = true;
+              });
+              canvas.requestRenderAll ? canvas.requestRenderAll() : canvas.renderAll();
+            }
+            saveStateDebounced();
+          }
+          boxBgColorIn.addEventListener('input', syncBoxBg);
+          boxBgColorIn.addEventListener('change', syncBoxBg);
+          boxBgCheckIn.addEventListener('change', syncBoxBg);
+          boxBgOpIn.addEventListener('input', syncBoxBg);
+          boxBgOpIn.addEventListener('change', syncBoxBg);
+          boxBgSection.appendChild(boxBgRow);
+          capWrap.appendChild(boxBgSection);
+
+          /* ── FONT SECTION ── */
+          var fontSection = document.createElement('div');
+          fontSection.className = 'cfs-prop-section';
+          fontSection.innerHTML = '<div class="cfs-prop-section-title">Font</div>';
+          var fontObj = capAsset.font || {};
+
+          // Font family: Google Fonts dropdown + custom input
+          var fontFamRow = document.createElement('div');
+          fontFamRow.className = 'cfs-prop-row';
+          fontFamRow.innerHTML = '<label>Family</label>';
+          var fontFamSelect = document.createElement('select');
+          fontFamSelect.className = 'gen-prop-input';
+          fontFamSelect.style.cssText = 'width:100%;margin-bottom:4px;';
+          var currentFam = fontObj.family || 'Open Sans';
+          var optCustom = document.createElement('option');
+          optCustom.value = '__custom__';
+          optCustom.textContent = '— Custom font —';
+          fontFamSelect.appendChild(optCustom);
+          var foundInList = false;
+          GOOGLE_FONTS.forEach(function (f) {
+            var opt = document.createElement('option');
+            opt.value = f;
+            opt.textContent = f;
+            if (f === currentFam) { opt.selected = true; foundInList = true; }
+            fontFamSelect.appendChild(opt);
+          });
+          var fontCustomInput = document.createElement('input');
+          fontCustomInput.type = 'text';
+          fontCustomInput.className = 'gen-prop-input';
+          fontCustomInput.placeholder = 'Custom font family or TTF filename';
+          fontCustomInput.style.cssText = 'width:100%;margin-top:4px;' + (foundInList ? 'display:none;' : '');
+          if (!foundInList) { optCustom.selected = true; fontCustomInput.value = currentFam; }
+          fontFamSelect.addEventListener('change', function () {
+            if (fontFamSelect.value === '__custom__') { fontCustomInput.style.display = ''; fontCustomInput.focus(); return; }
+            fontCustomInput.style.display = 'none';
+            var a = getCapAsset(); if (!a) return;
+            if (!a.font) a.font = {};
+            a.font.family = fontFamSelect.value;
+            saveStateDebounced();
+          });
+          fontCustomInput.addEventListener('change', function () {
+            var a = getCapAsset(); if (!a) return;
+            if (!a.font) a.font = {};
+            a.font.family = fontCustomInput.value.trim() || 'Open Sans';
+            saveStateDebounced();
+          });
+          fontFamRow.appendChild(fontFamSelect);
+          fontFamRow.appendChild(fontCustomInput);
+          fontSection.appendChild(fontFamRow);
+
+          // Font size + weight
+          var fontSizeRow = document.createElement('div');
+          fontSizeRow.className = 'cfs-prop-row gen-prop-pair';
+          fontSizeRow.innerHTML = '<div class="gen-prop-group"><label>Size</label><input type="number" class="gen-prop-input cfs-cap-font-size" min="8" max="500" step="1" value="' + (fontObj.size || 32) + '"></div>' +
+            '<div class="gen-prop-group"><label>Weight</label><select class="gen-prop-input cfs-cap-font-weight"><option value="400">Normal</option><option value="500">Medium</option><option value="600">Semi-bold</option><option value="700"' + ((fontObj.weight || 400) >= 700 ? ' selected' : '') + '>Bold</option><option value="800">Extra-bold</option><option value="900">Black</option></select></div>';
+          fontSizeRow.querySelector('.cfs-cap-font-size').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.font) a.font = {}; a.font.size = Math.max(8, Number(this.value) || 32); saveStateDebounced(); });
+          fontSizeRow.querySelector('.cfs-cap-font-weight').value = String(fontObj.weight || 400);
+          fontSizeRow.querySelector('.cfs-cap-font-weight').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.font) a.font = {}; a.font.weight = Number(this.value) || 400; saveStateDebounced(); });
+          fontSection.appendChild(fontSizeRow);
+
+          // Font color + opacity
+          var fontColorRow = document.createElement('div');
+          fontColorRow.className = 'cfs-prop-row gen-prop-pair';
+          fontColorRow.innerHTML = '<div class="gen-prop-group"><label>Color</label><input type="color" class="gen-prop-input cfs-cap-font-color" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (fontObj.color || '#ffffff') + '"></div>' +
+            '<div class="gen-prop-group"><label>OP %</label><input type="number" class="gen-prop-input cfs-cap-font-opacity" min="0" max="100" step="5" value="' + Math.round((fontObj.opacity != null ? fontObj.opacity : 1) * 100) + '"></div>';
+          fontColorRow.querySelector('.cfs-cap-font-color').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.font) a.font = {}; a.font.color = this.value; saveStateDebounced(); });
+          fontColorRow.querySelector('.cfs-cap-font-opacity').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.font) a.font = {}; a.font.opacity = Math.min(1, Math.max(0, (Number(this.value) || 100) / 100)); saveStateDebounced(); });
+          fontSection.appendChild(fontColorRow);
+
+          // Font background
+          var fontBgRow = document.createElement('div');
+          fontBgRow.className = 'cfs-prop-row';
+          fontBgRow.innerHTML = '<label>Word Highlight</label><input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (fontObj.background || '#000000') + '"><label style="margin-left:4px;font-size:11px;"><input type="checkbox" class="cfs-cap-font-bg-on"' + (fontObj.background ? ' checked' : '') + '> On</label><label style="margin-left:6px;font-size:11px;">OP %</label><input type="number" class="gen-prop-input cfs-cap-font-bg-op" min="0" max="100" step="5" value="' + Math.round((fontObj.backgroundOpacity != null ? fontObj.backgroundOpacity : 1) * 100) + '" style="width:48px;margin-left:2px;">';
+          var fontBgColor = fontBgRow.querySelector('input[type=color]');
+          var fontBgCheck = fontBgRow.querySelector('.cfs-cap-font-bg-on');
+          var fontBgOpIn = fontBgRow.querySelector('.cfs-cap-font-bg-op');
+          function syncFontBg() { var a = getCapAsset(); if (!a) return; if (!a.font) a.font = {}; if (fontBgCheck.checked) { a.font.background = fontBgColor.value || '#000000'; a.font.backgroundOpacity = Math.min(1, Math.max(0, (Number(fontBgOpIn.value) || 100) / 100)); } else { delete a.font.background; delete a.font.backgroundOpacity; } saveStateDebounced(); }
+          fontBgColor.addEventListener('change', syncFontBg);
+          fontBgCheck.addEventListener('change', syncFontBg);
+          fontBgOpIn.addEventListener('change', syncFontBg);
+          fontSection.appendChild(fontBgRow);
+          capWrap.appendChild(fontSection);
+
+          /* ── STROKE SECTION ── */
+          var strokeSection = document.createElement('div');
+          strokeSection.className = 'cfs-prop-section';
+          strokeSection.innerHTML = '<div class="cfs-prop-section-title">Stroke</div>';
+          var strokeObj = capAsset.stroke || {};
+          var strokeRow = document.createElement('div');
+          strokeRow.className = 'cfs-prop-row gen-prop-pair';
+          strokeRow.innerHTML = '<div class="gen-prop-group"><label>Width</label><input type="number" class="gen-prop-input cfs-cap-stroke-w" min="0" max="20" step="1" value="' + (strokeObj.width || 0) + '"></div>' +
+            '<div class="gen-prop-group"><label>Color</label><input type="color" class="gen-prop-input cfs-cap-stroke-c" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (strokeObj.color || '#000000') + '"></div>';
+          strokeRow.querySelector('.cfs-cap-stroke-w').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.stroke) a.stroke = {}; a.stroke.width = Math.max(0, Number(this.value) || 0); saveStateDebounced(); });
+          strokeRow.querySelector('.cfs-cap-stroke-c').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.stroke) a.stroke = {}; a.stroke.color = this.value; saveStateDebounced(); });
+          strokeSection.appendChild(strokeRow);
+          var strokeOpRow = document.createElement('div');
+          strokeOpRow.className = 'cfs-prop-row';
+          strokeOpRow.innerHTML = '<label>Stroke OP %</label><input type="number" class="gen-prop-input" min="0" max="100" step="5" value="' + Math.round((strokeObj.opacity != null ? strokeObj.opacity : 1) * 100) + '" style="width:60px;">';
+          strokeOpRow.querySelector('input').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.stroke) a.stroke = {}; a.stroke.opacity = Math.min(1, Math.max(0, (Number(this.value) || 100) / 100)); saveStateDebounced(); });
+          strokeSection.appendChild(strokeOpRow);
+          capWrap.appendChild(strokeSection);
+
+          /* ── SHADOW SECTION ── */
+          var shadowSection = document.createElement('div');
+          shadowSection.className = 'cfs-prop-section';
+          shadowSection.innerHTML = '<div class="cfs-prop-section-title">Shadow</div>';
+          var shadowObj = capAsset.shadow || {};
+          var shadowRow = document.createElement('div');
+          shadowRow.className = 'cfs-prop-row gen-prop-pair';
+          shadowRow.innerHTML = '<div class="gen-prop-group"><label>Color</label><input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (shadowObj.color || '#000000') + '"></div>' +
+            '<div class="gen-prop-group"><label>Blur</label><input type="number" class="gen-prop-input" min="0" max="50" step="1" value="' + (shadowObj.blur || 0) + '" style="width:60px;"></div>';
+          var shadowColorIn = shadowRow.querySelectorAll('input')[0];
+          var shadowBlurIn = shadowRow.querySelectorAll('input')[1];
+          shadowColorIn.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.shadow) a.shadow = {}; a.shadow.color = this.value; saveStateDebounced(); });
+          shadowBlurIn.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.shadow) a.shadow = {}; a.shadow.blur = Math.max(0, Number(this.value) || 0); saveStateDebounced(); });
+          shadowSection.appendChild(shadowRow);
+          var shadowOffRow = document.createElement('div');
+          shadowOffRow.className = 'cfs-prop-row gen-prop-pair';
+          shadowOffRow.innerHTML = '<div class="gen-prop-group"><label>X</label><input type="number" class="gen-prop-input" min="-50" max="50" step="1" value="' + (shadowObj.x || 0) + '" style="width:60px;"></div>' +
+            '<div class="gen-prop-group"><label>Y</label><input type="number" class="gen-prop-input" min="-50" max="50" step="1" value="' + (shadowObj.y || 0) + '" style="width:60px;"></div>';
+          var shadowXIn = shadowOffRow.querySelectorAll('input')[0];
+          var shadowYIn = shadowOffRow.querySelectorAll('input')[1];
+          shadowXIn.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.shadow) a.shadow = {}; a.shadow.x = Number(this.value) || 0; saveStateDebounced(); });
+          shadowYIn.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.shadow) a.shadow = {}; a.shadow.y = Number(this.value) || 0; saveStateDebounced(); });
+          shadowSection.appendChild(shadowOffRow);
+          capWrap.appendChild(shadowSection);
+
+          /* ── ANIMATION SECTION ── */
+          var animSection = document.createElement('div');
+          animSection.className = 'cfs-prop-section';
+          animSection.innerHTML = '<div class="cfs-prop-section-title">Animation</div>';
+          var animObj = capAsset.animation || {};
+          var ANIM_STYLES = ['karaoke', 'highlight', 'pop', 'fade', 'slide', 'bounce', 'typewriter', 'none'];
+          var animRow = document.createElement('div');
+          animRow.className = 'cfs-prop-row';
+          animRow.innerHTML = '<label>Style</label><select class="gen-prop-input cfs-cap-anim-style" style="width:100%;"></select>';
+          var animSelect = animRow.querySelector('select');
+          ANIM_STYLES.forEach(function (s) { var o = document.createElement('option'); o.value = s; o.textContent = s.charAt(0).toUpperCase() + s.slice(1); if (s === (animObj.style || 'none')) o.selected = true; animSelect.appendChild(o); });
+          var animDirRow = document.createElement('div');
+          animDirRow.className = 'cfs-prop-row';
+          animDirRow.innerHTML = '<label>Direction</label><select class="gen-prop-input cfs-cap-anim-dir"><option value="up">Up</option><option value="down">Down</option><option value="left">Left</option><option value="right">Right</option></select>';
+          animDirRow.style.display = (animObj.style === 'slide') ? '' : 'none';
+          var animDirSelect = animDirRow.querySelector('select');
+          animDirSelect.value = animObj.direction || 'up';
+          animSelect.addEventListener('change', function () {
+            var a = getCapAsset(); if (!a) return;
+            if (!a.animation) a.animation = {};
+            a.animation.style = animSelect.value;
+            animDirRow.style.display = animSelect.value === 'slide' ? '' : 'none';
+            if (animSelect.value !== 'slide') delete a.animation.direction;
+            /* Update Fabric object so seekToTime picks up the new style immediately */
+            if (canvas && canvas.getObjects) {
+              canvas.getObjects().forEach(function (obj) {
+                if (obj.cfsIsCaption) {
+                  obj.cfsCaptionAnimation = { style: animSelect.value };
+                  if (animSelect.value === 'slide' && a.animation.direction) {
+                    obj.cfsCaptionAnimation.direction = a.animation.direction;
+                  }
+                }
+              });
+            }
+            saveStateDebounced();
+            /* Force re-render with new style */
+            if (typeof applySeekForOutputPreview === 'function') applySeekForOutputPreview(canvas);
+          });
+          animDirSelect.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.animation) a.animation = {}; a.animation.direction = animDirSelect.value; saveStateDebounced(); });
+          animSection.appendChild(animRow);
+          animSection.appendChild(animDirRow);
+
+          /* ── DISPLAY SETTINGS (words per line, lines) ── */
+          var displayObj = capAsset.display || {};
+          var displayRow = document.createElement('div');
+          displayRow.className = 'cfs-prop-row';
+          displayRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;';
+          displayRow.innerHTML = '<label style="flex-shrink:0;font-size:12px;">Words/line</label>' +
+            '<input type="number" class="gen-prop-input cfs-cap-wpl" min="1" max="12" step="1" value="' + (displayObj.wordsPerLine || 4) + '" style="width:48px;">' +
+            '<label style="flex-shrink:0;font-size:12px;margin-left:4px;">Lines</label>' +
+            '<input type="number" class="gen-prop-input cfs-cap-lines" min="1" max="4" step="1" value="' + (displayObj.lines || 2) + '" style="width:48px;">';
+          var wplInput = displayRow.querySelector('.cfs-cap-wpl');
+          var linesInput = displayRow.querySelector('.cfs-cap-lines');
+          function syncDisplay() {
+            var a = getCapAsset(); if (!a) return;
+            if (!a.display) a.display = {};
+            a.display.wordsPerLine = Math.max(1, Math.min(12, parseInt(wplInput.value, 10) || 4));
+            a.display.lines = Math.max(1, Math.min(4, parseInt(linesInput.value, 10) || 2));
+            /* Propagate to Fabric objects */
+            if (canvas && canvas.getObjects) {
+              canvas.getObjects().forEach(function (obj) {
+                if (obj.cfsIsCaption) {
+                  obj.cfsCaptionDisplay = { wordsPerLine: a.display.wordsPerLine, lines: a.display.lines };
+                }
+              });
+            }
+            saveStateDebounced();
+            if (typeof applySeekForOutputPreview === 'function') applySeekForOutputPreview(canvas);
+          }
+          wplInput.addEventListener('change', syncDisplay);
+          linesInput.addEventListener('change', syncDisplay);
+          animSection.appendChild(displayRow);
+
+          capWrap.appendChild(animSection);
+
+          /* ── ACTIVE WORD STYLING ── */
+          var activeSection = document.createElement('div');
+          activeSection.className = 'cfs-prop-section';
+          activeSection.innerHTML = '<div class="cfs-prop-section-title">Active Word</div>';
+          var activeObj = capAsset.active || {};
+          var activeFontObj = activeObj.font || {};
+          var activeStrokeObj = activeObj.stroke || {};
+          var activeRow = document.createElement('div');
+          activeRow.className = 'cfs-prop-row gen-prop-pair';
+          activeRow.innerHTML = '<div class="gen-prop-group"><label>Color</label><input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (activeFontObj.color || '#efbf04') + '"></div>' +
+            '<div class="gen-prop-group"><label>Background</label><input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (activeFontObj.background || '#000000') + '"><label style="margin-left:4px;font-size:11px;"><input type="checkbox"' + (activeFontObj.background ? ' checked' : '') + '> On</label></div>' +
+            '<div class="gen-prop-group"><label>OP %</label><input type="number" class="gen-prop-input cfs-cap-active-bg-op" min="0" max="100" step="5" value="' + Math.round((activeFontObj.backgroundOpacity != null ? activeFontObj.backgroundOpacity : 1) * 100) + '" style="width:48px;"></div>';
+          var activeColorIn = activeRow.querySelectorAll('input[type=color]')[0];
+          var activeBgIn = activeRow.querySelectorAll('input[type=color]')[1];
+          var activeBgCheck = activeRow.querySelector('input[type=checkbox]');
+          var activeBgOpIn = activeRow.querySelector('.cfs-cap-active-bg-op');
+          activeColorIn.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.active) a.active = {}; if (!a.active.font) a.active.font = {}; a.active.font.color = this.value; saveStateDebounced(); });
+          function syncActiveBg() { var a = getCapAsset(); if (!a) return; if (!a.active) a.active = {}; if (!a.active.font) a.active.font = {}; if (activeBgCheck.checked) { a.active.font.background = activeBgIn.value; a.active.font.backgroundOpacity = Math.min(1, Math.max(0, (Number(activeBgOpIn.value) || 100) / 100)); } else { delete a.active.font.background; delete a.active.font.backgroundOpacity; } saveStateDebounced(); }
+          activeBgIn.addEventListener('change', syncActiveBg);
+          activeBgCheck.addEventListener('change', syncActiveBg);
+          activeBgOpIn.addEventListener('change', syncActiveBg);
+          activeSection.appendChild(activeRow);
+          // Active stroke
+          var activeStrokeRow = document.createElement('div');
+          activeStrokeRow.className = 'cfs-prop-row gen-prop-pair';
+          activeStrokeRow.innerHTML = '<div class="gen-prop-group"><label>Stroke W</label><input type="number" class="gen-prop-input" min="0" max="20" step="1" value="' + (activeStrokeObj.width || 0) + '" style="width:50px;"></div>' +
+            '<div class="gen-prop-group"><label>Stroke Color</label><input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (activeStrokeObj.color || '#000000') + '"></div>';
+          activeStrokeRow.querySelectorAll('input')[0].addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.active) a.active = {}; if (!a.active.stroke) a.active.stroke = {}; a.active.stroke.width = Math.max(0, Number(this.value) || 0); saveStateDebounced(); });
+          activeStrokeRow.querySelectorAll('input')[1].addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.active) a.active = {}; if (!a.active.stroke) a.active.stroke = {}; a.active.stroke.color = this.value; saveStateDebounced(); });
+          activeSection.appendChild(activeStrokeRow);
+          capWrap.appendChild(activeSection);
+
+          /* ── ALIGNMENT ── */
+          var alignSection = document.createElement('div');
+          alignSection.className = 'cfs-prop-section';
+          alignSection.innerHTML = '<div class="cfs-prop-section-title">Alignment & Style</div>';
+          var alignObj = capAsset.align || {};
+          var styleObj = capAsset.style || {};
+          var alignRow = document.createElement('div');
+          alignRow.className = 'cfs-prop-row gen-prop-pair';
+          alignRow.innerHTML = '<div class="gen-prop-group"><label>Vertical</label><select class="gen-prop-input cfs-cap-align-v"><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></div>' +
+            '<div class="gen-prop-group"><label>Transform</label><select class="gen-prop-input cfs-cap-transform"><option value="">None</option><option value="uppercase">UPPERCASE</option><option value="lowercase">lowercase</option></select></div>';
+          alignRow.querySelector('.cfs-cap-align-v').value = alignObj.vertical || 'bottom';
+          alignRow.querySelector('.cfs-cap-transform').value = styleObj.textTransform || '';
+          alignRow.querySelector('.cfs-cap-align-v').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.align) a.align = {}; a.align.vertical = this.value; saveStateDebounced(); });
+          alignRow.querySelector('.cfs-cap-transform').addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (this.value) { if (!a.style) a.style = {}; a.style.textTransform = this.value; } else { if (a.style) delete a.style.textTransform; } saveStateDebounced(); });
+          alignSection.appendChild(alignRow);
+          capWrap.appendChild(alignSection);
+
+          /* ── BORDER ── */
+          var borderSection = document.createElement('div');
+          borderSection.className = 'cfs-prop-section';
+          borderSection.innerHTML = '<div class="cfs-prop-section-title">Border</div>';
+          var borderObj = capAsset.border || {};
+          var borderRow = document.createElement('div');
+          borderRow.className = 'cfs-prop-row gen-prop-pair';
+          borderRow.innerHTML = '<div class="gen-prop-group"><label>Width</label><input type="number" class="gen-prop-input" min="0" max="20" step="1" value="' + (borderObj.width || 0) + '" style="width:50px;"></div>' +
+            '<div class="gen-prop-group"><label>Radius</label><input type="number" class="gen-prop-input" min="0" max="100" step="1" value="' + (borderObj.radius || 0) + '" style="width:50px;"></div>';
+          borderRow.querySelectorAll('input')[0].addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.border) a.border = {}; a.border.width = Math.max(0, Number(this.value) || 0); saveStateDebounced(); });
+          borderRow.querySelectorAll('input')[1].addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.border) a.border = {}; a.border.radius = Math.max(0, Number(this.value) || 0); saveStateDebounced(); });
+          borderSection.appendChild(borderRow);
+          var borderColorRow = document.createElement('div');
+          borderColorRow.className = 'cfs-prop-row gen-prop-pair';
+          borderColorRow.innerHTML = '<div class="gen-prop-group"><label>Color</label><input type="color" class="gen-prop-input" style="width:48px;height:28px;padding:0;border:0;background:none;" value="' + (borderObj.color || '#000000') + '"></div>' +
+            '<div class="gen-prop-group"><label>OP %</label><input type="number" class="gen-prop-input" min="0" max="100" step="5" value="' + Math.round((borderObj.opacity != null ? borderObj.opacity : 1) * 100) + '" style="width:50px;"></div>';
+          borderColorRow.querySelectorAll('input')[0].addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.border) a.border = {}; a.border.color = this.value; saveStateDebounced(); });
+          borderColorRow.querySelectorAll('input')[1].addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.border) a.border = {}; a.border.opacity = Math.min(1, Math.max(0, (Number(this.value) || 100) / 100)); saveStateDebounced(); });
+          borderSection.appendChild(borderColorRow);
+          capWrap.appendChild(borderSection);
+
+          /* ── PADDING ── */
+          var padSection = document.createElement('div');
+          padSection.className = 'cfs-prop-section';
+          padSection.innerHTML = '<div class="cfs-prop-section-title">Padding</div>';
+          var padObj = capAsset.padding || {};
+          var padRow = document.createElement('div');
+          padRow.className = 'cfs-prop-row gen-prop-pair';
+          padRow.innerHTML = '<div class="gen-prop-group"><label>Top</label><input type="number" class="gen-prop-input cfs-pad-t" min="0" max="200" step="1" value="' + (padObj.top || 0) + '" style="width:50px;"></div>' +
+            '<div class="gen-prop-group"><label>Right</label><input type="number" class="gen-prop-input cfs-pad-r" min="0" max="200" step="1" value="' + (padObj.right || 0) + '" style="width:50px;"></div>';
+          var padRow2 = document.createElement('div');
+          padRow2.className = 'cfs-prop-row gen-prop-pair';
+          padRow2.innerHTML = '<div class="gen-prop-group"><label>Bottom</label><input type="number" class="gen-prop-input cfs-pad-b" min="0" max="200" step="1" value="' + (padObj.bottom || 0) + '" style="width:50px;"></div>' +
+            '<div class="gen-prop-group"><label>Left</label><input type="number" class="gen-prop-input cfs-pad-l" min="0" max="200" step="1" value="' + (padObj.left || 0) + '" style="width:50px;"></div>';
+          ['t', 'r', 'b', 'l'].forEach(function (d) { var key = { t: 'top', r: 'right', b: 'bottom', l: 'left' }[d]; var el = (d === 't' || d === 'r' ? padRow : padRow2).querySelector('.cfs-pad-' + d); if (el) el.addEventListener('change', function () { var a = getCapAsset(); if (!a) return; if (!a.padding) a.padding = {}; a.padding[key] = Math.max(0, Number(this.value) || 0); saveStateDebounced(); }); });
+          padSection.appendChild(padRow);
+          padSection.appendChild(padRow2);
+          capWrap.appendChild(padSection);
+
+          /* ── TEXT / WORDS ── */
+          var textSection = document.createElement('div');
+          textSection.className = 'cfs-prop-section';
+          textSection.innerHTML = '<div class="cfs-prop-section-title">Caption Content</div>';
           var capTextRow = document.createElement('div');
           capTextRow.className = 'cfs-prop-row';
-          capTextRow.innerHTML = '<label>Caption text: </label>';
+          capTextRow.innerHTML = '<label>Text: </label>';
           var capTextarea = document.createElement('textarea');
-          capTextarea.className = 'cfs-prop-caption-text';
+          capTextarea.className = 'gen-prop-input';
           capTextarea.rows = 3;
-          capTextarea.style.cssText = 'width:100%;max-width:280px;resize:vertical;';
-          var capText = (capClip.asset.text || '').toString();
-          if (!capText && capClip.asset.words && Array.isArray(capClip.asset.words)) {
-            capText = capClip.asset.words.map(function (w) { return w && w.text != null ? w.text : ''; }).join(' ');
+          capTextarea.style.cssText = 'width:100%;resize:vertical;';
+          var capText = (capAsset.text || '').toString();
+          if (!capText && capAsset.words && Array.isArray(capAsset.words)) {
+            capText = capAsset.words.map(function (w) { return w && w.text != null ? w.text : ''; }).join(' ');
           }
           capTextarea.value = capText;
           capTextarea.addEventListener('change', function () {
-            var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-            if (!c) return;
-            if (!c.asset) c.asset = { type: 'caption' };
-            c.asset.text = capTextarea.value.trim();
-            delete c.asset.words;
-            saveStateDebounced();
-            refreshTimeline();
+            var a = getCapAsset(); if (!a) return;
+            a.text = capTextarea.value.trim();
+            delete a.words;
+            saveStateDebounced(); refreshTimeline();
           });
           capTextRow.appendChild(capTextarea);
-          capWrap.appendChild(capTextRow);
-          var capColorRow = document.createElement('div');
-          capColorRow.className = 'cfs-prop-row';
-          capColorRow.innerHTML = '<label>Text color: </label><input type="color" class="cfs-prop-caption-color" style="width:48px;height:28px;padding:0;border:0;background:none;">';
-          var capColorInput = capColorRow.querySelector('input.cfs-prop-caption-color');
-          if (capColorInput) {
-            var currentFill = (capClip.asset && capClip.asset.fill) || '#ffffff';
-            capColorInput.value = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(currentFill)) ? String(currentFill) : '#ffffff';
-            capColorInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c) return;
-              if (!c.asset) c.asset = { type: 'caption' };
-              c.asset.fill = capColorInput.value || '#ffffff';
-              saveStateDebounced();
-              refreshTimeline();
-            });
-          }
-          capWrap.appendChild(capColorRow);
-          var capBgRow = document.createElement('div');
-          capBgRow.className = 'cfs-prop-row';
-          capBgRow.innerHTML = '<label>Background: </label><input type="color" class="cfs-prop-caption-bg" style="width:48px;height:28px;padding:0;border:0;background:none;">';
-          var capBgInput = capBgRow.querySelector('input.cfs-prop-caption-bg');
-          if (capBgInput) {
-            var currentBg = (capClip.asset && capClip.asset.background) || '#000000';
-            capBgInput.value = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(currentBg)) ? String(currentBg) : '#000000';
-            capBgInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c) return;
-              if (!c.asset) c.asset = { type: 'caption' };
-              c.asset.background = capBgInput.value || '#000000';
-              saveStateDebounced();
-              refreshTimeline();
-            });
-          }
-          capWrap.appendChild(capBgRow);
-          var capFontRow = document.createElement('div');
-          capFontRow.className = 'cfs-prop-row';
-          capFontRow.innerHTML = '<label>Font size: </label><input type="number" class="cfs-prop-caption-size" min="8" step="1" style="width:80px;" placeholder="32">';
-          var capSizeInput = capFontRow.querySelector('input.cfs-prop-caption-size');
-          if (capSizeInput) {
-            var capFs = (capClip.asset && capClip.asset.fontSize != null) ? Number(capClip.asset.fontSize) : 32;
-            capSizeInput.value = isNaN(capFs) ? '32' : String(capFs);
-            capSizeInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c) return;
-              if (!c.asset) c.asset = { type: 'caption' };
-              var n = Number(capSizeInput.value);
-              c.asset.fontSize = isNaN(n) ? 32 : Math.max(8, Math.round(n));
-              saveStateDebounced();
-              refreshTimeline();
-            });
-          }
-          capWrap.appendChild(capFontRow);
+          textSection.appendChild(capTextRow);
+
           var capWordsRow = document.createElement('div');
           capWordsRow.className = 'cfs-prop-row';
           capWordsRow.innerHTML = '<label>Words timing (JSON): </label>';
           var capWordsTextarea = document.createElement('textarea');
-          capWordsTextarea.className = 'cfs-prop-caption-words';
-          capWordsTextarea.rows = 6;
-          capWordsTextarea.style.cssText = 'width:100%;max-width:280px;resize:vertical;font-family:monospace;font-size:11px;';
-          var wordsVal = (capClip.asset && Array.isArray(capClip.asset.words)) ? capClip.asset.words : [];
+          capWordsTextarea.className = 'gen-prop-input';
+          capWordsTextarea.rows = 4;
+          capWordsTextarea.style.cssText = 'width:100%;resize:vertical;font-family:monospace;font-size:11px;';
+          var wordsVal = Array.isArray(capAsset.words) ? capAsset.words : [];
           try { capWordsTextarea.value = wordsVal.length ? JSON.stringify(wordsVal, null, 2) : ''; } catch (_) { capWordsTextarea.value = ''; }
           capWordsTextarea.addEventListener('change', function () {
-            var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-            if (!c) return;
-            if (!c.asset) c.asset = { type: 'caption' };
+            var a = getCapAsset(); if (!a) return;
             var raw = capWordsTextarea.value.trim();
-            if (!raw) {
-              delete c.asset.words;
-              saveStateDebounced();
-              refreshTimeline();
-              return;
-            }
-            try {
-              var parsed = JSON.parse(raw);
-              if (!Array.isArray(parsed)) throw new Error('Words JSON must be an array');
-              c.asset.words = parsed;
-              saveStateDebounced();
-              refreshTimeline();
-            } catch (e) {
-              try { window.alert('Invalid words JSON. Use an array of objects like { "text": "Hello", "start": 0, "end": 0.4 }.'); } catch (_) {}
-            }
+            if (!raw) { delete a.words; saveStateDebounced(); refreshTimeline(); return; }
+            try { var parsed = JSON.parse(raw); if (!Array.isArray(parsed)) throw new Error('Must be array'); a.words = parsed; saveStateDebounced(); refreshTimeline(); }
+            catch (e) { try { window.alert('Invalid words JSON. Use [{\"text\":\"Hello\",\"start\":0,\"end\":0.4}].'); } catch (_) {} }
           });
           capWordsRow.appendChild(capWordsTextarea);
-          capWrap.appendChild(capWordsRow);
-          var capSrcRow = document.createElement('div');
-          capSrcRow.className = 'cfs-prop-row';
-          capSrcRow.innerHTML = '<label>SRT/VTT URL: </label><input type="text" class="cfs-prop-caption-src" style="width:100%;max-width:240px;" placeholder="URL to .srt or .vtt file">';
-          var capSrcInput = capSrcRow.querySelector('input.cfs-prop-caption-src');
-          if (capSrcInput) {
-            capSrcInput.value = (capClip.asset && capClip.asset.src) ? String(capClip.asset.src) : '';
-            capSrcInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c) return;
-              if (!c.asset) c.asset = { type: 'caption' };
-              var val = capSrcInput.value.trim();
-              if (val) { c.asset.src = val; } else { delete c.asset.src; }
-              saveStateDebounced();
-              refreshTimeline();
-            });
-          }
-          capWrap.appendChild(capSrcRow);
-          var capBgPadRow = document.createElement('div');
-          capBgPadRow.className = 'cfs-prop-row';
-          capBgPadRow.innerHTML = '<label>BG padding: </label><input type="number" class="cfs-prop-caption-bgpad" min="0" step="1" style="width:60px;" placeholder="5"> <label style="margin-left:8px;">BG radius: </label><input type="number" class="cfs-prop-caption-bgradius" min="0" step="1" style="width:60px;" placeholder="0">';
-          var capBgPadInput = capBgPadRow.querySelector('.cfs-prop-caption-bgpad');
-          var capBgRadInput = capBgPadRow.querySelector('.cfs-prop-caption-bgradius');
-          if (capBgPadInput) {
-            var bg = (capClip.asset && capClip.asset.background && typeof capClip.asset.background === 'object') ? capClip.asset.background : {};
-            capBgPadInput.value = bg.padding != null ? String(bg.padding) : '';
-            capBgPadInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c || !c.asset) return;
-              if (typeof c.asset.background === 'string') c.asset.background = { color: c.asset.background };
-              if (!c.asset.background || typeof c.asset.background !== 'object') c.asset.background = {};
-              var n = Number(capBgPadInput.value);
-              c.asset.background.padding = (capBgPadInput.value === '' || isNaN(n)) ? undefined : Math.max(0, n);
-              saveStateDebounced();
-            });
-          }
-          if (capBgRadInput) {
-            var bgR = (capClip.asset && capClip.asset.background && typeof capClip.asset.background === 'object') ? capClip.asset.background : {};
-            capBgRadInput.value = bgR.borderRadius != null ? String(bgR.borderRadius) : '';
-            capBgRadInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c || !c.asset) return;
-              if (typeof c.asset.background === 'string') c.asset.background = { color: c.asset.background };
-              if (!c.asset.background || typeof c.asset.background !== 'object') c.asset.background = {};
-              var n = Number(capBgRadInput.value);
-              c.asset.background.borderRadius = (capBgRadInput.value === '' || isNaN(n)) ? undefined : Math.max(0, n);
-              saveStateDebounced();
-            });
-          }
-          capWrap.appendChild(capBgPadRow);
+          textSection.appendChild(capWordsRow);
+          capWrap.appendChild(textSection);
+
+          /* ── LIVE WORD PREVIEW ── */
           var capLiveRow = document.createElement('div');
           capLiveRow.className = 'cfs-prop-row';
-          capLiveRow.innerHTML = '<label>Now speaking: </label>';
+          capLiveRow.innerHTML = '<label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7;">Now speaking:</label>';
           var capLiveWord = document.createElement('div');
-          capLiveWord.style.cssText = 'font-size:12px;padding:6px 8px;border:1px solid var(--gen-border,#ddd);border-radius:6px;min-height:20px;background:var(--gen-bg-soft,#fafafa);max-width:280px;';
+          capLiveWord.style.cssText = 'font-size:13px;font-weight:500;padding:6px 10px;border:1px solid var(--gen-border,#444);border-radius:6px;min-height:20px;background:var(--gen-surface,#2a2a2e);color:var(--gen-text,#e0e0e0);';
           function updateLiveWord(absTimeSec) {
             var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-            if (!c || !c.asset || !Array.isArray(c.asset.words) || !c.asset.words.length) {
-              capLiveWord.textContent = 'No timed words';
-              return;
-            }
+            if (!c || !c.asset || !Array.isArray(c.asset.words) || !c.asset.words.length) { capLiveWord.textContent = 'No timed words'; return; }
             var rel = Math.max(0, Number(absTimeSec || 0) - Number(c.start || 0));
             var active = null;
             for (var wi = 0; wi < c.asset.words.length; wi++) {
-              var w = c.asset.words[wi];
-              if (!w) continue;
-              var ws = Number(w.start);
-              var we = Number(w.end);
+              var w = c.asset.words[wi]; if (!w) continue;
+              var ws = Number(w.start); var we = Number(w.end);
               if (!isFinite(ws)) ws = wi > 0 ? Number(c.asset.words[wi - 1].end) || 0 : 0;
               if (!isFinite(we) || we < ws) we = ws + 0.35;
               if (rel >= ws && rel < we) { active = w; break; }
@@ -3407,31 +4055,34 @@
           captionWordPreviewUnsub = editEvents.on('playback:time', function (evt) {
             updateLiveWord(evt && typeof evt.time === 'number' ? evt.time : currentPlayheadSec);
           });
+
+          /* ── GENERATE CAPTIONS (STT) ── */
           var capGenRow = document.createElement('div');
           capGenRow.className = 'cfs-prop-row';
           var capGenBtn = document.createElement('button');
           capGenBtn.type = 'button';
           capGenBtn.className = 'cfs-btn-secondary';
+          capGenBtn.style.cssText = 'width:100%;';
           capGenBtn.textContent = 'Generate captions from audio (STT)';
           capGenBtn.addEventListener('click', function () {
             var sttGen = typeof window !== 'undefined' && window.__CFS_sttGenerate;
             if (!sttGen) { try { window.alert('STT not configured. Set window.__CFS_sttApiUrl or window.__CFS_sttGenerate.'); } catch (_) {} return; }
             var audioSrc = window.prompt('Audio URL to transcribe (or leave blank for template audio):', '');
             if (audioSrc === null) return;
-            capGenBtn.disabled = true;
-            capGenBtn.textContent = 'Transcribing…';
+            capGenBtn.disabled = true; capGenBtn.textContent = 'Transcribing…';
             function handleResult(result) {
-              var c = template.timeline.tracks[selectedCaptionClip.templateTrackIndex] && template.timeline.tracks[selectedCaptionClip.templateTrackIndex].clips[selectedCaptionClip.templateClipIndex];
-              if (!c) return;
-              if (!c.asset) c.asset = { type: 'caption' };
-              if (result && result.text) c.asset.text = result.text;
+              var a = getCapAsset(); if (!a) return;
+              if (result && result.text) a.text = result.text;
               if (result && Array.isArray(result.words) && result.words.length) {
-                c.asset.words = result.words;
-                delete c.asset.text;
+                a.words = result.words; delete a.text;
+                /* Calibrate timing model from real STT word data */
+                if (typeof window.__CFS_calibrateFromWords === 'function') {
+                  window.__CFS_calibrateFromWords(result.words);
+                }
               }
-              saveStateDebounced();
-              refreshTimeline();
-              refreshPropertyPanel();
+              /* Clear auto-generated flag since user manually regenerated via STT */
+              delete a._autoGenerated;
+              saveStateDebounced(); refreshTimeline(); refreshPropertyPanel();
             }
             function findFirstAudioSrc() {
               if (!template || !template.timeline || !Array.isArray(template.timeline.tracks)) return null;
@@ -3439,28 +4090,221 @@
                 var clips = (template.timeline.tracks[ti] && template.timeline.tracks[ti].clips) || [];
                 for (var ci = 0; ci < clips.length; ci++) {
                   var a = clips[ci] && clips[ci].asset;
-                  if (a && (a.type === 'audio' || a.type === 'video') && a.src && a.src.indexOf('{{') === -1) return a.src;
+                  if (a && (a.type === 'audio' || a.type === 'video') && a.src && a.src.indexOf('{{') === -1) return { type: 'url', src: a.src };
                 }
               }
-              if (template.timeline.soundtrack && template.timeline.soundtrack.src) return template.timeline.soundtrack.src;
+              if (template.timeline.soundtrack && template.timeline.soundtrack.src) return { type: 'url', src: template.timeline.soundtrack.src };
+              /* Look for text-to-speech clips */
+              for (var ti2 = 0; ti2 < template.timeline.tracks.length; ti2++) {
+                var clips2 = (template.timeline.tracks[ti2] && template.timeline.tracks[ti2].clips) || [];
+                for (var ci2 = 0; ci2 < clips2.length; ci2++) {
+                  var a2 = clips2[ci2] && clips2[ci2].asset;
+                  if (a2 && a2.type === 'text-to-speech' && a2.text) return { type: 'tts', text: a2.text, voice: a2.localVoice || a2.voice || 'Amy' };
+                }
+              }
               return null;
             }
-            var srcToUse = (audioSrc && audioSrc.trim()) ? audioSrc.trim() : findFirstAudioSrc();
-            if (!srcToUse) { try { window.alert('No audio source found.'); } catch (_) {} capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false; return; }
-            Promise.resolve(sttGen(srcToUse)).then(function (result) {
-              handleResult(result);
-              capGenBtn.textContent = 'Generate captions from audio (STT)';
-              capGenBtn.disabled = false;
-            }).catch(function (err) {
-              try { window.alert('STT error: ' + (err && err.message ? err.message : String(err))); } catch (_) {}
-              capGenBtn.textContent = 'Generate captions from audio (STT)';
-              capGenBtn.disabled = false;
-            });
+            var audioInfo = (audioSrc && audioSrc.trim()) ? { type: 'url', src: audioSrc.trim() } : findFirstAudioSrc();
+            if (!audioInfo) {
+              try { window.alert('No audio source found. Add an audio, video, or text-to-speech clip first.'); } catch (_) {}
+              capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false; return;
+            }
+
+            if (audioInfo.type === 'tts') {
+              /* TTS → STT pipeline: generate speech audio then transcribe it */
+              var ttsGen = typeof window !== 'undefined' && window.__CFS_ttsGenerate;
+              if (ttsGen) {
+                capGenBtn.textContent = 'Generating speech…';
+                Promise.resolve(ttsGen(audioInfo.text)).then(function (audioBlob) {
+                  if (!audioBlob || audioBlob.size < 500) {
+                    /* Silent/tiny audio — use estimated words instead */
+                    var estWords = window.__CFS_estimateWords ? window.__CFS_estimateWords(audioInfo.text, 0) : [];
+                    handleResult({ words: estWords, text: audioInfo.text });
+                    capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false;
+                    return;
+                  }
+                  capGenBtn.textContent = 'Transcribing…';
+                  return Promise.resolve(sttGen(audioBlob)).then(function (result) {
+                    if (!result || !result.words || !result.words.length) {
+                      var estW = window.__CFS_estimateWords ? window.__CFS_estimateWords(audioInfo.text, 0) : [];
+                      handleResult({ words: estW, text: audioInfo.text });
+                    } else {
+                      handleResult(result);
+                    }
+                    capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false;
+                  });
+                }).catch(function (err) {
+                  /* Fallback to estimateWords */
+                  var estW2 = window.__CFS_estimateWords ? window.__CFS_estimateWords(audioInfo.text, 0) : [];
+                  if (estW2.length) {
+                    handleResult({ words: estW2, text: audioInfo.text });
+                  } else {
+                    try { window.alert('TTS/STT error: ' + (err && err.message ? err.message : String(err))); } catch (_) {}
+                  }
+                  capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false;
+                });
+              } else {
+                /* No TTS available — use estimateWords */
+                var estW3 = window.__CFS_estimateWords ? window.__CFS_estimateWords(audioInfo.text, 0) : [];
+                if (estW3.length) {
+                  handleResult({ words: estW3, text: audioInfo.text });
+                } else {
+                  try { window.alert('No TTS engine available. Set window.__CFS_ttsGenerate.'); } catch (_) {}
+                }
+                capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false;
+              }
+            } else {
+              /* Direct audio URL → STT */
+              Promise.resolve(sttGen(audioInfo.src)).then(function (result) {
+                handleResult(result); capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false;
+              }).catch(function (err) {
+                try { window.alert('STT error: ' + (err && err.message ? err.message : String(err))); } catch (_) {}
+                capGenBtn.textContent = 'Generate captions from audio (STT)'; capGenBtn.disabled = false;
+              });
+            }
           });
           capGenRow.appendChild(capGenBtn);
           capWrap.appendChild(capGenRow);
+
+          /* ── SRT IMPORT / EXPORT ── */
+          var srtSection = document.createElement('div');
+          srtSection.className = 'cfs-prop-section';
+          srtSection.innerHTML = '<div class="cfs-prop-section-title">SRT / VTT</div>';
+
+          // Import SRT file
+          var srtImportRow = document.createElement('div');
+          srtImportRow.className = 'cfs-prop-row';
+          var srtFileInput = document.createElement('input');
+          srtFileInput.type = 'file';
+          srtFileInput.accept = '.srt,.vtt,.txt';
+          srtFileInput.style.cssText = 'display:none;';
+          var srtImportBtn = document.createElement('button');
+          srtImportBtn.type = 'button';
+          srtImportBtn.className = 'cfs-btn-secondary';
+          srtImportBtn.style.cssText = 'width:100%;';
+          srtImportBtn.textContent = 'Import SRT / VTT file';
+          srtImportBtn.addEventListener('click', function () { srtFileInput.click(); });
+          srtFileInput.addEventListener('change', function () {
+            var file = srtFileInput.files && srtFileInput.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function () {
+              var text = reader.result;
+              var parser = typeof window.__CFS_parseSrt === 'function' ? window.__CFS_parseSrt : null;
+              if (!parser) { try { window.alert('SRT parser not loaded.'); } catch (_) {} return; }
+              var result = parser(text);
+              var a = getCapAsset(); if (!a) return;
+              if (result.words && result.words.length) {
+                a.words = result.words;
+                delete a.text;
+              } else if (result.text) {
+                a.text = result.text;
+              }
+              saveStateDebounced(); refreshTimeline(); refreshPropertyPanel();
+            };
+            reader.readAsText(file);
+            srtFileInput.value = ''; // Reset so same file can be re-imported
+          });
+          srtImportRow.appendChild(srtImportBtn);
+          srtImportRow.appendChild(srtFileInput);
+          srtSection.appendChild(srtImportRow);
+
+          // Fetch SRT from URL
+          var srtUrlRow = document.createElement('div');
+          srtUrlRow.className = 'cfs-prop-row';
+          var srtUrlBtn = document.createElement('button');
+          srtUrlBtn.type = 'button';
+          srtUrlBtn.className = 'cfs-btn-secondary';
+          srtUrlBtn.style.cssText = 'width:100%;';
+          srtUrlBtn.textContent = 'Import SRT from URL';
+          srtUrlBtn.addEventListener('click', function () {
+            var url = window.prompt('SRT / VTT URL:', '');
+            if (!url || !url.trim()) return;
+            srtUrlBtn.disabled = true; srtUrlBtn.textContent = 'Fetching…';
+            fetch(url.trim()).then(function (res) {
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              return res.text();
+            }).then(function (text) {
+              var parser = typeof window.__CFS_parseSrt === 'function' ? window.__CFS_parseSrt : null;
+              if (!parser) { try { window.alert('SRT parser not loaded.'); } catch (_) {} return; }
+              var result = parser(text);
+              var a = getCapAsset(); if (!a) return;
+              if (result.words && result.words.length) {
+                a.words = result.words;
+                delete a.text;
+              } else if (result.text) {
+                a.text = result.text;
+              }
+              saveStateDebounced(); refreshTimeline(); refreshPropertyPanel();
+            }).catch(function (err) {
+              try { window.alert('SRT fetch error: ' + (err && err.message ? err.message : String(err))); } catch (_) {}
+            }).finally(function () {
+              srtUrlBtn.textContent = 'Import SRT from URL'; srtUrlBtn.disabled = false;
+            });
+          });
+          srtUrlRow.appendChild(srtUrlBtn);
+          srtSection.appendChild(srtUrlRow);
+
+          // Export SRT
+          var srtExportRow = document.createElement('div');
+          srtExportRow.className = 'cfs-prop-row gen-prop-pair';
+          var srtExportBtn = document.createElement('button');
+          srtExportBtn.type = 'button';
+          srtExportBtn.className = 'cfs-btn-secondary';
+          srtExportBtn.style.cssText = 'flex:1;';
+          srtExportBtn.textContent = 'Export .srt';
+          srtExportBtn.addEventListener('click', function () {
+            var a = getCapAsset(); if (!a) return;
+            var words = a.words;
+            if (!Array.isArray(words) || !words.length) {
+              // If only text (no word-level timing), use estimate-words to generate timing
+              if (a.text && typeof window.__CFS_estimateWords === 'function') {
+                words = window.__CFS_estimateWords(a.text, 0);
+              }
+            }
+            if (!words || !words.length) { try { window.alert('No words data to export. Add timed words or generate captions first.'); } catch (_) {} return; }
+            var gen = typeof window.__CFS_wordsToSrt === 'function' ? window.__CFS_wordsToSrt : null;
+            if (!gen) { try { window.alert('SRT generator not loaded.'); } catch (_) {} return; }
+            var srtText = gen(words);
+            var blob = new Blob([srtText], { type: 'text/plain' });
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement('a');
+            link.href = url; link.download = 'captions.srt';
+            document.body.appendChild(link); link.click();
+            setTimeout(function () { document.body.removeChild(link); URL.revokeObjectURL(url); }, 100);
+          });
+          var vttExportBtn = document.createElement('button');
+          vttExportBtn.type = 'button';
+          vttExportBtn.className = 'cfs-btn-secondary';
+          vttExportBtn.style.cssText = 'flex:1;';
+          vttExportBtn.textContent = 'Export .vtt';
+          vttExportBtn.addEventListener('click', function () {
+            var a = getCapAsset(); if (!a) return;
+            var words = a.words;
+            if (!Array.isArray(words) || !words.length) {
+              if (a.text && typeof window.__CFS_estimateWords === 'function') {
+                words = window.__CFS_estimateWords(a.text, 0);
+              }
+            }
+            if (!words || !words.length) { try { window.alert('No words data to export.'); } catch (_) {} return; }
+            var gen = typeof window.__CFS_wordsToVtt === 'function' ? window.__CFS_wordsToVtt : null;
+            if (!gen) { try { window.alert('VTT generator not loaded.'); } catch (_) {} return; }
+            var vttText = gen(words);
+            var blob = new Blob([vttText], { type: 'text/vtt' });
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement('a');
+            link.href = url; link.download = 'captions.vtt';
+            document.body.appendChild(link); link.click();
+            setTimeout(function () { document.body.removeChild(link); URL.revokeObjectURL(url); }, 100);
+          });
+          srtExportRow.appendChild(srtExportBtn);
+          srtExportRow.appendChild(vttExportBtn);
+          srtSection.appendChild(srtExportRow);
+          capWrap.appendChild(srtSection);
+
           capForm.appendChild(capWrap);
           propertyPanel.appendChild(capForm);
+          setTimeout(function () { try { capForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {} }, 50);
           return;
         }
       }
@@ -3491,25 +4335,319 @@
             c.asset.text = ttsTextarea.value.trim();
             saveStateDebounced();
             refreshTimeline();
+            /* TTS text changed → regenerate captions to stay in sync */
+            debouncedRegenerateCaptions();
           });
           ttsTextRow.appendChild(ttsTextarea);
           ttsWrap.appendChild(ttsTextRow);
           var ttsVoiceRow = document.createElement('div');
           ttsVoiceRow.className = 'cfs-prop-row';
-          ttsVoiceRow.innerHTML = '<label>Voice: </label><input type="text" class="cfs-prop-tts-voice" style="width:100%;max-width:200px;" placeholder="e.g. Amy, Matthew">';
-          var ttsVoiceInput = ttsVoiceRow.querySelector('input.cfs-prop-tts-voice');
-          if (ttsVoiceInput) {
-            ttsVoiceInput.value = (ttsClip.asset.voice || '').toString();
-            ttsVoiceInput.addEventListener('change', function () {
-              var c = template.timeline.tracks[selectedTtsClip.templateTrackIndex] && template.timeline.tracks[selectedTtsClip.templateTrackIndex].clips[selectedTtsClip.templateClipIndex];
-              if (!c) return;
-              if (!c.asset) c.asset = { type: 'text-to-speech' };
-              c.asset.voice = ttsVoiceInput.value.trim() || undefined;
-              saveStateDebounced();
-              refreshTimeline();
+          ttsVoiceRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+          ttsVoiceRow.innerHTML = '<label style="flex-shrink:0;">Voice: </label>';
+          var ttsVoiceSelect = document.createElement('select');
+          ttsVoiceSelect.className = 'cfs-prop-tts-voice';
+          ttsVoiceSelect.style.cssText = 'flex:1;min-width:140px;max-width:240px;';
+          /* Populate with system voices */
+          function populateTtsVoiceSelect(currentVoice) {
+            ttsVoiceSelect.innerHTML = '';
+            var customOpt = document.createElement('option');
+            customOpt.value = '';
+            customOpt.textContent = '— Default (af_heart) —';
+            ttsVoiceSelect.appendChild(customOpt);
+
+            /* ── Kokoro TTS voices (work in export) ── */
+            var kokoroVoices = [
+              /* American English */
+              { id: 'af_heart',    label: 'Heart ❤️',    lang: 'American English', gender: 'F', grade: 'A' },
+              { id: 'af_alloy',    label: 'Alloy',        lang: 'American English', gender: 'F', grade: 'C' },
+              { id: 'af_aoede',    label: 'Aoede',        lang: 'American English', gender: 'F', grade: 'C+' },
+              { id: 'af_bella',    label: 'Bella 🔥',    lang: 'American English', gender: 'F', grade: 'A-' },
+              { id: 'af_jessica',  label: 'Jessica',      lang: 'American English', gender: 'F', grade: 'D' },
+              { id: 'af_kore',     label: 'Kore',         lang: 'American English', gender: 'F', grade: 'C+' },
+              { id: 'af_nicole',   label: 'Nicole 🎧',   lang: 'American English', gender: 'F', grade: 'B-' },
+              { id: 'af_nova',     label: 'Nova',         lang: 'American English', gender: 'F', grade: 'C' },
+              { id: 'af_river',    label: 'River',        lang: 'American English', gender: 'F', grade: 'D' },
+              { id: 'af_sarah',    label: 'Sarah',        lang: 'American English', gender: 'F', grade: 'C+' },
+              { id: 'af_sky',      label: 'Sky',          lang: 'American English', gender: 'F', grade: 'C-' },
+              { id: 'am_adam',     label: 'Adam',         lang: 'American English', gender: 'M', grade: 'F+' },
+              { id: 'am_echo',     label: 'Echo',         lang: 'American English', gender: 'M', grade: 'D' },
+              { id: 'am_eric',     label: 'Eric',         lang: 'American English', gender: 'M', grade: 'D' },
+              { id: 'am_fenrir',   label: 'Fenrir',       lang: 'American English', gender: 'M', grade: 'C+' },
+              { id: 'am_liam',     label: 'Liam',         lang: 'American English', gender: 'M', grade: 'D' },
+              { id: 'am_michael',  label: 'Michael',      lang: 'American English', gender: 'M', grade: 'C+' },
+              { id: 'am_onyx',     label: 'Onyx',         lang: 'American English', gender: 'M', grade: 'D' },
+              { id: 'am_puck',     label: 'Puck',         lang: 'American English', gender: 'M', grade: 'C+' },
+              { id: 'am_santa',    label: 'Santa',        lang: 'American English', gender: 'M', grade: 'D-' },
+              /* British English */
+              { id: 'bf_alice',    label: 'Alice',        lang: 'British English', gender: 'F', grade: 'D' },
+              { id: 'bf_emma',     label: 'Emma',         lang: 'British English', gender: 'F', grade: 'B-' },
+              { id: 'bf_isabella', label: 'Isabella',     lang: 'British English', gender: 'F', grade: 'C' },
+              { id: 'bf_lily',     label: 'Lily',         lang: 'British English', gender: 'F', grade: 'D' },
+              { id: 'bm_daniel',   label: 'Daniel',       lang: 'British English', gender: 'M', grade: 'D' },
+              { id: 'bm_fable',    label: 'Fable',        lang: 'British English', gender: 'M', grade: 'C' },
+              { id: 'bm_george',   label: 'George',       lang: 'British English', gender: 'M', grade: 'C' },
+              { id: 'bm_lewis',    label: 'Lewis',        lang: 'British English', gender: 'M', grade: 'D+' },
+              /* Japanese */
+              { id: 'jf_alpha',      label: 'Alpha',        lang: 'Japanese', gender: 'F', grade: 'C+' },
+              { id: 'jf_gongitsune', label: 'Gongitsune',   lang: 'Japanese', gender: 'F', grade: 'C' },
+              { id: 'jf_nezumi',     label: 'Nezumi',       lang: 'Japanese', gender: 'F', grade: 'C-' },
+              { id: 'jf_tebukuro',   label: 'Tebukuro',     lang: 'Japanese', gender: 'F', grade: 'C' },
+              { id: 'jm_kumo',       label: 'Kumo',         lang: 'Japanese', gender: 'M', grade: 'C-' },
+              /* Mandarin Chinese */
+              { id: 'zf_xiaobei',  label: 'Xiaobei',      lang: 'Chinese', gender: 'F', grade: 'D' },
+              { id: 'zf_xiaoni',   label: 'Xiaoni',       lang: 'Chinese', gender: 'F', grade: 'D' },
+              { id: 'zf_xiaoxiao', label: 'Xiaoxiao',     lang: 'Chinese', gender: 'F', grade: 'D' },
+              { id: 'zf_xiaoyi',   label: 'Xiaoyi',       lang: 'Chinese', gender: 'F', grade: 'D' },
+              { id: 'zm_yunjian',  label: 'Yunjian',      lang: 'Chinese', gender: 'M', grade: 'D' },
+              { id: 'zm_yunxi',    label: 'Yunxi',         lang: 'Chinese', gender: 'M', grade: 'D' },
+              { id: 'zm_yunxia',   label: 'Yunxia',        lang: 'Chinese', gender: 'M', grade: 'D' },
+              { id: 'zm_yunyang',  label: 'Yunyang',       lang: 'Chinese', gender: 'M', grade: 'D' },
+              /* Spanish */
+              { id: 'ef_dora',     label: 'Dora',          lang: 'Spanish', gender: 'F', grade: '' },
+              { id: 'em_alex',     label: 'Alex',          lang: 'Spanish', gender: 'M', grade: '' },
+              { id: 'em_santa',    label: 'Santa',         lang: 'Spanish', gender: 'M', grade: '' },
+              /* French */
+              { id: 'ff_siwis',    label: 'Siwis',         lang: 'French', gender: 'F', grade: 'B-' },
+              /* Hindi */
+              { id: 'hf_alpha',    label: 'Alpha',         lang: 'Hindi', gender: 'F', grade: 'C' },
+              { id: 'hf_beta',     label: 'Beta',          lang: 'Hindi', gender: 'F', grade: 'C' },
+              { id: 'hm_omega',    label: 'Omega',         lang: 'Hindi', gender: 'M', grade: 'C' },
+              { id: 'hm_psi',      label: 'Psi',           lang: 'Hindi', gender: 'M', grade: 'C' },
+              /* Italian */
+              { id: 'if_sara',     label: 'Sara',          lang: 'Italian', gender: 'F', grade: 'C' },
+              { id: 'im_nicola',   label: 'Nicola',        lang: 'Italian', gender: 'M', grade: 'C' },
+              /* Brazilian Portuguese */
+              { id: 'pf_dora',     label: 'Dora',          lang: 'Portuguese', gender: 'F', grade: '' },
+              { id: 'pm_alex',     label: 'Alex',          lang: 'Portuguese', gender: 'M', grade: '' },
+              { id: 'pm_santa',    label: 'Santa',         lang: 'Portuguese', gender: 'M', grade: '' },
+            ];
+
+            /* Group Kokoro voices by language */
+            var kokoroGroups = {};
+            kokoroVoices.forEach(function (v) {
+              if (!kokoroGroups[v.lang]) kokoroGroups[v.lang] = [];
+              kokoroGroups[v.lang].push(v);
             });
+            var kokoroLangOrder = ['American English', 'British English', 'Japanese', 'Chinese', 'Spanish', 'French', 'Hindi', 'Italian', 'Portuguese'];
+            kokoroLangOrder.forEach(function (lang) {
+              var voices = kokoroGroups[lang];
+              if (!voices || !voices.length) return;
+              var optgroup = document.createElement('optgroup');
+              optgroup.label = '🔊 ' + lang;
+              voices.forEach(function (v) {
+                var opt = document.createElement('option');
+                opt.value = v.id;
+                var genderIcon = v.gender === 'F' ? '♀' : '♂';
+                opt.textContent = v.label + ' ' + genderIcon + (v.grade ? ' [' + v.grade + ']' : '');
+                if (v.id === currentVoice) opt.selected = true;
+                optgroup.appendChild(opt);
+              });
+              ttsVoiceSelect.appendChild(optgroup);
+            });
+
+            /* If the stored localVoice isn't in the list, fall back to Default */
+            if (currentVoice && ttsVoiceSelect.value !== currentVoice) {
+              ttsVoiceSelect.value = '';
+            }
           }
+          var currentLocalVoiceName = (ttsClip.asset.localVoice || '').toString();
+          populateTtsVoiceSelect(currentLocalVoiceName);
+          /* Language mismatch warning element */
+          var ttsLangWarnEl = document.createElement('div');
+          ttsLangWarnEl.style.cssText = 'font-size:11px;color:#f59e0b;background:#f59e0b18;border:1px solid #f59e0b44;border-radius:4px;padding:4px 8px;margin-top:4px;display:none;';
+          function detectTextLang(text) {
+            if (!text) return 'en';
+            /* Simple heuristic: check dominant character sets */
+            if (/[\u3040-\u309f\u30a0-\u30ff]/.test(text)) return 'ja'; /* Hiragana/Katakana */
+            if (/[\u4e00-\u9fff]{3,}/.test(text)) return 'zh'; /* CJK */
+            if (/[\uac00-\ud7af]{3,}/.test(text)) return 'ko'; /* Hangul */
+            if (/[\u0400-\u04ff]{3,}/.test(text)) return 'ru'; /* Cyrillic */
+            if (/[\u0600-\u06ff]{3,}/.test(text)) return 'ar'; /* Arabic */
+            if (/[\u0900-\u097f]{3,}/.test(text)) return 'hi'; /* Devanagari */
+            /* Latin-script: check common words */
+            var lower = text.toLowerCase();
+            if (/\b(el|la|los|las|es|está|por|que|como|pero)\b/.test(lower)) return 'es';
+            if (/\b(le|la|les|des|est|une|dans|pour|avec|sur)\b/.test(lower)) return 'fr';
+            if (/\b(der|die|das|und|ist|ein|sich|mit|auf|für)\b/.test(lower)) return 'de';
+            if (/\b(il|la|di|che|per|con|una|sono|del|alla)\b/.test(lower)) return 'it';
+            if (/\b(o|os|um|uma|da|do|para|com|não|que)\b/.test(lower)) return 'pt';
+            return 'en';
+          }
+          function checkLangMismatch() {
+            var voiceName = ttsVoiceSelect.value;
+            if (!voiceName) { ttsLangWarnEl.style.display = 'none'; return; }
+            var voiceLang = '';
+            /* Check Kokoro prefix → language mapping */
+            var kokoroLangMap = { a: 'en', b: 'en', j: 'ja', z: 'zh', e: 'es', f: 'fr', h: 'hi', i: 'it', p: 'pt' };
+            if (/^[a-z]{2}_[a-z]/i.test(voiceName)) {
+              voiceLang = kokoroLangMap[voiceName.charAt(0)] || '';
+            } else {
+              /* Browser voice — look up lang from speechSynthesis */
+              var voices = (typeof speechSynthesis !== 'undefined') ? speechSynthesis.getVoices() : [];
+              var voice = null;
+              for (var i = 0; i < voices.length; i++) { if (voices[i].name === voiceName) { voice = voices[i]; break; } }
+              if (!voice) { ttsLangWarnEl.style.display = 'none'; return; }
+              voiceLang = (voice.lang || '').split('-')[0].toLowerCase();
+            }
+            var scriptText = (ttsClip.asset.text || '').toString();
+            var textLang = detectTextLang(scriptText);
+            if (voiceLang && textLang && voiceLang !== textLang) {
+              var langNames = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', ru: 'Russian', ar: 'Arabic', hi: 'Hindi', nl: 'Dutch', pl: 'Polish', sv: 'Swedish' };
+              ttsLangWarnEl.textContent = '⚠ Language mismatch: your text appears to be ' + (langNames[textLang] || textLang.toUpperCase()) + ', but this voice is ' + (langNames[voiceLang] || voiceLang.toUpperCase()) + '. This may sound unnatural.';
+              ttsLangWarnEl.style.display = 'block';
+            } else {
+              ttsLangWarnEl.style.display = 'none';
+            }
+          }
+          ttsVoiceSelect.addEventListener('change', function () {
+            var c = template.timeline.tracks[selectedTtsClip.templateTrackIndex] && template.timeline.tracks[selectedTtsClip.templateTrackIndex].clips[selectedTtsClip.templateClipIndex];
+            if (!c) return;
+            if (!c.asset) c.asset = { type: 'text-to-speech' };
+            c.asset.localVoice = ttsVoiceSelect.value || undefined;
+            /* Also update Fabric object for live preview */
+            if (canvas && canvas.getObjects) {
+              var tIdx = selectedTtsClip.templateTrackIndex;
+              var cIdx = selectedTtsClip.templateClipIndex;
+              canvas.getObjects().forEach(function (obj) {
+                if (obj.cfsAudioType === 'text-to-speech' &&
+                    ((obj.cfsTrackIndex === tIdx && obj.cfsClipIndex === cIdx) ||
+                     obj.cfsTrackIndex === tIdx)) {
+                  obj.cfsTtsLocalVoice = ttsVoiceSelect.value || '';
+                }
+              });
+            }
+            checkLangMismatch();
+            saveStateDebounced();
+            refreshTimeline();
+            /* Voice change may affect pacing → regenerate captions */
+            debouncedRegenerateCaptions();
+          });
+          ttsVoiceRow.appendChild(ttsVoiceSelect);
+          /* Preview button — speaks a short sample in the selected voice */
+          var ttsPreviewVoiceBtn = document.createElement('button');
+          ttsPreviewVoiceBtn.type = 'button';
+          ttsPreviewVoiceBtn.textContent = '🔊';
+          ttsPreviewVoiceBtn.title = 'Preview selected voice — also calibrates word timing';
+          ttsPreviewVoiceBtn.style.cssText = 'padding:4px 8px;cursor:pointer;flex-shrink:0;font-size:14px;';
+          ttsPreviewVoiceBtn.addEventListener('click', function () {
+            var voiceName = ttsVoiceSelect.value;
+            var sampleText = (ttsClip.asset.text || 'Hello, this is a voice preview.').toString();
+            /* Check if this is a Kokoro voice (pattern: xx_name) */
+            var isKokoroVoice = /^[a-z]{2}_[a-z]/i.test(voiceName) || !voiceName;
+            if (isKokoroVoice && typeof window.__CFS_ttsGenerate === 'function') {
+              /* Preview via Kokoro TTS */
+              ttsPreviewVoiceBtn.disabled = true;
+              ttsPreviewVoiceBtn.textContent = '⏳';
+              window.__CFS_ttsGenerate(sampleText.substring(0, 200), { voice: voiceName || 'af_heart' }).then(function (blob) {
+                if (blob && blob.size > 100) {
+                  var url = URL.createObjectURL(blob);
+                  var audio = new Audio(url);
+                  audio.onended = function () { URL.revokeObjectURL(url); };
+                  audio.play().catch(function () {});
+                }
+              }).catch(function (err) {
+                console.warn('[CFS TTS] Preview failed:', err);
+              }).finally(function () {
+                ttsPreviewVoiceBtn.disabled = false;
+                ttsPreviewVoiceBtn.textContent = '🔊';
+              });
+              return;
+            }
+            /* Fall back to browser speechSynthesis for non-Kokoro voices */
+            if (typeof speechSynthesis === 'undefined') return;
+            speechSynthesis.cancel();
+            var utter = new SpeechSynthesisUtterance(sampleText);
+            if (voiceName) {
+              var voices = speechSynthesis.getVoices();
+              for (var v = 0; v < voices.length; v++) {
+                if (voices[v].name === voiceName) { utter.voice = voices[v]; break; }
+              }
+            }
+            utter.rate = 1;
+            /* ── Capture real word boundaries for calibration ── */
+            var boundaryWords = [];
+            var utterTokens = sampleText.trim().split(/\s+/).filter(Boolean);
+            var wordIdx = 0;
+            utter.onboundary = function (ev) {
+              if (ev.name !== 'word' || wordIdx >= utterTokens.length) return;
+              var timeSec = (ev.elapsedTime || 0) / 1000;
+              /* Close previous word's end time */
+              if (boundaryWords.length > 0 && boundaryWords[boundaryWords.length - 1].end == null) {
+                boundaryWords[boundaryWords.length - 1].end = timeSec;
+              }
+              boundaryWords.push({ text: utterTokens[wordIdx], start: timeSec, end: null });
+              wordIdx++;
+            };
+            utter.onend = function () {
+              /* Close last word using the total utterance duration */
+              var totalSec = (utter._cfsEndTime || Date.now()) / 1000;
+              if (boundaryWords.length > 0 && boundaryWords[boundaryWords.length - 1].end == null) {
+                /* Estimate last word duration from its character count */
+                var lastW = boundaryWords[boundaryWords.length - 1];
+                var lastDur = (lastW.text.replace(/[^\w]/g, '').length || 3) * 0.06;
+                lastW.end = lastW.start + lastDur;
+              }
+              /* Calibrate if we captured enough words */
+              if (boundaryWords.length >= 3 && typeof window.__CFS_calibrateFromWords === 'function') {
+                window.__CFS_calibrateFromWords(boundaryWords);
+                var cal = typeof window.__CFS_getWordCalibration === 'function' ? window.__CFS_getWordCalibration() : null;
+                if (cal) {
+                  console.log('[CFS TTS] Calibrated from ' + boundaryWords.length + ' words: '
+                    + (cal.charRate * 1000).toFixed(1) + 'ms/char, '
+                    + (cal.wordGap * 1000).toFixed(0) + 'ms gap, '
+                    + cal.sampleCount + ' samples');
+                }
+              }
+            };
+            speechSynthesis.speak(utter);
+          });
+          ttsVoiceRow.appendChild(ttsPreviewVoiceBtn);
           ttsWrap.appendChild(ttsVoiceRow);
+          ttsWrap.appendChild(ttsLangWarnEl);
+          checkLangMismatch(); /* Initial check */
+          /* Voice count hint */
+          var ttsVoiceHelpRow = document.createElement('div');
+          ttsVoiceHelpRow.className = 'cfs-prop-row';
+          ttsVoiceHelpRow.style.cssText = 'font-size:11px;opacity:0.7;padding:2px 0 4px;';
+          ttsVoiceHelpRow.textContent = '54 Kokoro voices across 8 languages.';
+          ttsWrap.appendChild(ttsVoiceHelpRow);
+
+          /* ── API VOICE (ShotStack) ── */
+          var ttsApiVoiceRow = document.createElement('div');
+          ttsApiVoiceRow.className = 'cfs-prop-row';
+          ttsApiVoiceRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+          ttsApiVoiceRow.innerHTML = '<label style="flex-shrink:0;">API voice: </label>';
+          var ttsApiVoiceInput = document.createElement('input');
+          ttsApiVoiceInput.type = 'text';
+          ttsApiVoiceInput.className = 'gen-prop-input';
+          ttsApiVoiceInput.style.cssText = 'flex:1;min-width:100px;max-width:180px;';
+          ttsApiVoiceInput.placeholder = 'e.g. Amy, Brian';
+          ttsApiVoiceInput.value = (ttsClip.asset.voice || '').toString();
+          ttsApiVoiceInput.addEventListener('change', function () {
+            var c = template.timeline.tracks[selectedTtsClip.templateTrackIndex] && template.timeline.tracks[selectedTtsClip.templateTrackIndex].clips[selectedTtsClip.templateClipIndex];
+            if (!c) return;
+            if (!c.asset) c.asset = { type: 'text-to-speech' };
+            c.asset.voice = ttsApiVoiceInput.value.trim() || undefined;
+            /* Also update Fabric object */
+            if (canvas && canvas.getObjects) {
+              var tIdx = selectedTtsClip.templateTrackIndex;
+              var cIdx = selectedTtsClip.templateClipIndex;
+              canvas.getObjects().forEach(function (obj) {
+                if (obj.cfsAudioType === 'text-to-speech' &&
+                    ((obj.cfsTrackIndex === tIdx && obj.cfsClipIndex === cIdx) ||
+                     obj.cfsTrackIndex === tIdx)) {
+                  obj.cfsTtsVoice = ttsApiVoiceInput.value.trim() || '';
+                }
+              });
+            }
+            saveStateDebounced();
+          });
+          ttsApiVoiceRow.appendChild(ttsApiVoiceInput);
+          ttsWrap.appendChild(ttsApiVoiceRow);
+          var ttsApiVoiceHint = document.createElement('div');
+          ttsApiVoiceHint.style.cssText = 'font-size:10px;color:#93c5fd;background:#1e3a5f;border:1px solid #2563eb;border-radius:4px;padding:4px 8px;margin:2px 0 6px;';
+          ttsApiVoiceHint.textContent = 'ℹ Used when rendering via ShotStack API. Export to Staging first to hear this voice.';
+          ttsWrap.appendChild(ttsApiVoiceHint);
           var ttsLangRow = document.createElement('div');
           ttsLangRow.className = 'cfs-prop-row';
           ttsLangRow.innerHTML = '<label>Language: </label><input type="text" class="cfs-prop-tts-lang" style="width:100%;max-width:200px;" placeholder="e.g. en-US, es-ES">';
@@ -3553,7 +4691,7 @@
             if (!c || !c.asset || !c.asset.text) return;
             ttsPreviewBtn.disabled = true;
             ttsPreviewBtn.textContent = 'Generating…';
-            Promise.resolve(gen(c.asset.text, { voice: c.asset.voice || '', language: c.asset.language })).then(function (blobUrl) {
+            Promise.resolve(gen(c.asset.text, { voice: c.asset.localVoice || c.asset.voice || '', language: c.asset.language })).then(function (blobUrl) {
               var audio = new Audio(blobUrl);
               audio.play().catch(function () {});
               ttsPreviewBtn.textContent = 'Playing…';
@@ -3621,6 +4759,8 @@
           ttsWrap.appendChild(ttsFadeOutRow);
           ttsForm.appendChild(ttsWrap);
           propertyPanel.appendChild(ttsForm);
+          /* Auto-scroll so user sees the TTS editing panel */
+          setTimeout(function () { try { ttsForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {} }, 50);
           return;
         }
       }
@@ -3773,10 +4913,19 @@
       selectedImageToVideoClip = null;
       var form = document.createElement('div');
       form.className = 'cfs-properties-form';
+      form.style.cssText = 'padding:4px 16px 16px;';
       var editingHeading = document.createElement('div');
-      editingHeading.className = 'cfs-properties-editing';
-      editingHeading.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);margin-bottom:6px;display:flex;align-items:center;gap:4px;';
-      editingHeading.textContent = getFriendlyLayerName(obj);
+      editingHeading.style.cssText = 'font-size:10px;color:#71717a;margin-bottom:12px;display:flex;align-items:center;gap:8px;';
+      var editingBadge = document.createElement('span');
+      editingBadge.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.12);color:#60a5fa;font-size:10px;font-weight:500;letter-spacing:0.02em;';
+      var typeStr = (obj.type || 'object');
+      if (typeStr === 'i-text' || typeStr === 'textbox') typeStr = 'text';
+      editingBadge.textContent = typeStr.charAt(0).toUpperCase() + typeStr.slice(1);
+      editingHeading.appendChild(editingBadge);
+      var editingName = document.createElement('span');
+      editingName.style.cssText = 'color:#a1a1aa;font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400;';
+      editingName.textContent = (obj.name || obj.id || '');
+      editingHeading.appendChild(editingName);
       form.appendChild(editingHeading);
       var wrap = document.createElement('div');
       wrap.className = 'cfs-properties-form-wrap';
@@ -3784,9 +4933,10 @@
         var hideImgRow = document.createElement('div');
         hideImgRow.className = 'cfs-prop-row cfs-prop-hide-on-image-row';
         var hideImgLabel = document.createElement('label');
-        hideImgLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;';
+        hideImgLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--gen-text-secondary);';
         var hideImgCb = document.createElement('input');
         hideImgCb.type = 'checkbox';
+        hideImgCb.style.cssText = 'width:auto;accent-color:var(--gen-accent);';
         hideImgCb.checked = !!obj.cfsHideOnImage;
         hideImgLabel.appendChild(hideImgCb);
         hideImgLabel.appendChild(document.createTextNode('Hide on image'));
@@ -3802,7 +4952,8 @@
         });
         wrap.appendChild(hideImgRow);
       }
-      var _mergeDefaults = {};
+      /* Re-initialize _mergeDefaults (outer-scope var) from template.merge */
+      Object.keys(_mergeDefaults).forEach(function (k) { delete _mergeDefaults[k]; });
       if (template && Array.isArray(template.merge)) {
         template.merge.forEach(function (m) {
           if (!m) return;
@@ -3852,6 +5003,121 @@
         if (!findKey || !template || !Array.isArray(template.merge)) return;
         template.merge = template.merge.filter(function (m) { return !m || String(m.find) !== String(findKey); });
       }
+
+      /* ── Advanced Merge Field Synchronization ── */
+
+      /** Map of merge keys that were removed from text but whose data is retained for recovery. { KEY: { defaultValue, lastValue } } */
+      var _unlinkedMergeFields = {};
+
+      /** Generate a unique merge key, auto-incrementing if collision detected. */
+      function generateUniqueMergeKey(desired) {
+        if (!desired) desired = 'UNNAMED_VAR';
+        desired = String(desired).toUpperCase().replace(/[^A-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'UNNAMED_VAR';
+        if (!template || !Array.isArray(template.merge)) return desired;
+        var existing = {};
+        template.merge.forEach(function (m) {
+          if (m && m.find) existing[String(m.find).toUpperCase()] = true;
+        });
+        /* Also scan canvas objects for cfsMergeKey */
+        if (canvas && canvas.getObjects) {
+          canvas.getObjects().forEach(function (o) {
+            if (o.cfsMergeKey) existing[String(o.cfsMergeKey).toUpperCase()] = true;
+            /* Scan text for inline {{ vars }} */
+            var raw = o.cfsRawText || o.text;
+            if (raw && typeof raw === 'string') {
+              var re = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, m;
+              while ((m = re.exec(raw)) !== null) existing[m[1].toUpperCase()] = true;
+            }
+          });
+        }
+        if (!existing[desired.toUpperCase()]) return desired;
+        /* Collision: auto-increment */
+        var base = desired.replace(/_\d+$/, '');
+        for (var i = 2; i < 999; i++) {
+          var candidate = base + '_' + i;
+          if (!existing[candidate.toUpperCase()]) return candidate;
+        }
+        return desired + '_' + Date.now();
+      }
+
+      /** Rename a merge key globally: update template.merge, all canvas objects' cfsRawText, and _mergeDefaults. Calls pushUndo. */
+      function renameMergeKeyGlobal(oldKey, newKey) {
+        if (!oldKey || !newKey || oldKey === newKey) return;
+        /* Update template.merge array */
+        if (template && Array.isArray(template.merge)) {
+          template.merge.forEach(function (m) {
+            if (m && String(m.find) === oldKey) m.find = newKey;
+          });
+        }
+        /* Update _mergeDefaults */
+        if (_mergeDefaults[oldKey] !== undefined) {
+          _mergeDefaults[newKey] = _mergeDefaults[oldKey];
+          _mergeDefaults[newKey.toUpperCase().replace(/\s+/g, '_')] = _mergeDefaults[oldKey];
+          delete _mergeDefaults[oldKey];
+          delete _mergeDefaults[oldKey.toUpperCase().replace(/\s+/g, '_')];
+        }
+        /* Propagate to all canvas objects on this template */
+        if (canvas && canvas.getObjects) {
+          var re = new RegExp('\\{\\{\\s*' + oldKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}\\}', 'g');
+          canvas.getObjects().forEach(function (o) {
+            /* Update cfsMergeKey on the object itself */
+            if (o.cfsMergeKey === oldKey) o.set('cfsMergeKey', newKey);
+            /* Update cfsRawText (the source-of-truth for text objects) */
+            var raw = o.cfsRawText;
+            if (raw && typeof raw === 'string' && re.test(raw)) {
+              re.lastIndex = 0;
+              var updated = raw.replace(re, '{{ ' + newKey + ' }}');
+              o.set('cfsRawText', updated);
+              o.set('text', updated);
+            }
+          });
+          canvas.renderAll();
+        }
+        /* Transfer unlinked state if applicable */
+        if (_unlinkedMergeFields[oldKey]) {
+          _unlinkedMergeFields[newKey] = _unlinkedMergeFields[oldKey];
+          delete _unlinkedMergeFields[oldKey];
+        }
+        pushUndo();
+      }
+
+      /** Display a brief toast notification in the editor. */
+      function showEditorToast(message, durationMs) {
+        durationMs = durationMs || 3000;
+        var existing = document.querySelector('.gen-editor-toast');
+        if (existing) existing.remove();
+        var toast = document.createElement('div');
+        toast.className = 'gen-editor-toast';
+        toast.textContent = message;
+        (container || document.body).appendChild(toast);
+        /* Trigger entrance animation */
+        requestAnimationFrame(function () {
+          toast.classList.add('gen-editor-toast-visible');
+        });
+        setTimeout(function () {
+          toast.classList.remove('gen-editor-toast-visible');
+          setTimeout(function () { if (toast.parentNode) toast.remove(); }, 300);
+        }, durationMs);
+      }
+
+      /** Handle merge field key rename on blur. Validates, checks collisions, propagates. */
+      function handleMergeFieldBlur(oldKey, newRaw, obj) {
+        var newKey = String(newRaw || '').toUpperCase().replace(/[^A-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+        if (!newKey) newKey = 'UNNAMED_VAR';
+        if (newKey === oldKey) return oldKey;
+        /* Check for global collision */
+        var unique = generateUniqueMergeKey(newKey);
+        if (unique !== newKey) {
+          showEditorToast('Key "' + newKey + '" already exists — renamed to "' + unique + '"');
+          newKey = unique;
+        }
+        renameMergeKeyGlobal(oldKey, newKey);
+        refreshPropertyPanel();
+        return newKey;
+      }
+
+      /* snapshotMergeState + restoreMergeState are now hoisted to the outer create() scope */
+
       function buildConvertToMergeUI(parentEl, objectRef, propName, currentValue, onConverted) {
         var wrap = document.createElement('div');
         wrap.style.cssText = 'display:flex;gap:4px;align-items:center;margin-top:3px;';
@@ -3934,9 +5200,32 @@
           if (onChange) onChange(v);
           canvas.renderAll();
           refreshTimeline();
+          saveStateDebounced();
         });
         row.appendChild(input);
         form.appendChild(row);
+      }
+      /** Add a prop row to a specific container (for grid layouts). Returns the input element. */
+      function addRowTo(container, label, value, onChange) {
+        var row = document.createElement('div');
+        row.className = 'gen-prop-group';
+        var lab = document.createElement('label');
+        lab.textContent = label;
+        row.appendChild(lab);
+        var input = document.createElement('input');
+        input.type = typeof value === 'number' ? 'number' : 'text';
+        input.className = 'gen-prop-input';
+        input.value = value != null ? value : '';
+        input.addEventListener('change', function () {
+          var v = input.type === 'number' ? parseFloat(input.value, 10) : input.value;
+          if (onChange) onChange(v);
+          canvas.renderAll();
+          refreshTimeline();
+          saveStateDebounced();
+        });
+        row.appendChild(input);
+        container.appendChild(row);
+        return input;
       }
       var objNameUpper = (obj.name || obj.id || '').toString().toUpperCase().replace(/\s+/g, '_');
       var linkedField = extension.inputSchema && extension.inputSchema.find(function (f) {
@@ -3987,73 +5276,88 @@
       segCtrl.appendChild(posResp);
       form.appendChild(segCtrl);
       if (!obj.cfsResponsive) {
-        addRow('Left', Math.round(obj.left || 0), function (v) { obj.set('left', Number(v) || 0); if (obj.cfsRightPx != null) applyResponsivePositions(canvas); });
-        addRow('Top', Math.round(obj.top || 0), function (v) { obj.set('top', Number(v) || 0); if (obj.cfsBottomPx != null) applyResponsivePositions(canvas); });
+        /* Fixed mode: use 2-column grid for Left/Top */
+        var posGrid = document.createElement('div');
+        posGrid.className = 'gen-prop-pair';
+        addRowTo(posGrid, 'Left', Math.round(obj.left || 0), function (v) { obj.set('left', Number(v) || 0); if (obj.cfsRightPx != null) applyResponsivePositions(canvas); });
+        addRowTo(posGrid, 'Top', Math.round(obj.top || 0), function (v) { obj.set('top', Number(v) || 0); if (obj.cfsBottomPx != null) applyResponsivePositions(canvas); });
+        form.appendChild(posGrid);
         if (obj.type === 'rect' || obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'image' || obj.type === 'path') {
           var hasRight = obj.cfsRightPx != null;
           var dispWidth = hasRight ? Math.round(cw - (obj.left || 0) - Number(obj.cfsRightPx)) : Math.round((obj.width || 0) * (obj.scaleX || 1));
-          addRow(hasRight ? 'Width (auto)' : 'Width', dispWidth, function (v) {
+          var sizeGrid = document.createElement('div');
+          sizeGrid.className = 'gen-prop-pair';
+          addRowTo(sizeGrid, hasRight ? 'W (auto)' : 'Width', dispWidth, function (v) {
             if (hasRight) return;
             var s = obj.scaleX || 1;
             obj.set('width', (Number(v) || 0) / (s || 1));
             if (obj.scaleX) obj.set('scaleX', 1);
             obj.set('cfsRightPx', undefined);
           });
-          addRow('Right (px)', obj.cfsRightPx != null ? Math.round(Number(obj.cfsRightPx)) : '', function (v) {
+          addRowTo(sizeGrid, 'Right (px)', obj.cfsRightPx != null ? Math.round(Number(obj.cfsRightPx)) : '', function (v) {
             var val = (v === '' || v == null) ? undefined : Number(v);
             if (val == null || isNaN(val)) { obj.set('cfsRightPx', undefined); return; }
             obj.set('cfsRightPx', val);
             applyResponsivePositions(canvas);
             refreshPropertyPanel();
           });
+          form.appendChild(sizeGrid);
           if (obj.type !== 'text' && obj.type !== 'i-text' && obj.type !== 'textbox') {
             var hasBottom = obj.cfsBottomPx != null;
             var dispHeight = hasBottom ? Math.round(ch - (obj.top || 0) - Number(obj.cfsBottomPx)) : Math.round((obj.height || 0) * (obj.scaleY || 1));
-            addRow(hasBottom ? 'Height (auto)' : 'Height', dispHeight, function (v) {
+            var hGrid = document.createElement('div');
+            hGrid.className = 'gen-prop-pair';
+            addRowTo(hGrid, hasBottom ? 'H (auto)' : 'Height', dispHeight, function (v) {
               if (hasBottom) return;
               var s = obj.scaleY || 1;
               obj.set('height', (Number(v) || 0) / (s || 1));
               if (obj.scaleY) obj.set('scaleY', 1);
               obj.set('cfsBottomPx', undefined);
             });
-            addRow('Bottom (px)', obj.cfsBottomPx != null ? Math.round(Number(obj.cfsBottomPx)) : '', function (v) {
+            addRowTo(hGrid, 'Bottom (px)', obj.cfsBottomPx != null ? Math.round(Number(obj.cfsBottomPx)) : '', function (v) {
               var val = (v === '' || v == null) ? undefined : Number(v);
               if (val == null || isNaN(val)) { obj.set('cfsBottomPx', undefined); return; }
               obj.set('cfsBottomPx', val);
               applyResponsivePositions(canvas);
               refreshPropertyPanel();
             });
+            form.appendChild(hGrid);
           }
         }
         if (obj.type === 'circle') addRow('Radius', Math.round(obj.radius || 0), function (v) { obj.set('radius', Number(v) || 0); });
       } else {
+        /* Responsive mode: use 4-column quad grid for L%/T%/W%/OP% */
         var lPct = (obj.cfsLeftPct != null ? Number(obj.cfsLeftPct) * 100 : (cw ? ((obj.left || 0) / cw) * 100 : 0)).toFixed(1);
         var tPct = (obj.cfsTopPct != null ? Number(obj.cfsTopPct) * 100 : (ch ? ((obj.top || 0) / ch) * 100 : 0)).toFixed(1);
-        addRow('Left %', lPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsLeftPct', p); obj.set('left', cw * p); });
-        addRow('Top %', tPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsTopPct', p); obj.set('top', ch * p); });
+        var respQuad = document.createElement('div');
+        respQuad.className = 'gen-prop-quad';
+        addRowTo(respQuad, 'L %', lPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsLeftPct', p); obj.set('left', cw * p); });
+        addRowTo(respQuad, 'T %', tPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsTopPct', p); obj.set('top', ch * p); });
         if (obj.type === 'rect' || obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'image' || obj.type === 'path') {
           var wPct = (obj.cfsWidthPct != null ? Number(obj.cfsWidthPct) * 100 : (cw && obj.width ? (obj.width / cw) * 100 : 0)).toFixed(1);
-          addRow('Width %', wPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsWidthPct', p); obj.set('width', cw * p); });
+          addRowTo(respQuad, 'W %', wPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsWidthPct', p); obj.set('width', cw * p); });
           if (obj.type !== 'text' && obj.type !== 'i-text' && obj.type !== 'textbox') {
             var hPct = (obj.cfsHeightPct != null ? Number(obj.cfsHeightPct) * 100 : (ch && obj.height ? (obj.height / ch) * 100 : 0)).toFixed(1);
-            addRow('Height %', hPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsHeightPct', p); obj.set('height', ch * p); });
+            addRowTo(respQuad, 'H %', hPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsHeightPct', p); obj.set('height', ch * p); });
           }
         }
         if (obj.type === 'circle') {
           var rPct = (obj.cfsRadiusPct != null ? Number(obj.cfsRadiusPct) * 100 : (minSide && obj.radius ? (obj.radius / minSide) * 100 : 0)).toFixed(1);
-          addRow('Radius %', rPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsRadiusPct', p); obj.set('radius', minSide * p); });
+          addRowTo(respQuad, 'R %', rPct, function (v) { var p = (Number(v) || 0) / 100; obj.set('cfsRadiusPct', p); obj.set('radius', minSide * p); });
         }
+        form.appendChild(respQuad);
       }
-      addRow('Opacity', Math.round((obj.cfsClipOpacity != null ? obj.cfsClipOpacity : (obj.opacity != null ? obj.opacity : 1)) * 100), function (v) {
+      /* Opacity - add to its own row or attach to the last grid */
+      addRow('OP %', Math.round((obj.cfsClipOpacity != null ? obj.cfsClipOpacity : (obj.opacity != null ? obj.opacity : 1)) * 100), function (v) {
         var val = Math.max(0, Math.min(1, (Number(v) || 100) / 100));
         obj.set('opacity', val);
         obj.set('cfsClipOpacity', val);
       });
       if (obj.type === 'text' || obj.type === 'i-text' || obj.type === 'textbox') {
-        /* ── SECTION: TEXT & CONTENT ── */
+        /* ── SECTION: TEXT CONTENT ── */
         var textSectionLabel = document.createElement('div');
         textSectionLabel.className = 'gen-prop-section-label';
-        textSectionLabel.textContent = 'Text & Content';
+        textSectionLabel.textContent = 'Text Content';
         form.appendChild(textSectionLabel);
         var rawTextForPanel = (obj.cfsRawText != null ? String(obj.cfsRawText) : (typeof obj.get === 'function' && obj.get('cfsRawText') != null ? String(obj.get('cfsRawText')) : String(obj.text || '')));
         var _origTplText = getOriginalTemplateText(obj);
@@ -4066,61 +5370,153 @@
           if (!_seen[pk]) { _seen[pk] = true; _allPlaceholders.push(pk); }
         });
         _currentPlaceholders.forEach(function (pk) { ensureMergeField(pk, ''); });
-        var _displayText = _origTplText || _currentText;
-        if (_allPlaceholders.length > 0) {
-          /* ── SECTION: MERGE FIELDS ── */
+        var _displayText = _currentText;
+        /* Detect unlinked fields: keys in _unlinkedMergeFields that belong to this object */
+        var _unlinkedForObj = [];
+        Object.keys(_unlinkedMergeFields).forEach(function (uKey) {
+          if (_allPlaceholders.indexOf(uKey) === -1) _unlinkedForObj.push(uKey);
+        });
+        var _hasAnyMergeContent = _allPlaceholders.length > 0 || _unlinkedForObj.length > 0;
+        if (_hasAnyMergeContent) {
+          /* ── SECTION: MERGE FIELD SETUP ── */
           var mergeSectionLabel = document.createElement('div');
           mergeSectionLabel.className = 'gen-prop-section-label';
-          mergeSectionLabel.textContent = 'Merge Fields';
+          mergeSectionLabel.textContent = 'Merge Field Setup';
           form.appendChild(mergeSectionLabel);
           var tplSection = document.createElement('div');
-          tplSection.className = 'cfs-prop-row';
-          tplSection.style.cssText = 'flex-direction:column;gap:4px;';
+          tplSection.className = 'gen-merge-fields-container';
           var tplLabel = document.createElement('div');
-          tplLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);font-weight:600;';
+          tplLabel.className = 'gen-merge-tpl-label';
           tplLabel.textContent = 'Template text:';
           tplSection.appendChild(tplLabel);
-          var tplCode = document.createElement('code');
-          tplCode.style.cssText = 'font-size:11px;padding:4px 6px;border-radius:3px;background:var(--gen-surface,#f3f3f3);display:block;white-space:pre-wrap;word-break:break-word;line-height:1.4;';
-          tplCode.textContent = _displayText;
+          var tplCode = document.createElement('textarea');
+          tplCode.className = 'gen-merge-tpl-code gen-merge-tpl-editable';
+          tplCode.value = _displayText;
+          tplCode.rows = Math.max(2, Math.min(6, (_displayText || '').split('\n').length));
+          tplCode.spellcheck = false;
+          tplCode.placeholder = 'Type text and {{ MERGE_FIELDS }} here…';
+          tplCode.addEventListener('input', function () {
+            var v = tplCode.value;
+            var oldText = obj.cfsRawText || obj.text || '';
+            var oldPlaceholders = extractPlaceholders(oldText);
+            obj.set('cfsRawText', String(v != null ? v : ''));
+            var newPlaceholders = extractPlaceholders(v);
+            /* Two-way sync: auto-create cards for new {{ vars }} */
+            newPlaceholders.forEach(function (pk) { ensureMergeField(pk, ''); });
+            /* Mark removed placeholders as unlinked */
+            oldPlaceholders.forEach(function (pk) {
+              if (newPlaceholders.indexOf(pk) === -1) {
+                _unlinkedMergeFields[pk] = { defaultValue: getMergeDefault(pk), lastValue: null };
+              }
+            });
+            /* Clear unlinked for re-added */
+            newPlaceholders.forEach(function (pk) {
+              if (_unlinkedMergeFields[pk]) delete _unlinkedMergeFields[pk];
+            });
+            /* Resolve {{ VAR }} → values locally (use merge values, fallback to defaults, then key name) */
+            var resolvedText = v;
+            if (newPlaceholders.length > 0) {
+              var mergeVals = buildMergeValuesForInject();
+              resolvedText = v.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, function (match, key) {
+                var val = mergeVals[key] !== undefined ? mergeVals[key] : mergeVals[key.toUpperCase().replace(/\s+/g, '_')];
+                if (val !== undefined && val !== null && String(val) !== '') return String(val);
+                var def = getMergeDefault(key);
+                if (def !== undefined && def !== null && String(def) !== '') return String(def);
+                return key; /* Use the key name itself as placeholder display text */
+              });
+            }
+            obj.set('text', resolvedText);
+            if (obj.type === 'textbox') forceWrapTextboxObject(canvas, obj);
+            if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
+            if (linkedField && typeof options.setValue === 'function') options.setValue(linkedField.id, v);
+            canvas.requestRenderAll();
+          });
+          tplCode.addEventListener('change', function () {
+            /* On blur: run full injectMergeData for non-text properties, then re-apply local resolution */
+            if (coreScene && coreScene.injectMergeData && canvas) {
+              coreScene.injectMergeData(canvas, buildMergeValuesForInject());
+            }
+            /* Re-apply our local resolution after injectMergeData (which may have overwritten obj.text) */
+            var rawAfter = obj.cfsRawText || '';
+            var phAfter = extractPlaceholders(rawAfter);
+            if (phAfter.length > 0) {
+              var mVals = buildMergeValuesForInject();
+              var reResolved = rawAfter.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, function (m, k) {
+                var v2 = mVals[k] !== undefined ? mVals[k] : mVals[k.toUpperCase().replace(/\s+/g, '_')];
+                if (v2 !== undefined && v2 !== null && String(v2) !== '') return String(v2);
+                var d2 = getMergeDefault(k);
+                if (d2 !== undefined && d2 !== null && String(d2) !== '') return String(d2);
+                return k;
+              });
+              obj.set('text', reResolved);
+              if (obj.type === 'textbox') forceWrapTextboxObject(canvas, obj);
+              canvas.requestRenderAll();
+            }
+            pushUndo();
+            refreshPropertyPanel();
+          });
           tplSection.appendChild(tplCode);
           var _mergeVals = buildMergeValuesForInject();
+          /* ── Linked (active) merge field cards ── */
           _allPlaceholders.forEach(function (pk) {
             var fieldBlock = document.createElement('div');
-            fieldBlock.style.cssText = 'border-top:1px solid var(--gen-border,#eee);padding-top:4px;margin-top:2px;';
+            fieldBlock.className = 'gen-merge-field-block';
+            /* Editable key header */
             var fieldHeader = document.createElement('div');
-            fieldHeader.style.cssText = 'font-size:11px;font-weight:600;color:var(--gen-fg,#333);';
-            fieldHeader.innerHTML = '<code style="background:var(--gen-surface,#f3f3f3);padding:1px 4px;border-radius:3px;">{{' + pk + '}}</code>';
+            fieldHeader.className = 'gen-merge-field-header';
+            var braceL = document.createElement('span');
+            braceL.className = 'gen-merge-brace';
+            braceL.textContent = '{{';
+            fieldHeader.appendChild(braceL);
+            var keyInput = document.createElement('input');
+            keyInput.type = 'text';
+            keyInput.className = 'gen-merge-key-input';
+            keyInput.value = pk;
+            keyInput.title = 'Rename this merge key (changes propagate across all objects)';
+            keyInput.addEventListener('blur', (function (oldKey, inputEl) { return function () {
+              var newVal = inputEl.value.trim();
+              var result = handleMergeFieldBlur(oldKey, newVal, obj);
+              inputEl.value = result;
+            }; })(pk, keyInput));
+            keyInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') keyInput.blur(); });
+            fieldHeader.appendChild(keyInput);
+            var braceR = document.createElement('span');
+            braceR.className = 'gen-merge-brace';
+            braceR.textContent = '}}';
+            fieldHeader.appendChild(braceR);
             fieldBlock.appendChild(fieldHeader);
+            /* Default row */
             var pkDefault = getMergeDefault(pk);
             var defRow = document.createElement('div');
-            defRow.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);margin-top:2px;display:flex;gap:4px;align-items:center;';
+            defRow.className = 'gen-merge-field-row';
             var defLabel = document.createElement('span');
-            defLabel.style.cssText = 'flex-shrink:0;';
+            defLabel.className = 'gen-merge-field-row-label';
             defLabel.textContent = 'Default:';
             defRow.appendChild(defLabel);
             var defInput = document.createElement('input');
             defInput.type = 'text';
-            defInput.style.cssText = 'flex:1;min-width:0;font-size:10px;padding:1px 4px;border:1px solid var(--gen-border,#ccc);border-radius:3px;color:var(--gen-fg,#555);';
+            defInput.className = 'gen-merge-field-input';
             defInput.value = pkDefault != null ? String(pkDefault) : '';
             defInput.placeholder = pk;
             defInput.addEventListener('change', (function (mergeKey) { return function () {
               setMergeDefault(mergeKey, defInput.value);
+              pushUndo();
             }; })(pk));
             defRow.appendChild(defInput);
             fieldBlock.appendChild(defRow);
+            /* Value row */
             var curVal = _mergeVals[pk] !== undefined ? _mergeVals[pk] : _mergeVals[pk.toUpperCase().replace(/\s+/g, '_')];
             var isColorField = /COLOR|COLOUR/i.test(pk) && !/COLORADO/i.test(pk);
             var valRow = document.createElement('div');
-            valRow.style.cssText = 'display:flex;gap:4px;align-items:center;margin-top:2px;';
+            valRow.className = 'gen-merge-field-row';
             var valLabel = document.createElement('span');
-            valLabel.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);flex-shrink:0;';
+            valLabel.className = 'gen-merge-field-row-label';
             valLabel.textContent = 'Value:';
             valRow.appendChild(valLabel);
             if (isColorField) {
               var colorPicker = document.createElement('input');
               colorPicker.type = 'color';
-              colorPicker.style.cssText = 'width:36px;height:22px;padding:0;border:0;background:none;';
+              colorPicker.className = 'gen-merge-color-swatch';
               var cv = (curVal && typeof curVal === 'string' && curVal.indexOf('#') === 0) ? curVal : (pkDefault && String(pkDefault).indexOf('#') === 0 ? String(pkDefault) : '#000000');
               colorPicker.value = cv;
               colorPicker.addEventListener('change', (function (mergeKey) { return function () {
@@ -4142,7 +5538,7 @@
             }
             var valInput = document.createElement('input');
             valInput.type = 'text';
-            valInput.style.cssText = 'flex:1;min-width:0;font-size:11px;padding:2px 4px;border:1px solid var(--gen-border,#ccc);border-radius:3px;';
+            valInput.className = 'gen-merge-field-input';
             valInput.value = curVal != null ? String(curVal) : '';
             valInput.placeholder = pkDefault != null ? String(pkDefault) : pk;
             valInput.addEventListener('change', (function (mergeKey) { return function () {
@@ -4164,25 +5560,128 @@
             fieldBlock.appendChild(valRow);
             tplSection.appendChild(fieldBlock);
           });
+          /* ── Unlinked merge field cards (red) ── */
+          _unlinkedForObj.forEach(function (uKey) {
+            var uData = _unlinkedMergeFields[uKey] || {};
+            var uBlock = document.createElement('div');
+            uBlock.className = 'gen-merge-field-block gen-merge-field-unlinked';
+            /* Unlinked header */
+            var uHeader = document.createElement('div');
+            uHeader.className = 'gen-merge-unlinked-bar';
+            var uLabel = document.createElement('span');
+            uLabel.className = 'gen-merge-unlinked-label';
+            uLabel.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Unlinked';
+            uHeader.appendChild(uLabel);
+            var uActions = document.createElement('div');
+            uActions.className = 'gen-merge-unlinked-actions';
+            var addBackBtn = document.createElement('button');
+            addBackBtn.type = 'button';
+            addBackBtn.className = 'gen-merge-addback';
+            addBackBtn.textContent = 'Add Back';
+            addBackBtn.addEventListener('click', (function (key) { return function () {
+              /* Re-insert {{ KEY }} at end of text */
+              var rawText = obj.cfsRawText || obj.text || '';
+              var updated = rawText + ' {{ ' + key + ' }}';
+              obj.set('cfsRawText', updated);
+              obj.set('text', updated);
+              delete _unlinkedMergeFields[key];
+              ensureMergeField(key, '');
+              pushUndo();
+              if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
+              canvas.renderAll();
+              refreshPropertyPanel();
+            }; })(uKey));
+            uActions.appendChild(addBackBtn);
+            var deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'gen-merge-delete-mf';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.addEventListener('click', (function (key) { return function () {
+              removeMergeField(key);
+              delete _unlinkedMergeFields[key];
+              pushUndo();
+              refreshPropertyPanel();
+            }; })(uKey));
+            uActions.appendChild(deleteBtn);
+            uHeader.appendChild(uActions);
+            uBlock.appendChild(uHeader);
+            /* Key badge (read-only for unlinked) */
+            var uKeyLabel = document.createElement('div');
+            uKeyLabel.className = 'gen-merge-field-header';
+            uKeyLabel.innerHTML = '<span class="gen-merge-brace">{{</span><code class="gen-merge-field-key-badge">' + uKey + '</code><span class="gen-merge-brace">}}</span>';
+            uBlock.appendChild(uKeyLabel);
+            /* Show stored default if any */
+            if (uData.defaultValue) {
+              var uDefRow = document.createElement('div');
+              uDefRow.className = 'gen-merge-field-row';
+              var uDefLabel = document.createElement('span');
+              uDefLabel.className = 'gen-merge-field-row-label';
+              uDefLabel.textContent = 'Default:';
+              uDefRow.appendChild(uDefLabel);
+              var uDefVal = document.createElement('span');
+              uDefVal.className = 'gen-merge-field-hex';
+              uDefVal.textContent = uData.defaultValue;
+              uDefRow.appendChild(uDefVal);
+              uBlock.appendChild(uDefRow);
+            }
+            tplSection.appendChild(uBlock);
+          });
           form.appendChild(tplSection);
         }
-        addRow('Text', rawTextForPanel, function (v) {
-          obj.set('cfsRawText', String(v != null ? v : ''));
-          obj.set('text', v);
-          var newPlaceholders = extractPlaceholders(v);
-          newPlaceholders.forEach(function (pk) { ensureMergeField(pk, ''); });
-          if (obj.type === 'textbox') forceWrapTextboxObject(canvas, obj);
-          if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
-          if (linkedField && typeof options.setValue === 'function') options.setValue(linkedField.id, v);
-          canvas.requestRenderAll();
-          refreshPropertyPanel();
-        });
+        if (!_hasAnyMergeContent) {
+          /* Plain text (no merge fields) — show simple text row */
+          addRow('Text', rawTextForPanel, function (v) {
+            obj.set('cfsRawText', String(v != null ? v : ''));
+            obj.set('text', v);
+            var newPlaceholders = extractPlaceholders(v);
+            newPlaceholders.forEach(function (pk) { ensureMergeField(pk, ''); });
+            if (obj.type === 'textbox') forceWrapTextboxObject(canvas, obj);
+            if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
+            if (linkedField && typeof options.setValue === 'function') options.setValue(linkedField.id, v);
+            canvas.requestRenderAll();
+            pushUndo();
+            refreshPropertyPanel();
+          });
+        }
         /* ── SECTION: TYPOGRAPHY ── */
         var typoSectionLabel = document.createElement('div');
         typoSectionLabel.className = 'gen-prop-section-label';
         typoSectionLabel.textContent = 'Typography';
         form.appendChild(typoSectionLabel);
-        addRow('Font size', obj.fontSize || 24, function (v) {
+        /* Font Family + Weight in a 2-column grid */
+        var fontPair = document.createElement('div');
+        fontPair.className = 'gen-prop-pair';
+        (function () {
+          var ffRow = document.createElement('div');
+          ffRow.className = 'gen-prop-group';
+          ffRow.innerHTML = '<label>Font Family</label>';
+          var ffInput = document.createElement('input');
+          ffInput.type = 'text';
+          ffInput.className = 'gen-prop-input';
+          ffInput.value = obj.fontFamily || 'sans-serif';
+          ffInput.addEventListener('change', function () {
+            obj.set('fontFamily', ffInput.value || 'sans-serif');
+            if (obj.type === 'textbox') { forceWrapTextboxObject(canvas, obj); if (typeof obj.initDimensions === 'function') obj.initDimensions(); }
+            canvas.requestRenderAll();
+            saveStateDebounced();
+          });
+          ffRow.appendChild(ffInput);
+          fontPair.appendChild(ffRow);
+        })();
+        (function () {
+          var fwRow = document.createElement('div');
+          fwRow.className = 'gen-prop-group';
+          fwRow.innerHTML = '<label>Weight</label><select class="gen-prop-input"><option value="normal">Normal</option><option value="bold">Bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option></select>';
+          var fwSel = fwRow.querySelector('select');
+          fwSel.value = obj.fontWeight || 'normal';
+          fwSel.addEventListener('change', function () { obj.set('fontWeight', fwSel.value); canvas.requestRenderAll(); saveStateDebounced(); });
+          fontPair.appendChild(fwRow);
+        })();
+        form.appendChild(fontPair);
+        /* Size + Line Height in a 2-column grid */
+        var sizePair = document.createElement('div');
+        sizePair.className = 'gen-prop-pair';
+        addRowTo(sizePair, 'Size', obj.fontSize || 24, function (v) {
           var newSize = Number(v) || 24;
           obj.set('fontSize', newSize);
           if (minSide > 0) obj.set('cfsFontSizePct', newSize / minSide);
@@ -4193,20 +5692,14 @@
           canvas.requestRenderAll();
           if (obj.type === 'textbox') refreshPropertyPanel();
         });
-        addRow('Font family', obj.fontFamily || 'sans-serif', function (v) {
-          obj.set('fontFamily', v || 'sans-serif');
-          if (obj.type === 'textbox') { forceWrapTextboxObject(canvas, obj); if (typeof obj.initDimensions === 'function') obj.initDimensions(); }
+        addRowTo(sizePair, 'Line Height', obj.cfsLineHeight != null ? obj.cfsLineHeight : '', function (v) {
+          var n = v === '' ? undefined : Number(v);
+          obj.set('cfsLineHeight', n);
+          if (n != null) obj.set('lineHeight', n);
+          if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
           canvas.requestRenderAll();
         });
-        (function () {
-          var fwRow = document.createElement('div');
-          fwRow.className = 'gen-prop-group';
-          fwRow.innerHTML = '<label>Font weight</label><select class="gen-prop-input"><option value="normal">Normal</option><option value="bold">Bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option></select>';
-          var fwSel = fwRow.querySelector('select');
-          fwSel.value = obj.fontWeight || 'normal';
-          fwSel.addEventListener('change', function () { obj.set('fontWeight', fwSel.value); canvas.requestRenderAll(); });
-          form.appendChild(fwRow);
-        })();
+        form.appendChild(sizePair);
         addRow('Letter spacing', obj.cfsLetterSpacing != null ? obj.cfsLetterSpacing : '', function (v) {
           var n = v === '' ? undefined : Number(v);
           obj.set('cfsLetterSpacing', n);
@@ -4214,13 +5707,9 @@
           if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
           canvas.requestRenderAll();
         });
-        addRow('Line height', obj.cfsLineHeight != null ? obj.cfsLineHeight : '', function (v) {
-          var n = v === '' ? undefined : Number(v);
-          obj.set('cfsLineHeight', n);
-          if (n != null) obj.set('lineHeight', n);
-          if (obj.type === 'textbox' && typeof obj.initDimensions === 'function') obj.initDimensions();
-          canvas.requestRenderAll();
-        });
+        /* Transform + Decoration in a 2-column grid */
+        var textStylePair = document.createElement('div');
+        textStylePair.className = 'gen-prop-pair';
         (function () {
           var txRow = document.createElement('div');
           txRow.className = 'gen-prop-group';
@@ -4231,9 +5720,10 @@
             obj.set('cfsTextTransform', txSel.value || undefined);
             applyTextTransformVisual(obj);
             canvas.requestRenderAll();
+            saveStateDebounced();
             refreshPropertyPanel();
           });
-          form.appendChild(txRow);
+          textStylePair.appendChild(txRow);
         })();
         (function () {
           var tdRow = document.createElement('div');
@@ -4246,9 +5736,14 @@
             obj.set('underline', tdSel.value === 'underline');
             obj.set('linethrough', tdSel.value === 'line-through');
             canvas.requestRenderAll();
+            saveStateDebounced();
           });
-          form.appendChild(tdRow);
+          textStylePair.appendChild(tdRow);
         })();
+        form.appendChild(textStylePair);
+        /* Align H + Align V in a 2-column grid */
+        var alignPair = document.createElement('div');
+        alignPair.className = 'gen-prop-pair';
         (function () {
           var ahRow = document.createElement('div');
           ahRow.className = 'gen-prop-group';
@@ -4259,8 +5754,9 @@
             obj.set('cfsAlignHorizontal', ahSel.value);
             obj.set('textAlign', ahSel.value);
             canvas.requestRenderAll();
+            saveStateDebounced();
           });
-          form.appendChild(ahRow);
+          alignPair.appendChild(ahRow);
         })();
         (function () {
           var avRow = document.createElement('div');
@@ -4268,9 +5764,10 @@
           avRow.innerHTML = '<label>Align V</label><select class="gen-prop-input"><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select>';
           var avSel = avRow.querySelector('select');
           avSel.value = obj.cfsAlignVertical || 'top';
-          avSel.addEventListener('change', function () { obj.set('cfsAlignVertical', avSel.value); canvas.requestRenderAll(); });
-          form.appendChild(avRow);
+          avSel.addEventListener('change', function () { obj.set('cfsAlignVertical', avSel.value); canvas.requestRenderAll(); saveStateDebounced(); });
+          alignPair.appendChild(avRow);
         })();
+        form.appendChild(alignPair);
         (function () {
           var tbgRow = document.createElement('div');
           tbgRow.className = 'gen-prop-group';
@@ -4283,18 +5780,20 @@
             obj.set('cfsTextBackground', tbgInput.value);
             obj.set('backgroundColor', tbgInput.value);
             canvas.requestRenderAll();
+            saveStateDebounced();
           });
           tbgClear.addEventListener('click', function () {
             obj.set('cfsTextBackground', undefined);
             obj.set('backgroundColor', '');
             canvas.requestRenderAll();
+            saveStateDebounced();
             refreshPropertyPanel();
           });
           form.appendChild(tbgRow);
         })();
         var wrapRow = document.createElement('div');
-        wrapRow.className = 'cfs-prop-row';
-        wrapRow.innerHTML = '<label>Wrap text: </label><input type="checkbox" class="cfs-prop-wrap" style="width:auto;">';
+        wrapRow.className = 'gen-prop-group';
+        wrapRow.innerHTML = '<label>Wrap Text</label><div style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="cfs-prop-wrap" style="width:auto;accent-color:var(--gen-accent);"><span style="font-size:11px;color:var(--gen-text-secondary);">Enable word wrap</span></div>';
         var wrapInput = wrapRow.querySelector('input.cfs-prop-wrap');
         if (wrapInput) {
           var isWrap = obj.cfsWrapText !== false;
@@ -4378,10 +5877,10 @@
           textHint.textContent = 'Lines break automatically when text is too long for the box width. Resize by dragging the edges; double-click to edit. Press Enter for a manual line break.';
           form.appendChild(textHint);
         }
-        /* ── SECTION: ANIMATION ── */
+        /* ── SECTION: TEXT ENTRANCE ANIMATION ── */
         var animSectionLabel = document.createElement('div');
         animSectionLabel.className = 'gen-prop-section-label';
-        animSectionLabel.textContent = 'Animation';
+        animSectionLabel.textContent = 'Text Entrance Animation';
         form.appendChild(animSectionLabel);
         var animPresets = ['none', 'fadeIn', 'typewriter', 'slideIn', 'ascend', 'shift'];
         var animRow = document.createElement('div');
@@ -4392,7 +5891,7 @@
           animPresets.forEach(function (p) {
             var opt = document.createElement('option');
             opt.value = p;
-            opt.textContent = p === 'none' ? 'None' : p;
+            opt.textContent = p === 'none' ? 'None' : (p.charAt(0).toUpperCase() + p.slice(1));
             animPresetSel.appendChild(opt);
           });
           var anim = obj.get ? obj.get('cfsAnimation') : obj.cfsAnimation;
@@ -4402,9 +5901,13 @@
             var preset = animPresetSel.value;
             if (preset === 'none') { obj.set('cfsAnimation', null); } else { var a = obj.get ? obj.get('cfsAnimation') : obj.cfsAnimation; a = (a && typeof a === 'object') ? { preset: preset, duration: a.duration, style: a.style, direction: a.direction } : { preset: preset }; obj.set('cfsAnimation', a); extendClipLengthForAnimation(obj); }
             canvas.renderAll();
+            saveStateDebounced();
           });
         }
         form.appendChild(animRow);
+        /* Duration (s) + Style in a 2-column grid */
+        var animPair = document.createElement('div');
+        animPair.className = 'gen-prop-pair';
         var animDurationRow = document.createElement('div');
         animDurationRow.className = 'gen-prop-group';
         animDurationRow.innerHTML = '<label>Duration (s)</label><input type="number" class="gen-prop-input cfs-prop-anim-duration" min="0" step="0.5" placeholder="clip">';
@@ -4421,9 +5924,10 @@
             obj.set('cfsAnimation', a);
             extendClipLengthForAnimation(obj);
             canvas.renderAll();
+            saveStateDebounced();
           });
         }
-        form.appendChild(animDurationRow);
+        animPair.appendChild(animDurationRow);
         var animStyleRow = document.createElement('div');
         animStyleRow.className = 'gen-prop-group';
         animStyleRow.innerHTML = '<label>Style</label><select class="gen-prop-input cfs-prop-anim-style"><option value="">Default</option><option value="character">Character</option><option value="word">Word</option><option value="full">Full</option></select>';
@@ -4437,9 +5941,11 @@
             a.style = animStyleSel.value || undefined;
             obj.set('cfsAnimation', a);
             canvas.renderAll();
+            saveStateDebounced();
           });
         }
-        form.appendChild(animStyleRow);
+        animPair.appendChild(animStyleRow);
+        form.appendChild(animPair);
         var animDirRow = document.createElement('div');
         animDirRow.className = 'gen-prop-group';
         animDirRow.innerHTML = '<label>Direction</label><select class="gen-prop-input cfs-prop-anim-direction"><option value="">Default</option><option value="left">Left</option><option value="right">Right</option><option value="up">Up</option><option value="down">Down</option></select>';
@@ -4453,28 +5959,30 @@
             a.direction = animDirSel.value || undefined;
             obj.set('cfsAnimation', a);
             canvas.renderAll();
+            saveStateDebounced();
           });
         }
         form.appendChild(animDirRow);
         var fillRow = document.createElement('div');
-        fillRow.className = 'cfs-prop-row';
-        fillRow.style.cssText = 'flex-direction:column;gap:3px;';
+        fillRow.className = 'gen-merge-field-block';
+        fillRow.style.cssText = '';
         var _textFillMergeKey = obj.cfsMergeKey || (typeof obj.get === 'function' ? obj.get('cfsMergeKey') : null);
         if (!_textFillMergeKey && obj.name && getMergeDefault(obj.name) !== undefined) _textFillMergeKey = obj.name;
         if (_textFillMergeKey) {
           var tfLabelRow = document.createElement('div');
-          tfLabelRow.style.cssText = 'font-size:11px;font-weight:600;color:var(--gen-fg,#333);';
-          tfLabelRow.innerHTML = 'Fill <code style="background:var(--gen-surface,#f3f3f3);padding:1px 4px;border-radius:3px;font-size:10px;">{{' + _textFillMergeKey + '}}</code>';
+          tfLabelRow.className = 'gen-merge-field-header';
+          tfLabelRow.innerHTML = 'Fill <span class="gen-merge-brace">{{</span><code class="gen-merge-field-key-badge">' + _textFillMergeKey + '</code><span class="gen-merge-brace">}}</span>';
           fillRow.appendChild(tfLabelRow);
           var tfDef = getMergeDefault(_textFillMergeKey);
           var tfDefRow = document.createElement('div');
-          tfDefRow.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);display:flex;align-items:center;gap:4px;';
+          tfDefRow.className = 'gen-merge-field-row';
           var tfDefLabel = document.createElement('span');
+          tfDefLabel.className = 'gen-merge-field-row-label';
           tfDefLabel.textContent = 'Default:';
           tfDefRow.appendChild(tfDefLabel);
           var tfDefPicker = document.createElement('input');
           tfDefPicker.type = 'color';
-          tfDefPicker.style.cssText = 'width:28px;height:18px;padding:0;border:0;background:none;';
+          tfDefPicker.className = 'gen-merge-color-swatch';
           var tfDefHex = (tfDef && String(tfDef).indexOf('#') === 0) ? String(tfDef) : '#000000';
           tfDefPicker.value = tfDefHex;
           tfDefPicker.addEventListener('change', (function (mk) { return function () {
@@ -4482,20 +5990,20 @@
           }; })(_textFillMergeKey));
           tfDefRow.appendChild(tfDefPicker);
           var tfDefCode = document.createElement('span');
-          tfDefCode.style.cssText = 'font-size:10px;color:var(--gen-fg,#555);';
+          tfDefCode.className = 'gen-merge-field-hex';
           tfDefCode.textContent = tfDefHex;
           tfDefPicker.addEventListener('input', function () { tfDefCode.textContent = tfDefPicker.value; });
           tfDefRow.appendChild(tfDefCode);
           fillRow.appendChild(tfDefRow);
           var tfValRow = document.createElement('div');
-          tfValRow.style.cssText = 'display:flex;align-items:center;gap:4px;';
+          tfValRow.className = 'gen-merge-field-row';
           var tfLabel = document.createElement('span');
-          tfLabel.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);';
+          tfLabel.className = 'gen-merge-field-row-label';
           tfLabel.textContent = 'Value:';
           tfValRow.appendChild(tfLabel);
           var tfPicker = document.createElement('input');
           tfPicker.type = 'color';
-          tfPicker.style.cssText = 'width:36px;height:22px;padding:0;border:0;background:none;';
+          tfPicker.className = 'gen-merge-color-swatch';
           var tfFill = obj.fill || (tfDef && String(tfDef).indexOf('#') === 0 ? tfDef : '#000000');
           tfPicker.value = typeof tfFill === 'string' && tfFill.indexOf('#') === 0 ? tfFill : '#000000';
           tfPicker.addEventListener('change', function () {
@@ -4507,6 +6015,7 @@
               coreScene.injectMergeData(canvas, vals);
             }
             canvas.renderAll();
+            saveStateDebounced();
           });
           tfValRow.appendChild(tfPicker);
           fillRow.appendChild(tfValRow);
@@ -4517,7 +6026,7 @@
           if (fillInput) {
             var fillVal = obj.fill || '#000000';
             fillInput.value = typeof fillVal === 'string' && fillVal.indexOf('#') === 0 ? fillVal : '#000000';
-            fillInput.addEventListener('change', function () { obj.set('fill', fillInput.value); canvas.renderAll(); });
+            fillInput.addEventListener('change', function () { obj.set('fill', fillInput.value); canvas.renderAll(); saveStateDebounced(); });
           }
           buildConvertToMergeUI(fillRow, obj, 'FILL', obj.fill || '#000000');
         }
@@ -4548,6 +6057,7 @@
             obj.set('cfsStroke', st);
             applyCfsStrokeVisual(obj);
             canvas.requestRenderAll();
+            saveStateDebounced();
           });
           form.appendChild(stcRow);
         })();
@@ -4590,6 +6100,7 @@
             obj.set('cfsShadow', sh);
             applyCfsShadowVisual(obj);
             canvas.requestRenderAll();
+            saveStateDebounced();
           });
           form.appendChild(shcRow);
         })();
@@ -4648,6 +6159,7 @@
             if (linkedField && typeof options.setValue === 'function') options.setValue(linkedField.id, sfPicker.value);
             else if (typeof options.setValue === 'function') options.setValue(_shapeMergeKey, sfPicker.value);
             canvas.renderAll();
+            saveStateDebounced();
           });
           sfValRow.appendChild(sfPicker);
           var sfValCode = document.createElement('code');
@@ -4663,7 +6175,7 @@
           if (shapeFillInput) {
             var sf = obj.fill || '#6366f1';
             shapeFillInput.value = typeof sf === 'string' && sf.indexOf('#') === 0 ? sf : '#6366f1';
-            shapeFillInput.addEventListener('change', function () { obj.set('fill', shapeFillInput.value); canvas.renderAll(); });
+            shapeFillInput.addEventListener('change', function () { obj.set('fill', shapeFillInput.value); canvas.renderAll(); saveStateDebounced(); });
           }
           buildConvertToMergeUI(shapeFillRow, obj, 'FILL_COLOR', obj.fill || '#6366f1');
         }
@@ -4686,7 +6198,7 @@
           ssRow.innerHTML = '<label>Stroke color</label><input type=\"color\" class=\"gen-color-swatch\">';
           var ssInput = ssRow.querySelector('input[type="color"]');
           ssInput.value = (obj.stroke && typeof obj.stroke === 'string' && obj.stroke.indexOf('#') === 0) ? obj.stroke : '#000000';
-          ssInput.addEventListener('change', function () { obj.set('stroke', ssInput.value); canvas.requestRenderAll(); });
+          ssInput.addEventListener('change', function () { obj.set('stroke', ssInput.value); canvas.requestRenderAll(); saveStateDebounced(); });
           form.appendChild(ssRow);
         })();
         if (obj.cfsShapeLine) {
@@ -4818,45 +6330,73 @@
           var _imgMergeKey = obj.cfsMergeKey || (typeof obj.get === 'function' ? obj.get('cfsMergeKey') : null)
             || ((obj.name && getMergeDefault(obj.name) !== undefined) ? obj.name : null);
           if (_imgMergeKey) {
-            var imgMergeRow = document.createElement('div');
-            imgMergeRow.className = 'cfs-prop-row';
-            imgMergeRow.style.cssText = 'flex-direction:column;gap:3px;';
-            var imgMkLabel = document.createElement('div');
-            imgMkLabel.style.cssText = 'font-size:11px;font-weight:600;color:var(--gen-fg,#333);';
-            imgMkLabel.innerHTML = 'Image merge field: <code style="background:var(--gen-surface,#f3f3f3);padding:1px 4px;border-radius:3px;font-size:10px;">{{' + _imgMergeKey + '}}</code>';
-            imgMergeRow.appendChild(imgMkLabel);
+            var imgMergeSection = document.createElement('div');
+            imgMergeSection.className = 'gen-merge-fields-container';
+            var imgFieldBlock = document.createElement('div');
+            imgFieldBlock.className = 'gen-merge-field-block';
+            /* Editable key header */
+            var imgFieldHeader = document.createElement('div');
+            imgFieldHeader.className = 'gen-merge-field-header';
+            var imgBraceL = document.createElement('span');
+            imgBraceL.className = 'gen-merge-brace';
+            imgBraceL.textContent = '{{';
+            imgFieldHeader.appendChild(imgBraceL);
+            var imgKeyInput = document.createElement('input');
+            imgKeyInput.type = 'text';
+            imgKeyInput.className = 'gen-merge-key-input';
+            imgKeyInput.value = _imgMergeKey;
+            imgKeyInput.title = 'Rename this merge key';
+            imgKeyInput.addEventListener('blur', (function (oldKey, inputEl) { return function () {
+              var newVal = inputEl.value.trim();
+              var result = handleMergeFieldBlur(oldKey, newVal, obj);
+              inputEl.value = result;
+            }; })(_imgMergeKey, imgKeyInput));
+            imgKeyInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') imgKeyInput.blur(); });
+            imgFieldHeader.appendChild(imgKeyInput);
+            var imgBraceR = document.createElement('span');
+            imgBraceR.className = 'gen-merge-brace';
+            imgBraceR.textContent = '}}';
+            imgFieldHeader.appendChild(imgBraceR);
+            var imgTypeLabel = document.createElement('span');
+            imgTypeLabel.className = 'gen-merge-field-type-badge';
+            imgTypeLabel.textContent = 'Image';
+            imgFieldHeader.appendChild(imgTypeLabel);
+            imgFieldBlock.appendChild(imgFieldHeader);
+            /* Default row */
             var imgMkDefault = getMergeDefault(_imgMergeKey);
-            var imgMkDefRow = document.createElement('div');
-            imgMkDefRow.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);display:flex;gap:4px;align-items:center;';
-            var imgMkDefLabel = document.createElement('span');
-            imgMkDefLabel.style.cssText = 'flex-shrink:0;';
-            imgMkDefLabel.textContent = 'Default:';
-            imgMkDefRow.appendChild(imgMkDefLabel);
-            var imgMkDefInput = document.createElement('input');
-            imgMkDefInput.type = 'text';
-            imgMkDefInput.style.cssText = 'flex:1;min-width:0;font-size:10px;padding:1px 4px;border:1px solid var(--gen-border,#ccc);border-radius:3px;color:var(--gen-fg,#555);';
-            imgMkDefInput.value = imgMkDefault != null ? String(imgMkDefault) : '';
-            imgMkDefInput.placeholder = 'URL';
-            imgMkDefInput.addEventListener('change', (function (mk) { return function () {
-              setMergeDefault(mk, imgMkDefInput.value);
+            var imgDefRow = document.createElement('div');
+            imgDefRow.className = 'gen-merge-field-row';
+            var imgDefLabel = document.createElement('span');
+            imgDefLabel.className = 'gen-merge-field-row-label';
+            imgDefLabel.textContent = 'Default:';
+            imgDefRow.appendChild(imgDefLabel);
+            var imgDefInput = document.createElement('input');
+            imgDefInput.type = 'text';
+            imgDefInput.className = 'gen-merge-field-input';
+            imgDefInput.value = imgMkDefault != null ? String(imgMkDefault) : '';
+            imgDefInput.placeholder = 'URL';
+            imgDefInput.addEventListener('change', (function (mk) { return function () {
+              setMergeDefault(mk, imgDefInput.value);
+              pushUndo();
             }; })(_imgMergeKey));
-            imgMkDefRow.appendChild(imgMkDefInput);
-            imgMergeRow.appendChild(imgMkDefRow);
-            var imgMkValRow = document.createElement('div');
-            imgMkValRow.style.cssText = 'display:flex;gap:4px;align-items:center;';
-            var imgMkValLabel = document.createElement('span');
-            imgMkValLabel.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);';
-            imgMkValLabel.textContent = 'Value:';
-            imgMkValRow.appendChild(imgMkValLabel);
-            var imgMkValInput = document.createElement('input');
-            imgMkValInput.type = 'text';
-            imgMkValInput.style.cssText = 'flex:1;min-width:0;font-size:11px;padding:2px 4px;border:1px solid var(--gen-border,#ccc);border-radius:3px;';
-            imgMkValInput.placeholder = 'URL or leave empty for default';
+            imgDefRow.appendChild(imgDefInput);
+            imgFieldBlock.appendChild(imgDefRow);
+            /* Value row */
             var _imgMergeVals = buildMergeValuesForInject();
             var _imgCurVal = _imgMergeVals[_imgMergeKey] !== undefined ? _imgMergeVals[_imgMergeKey] : _imgMergeVals[_imgMergeKey.toUpperCase().replace(/\s+/g, '_')];
-            imgMkValInput.value = _imgCurVal != null ? String(_imgCurVal) : '';
-            imgMkValInput.addEventListener('change', (function (mk) { return function () {
-              var v = imgMkValInput.value.trim();
+            var imgValRow = document.createElement('div');
+            imgValRow.className = 'gen-merge-field-row';
+            var imgValLabel = document.createElement('span');
+            imgValLabel.className = 'gen-merge-field-row-label';
+            imgValLabel.textContent = 'Value:';
+            imgValRow.appendChild(imgValLabel);
+            var imgValInput = document.createElement('input');
+            imgValInput.type = 'text';
+            imgValInput.className = 'gen-merge-field-input';
+            imgValInput.placeholder = 'URL or leave empty for default';
+            imgValInput.value = _imgCurVal != null ? String(_imgCurVal) : '';
+            imgValInput.addEventListener('change', (function (mk) { return function () {
+              var v = imgValInput.value.trim();
               if (typeof options.setValue === 'function') options.setValue(mk, v);
               var sf = extension.inputSchema && extension.inputSchema.find(function (f) {
                 return (f.mergeField || f.id || '').toUpperCase().replace(/\s+/g, '_') === mk.toUpperCase().replace(/\s+/g, '_');
@@ -4879,11 +6419,13 @@
                 var _r = obj.setSrc(v, _onLoad, { crossOrigin: 'anonymous' });
                 if (_r && typeof _r.then === 'function') _r.then(_onLoad).catch(function (e) { console.warn('[CFS] Merge image load failed', e); });
               }
+              pushUndo();
             }; })(_imgMergeKey));
-            imgMkValRow.appendChild(imgMkValInput);
-            imgMergeRow.appendChild(imgMkValRow);
-            buildRemoveMergeUI(imgMergeRow, _imgMergeKey, obj);
-            form.appendChild(imgMergeRow);
+            imgValRow.appendChild(imgValInput);
+            imgFieldBlock.appendChild(imgValRow);
+            imgMergeSection.appendChild(imgFieldBlock);
+            buildRemoveMergeUI(imgMergeSection, _imgMergeKey, obj);
+            form.appendChild(imgMergeSection);
           } else {
             var imgConvertRow = document.createElement('div');
             imgConvertRow.className = 'cfs-prop-row';
@@ -4900,12 +6442,11 @@
         var videoUrlInput = videoUrlRow.querySelector('input.cfs-prop-video-url');
         if (videoUrlInput) {
           videoUrlInput.value = obj.cfsVideoSrc || '';
-          videoUrlInput.addEventListener('change', function () { obj.set('cfsVideoSrc', videoUrlInput.value.trim() || obj.cfsVideoSrc); });
+          videoUrlInput.addEventListener('change', function () { obj.set('cfsVideoSrc', videoUrlInput.value.trim() || obj.cfsVideoSrc); saveStateDebounced(); });
         }
         form.appendChild(videoUrlRow);
         var audioMixLabel = document.createElement('div');
-        audioMixLabel.className = 'cfs-prop-section-label';
-        audioMixLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:8px 0 4px 0;font-weight:600;';
+        audioMixLabel.className = 'gen-prop-section-label';
         audioMixLabel.textContent = 'Audio Mix';
         form.appendChild(audioMixLabel);
         addRow('Volume', obj.cfsVideoVolume != null ? obj.cfsVideoVolume : 1, function (v) {
@@ -4921,8 +6462,7 @@
           obj.set('cfsFadeOut', Math.max(0, Number(v)));
         });
         var videoPropsLabel = document.createElement('div');
-        videoPropsLabel.className = 'cfs-prop-section-label';
-        videoPropsLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:8px 0 4px 0;font-weight:600;';
+        videoPropsLabel.className = 'gen-prop-section-label';
         videoPropsLabel.textContent = 'Video Properties';
         form.appendChild(videoPropsLabel);
         var origClip = (obj.cfsOriginalClip && typeof obj.cfsOriginalClip === 'object') ? obj.cfsOriginalClip : {};
@@ -4944,9 +6484,8 @@
           obj.set('cfsOriginalClip', oc);
         });
         var cropLabel = document.createElement('div');
-        cropLabel.className = 'cfs-prop-section-label';
-        cropLabel.style.cssText = 'font-size:10px;color:var(--gen-muted,#888);margin:6px 0 2px 0;';
-        cropLabel.textContent = 'Crop (0–1 normalized)';
+        cropLabel.className = 'gen-prop-section-label';
+        cropLabel.textContent = 'Crop (0–1 Normalized)';
         form.appendChild(cropLabel);
         var cropObj = origAsset.crop || {};
         ['top', 'bottom', 'left', 'right'].forEach(function (side) {
@@ -4962,9 +6501,8 @@
         });
         (function () {
           var ckLabel = document.createElement('div');
-          ckLabel.className = 'cfs-prop-section-label';
-          ckLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:8px 0 4px 0;font-weight:600;';
-          ckLabel.textContent = 'Chroma Key (video export/preview)';
+          ckLabel.className = 'gen-prop-section-label';
+          ckLabel.textContent = 'Chroma Key';
           form.appendChild(ckLabel);
           var ck = obj.cfsChromaKey && typeof obj.cfsChromaKey === 'object' ? obj.cfsChromaKey : {};
           var ckColorRow = document.createElement('div');
@@ -4977,8 +6515,9 @@
             var c = obj.cfsChromaKey && typeof obj.cfsChromaKey === 'object' ? Object.assign({}, obj.cfsChromaKey) : { threshold: 150, halo: 100 };
             c.color = ckColorInput.value;
             obj.set('cfsChromaKey', c);
+            saveStateDebounced();
           });
-          ckClearBtn.addEventListener('click', function () { obj.set('cfsChromaKey', undefined); refreshPropertyPanel(); });
+          ckClearBtn.addEventListener('click', function () { obj.set('cfsChromaKey', undefined); refreshPropertyPanel(); saveStateDebounced(); });
           form.appendChild(ckColorRow);
           addRow('Threshold', ck.threshold != null ? ck.threshold : '', function (v) {
             if (v === '' && !obj.cfsChromaKey) return;
@@ -5052,30 +6591,34 @@
           form.appendChild(infoRow);
         }
         var _timingHeader = document.createElement('div');
-        _timingHeader.className = 'cfs-prop-section-label';
-        _timingHeader.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
-        _timingHeader.textContent = 'Timing';
+        _timingHeader.className = 'gen-prop-section-label';
+        _timingHeader.textContent = 'Clip Timeline & Transitions';
         form.appendChild(_timingHeader);
         var startVal = obj.cfsStart != null ? String(obj.cfsStart) : '';
         var lengthVal = obj.cfsLength != null ? String(obj.cfsLength) : '';
-        addRow('Start (s)', startVal, function (v) {
+        var timingGrid = document.createElement('div');
+        timingGrid.className = 'gen-prop-pair';
+        addRowTo(timingGrid, 'Start (s)', startVal, function (v) {
           var val = (v === '' || v == null) ? undefined : (v === 'auto' ? 'auto' : (isNaN(Number(v)) ? undefined : Number(v)));
           obj.set('cfsStart', val);
           refreshTimeline();
         });
-        addRow('Duration (s)', lengthVal, function (v) {
+        addRowTo(timingGrid, 'Length (s)', lengthVal, function (v) {
           var val = (v === '' || v == null) ? undefined : (v === 'auto' || v === 'end' ? v : (isNaN(Number(v)) ? undefined : Number(v)));
           obj.set('cfsLength', val);
           refreshTimeline();
         });
+        form.appendChild(timingGrid);
       } else {
         var _timingHeader2 = document.createElement('div');
-        _timingHeader2.className = 'cfs-prop-section-label';
-        _timingHeader2.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
-        _timingHeader2.textContent = 'Timing';
+        _timingHeader2.className = 'gen-prop-section-label';
+        _timingHeader2.textContent = 'Clip Timeline & Transitions';
         form.appendChild(_timingHeader2);
-        addRow('Start (s)', obj.cfsStart != null ? obj.cfsStart : '', function (v) { obj.set('cfsStart', v === '' || isNaN(v) ? undefined : Number(v)); refreshTimeline(); });
-        addRow('Duration (s)', obj.cfsLength != null ? obj.cfsLength : '', function (v) { obj.set('cfsLength', v === '' || isNaN(v) ? undefined : Number(v)); refreshTimeline(); });
+        var timingGrid2 = document.createElement('div');
+        timingGrid2.className = 'gen-prop-pair';
+        addRowTo(timingGrid2, 'Start (s)', obj.cfsStart != null ? obj.cfsStart : '', function (v) { obj.set('cfsStart', v === '' || isNaN(v) ? undefined : Number(v)); refreshTimeline(); });
+        addRowTo(timingGrid2, 'Length (s)', obj.cfsLength != null ? obj.cfsLength : '', function (v) { obj.set('cfsLength', v === '' || isNaN(v) ? undefined : Number(v)); refreshTimeline(); });
+        form.appendChild(timingGrid2);
       }
       addRow('Track', obj.cfsTrackIndex != null ? obj.cfsTrackIndex : 0, function (v) { var n = parseInt(v, 10); obj.set('cfsTrackIndex', isNaN(n) || n < 0 ? 0 : n); refreshTimeline(); });
       (function () {
@@ -5102,17 +6645,19 @@
       })();
       (function () {
         var vizLabel = document.createElement('div');
-        vizLabel.className = 'cfs-prop-section-label';
-        vizLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
+        vizLabel.className = 'gen-prop-section-label';
         vizLabel.textContent = 'Transform';
         form.appendChild(vizLabel);
       })();
-      addRow('Rotation', obj.angle != null ? Math.round(obj.angle * 100) / 100 : 0, function (v) {
+      /* Rotation + Scale in a 2-column grid */
+      var transformPair = document.createElement('div');
+      transformPair.className = 'gen-prop-pair';
+      addRowTo(transformPair, 'Rotation', obj.angle != null ? Math.round(obj.angle * 100) / 100 : 0, function (v) {
         obj.set('angle', Number(v) || 0);
         if (typeof obj.setCoords === 'function') obj.setCoords();
         canvas.requestRenderAll();
       });
-      addRow('Scale', obj.cfsScale != null ? obj.cfsScale : '', function (v) {
+      addRowTo(transformPair, 'Scale', obj.cfsScale != null ? obj.cfsScale : '', function (v) {
         var s = v === '' ? 1 : Math.max(0.01, Number(v) || 1);
         obj.set('cfsScale', v === '' ? undefined : s);
         if (obj.type === 'image' || (obj.type === 'group' && obj.cfsVideoSrc)) {
@@ -5122,36 +6667,37 @@
           canvas.requestRenderAll();
         }
       });
+      form.appendChild(transformPair);
       (function () {
         var flipRow = document.createElement('div');
-        flipRow.className = 'cfs-prop-row';
-        flipRow.innerHTML = '<label>Flip: </label><label style="margin-right:8px;"><input type="checkbox" style="width:auto;"> H</label><label><input type="checkbox" style="width:auto;"> V</label>';
+        flipRow.className = 'gen-prop-group';
+        flipRow.innerHTML = '<label>Flip</label><div style="display:flex;gap:12px;align-items:center;"><label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--gen-text-secondary);cursor:pointer;text-transform:none;letter-spacing:0;"><input type="checkbox" style="width:auto;accent-color:var(--gen-accent);"> H</label><label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--gen-text-secondary);cursor:pointer;text-transform:none;letter-spacing:0;"><input type="checkbox" style="width:auto;accent-color:var(--gen-accent);"> V</label></div>';
         var checks = flipRow.querySelectorAll('input[type="checkbox"]');
         var curFlip = obj.cfsFlip && typeof obj.cfsFlip === 'object' ? obj.cfsFlip : {};
-        if (checks[0]) { checks[0].checked = !!curFlip.horizontal || !!obj.flipX; checks[0].addEventListener('change', function () { obj.set('flipX', checks[0].checked); obj.set('cfsFlip', { horizontal: checks[0].checked, vertical: checks[1] ? checks[1].checked : false }); canvas.requestRenderAll(); }); }
-        if (checks[1]) { checks[1].checked = !!curFlip.vertical || !!obj.flipY; checks[1].addEventListener('change', function () { obj.set('flipY', checks[1].checked); obj.set('cfsFlip', { horizontal: checks[0] ? checks[0].checked : false, vertical: checks[1].checked }); canvas.requestRenderAll(); }); }
+        if (checks[0]) { checks[0].checked = !!curFlip.horizontal || !!obj.flipX; checks[0].addEventListener('change', function () { obj.set('flipX', checks[0].checked); obj.set('cfsFlip', { horizontal: checks[0].checked, vertical: checks[1] ? checks[1].checked : false }); canvas.requestRenderAll(); saveStateDebounced(); }); }
+        if (checks[1]) { checks[1].checked = !!curFlip.vertical || !!obj.flipY; checks[1].addEventListener('change', function () { obj.set('flipY', checks[1].checked); obj.set('cfsFlip', { horizontal: checks[0] ? checks[0].checked : false, vertical: checks[1].checked }); canvas.requestRenderAll(); saveStateDebounced(); }); }
         form.appendChild(flipRow);
       })();
       (function () {
         var filterOpts = ['none', 'blur', 'boost', 'contrast', 'darken', 'greyscale', 'lighten', 'muted', 'negative'];
         var filterRow = document.createElement('div');
-        filterRow.className = 'cfs-prop-row';
-        filterRow.innerHTML = '<label>Filter: </label><select style="min-width:90px;"></select>';
+        filterRow.className = 'gen-prop-group';
+        filterRow.innerHTML = '<label>Filter</label><select class="gen-prop-input"></select>';
         var filterSel = filterRow.querySelector('select');
-        filterOpts.forEach(function (f) { var o = document.createElement('option'); o.value = f; o.textContent = f; filterSel.appendChild(o); });
+        filterOpts.forEach(function (f) { var o = document.createElement('option'); o.value = f; o.textContent = f.charAt(0).toUpperCase() + f.slice(1); filterSel.appendChild(o); });
         filterSel.value = obj.cfsFilter || 'none';
         filterSel.addEventListener('change', function () {
           obj.set('cfsFilter', filterSel.value === 'none' ? undefined : filterSel.value);
           applyCfsFilterVisual(obj);
           canvas.requestRenderAll();
+          saveStateDebounced();
         });
         form.appendChild(filterRow);
       })();
       (function () {
         var twLabel = document.createElement('div');
-        twLabel.className = 'cfs-prop-section-label';
-        twLabel.style.cssText = 'font-size:11px;color:var(--gen-muted,#888);margin:10px 0 4px 0;font-weight:600;';
-        twLabel.textContent = 'Tweens (video export/preview, keyframe arrays)';
+        twLabel.className = 'gen-prop-section-label';
+        twLabel.textContent = 'Tweens (Keyframes)';
         form.appendChild(twLabel);
         var twHint = document.createElement('div');
         twHint.className = 'cfs-prop-row';
@@ -5174,13 +6720,18 @@
           try { var arr = JSON.parse(v); obj.set('cfsRotateTween', Array.isArray(arr) ? arr : undefined); } catch (e) { /* invalid JSON */ }
         });
       })();
+      /* ── SECTION: CLIP ACTIONS ── */
+      var clipActionsLabel = document.createElement('div');
+      clipActionsLabel.className = 'gen-prop-section-label';
+      clipActionsLabel.textContent = 'Clip Actions';
+      form.appendChild(clipActionsLabel);
       var nameRow = document.createElement('div');
-      nameRow.className = 'cfs-prop-row';
-      nameRow.innerHTML = '<label>Name: </label><input type="text" class="cfs-prop-name" style="width:120px">';
+      nameRow.className = 'gen-prop-group';
+      nameRow.innerHTML = '<label>Name</label><input type="text" class="gen-prop-input cfs-prop-name">';
       var nameInput = nameRow.querySelector('input.cfs-prop-name');
       if (nameInput) {
         nameInput.value = obj.name || obj.id || '';
-        nameInput.addEventListener('change', function () { obj.set('name', nameInput.value || undefined); refreshLayersPanel(); });
+        nameInput.addEventListener('change', function () { obj.set('name', nameInput.value || undefined); refreshLayersPanel(); saveStateDebounced(); });
       }
       form.appendChild(nameRow);
       (function () {
@@ -5207,6 +6758,7 @@
         mkDefInput.placeholder = mergeKey;
         mkDefInput.addEventListener('change', (function (mk) { return function () {
           setMergeDefault(mk, mkDefInput.value);
+          saveStateDebounced();
         }; })(mergeKey));
         mkDefRow.appendChild(mkDefInput);
         mergeSection.appendChild(mkDefRow);
@@ -5309,6 +6861,7 @@
             var v = urlInput.value.trim();
             if (!v || v === '[local file]') return;
             applyMergeUrl(v);
+            saveStateDebounced();
           });
           browseBtn.addEventListener('click', function () {
             var fi = document.createElement('input');
@@ -5357,6 +6910,7 @@
               coreScene.injectMergeData(canvas, vals);
               canvas.renderAll();
             }
+            saveStateDebounced();
           });
           mvRow.appendChild(textInput);
         }
@@ -5380,7 +6934,7 @@
             sel.appendChild(o);
           });
           sel.value = currentValue != null ? currentValue : '';
-          sel.addEventListener('change', function () { if (onSelect) onSelect(sel.value); canvas.renderAll(); refreshTimeline(); });
+          sel.addEventListener('change', function () { if (onSelect) onSelect(sel.value); canvas.renderAll(); refreshTimeline(); saveStateDebounced(); });
           row.appendChild(lab);
           row.appendChild(sel);
           form.appendChild(row);
@@ -5946,7 +7500,14 @@
           if (typeof attachObjectModifiedRefresh === 'function') attachObjectModifiedRefresh(canvas);
           canvas.on('selection:created', function () { refreshLayersPanel(); refreshPropertyPanel(); });
           canvas.on('selection:updated', function () { refreshLayersPanel(); refreshPropertyPanel(); });
-          canvas.on('selection:cleared', function () { refreshLayersPanel(); refreshPropertyPanel(); });
+          canvas.on('selection:cleared', function () {
+            refreshLayersPanel();
+            /* Skip property panel rebuild if a non-visual clip is actively selected,
+               because the clip's click handler will rebuild it with the correct content. */
+            if (!selectedTtsClip && !selectedAudioClip && !selectedCaptionClip && !selectedHtmlClip && !selectedLumaClip && !selectedTextToImageClip && !selectedImageToVideoClip) {
+              refreshPropertyPanel();
+            }
+          });
           canvas.on('object:added', refreshLayersPanel);
           canvas.on('object:removed', refreshLayersPanel);
           canvas.on('text:editing:entered', function () {
@@ -6494,7 +8055,7 @@
         var outTracks = null;
         /* Merge original tracks with Fabric-derived tracks: preserve text-to-speech, caption, text-to-image, luma, html; keep order. */
         if (Array.isArray(template.timeline.tracks)) {
-          var preservedTypes = ['audio', 'text-to-speech', 'caption', 'text-to-image', 'luma', 'image-to-video'];
+          var preservedTypes = ['audio', 'text-to-speech', 'caption', 'rich-caption', 'text-to-image', 'luma', 'image-to-video'];
           var fabricTypes = ['title', 'rich-text', 'text', 'image', 'video', 'rect', 'circle', 'svg', 'shape'];
           function isPreservedType(type) { return type && preservedTypes.indexOf(type) !== -1; }
           function isFabricType(type) { return type && (fabricTypes.indexOf(type) !== -1); }
@@ -6744,6 +8305,12 @@
       if (!shotstack || !shotstack.timeline) {
         window.alert('No timeline to export. Save as JSON or load a template first.');
         return;
+      }
+      /* Pre-export: ensure captions exist for any TTS clips */
+      if (ensureCaptionsForTts(shotstack)) {
+        /* Captions were just generated — refresh so user sees them */
+        refreshTimeline();
+        refreshLayersPanel();
       }
       var engine = global.__CFS_templateEngine;
       if (!engine || typeof engine.renderTimelineToVideoBlob !== 'function') {
@@ -7486,6 +9053,15 @@
     var timelinePlayRaf = null;
     var currentPlayheadSec = 0;
     function getTrackLabelWidth() {
+      /* Measure actual offset from container to the first clip or track area */
+      if (timelineContainer) {
+        var firstTrack = timelineContainer.querySelector('.cfs-editor-track');
+        if (firstTrack) {
+          var containerRect = timelineContainer.getBoundingClientRect();
+          var trackRect = firstTrack.getBoundingClientRect();
+          return trackRect.left - containerRect.left;
+        }
+      }
       var panel = global.__CFS_timelinePanel;
       return (panel && panel.TRACK_LABEL_WIDTH) || 52;
     }
@@ -7517,8 +9093,10 @@
       var isScrubbing = false;
 
       function timeFromMouseEvent(e) {
+        var scrollParent = timelineResizeWrap || timelineArea.parentNode;
+        var scrollLeft = scrollParent ? scrollParent.scrollLeft : 0;
         var areaRect = timelineArea.getBoundingClientRect();
-        var x = e.clientX - areaRect.left + timelineArea.scrollLeft - getTrackLabelWidth();
+        var x = e.clientX - areaRect.left + scrollLeft - getTrackLabelWidth();
         return Math.max(0, x / timelineScale);
       }
 
@@ -7571,12 +9149,21 @@
       });
     })();
 
+    var _previewAudioEls = []; /* Active Audio elements for preview playback */
     function stopTimelinePlay() {
       isTimelinePlaying = false;
       if (timelinePlayRaf != null) {
         cancelAnimationFrame(timelinePlayRaf);
         timelinePlayRaf = null;
       }
+      /* Stop all preview audio */
+      _previewAudioEls.forEach(function (a) {
+        try { a.pause(); a.currentTime = 0; } catch (_) {}
+        try { if (a._cfsBlobUrl) URL.revokeObjectURL(a._cfsBlobUrl); } catch (_) {}
+      });
+      _previewAudioEls = [];
+      /* Stop any speechSynthesis utterances from preview */
+      try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch (_) {}
       editEvents.emit('playback:pause', {});
     }
     function playTimelinePreview() {
@@ -7586,40 +9173,536 @@
         return;
       }
       editEvents.emit('playback:play', {});
-      var total = (coreScene && coreScene.getTimelineFromCanvas && canvas) ? coreScene.getTimelineFromCanvas(canvas).durationSec : 10;
-      var clips = (global.__CFS_timelinePanel && global.__CFS_timelinePanel.buildClipsFromCanvas) ? global.__CFS_timelinePanel.buildClipsFromCanvas(canvas, 5) : [];
-      if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
-        var tClips = global.__CFS_timelinePanel && global.__CFS_timelinePanel.buildClipsFromTemplate ? global.__CFS_timelinePanel.buildClipsFromTemplate(template) : [];
-        tClips.filter(function (c) { return c.type === 'audio'; }).forEach(function (c) { clips.push(c); });
+      if (playBtn) playBtn.textContent = '⏳ Generating…';
+
+      /* ── Build per-chunk audio segments from TTS clips ── */
+      var ttsGenerate = typeof window.__CFS_ttsGenerate === 'function' ? window.__CFS_ttsGenerate : null;
+      var ttsPromises = [];
+
+      if (canvas && canvas.getObjects && ttsGenerate) {
+        /* Build caption words lookup keyed by clip start time */
+        var captionWordsMap = {};
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsIsCaption && obj.cfsCaptionWords && obj.cfsCaptionWords.length) {
+            captionWordsMap[obj.cfsStart != null ? obj.cfsStart : 0] = {
+              words: obj.cfsCaptionWords,
+              display: obj.cfsCaptionDisplay || {}
+            };
+          } else if (obj.cfsOriginalClip && obj.cfsOriginalClip.asset) {
+            var oa = obj.cfsOriginalClip.asset;
+            if ((oa.type === 'caption' || oa.type === 'rich-caption') && Array.isArray(oa.words) && oa.words.length) {
+              captionWordsMap[obj.cfsStart != null ? obj.cfsStart : 0] = {
+                words: oa.words,
+                display: oa.display || {}
+              };
+            }
+          }
+        });
+
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsAudioType !== 'text-to-speech' || !obj.cfsTtsText) return;
+          var fullText = String(obj.cfsTtsText).trim();
+          if (!fullText) return;
+          var voiceName = obj.cfsTtsLocalVoice || obj.cfsTtsVoice || '';
+          /* If voice is not a Kokoro voice ID (e.g. legacy "Amy"), fall back to af_heart */
+          var isKokoro = /^[a-z]{2}_[a-z]/i.test(voiceName);
+          if (!isKokoro) voiceName = 'af_heart';
+
+          var clipStart = obj.cfsStart != null ? obj.cfsStart : 0;
+
+          /* Find matching caption words */
+          var capInfo = captionWordsMap[clipStart];
+          var words = capInfo ? capInfo.words : null;
+          var capDisplay = capInfo ? capInfo.display : {};
+          var wpl = capDisplay.wordsPerLine || 4;
+          var numLines = capDisplay.lines || 2;
+          var chunkSize = wpl * numLines;
+
+          /* Split text into chunks using word timings or simple word split */
+          var textWords = fullText.split(/\s+/).filter(Boolean);
+          var chunks = [];
+          if (words && words.length) {
+            for (var ci = 0; ci < words.length; ci += chunkSize) {
+              var chunkWords = words.slice(ci, ci + chunkSize);
+              var chunkText = chunkWords.map(function (w) { return w.text; }).join(' ');
+              chunks.push({
+                text: chunkText,
+                timeStart: chunkWords[0].start,
+                timeEnd: chunkWords[chunkWords.length - 1].end,
+                wordStart: ci,
+                wordEnd: Math.min(ci + chunkSize - 1, words.length - 1)
+              });
+            }
+          } else {
+            /* No word timings — split text into equal-sized chunks */
+            var estDuration = Math.max(2, textWords.length / 2.5);
+            var estChunkDur = estDuration / Math.ceil(textWords.length / chunkSize);
+            for (var ci2 = 0; ci2 < textWords.length; ci2 += chunkSize) {
+              var chunkIdx = ci2 / chunkSize;
+              chunks.push({
+                text: textWords.slice(ci2, ci2 + chunkSize).join(' '),
+                timeStart: chunkIdx * estChunkDur,
+                timeEnd: (chunkIdx + 1) * estChunkDur,
+                wordStart: ci2,
+                wordEnd: Math.min(ci2 + chunkSize - 1, textWords.length - 1)
+              });
+            }
+          }
+
+          /* Check cache — only regenerate chunks whose text changed */
+          var cached = obj._cfsTtsChunks || [];
+          var cachedVoice = obj._cfsTtsCachedVoice || '';
+          var needsRegen = cachedVoice !== voiceName || cached.length !== chunks.length;
+          if (!needsRegen) {
+            for (var cci = 0; cci < chunks.length; cci++) {
+              if (!cached[cci] || cached[cci].text !== chunks[cci].text) { needsRegen = true; break; }
+            }
+          }
+
+          if (!needsRegen) return; /* all cached */
+
+          /* Generate audio for each chunk sequentially */
+          var voice = voiceName || 'af_heart';
+          var ttsCache = global.__CFS_ttsAudioCache || null;
+          var ttsCacheProjRoot = null;
+          var ttsCacheProjId = (global.__CFS_generatorProjectId || '').toString().trim();
+          var ttsCacheTemplateId = (extension.id || '').toString().trim();
+          var ttsCacheReady = (ttsCache && ttsCacheProjId && ttsCacheTemplateId);
+          var ttsCacheLoadRoot = ttsCacheReady
+            ? (global.__CFS_generationStorage && global.__CFS_generationStorage.getProjectFolderHandle
+              ? global.__CFS_generationStorage.getProjectFolderHandle()
+              : Promise.resolve(null))
+            : Promise.resolve(null);
+
+          function genChunksSequential(idx, results, projRoot) {
+            if (idx >= chunks.length) return Promise.resolve(results);
+            var chunk = chunks[idx];
+            /* 1. Reuse in-memory cached blob if text AND voice unchanged */
+            if (cachedVoice === voice && cached[idx] && cached[idx].text === chunk.text && cached[idx].blob) {
+              chunk.blob = cached[idx].blob;
+              chunk.duration = cached[idx].duration;
+              chunk.sttWords = cached[idx].sttWords || null;
+              chunk.cacheKey = cached[idx].cacheKey || null;
+              results.push(chunk);
+              return genChunksSequential(idx + 1, results, projRoot);
+            }
+            /* 2. Try disk cache */
+            var diskPromise;
+            if (ttsCache && projRoot && ttsCacheProjId && ttsCacheTemplateId) {
+              var key = ttsCache.getChunkKey(voice, chunk.text);
+              diskPromise = ttsCache.loadTtsChunk(projRoot, ttsCacheProjId, ttsCacheTemplateId, key).then(function (hit) {
+                if (hit && hit.blob) {
+                  chunk.blob = hit.blob;
+                  chunk.duration = hit.duration || 0;
+                  chunk.cacheKey = key;
+                  /* Carry cached word timings so STT can be skipped */
+                  if (hit.words && hit.words.length) chunk.sttWords = hit.words;
+                  console.log('[TTS cache] Loaded chunk ' + idx + ' from disk: ' + key + (hit.words ? ' (with words)' : ''));
+                  results.push(chunk);
+                  return genChunksSequential(idx + 1, results, projRoot);
+                }
+                return null; /* miss */
+              }).catch(function () { return null; });
+            } else {
+              diskPromise = Promise.resolve(null);
+            }
+            return diskPromise.then(function (handled) {
+              if (handled != null) return handled; /* disk cache hit returned the chain */
+              /* 3. Generate fresh via TTS engine */
+              return ttsGenerate(chunk.text, { voice: voice }).then(function (blob) {
+                if (!blob || blob.size < 100) {
+                  results.push(chunk);
+                  return genChunksSequential(idx + 1, results, projRoot);
+                }
+                /* 3b. Trim leading/trailing silence */
+                var trimPromise = (ttsCache && ttsCache.trimSilence)
+                  ? ttsCache.trimSilence(blob)
+                  : Promise.resolve({ blob: blob, duration: 0 });
+                return trimPromise.then(function (trimResult) {
+                  chunk.blob = trimResult.blob;
+                  chunk.duration = trimResult.duration;
+                  /* If trimSilence couldn't determine duration, measure via Audio element */
+                  if (!chunk.duration) {
+                    return new Promise(function (resolve) {
+                      var url = URL.createObjectURL(chunk.blob);
+                      var a = new Audio(url);
+                      a.addEventListener('loadedmetadata', function () {
+                        chunk.duration = a.duration;
+                        URL.revokeObjectURL(url);
+                        resolve();
+                      });
+                      a.addEventListener('error', function () { URL.revokeObjectURL(url); resolve(); });
+                      a.load();
+                    });
+                  }
+                }).then(function () {
+                  /* 4. Save to disk cache */
+                  if (ttsCache && projRoot && ttsCacheProjId && ttsCacheTemplateId && chunk.blob) {
+                    var saveKey = ttsCache.getChunkKey(voice, chunk.text);
+                    chunk.cacheKey = saveKey;
+                    return ttsCache.saveTtsChunk(projRoot, ttsCacheProjId, ttsCacheTemplateId, voice, chunk.text, chunk.blob, chunk.duration).then(function () {
+                      console.log('[TTS cache] Saved chunk ' + idx + ' to disk: ' + saveKey);
+                    }).catch(function () {}).then(function () {
+                      results.push(chunk);
+                      return genChunksSequential(idx + 1, results, projRoot);
+                    });
+                  }
+                  results.push(chunk);
+                  return genChunksSequential(idx + 1, results, projRoot);
+                });
+              }).catch(function () {
+                results.push(chunk);
+                return genChunksSequential(idx + 1, results, projRoot);
+              });
+            });
+          }
+
+          var p = ttsCacheLoadRoot.then(function (projRoot) {
+            ttsCacheProjRoot = projRoot;
+            return genChunksSequential(0, [], projRoot);
+          }).then(function (results) {
+            obj._cfsTtsChunks = results;
+            obj._cfsTtsCachedVoice = voice;
+            /* Compute total TTS duration from chunk durations */
+            var totalDur = 0;
+            results.forEach(function (c) { totalDur += (c.duration || 0); });
+            obj._cfsTtsDuration = totalDur;
+
+            /* ── Get exact word timings via STT on each audio chunk ── */
+            var sttGenerate = typeof global.__CFS_sttGenerate === 'function' ? global.__CFS_sttGenerate : null;
+            if (!capInfo || !capInfo.words || !capInfo.words.length || !results.length || !global.__CFS_chunkUtils) {
+              return;
+            }
+            var capChunks = global.__CFS_chunkUtils.buildCaptionChunks(capInfo.words, capDisplay);
+            if (capChunks.length !== results.length) return;
+
+            /* Run STT on each chunk sequentially, then update word timings */
+            function sttChunkSequential(idx, runningOffset) {
+              if (idx >= results.length) return Promise.resolve();
+              var chunk = capChunks[idx];
+              var audioChunk = results[idx];
+              var realDur = audioChunk.duration || 0;
+              var numWordsInChunk = chunk.wordEndIdx - chunk.wordStartIdx + 1;
+
+              if (numWordsInChunk <= 0 || realDur <= 0) {
+                return sttChunkSequential(idx + 1, runningOffset + realDur);
+              }
+
+              /* Try STT if we have an audio blob and STT is available */
+              var sttPromise;
+              if (audioChunk.sttWords && audioChunk.sttWords.length) {
+                /* Reuse cached STT words from a previous run */
+                console.log('[CFS STT] Chunk ' + idx + ': reusing ' + audioChunk.sttWords.length + ' cached STT words');
+                sttPromise = Promise.resolve(audioChunk.sttWords);
+              } else if (sttGenerate && audioChunk.blob && audioChunk.blob.size > 100) {
+                console.log('[CFS STT] Chunk ' + idx + ': running STT on ' + audioChunk.blob.size + ' byte blob...');
+                sttPromise = sttGenerate(audioChunk.blob, {}).then(function (sttResult) {
+                  if (sttResult && sttResult.words && sttResult.words.length) {
+                    console.log('[CFS STT] Chunk ' + idx + ': got ' + sttResult.words.length + ' STT words (need ' + numWordsInChunk + ')');
+                    audioChunk.sttWords = sttResult.words;
+                    return sttResult.words;
+                  }
+                  console.warn('[CFS STT] Chunk ' + idx + ': STT returned no words, falling back to even distribution');
+                  return null;
+                }).catch(function (err) {
+                  console.warn('[CFS STT] Chunk ' + idx + ': STT failed (' + (err && err.message || err) + '), falling back to even distribution');
+                  return null;
+                });
+              } else {
+                console.warn('[CFS STT] Chunk ' + idx + ': no STT available (sttGenerate=' + !!sttGenerate + ', blob=' + !!(audioChunk.blob) + ')');
+                sttPromise = Promise.resolve(null);
+              }
+
+              return sttPromise.then(function (sttWords) {
+                if (sttWords && sttWords.length) {
+                  /* Map STT words to caption words. If counts match, 1:1 mapping.
+                     Otherwise, distribute STT timings across caption words proportionally. */
+                  if (sttWords.length === numWordsInChunk) {
+                    /* Perfect match — use STT timings directly */
+                    for (var wi = 0; wi < numWordsInChunk; wi++) {
+                      var cw = capInfo.words[chunk.wordStartIdx + wi];
+                      cw.start = Math.round((runningOffset + sttWords[wi].start) * 1000) / 1000;
+                      cw.end = Math.round((runningOffset + sttWords[wi].end) * 1000) / 1000;
+                    }
+                  } else {
+                    /* Word count differs — map by time proportion.
+                       Use STT total span to scale caption word boundaries. */
+                    var sttSpan = sttWords[sttWords.length - 1].end - sttWords[0].start;
+                    if (sttSpan > 0) {
+                      /* For each caption word, find the matching STT word by position ratio */
+                      for (var wi2 = 0; wi2 < numWordsInChunk; wi2++) {
+                        var ratio = wi2 / numWordsInChunk;
+                        var ratioEnd = (wi2 + 1) / numWordsInChunk;
+                        /* Find bounding STT words */
+                        var sttIdxStart = Math.min(Math.floor(ratio * sttWords.length), sttWords.length - 1);
+                        var sttIdxEnd = Math.min(Math.floor(ratioEnd * sttWords.length), sttWords.length - 1);
+                        var cw2 = capInfo.words[chunk.wordStartIdx + wi2];
+                        cw2.start = Math.round((runningOffset + sttWords[sttIdxStart].start) * 1000) / 1000;
+                        cw2.end = Math.round((runningOffset + sttWords[sttIdxEnd].end) * 1000) / 1000;
+                      }
+                    } else {
+                      /* Fallback: character-proportional distribution */
+                      distributeByCharLength(capInfo.words, chunk.wordStartIdx, numWordsInChunk, runningOffset, realDur);
+                    }
+                  }
+                } else {
+                  /* No STT result — fallback: character-proportional distribution.
+                     Longer words get more time than shorter ones. */
+                  distributeByCharLength(capInfo.words, chunk.wordStartIdx, numWordsInChunk, runningOffset, realDur);
+                }
+
+                return sttChunkSequential(idx + 1, runningOffset + realDur);
+              });
+            }
+
+            /* Distribute word timings proportional to character length within a chunk */
+            function distributeByCharLength(words, startIdx, count, offset, duration) {
+              var totalChars = 0;
+              for (var i = 0; i < count; i++) {
+                totalChars += Math.max(1, (words[startIdx + i].text || '').replace(/[^a-zA-Z0-9]/g, '').length);
+              }
+              if (totalChars <= 0) totalChars = count; /* safety */
+              var t = offset;
+              for (var j = 0; j < count; j++) {
+                var w = words[startIdx + j];
+                var charLen = Math.max(1, (w.text || '').replace(/[^a-zA-Z0-9]/g, '').length);
+                var wordDur = duration * charLen / totalChars;
+                w.start = Math.round(t * 1000) / 1000;
+                w.end = Math.round((t + wordDur) * 1000) / 1000;
+                t += wordDur;
+              }
+            }
+
+            return sttChunkSequential(0, 0).then(function () {
+              /* Update TTS chunk timeStart/timeEnd so timeline chunk bars align */
+              var chunkOffset = 0;
+              for (var rci2 = 0; rci2 < results.length; rci2++) {
+                results[rci2].timeStart = chunkOffset;
+                results[rci2].timeEnd = chunkOffset + (results[rci2].duration || 0);
+                chunkOffset += (results[rci2].duration || 0);
+              }
+              /* Extend the last word's end time to cover the full TTS duration
+                 so the caption track doesn't end before the audio finishes */
+              if (capInfo.words.length && chunkOffset > 0) {
+                var lastWord = capInfo.words[capInfo.words.length - 1];
+                if (lastWord.end < chunkOffset) {
+                  lastWord.end = Math.round(chunkOffset * 1000) / 1000;
+                }
+              }
+              console.log('[CFS STT] Final word timing range: 0 → ' +
+                (capInfo.words.length ? capInfo.words[capInfo.words.length - 1].end : '?') +
+                's (' + capInfo.words.length + ' words), TTS total: ' + chunkOffset + 's');
+              /* Update the canvas caption object's words too */
+              canvas.getObjects().forEach(function (cObj) {
+                if (cObj.cfsIsCaption && cObj.cfsCaptionWords) {
+                  cObj.cfsCaptionWords = capInfo.words;
+                }
+                /* Also update original clip reference so export picks up new timings */
+                if (cObj.cfsIsCaption && cObj.cfsOriginalClip && cObj.cfsOriginalClip.asset) {
+                  cObj.cfsOriginalClip.asset.words = capInfo.words;
+                }
+              });
+              /* Update the template's caption asset words too */
+              if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
+                template.timeline.tracks.forEach(function (tr) {
+                  (tr.clips || []).forEach(function (cl) {
+                    var a = cl.asset || {};
+                    if ((a.type === 'caption' || a.type === 'rich-caption') && a.words) {
+                      a.words = capInfo.words;
+                    }
+                  });
+                });
+              }
+              /* ── Persist word timings per-chunk to the disk cache manifest ── */
+              if (ttsCache && ttsCache.updateChunkWords && ttsCacheProjRoot && ttsCacheProjId && ttsCacheTemplateId) {
+                var _wordRoot = ttsCacheProjRoot;
+                /* Serialize updates to avoid manifest write races */
+                var chain = Promise.resolve();
+                results.forEach(function (rc) {
+                  var ck = rc.cacheKey || (ttsCache.getChunkKey ? ttsCache.getChunkKey(voiceName, rc.text) : '');
+                  if (!ck) return;
+                  /* Extract the words belonging to this chunk */
+                  var chunkWords = capInfo.words.slice(rc.wordStart, rc.wordEnd + 1);
+                  if (!chunkWords.length) return;
+                  /* Store relative to chunk start (offset = 0) */
+                  var chunkStart = chunkWords[0].start || 0;
+                  var relWords = chunkWords.map(function (w) {
+                    return { text: w.text, start: Math.round((w.start - chunkStart) * 1000) / 1000, end: Math.round((w.end - chunkStart) * 1000) / 1000 };
+                  });
+                  chain = chain.then(function () {
+                    return ttsCache.updateChunkWords(_wordRoot, ttsCacheProjId, ttsCacheTemplateId, ck, relWords)
+                      .then(function () { console.log('[TTS cache] Saved word timings for ' + ck); })
+                      .catch(function () {});
+                  });
+                });
+                chain.catch(function () {});
+              }
+            });
+          });
+          ttsPromises.push(p);
+        });
       }
-      clips.forEach(function (c) { total = Math.max(total, (c.start || 0) + (typeof c.length === 'number' ? c.length : 5)); });
-      if (total < 1) total = 5;
-      timelinePlayStartTime = currentPlayheadSec;
-      if (timelinePlayStartTime >= total) timelinePlayStartTime = 0;
-      timelinePlayStartWall = Date.now();
-      isTimelinePlaying = true;
-      if (playBtn) playBtn.textContent = 'Pause';
-      setPlayheadTime(timelinePlayStartTime);
-      if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, timelinePlayStartTime);
-      canvas.renderAll();
-      function tick() {
-        if (!isTimelinePlaying) return;
-        var elapsed = (Date.now() - timelinePlayStartWall) / 1000;
-        var t = timelinePlayStartTime + elapsed;
-        if (t >= total) {
-          stopTimelinePlay();
-          currentPlayheadSec = 0;
-          setPlayheadTime(0);
-          if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, 0);
-          if (playBtn) playBtn.textContent = 'Play';
-          return;
+
+      (ttsPromises.length > 0 ? Promise.all(ttsPromises) : Promise.resolve()).then(function () {
+        /* ── Prune unused TTS cache files ── */
+        if (global.__CFS_ttsAudioCache && canvas && canvas.getObjects) {
+          var activeKeys = [];
+          canvas.getObjects().forEach(function (obj) {
+            if (obj._cfsTtsChunks && obj._cfsTtsChunks.length) {
+              obj._cfsTtsChunks.forEach(function (c) {
+                if (c.cacheKey) activeKeys.push(c.cacheKey);
+              });
+            }
+          });
+          var _pruneCache = global.__CFS_ttsAudioCache;
+          var _prunePid = (global.__CFS_generatorProjectId || '').toString().trim();
+          var _pruneTid = (extension.id || '').toString().trim();
+          if (_prunePid && _pruneTid && activeKeys.length) {
+            (global.__CFS_generationStorage && global.__CFS_generationStorage.getProjectFolderHandle
+              ? global.__CFS_generationStorage.getProjectFolderHandle()
+              : Promise.resolve(null)
+            ).then(function (root) {
+              if (root) {
+                _pruneCache.pruneUnusedChunks(root, _prunePid, _pruneTid, activeKeys).then(function (removed) {
+                  if (removed) console.log('[TTS cache] Pruned ' + removed + ' unused chunk(s)');
+                }).catch(function () {});
+              }
+            }).catch(function () {});
+          }
         }
-        setPlayheadTime(t);
-        if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, t);
+        if (!canvas) return;
+
+        var total = (coreScene && coreScene.getTimelineFromCanvas && canvas) ? coreScene.getTimelineFromCanvas(canvas).durationSec : 10;
+        var clips = (global.__CFS_timelinePanel && global.__CFS_timelinePanel.buildClipsFromCanvas) ? global.__CFS_timelinePanel.buildClipsFromCanvas(canvas, 5) : [];
+        if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
+          var tClips = global.__CFS_timelinePanel && global.__CFS_timelinePanel.buildClipsFromTemplate ? global.__CFS_timelinePanel.buildClipsFromTemplate(template) : [];
+          tClips.filter(function (c) { return c.type === 'audio'; }).forEach(function (c) { clips.push(c); });
+        }
+        clips.forEach(function (c) { total = Math.max(total, (c.start || 0) + (typeof c.length === 'number' ? c.length : 5)); });
+
+        /* ── Auto-extend: use real TTS chunk durations + caption word timings ── */
+        if (canvas && canvas.getObjects) {
+          canvas.getObjects().forEach(function (obj) {
+            var objStart = obj.cfsStart != null ? obj.cfsStart : 0;
+            /* Sum of chunk durations */
+            if (obj._cfsTtsChunks && obj._cfsTtsChunks.length) {
+              var lastChunk = obj._cfsTtsChunks[obj._cfsTtsChunks.length - 1];
+              if (lastChunk.timeEnd) {
+                total = Math.max(total, objStart + lastChunk.timeEnd + 0.3);
+              }
+              if (obj._cfsTtsDuration > 0) {
+                total = Math.max(total, objStart + obj._cfsTtsDuration + 0.3);
+              }
+            }
+            /* Caption word timings */
+            var capWords = obj.cfsCaptionWords || (obj.cfsOriginalClip && obj.cfsOriginalClip.asset && Array.isArray(obj.cfsOriginalClip.asset.words) ? obj.cfsOriginalClip.asset.words : null);
+            if (capWords && capWords.length) {
+              total = Math.max(total, objStart + (capWords[capWords.length - 1].end || 0) + 0.5);
+            }
+          });
+        }
+
+        /* ── Auto-extend template clip lengths to match total duration ── */
+        if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
+          template.timeline.tracks.forEach(function (tr) {
+            (tr.clips || []).forEach(function (clip) {
+              if (typeof clip.length === 'number' && clip.length < total) {
+                clip.length = Math.ceil(total * 10) / 10;
+              }
+            });
+          });
+          /* Also extend canvas object lengths */
+          if (canvas && canvas.getObjects) {
+            canvas.getObjects().forEach(function (obj) {
+              if (typeof obj.cfsLength === 'number' && obj.cfsLength < total) {
+                obj.cfsLength = Math.ceil(total * 10) / 10;
+              }
+            });
+          }
+        }
+
+        /* Refresh timeline to show extended durations */
+        refreshTimeline();
+
+        if (total < 1) total = 5;
+        timelinePlayStartTime = currentPlayheadSec;
+        if (timelinePlayStartTime >= total) timelinePlayStartTime = 0;
+        timelinePlayStartWall = Date.now();
+        isTimelinePlaying = true;
+        if (playBtn) playBtn.textContent = 'Pause';
+        setPlayheadTime(timelinePlayStartTime);
+        if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, timelinePlayStartTime);
         canvas.renderAll();
+
+        /* ── Schedule per-chunk audio playback ── */
+        if (canvas && canvas.getObjects) {
+          canvas.getObjects().forEach(function (obj) {
+            if (obj.cfsAudioType !== 'text-to-speech' || !obj._cfsTtsChunks) return;
+            var clipStart = obj.cfsStart != null ? obj.cfsStart : 0;
+            var chunks = obj._cfsTtsChunks;
+
+            chunks.forEach(function (chunk, ci) {
+              if (!chunk.blob) return;
+              /* Absolute time when this chunk should start playing */
+              var chunkAbsStart = clipStart + chunk.timeStart;
+              var chunkAbsEnd = clipStart + chunk.timeEnd;
+              var now = timelinePlayStartTime;
+
+              if (now >= chunkAbsEnd) return; /* playhead past this chunk */
+
+              function playChunk() {
+                if (!isTimelinePlaying) return;
+                /* Stop previous chunk audio to prevent overlap */
+                if (obj._cfsCurrentChunkAudio) {
+                  try {
+                    obj._cfsCurrentChunkAudio.pause();
+                    obj._cfsCurrentChunkAudio.currentTime = 0;
+                    if (obj._cfsCurrentChunkAudio._cfsBlobUrl) {
+                      URL.revokeObjectURL(obj._cfsCurrentChunkAudio._cfsBlobUrl);
+                    }
+                  } catch (_) {}
+                }
+                var url = URL.createObjectURL(chunk.blob);
+                var audio = new Audio(url);
+                audio._cfsBlobUrl = url;
+                obj._cfsCurrentChunkAudio = audio;
+                _previewAudioEls.push(audio);
+                audio.play().catch(function () {});
+              }
+
+              if (now < chunkAbsStart) {
+                /* Schedule for later */
+                var delayMs = (chunkAbsStart - now) * 1000;
+                setTimeout(function () { if (isTimelinePlaying) playChunk(); }, delayMs);
+              } else {
+                /* Playhead is within this chunk — play immediately */
+                playChunk();
+              }
+            });
+          });
+        }
+
+        function tick() {
+          if (!isTimelinePlaying) return;
+          var elapsed = (Date.now() - timelinePlayStartWall) / 1000;
+          var t = timelinePlayStartTime + elapsed;
+          if (t >= total) {
+            stopTimelinePlay();
+            currentPlayheadSec = 0;
+            setPlayheadTime(0);
+            if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, 0);
+            if (playBtn) playBtn.textContent = 'Play';
+            return;
+          }
+          setPlayheadTime(t);
+          if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, t);
+          canvas.renderAll();
+          timelinePlayRaf = requestAnimationFrame(tick);
+        }
         timelinePlayRaf = requestAnimationFrame(tick);
-      }
-      timelinePlayRaf = requestAnimationFrame(tick);
+      }).catch(function () {
+        if (playBtn) playBtn.textContent = 'Play';
+      });
     }
     var playBtn = document.createElement('button');
     playBtn.type = 'button';
@@ -7650,6 +9733,389 @@
     if (outputType === 'audio') saveFrameBtn.style.display = 'none';
     timelineToolbar.appendChild(saveFrameBtn);
 
+    /* ── Split / Delete / Razor ── */
+
+    /**
+     * Split ALL clips spanning the playhead across ALL tracks (skip locked tracks).
+     * TTS/caption clips snap to the nearest word boundary using 50% threshold.
+     */
+    function splitAllAtPlayhead(timeSec) {
+      if (!template || !template.timeline || !Array.isArray(template.timeline.tracks)) return;
+      var chunkUtils = global.__CFS_chunkUtils;
+      if (!chunkUtils || !chunkUtils.findWordBoundary) { console.warn('[CFS Split] chunk-utils not loaded'); return; }
+      var tracks = template.timeline.tracks;
+      var ttsClipsToRegen = [];
+      /* Track indices already split by sibling logic to prevent double-splitting */
+      var alreadySplitTracks = new Set();
+
+      for (var ti = 0; ti < tracks.length; ti++) {
+        if (lockedTracks.has(ti)) continue;
+        if (alreadySplitTracks.has(ti)) continue;
+        var trackClips = tracks[ti].clips;
+        if (!trackClips) continue;
+        for (var ci = trackClips.length - 1; ci >= 0; ci--) {
+          var clip = trackClips[ci];
+          var clipStart = typeof clip.start === 'number' ? clip.start : 0;
+          var clipLength = typeof clip.length === 'number' ? clip.length : 5;
+          if (clip.length === 'end') clipLength = Math.max(0.1, (lastTotalDuration || 10) - clipStart);
+          var clipEnd = clipStart + clipLength;
+          /* Only split if playhead strictly inside the clip */
+          if (timeSec <= clipStart || timeSec >= clipEnd) continue;
+
+          var localTime = timeSec - clipStart;
+          var asset = clip.asset || {};
+          var assetType = asset.type || '';
+
+          /* Determine if word-aware split needed */
+          var isWordAware = (assetType === 'text-to-speech' || assetType === 'caption' || assetType === 'rich-caption');
+
+          if (isWordAware) {
+            /* Find words source */
+            var words = null;
+            if (assetType === 'caption' || assetType === 'rich-caption') {
+              words = asset.words;
+            } else if (assetType === 'text-to-speech') {
+              /* Look for sibling caption's words */
+              words = findSiblingCaptionWords(tracks, asset.text);
+            }
+
+            if (words && words.length) {
+              var boundary = chunkUtils.findWordBoundary(words, localTime);
+              if (boundary.splitAfterIndex < 0 || boundary.splitAfterIndex >= words.length - 1) continue; /* nothing to split */
+
+              if (assetType === 'text-to-speech') {
+                /* Split TTS clip at word boundary */
+                var rightClip = JSON.parse(JSON.stringify(clip));
+                rightClip.start = clipStart + boundary.snapTime;
+                rightClip.length = clipEnd - rightClip.start;
+                rightClip.asset.text = boundary.rightText;
+                clip.length = boundary.snapTime;
+                clip.asset.text = boundary.leftText;
+                trackClips.splice(ci + 1, 0, rightClip);
+                ttsClipsToRegen.push({ trackIndex: ti, clipIndex: ci });
+                ttsClipsToRegen.push({ trackIndex: ti, clipIndex: ci + 1 });
+
+                /* Also split sibling caption at same boundary — mark its track so we don't split it again */
+                var siblingTrackIdx = splitSiblingCaption(tracks, asset, clipStart, boundary, lockedTracks);
+                if (siblingTrackIdx >= 0) alreadySplitTracks.add(siblingTrackIdx);
+              } else {
+                /* Caption clip — but check if a TTS sibling already split us */
+                /* Split caption clip at word boundary */
+                var rightCapClip = JSON.parse(JSON.stringify(clip));
+                rightCapClip.start = clipStart + boundary.snapTime;
+                rightCapClip.length = clipEnd - rightCapClip.start;
+                /* Deep-copy words for right half and rebase timings */
+                var rightWords = JSON.parse(JSON.stringify(boundary.rightWords));
+                chunkUtils.rebaseWordTimings(rightWords, boundary.snapTime);
+                rightCapClip.asset.words = rightWords;
+                /* Left half keeps original words up to split point */
+                clip.length = boundary.snapTime;
+                clip.asset.words = JSON.parse(JSON.stringify(boundary.leftWords));
+                trackClips.splice(ci + 1, 0, rightCapClip);
+                /* Also split sibling TTS at same boundary */
+                var sibTtsTrackIdx = splitSiblingTts(tracks, boundary, clipStart, clipEnd, lockedTracks);
+                if (sibTtsTrackIdx >= 0) {
+                  alreadySplitTracks.add(sibTtsTrackIdx);
+                  ttsClipsToRegen.push({ trackIndex: sibTtsTrackIdx, clipIndex: 0 });
+                }
+              }
+            } else {
+              /* No words — fall back to exact time split */
+              splitClipExact(trackClips, ci, clip, clipStart, clipEnd, timeSec);
+            }
+          } else {
+            /* Visual/audio clip — exact time split */
+            splitClipExact(trackClips, ci, clip, clipStart, clipEnd, timeSec);
+          }
+        }
+      }
+
+      /* Invalidate TTS caches on canvas objects */
+      if (canvas && canvas.getObjects) {
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsAudioType === 'text-to-speech') {
+            obj._cfsTtsChunks = null;
+            obj._cfsTtsCachedVoice = null;
+            obj._cfsTtsDuration = null;
+          }
+        });
+      }
+
+      saveStateDebounced();
+      selectedClipIndices.clear();
+      refreshTimeline();
+      refreshPropertyPanel();
+      refreshLayersPanel();
+
+      /* Queue TTS auto-regeneration for split clips */
+      if (ttsClipsToRegen.length) {
+        console.log('[CFS Split] Queuing TTS regeneration for ' + ttsClipsToRegen.length + ' clip(s)');
+        /* Regeneration happens automatically on next Play — the TTS cache is now invalidated */
+      }
+    }
+
+    /** Simple exact-time split for non-word-aware clips */
+    function splitClipExact(trackClips, ci, clip, clipStart, clipEnd, timeSec) {
+      var rightClip = JSON.parse(JSON.stringify(clip));
+      rightClip.start = timeSec;
+      rightClip.length = clipEnd - timeSec;
+      clip.length = timeSec - clipStart;
+      trackClips.splice(ci + 1, 0, rightClip);
+    }
+
+    /** Find sibling caption words matching TTS text */
+    function findSiblingCaptionWords(tracks, ttsText) {
+      if (!ttsText) return null;
+      for (var si = 0; si < tracks.length; si++) {
+        var sCl = tracks[si].clips || [];
+        for (var sci = 0; sci < sCl.length; sci++) {
+          var sa = sCl[sci].asset || {};
+          if ((sa.type === 'caption' || sa.type === 'rich-caption') && sa.words && sa.words.length) {
+            return sa.words;
+          }
+        }
+      }
+      return null;
+    }
+
+    /** Split sibling caption clip at the same word boundary as a TTS split.
+     *  Returns the track index of the caption that was split, or -1 if none found. */
+    function splitSiblingCaption(tracks, ttsAsset, ttsClipStart, boundary, locked) {
+      var chunkUtils = global.__CFS_chunkUtils;
+      for (var si = 0; si < tracks.length; si++) {
+        if (locked.has(si)) continue;
+        var sCl = tracks[si].clips || [];
+        for (var sci = 0; sci < sCl.length; sci++) {
+          var sa = sCl[sci].asset || {};
+          if ((sa.type === 'caption' || sa.type === 'rich-caption') && sa.words && sa.words.length) {
+            var capClip = sCl[sci];
+            var capStart = typeof capClip.start === 'number' ? capClip.start : 0;
+            var capLength = typeof capClip.length === 'number' ? capClip.length : 5;
+            var capEnd = capStart + capLength;
+            /* Split caption at same word boundary */
+            var rightCapClip = JSON.parse(JSON.stringify(capClip));
+            rightCapClip.start = capStart + boundary.snapTime;
+            rightCapClip.length = capEnd - rightCapClip.start;
+            var rightWords = JSON.parse(JSON.stringify(boundary.rightWords));
+            if (chunkUtils) chunkUtils.rebaseWordTimings(rightWords, boundary.snapTime);
+            rightCapClip.asset.words = rightWords;
+            capClip.length = boundary.snapTime;
+            capClip.asset.words = JSON.parse(JSON.stringify(boundary.leftWords));
+            sCl.splice(sci + 1, 0, rightCapClip);
+            return si; /* return track index so caller can mark it as handled */
+          }
+        }
+      }
+      return -1;
+    }
+
+    /** Split sibling TTS clip at the same word boundary as a caption split.
+     *  Returns the track index of the TTS that was split, or -1 if none found. */
+    function splitSiblingTts(tracks, boundary, capClipStart, capClipEnd, locked) {
+      for (var si = 0; si < tracks.length; si++) {
+        if (locked.has(si)) continue;
+        var sCl = tracks[si].clips || [];
+        for (var sci = 0; sci < sCl.length; sci++) {
+          var sa = sCl[sci].asset || {};
+          if (sa.type === 'text-to-speech' && sa.text) {
+            var ttsClip = sCl[sci];
+            var ttsStart = typeof ttsClip.start === 'number' ? ttsClip.start : 0;
+            var ttsLength = typeof ttsClip.length === 'number' ? ttsClip.length : 5;
+            var ttsEnd = ttsStart + ttsLength;
+            /* Split TTS at same word boundary */
+            var rightTts = JSON.parse(JSON.stringify(ttsClip));
+            rightTts.start = ttsStart + boundary.snapTime;
+            rightTts.length = ttsEnd - rightTts.start;
+            rightTts.asset.text = boundary.rightText;
+            ttsClip.length = boundary.snapTime;
+            ttsClip.asset.text = boundary.leftText;
+            sCl.splice(sci + 1, 0, rightTts);
+            return si;
+          }
+        }
+      }
+      return -1;
+    }
+
+    /**
+     * Delete all selected clips (skip locked tracks).
+     * Sibling TTS↔caption clips are deleted together.
+     * Ripple editing: close gaps on tracks that have no other content in the deleted region.
+     */
+    function deleteSelectedClips() {
+      if (!template || !template.timeline || !Array.isArray(template.timeline.tracks)) return;
+      if (!selectedClipIndices.size) { console.log('[CFS Delete] No clips selected'); return; }
+      var clips = lastRenderedClips;
+      if (!clips || !clips.length) { console.log('[CFS Delete] No rendered clips'); return; }
+      console.log('[CFS Delete] selected:', Array.from(selectedClipIndices), 'of', clips.length, 'clips');
+
+      var toDeleteTemplate = []; /* { ti, ci } for template track removal */
+      var canvasObjsToRemove = []; /* canvas object references to remove */
+
+      selectedClipIndices.forEach(function (idx) {
+        var clip = clips[idx];
+        if (!clip) return;
+        if (clip.isSubClip || clip.isParentClip) return;
+        if (lockedTracks.has(clip.trackIndex != null ? clip.trackIndex : 0)) return;
+
+        if (clip.templateTrackIndex != null && clip.templateClipIndex != null) {
+          /* Template-originated clip (TTS, caption, audio) */
+          toDeleteTemplate.push({ ti: clip.templateTrackIndex, ci: clip.templateClipIndex });
+          console.log('[CFS Delete] template clip: track=' + clip.templateTrackIndex + ' clip=' + clip.templateClipIndex + ' (' + clip.label + ')');
+        } else if (clip.canvasIndex != null && canvas && canvas.getObjects) {
+          /* Canvas-originated clip (text, shape, image, video) */
+          var objs = canvas.getObjects();
+          if (objs[clip.canvasIndex]) {
+            canvasObjsToRemove.push(objs[clip.canvasIndex]);
+            console.log('[CFS Delete] canvas object: canvasIndex=' + clip.canvasIndex + ' (' + clip.label + ')');
+            /* Also find and remove its template track entry if one exists */
+            var obj = objs[clip.canvasIndex];
+            var tracks = template.timeline.tracks;
+            for (var ti = 0; ti < tracks.length; ti++) {
+              var tClips = tracks[ti].clips || [];
+              for (var ci = tClips.length - 1; ci >= 0; ci--) {
+                var tc = tClips[ci];
+                if (tc && tc.asset && obj.name && tc.asset.src === obj.name) {
+                  toDeleteTemplate.push({ ti: ti, ci: ci });
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!toDeleteTemplate.length && !canvasObjsToRemove.length) {
+        console.log('[CFS Delete] Nothing to delete');
+        return;
+      }
+
+      /* Also find and mark sibling TTS↔caption for deletion */
+      var siblingDeletes = [];
+      toDeleteTemplate.forEach(function (d) {
+        var tr = template.timeline.tracks[d.ti];
+        if (!tr || !tr.clips || !tr.clips[d.ci]) return;
+        var asset = tr.clips[d.ci].asset || {};
+        var assetType = asset.type || '';
+        if (assetType === 'text-to-speech') {
+          for (var si = 0; si < template.timeline.tracks.length; si++) {
+            if (lockedTracks.has(si)) continue;
+            var sCl = template.timeline.tracks[si].clips || [];
+            for (var sci = 0; sci < sCl.length; sci++) {
+              var sa = sCl[sci].asset || {};
+              if ((sa.type === 'caption' || sa.type === 'rich-caption') && sa.words && sa.words.length) {
+                siblingDeletes.push({ ti: si, ci: sci });
+              }
+            }
+          }
+        } else if (assetType === 'caption' || assetType === 'rich-caption') {
+          for (var si2 = 0; si2 < template.timeline.tracks.length; si2++) {
+            if (lockedTracks.has(si2)) continue;
+            var sCl2 = template.timeline.tracks[si2].clips || [];
+            for (var sci2 = 0; sci2 < sCl2.length; sci2++) {
+              var sa2 = sCl2[sci2].asset || {};
+              if (sa2.type === 'text-to-speech') {
+                siblingDeletes.push({ ti: si2, ci: sci2 });
+              }
+            }
+          }
+        }
+      });
+
+      /* Merge, dedupe, sort descending for safe splicing */
+      var allDels = toDeleteTemplate.concat(siblingDeletes);
+      var delMap = {};
+      allDels.forEach(function (d) { delMap[d.ti + ':' + d.ci] = d; });
+      var uniqueDels = Object.keys(delMap).map(function (k) { return delMap[k]; });
+      uniqueDels.sort(function (a, b) { return a.ti === b.ti ? b.ci - a.ci : b.ti - a.ti; });
+
+      /* Delete from template tracks */
+      uniqueDels.forEach(function (d) {
+        var tr = template.timeline.tracks[d.ti];
+        if (!tr || !tr.clips || !tr.clips[d.ci]) return;
+        var delClip = tr.clips[d.ci];
+        var delStart = typeof delClip.start === 'number' ? delClip.start : 0;
+        var delLength = typeof delClip.length === 'number' ? delClip.length : 0;
+        tr.clips.splice(d.ci, 1);
+        if (delLength > 0) {
+          rippleTrackAfterDelete(tr, delStart, delLength);
+        }
+      });
+
+      /* Remove canvas objects */
+      canvasObjsToRemove.forEach(function (obj) {
+        if (canvas && canvas.remove) {
+          canvas.remove(obj);
+        }
+      });
+
+      selectedClipIndices.clear();
+      if (canvas && canvas.getObjects) {
+        canvas.getObjects().forEach(function (obj) {
+          if (obj.cfsAudioType === 'text-to-speech') {
+            obj._cfsTtsChunks = null;
+            obj._cfsTtsCachedVoice = null;
+          }
+        });
+        if (canvas.renderAll) canvas.renderAll();
+      }
+      console.log('[CFS Delete] Done. Removed ' + uniqueDels.length + ' template clips + ' + canvasObjsToRemove.length + ' canvas objects');
+      saveStateDebounced();
+      refreshTimeline();
+      refreshPropertyPanel();
+      refreshLayersPanel();
+    }
+
+    /** Ripple edit: shift subsequent clips left if no overlap exists */
+    function rippleTrackAfterDelete(track, delStart, delLength) {
+      var clips = track.clips || [];
+      var delEnd = delStart + delLength;
+      /* Check if any remaining clip overlaps the deleted region */
+      var overlapping = clips.some(function (c) {
+        var s = typeof c.start === 'number' ? c.start : 0;
+        var l = typeof c.length === 'number' ? c.length : 5;
+        return s < delEnd && s + l > delStart;
+      });
+      if (overlapping) return;
+      /* Shift all clips after the deleted region left */
+      clips.forEach(function (c) {
+        if (typeof c.start === 'number' && c.start >= delEnd) {
+          c.start = Math.max(0, c.start - delLength);
+        }
+      });
+    }
+
+    /* ── Toolbar buttons: Split, Delete, Razor ── */
+    var splitBtn = document.createElement('button');
+    splitBtn.type = 'button';
+    splitBtn.textContent = '✂️ Split';
+    splitBtn.title = 'Split all clips at playhead (S)';
+    splitBtn.addEventListener('click', function () { splitAllAtPlayhead(currentPlayheadSec); });
+    timelineToolbar.appendChild(splitBtn);
+
+    var deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = '🗑 Delete';
+    deleteBtn.title = 'Delete selected clip(s) (Delete)';
+    deleteBtn.addEventListener('click', function () { deleteSelectedClips(); });
+    timelineToolbar.appendChild(deleteBtn);
+
+    /* Keyboard shortcuts for split/delete */
+    function handleTimelineKeydown(e) {
+      /* Ignore when typing in form controls */
+      var tag = (e.target && e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) return;
+      if (e.key === 's' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        splitAllAtPlayhead(currentPlayheadSec);
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey) {
+        if (selectedClipIndices.size) {
+          e.preventDefault();
+          deleteSelectedClips();
+        }
+      }
+    }
+    document.addEventListener('keydown', handleTimelineKeydown);
+
     function addAudioTrack() {
       if (!template) return;
       if (!template.timeline) template.timeline = {};
@@ -7667,33 +10133,8 @@
       refreshLayersPanel();
       refreshPropertyPanel();
     }
-    var addAudioTrackBtn = document.createElement('button');
-    addAudioTrackBtn.type = 'button';
-    addAudioTrackBtn.textContent = '+ Add audio track';
-    addAudioTrackBtn.addEventListener('click', addAudioTrack);
-    timelineToolbar.appendChild(addAudioTrackBtn);
-
-    var editSoundtrackBtn = document.createElement('button');
-    editSoundtrackBtn.type = 'button';
-    editSoundtrackBtn.textContent = 'Soundtrack…';
-    editSoundtrackBtn.addEventListener('click', function () {
-      if (!template) return;
-      if (!template.timeline) template.timeline = {};
-      var st = template.timeline.soundtrack || {};
-      var srcVal = window.prompt('Soundtrack URL:', st.src || '');
-      if (srcVal === null) return;
-      if (!srcVal.trim()) { delete template.timeline.soundtrack; saveStateDebounced(); refreshTimeline(); return; }
-      var vol = window.prompt('Volume (0–1):', st.volume != null ? String(st.volume) : '1');
-      var effect = window.prompt('Effect (fadeIn, fadeOut, fadeInFadeOut, or blank):', st.effect || '');
-      template.timeline.soundtrack = {
-        src: srcVal.trim(),
-        effect: effect && effect.trim() ? effect.trim() : undefined,
-        volume: (vol != null && vol.trim() !== '' && !isNaN(Number(vol))) ? Math.max(0, Math.min(1, Number(vol))) : 1
-      };
-      saveStateDebounced();
-      refreshTimeline();
-    });
-    timelineToolbar.appendChild(editSoundtrackBtn);
+    /* Add Audio Track and Soundtrack buttons removed from toolbar —
+       these functions are available via Canvas Tools (♫ and Soundtrack icons). */
 
     timelineWrap.appendChild(timelineToolbar);
     var timelineResizeWrap = document.createElement('div');
@@ -7711,11 +10152,14 @@
     timelineResizeHandle.className = 'cfs-editor-timeline-resize-handle';
     timelineResizeHandle.setAttribute('aria-label', 'Resize timeline');
     timelineResizeHandle.title = 'Drag to resize timeline';
-    timelineResizeHandle.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:6px;cursor:ns-resize;background:var(--gen-border, #ddd);z-index:5;';
+    timelineResizeHandle.style.cssText = 'position:absolute;top:0;left:0;right:0;height:5px;cursor:ns-resize;background:transparent;z-index:5;transition:background 150ms;';
+    timelineResizeHandle.addEventListener('mouseenter', function () { timelineResizeHandle.style.background = 'var(--gen-accent, #3b82f6)'; });
+    timelineResizeHandle.addEventListener('mouseleave', function () { if (!timelineResizeHandle._dragging) timelineResizeHandle.style.background = 'transparent'; });
     (function () {
       var startY = 0, startH = 0;
       function onMove(e) {
         var dy = e.clientY - startY;
+        /* Dragging up = larger timeline (dy is negative when moving up) */
         var newH = Math.max(80, Math.min(500, startH - dy));
         timelineResizeWrap.style.height = newH + 'px';
         timelineAreaHeight = newH;
@@ -7723,11 +10167,16 @@
       function onUp() {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        timelineResizeHandle._dragging = false;
+        timelineResizeHandle.style.background = 'transparent';
         editEvents.emit('timeline:resized', { height: timelineAreaHeight });
       }
       timelineResizeHandle.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
         e.preventDefault();
+        e.stopPropagation();
+        timelineResizeHandle._dragging = true;
+        timelineResizeHandle.style.background = 'var(--gen-accent, #3b82f6)';
         startY = e.clientY;
         startH = parseInt(timelineResizeWrap.style.height, 10) || 200;
         document.addEventListener('mousemove', onMove);
@@ -7839,13 +10288,25 @@
           template.timeline.tracks[targetTrack] = { clips: [] };
         }
         if (clipKind === 'subtitle') {
-          template.timeline.tracks[targetTrack].clips.push({
-            start: start,
-            length: 5,
-            position: 'bottom',
-            width: Math.max(240, (canvas.getWidth ? canvas.getWidth() : 1080) - 120),
-            asset: { type: 'caption', text: 'New subtitle', fill: '#ffffff', background: '#000000' }
+          /* Captions always get their own dedicated track (topmost = index 0 in ShotStack convention) */
+          template.timeline.tracks.unshift({
+            clips: [{
+              start: start,
+              length: 5,
+              position: 'bottom',
+              width: Math.max(240, (canvas.getWidth ? canvas.getWidth() : 1080) - 120),
+              asset: {
+                type: 'rich-caption',
+                font: { family: 'Open Sans', size: 32, color: '#ffffff', weight: 700 },
+                stroke: { width: 2, color: '#000000', opacity: 1 },
+                animation: { style: 'karaoke' },
+                align: { vertical: 'bottom' },
+                active: { font: { color: '#efbf04' } }
+              }
+            }]
           });
+          /* Auto-populate the new caption track from TTS in the background */
+          autoPopulateCaptionFromTts(template);
         } else {
           template.timeline.tracks[targetTrack].clips.push({
             start: start,
@@ -7905,13 +10366,26 @@
       }
       var clips = panel.buildClipsFromTemplate(template);
       if (canvas && canvas.getObjects) {
-        var fromCanvas = panel.buildClipsFromCanvas(canvas, 5);
+         var fromCanvas = panel.buildClipsFromCanvas(canvas, 5);
         if (fromCanvas.length) {
           var templateClips = panel.buildClipsFromTemplate(template);
           var preservedNonCanvas = templateClips.filter(function (c) {
-            return c.type === 'audio' || c.type === 'caption' || c.type === 'text-to-speech' || c.type === 'text-to-image' || c.type === 'image-to-video' || c.type === 'luma' || c.type === 'html';
+            return c.type === 'audio' || c.type === 'caption' || c.type === 'rich-caption' || c.type === 'text-to-speech' || c.type === 'text-to-image' || c.type === 'image-to-video' || c.type === 'luma' || c.type === 'html' || c.type === 'caption-chunk' || c.type === 'tts-chunk' || c.isSubClip || c.isParentClip;
           });
           clips = fromCanvas.concat(preservedNonCanvas);
+          // Filter out canvas placeholder objects that duplicate template entries (caption + TTS rects)
+          var canvasObjects = canvas.getObjects();
+          var hasPreservedCaption = preservedNonCanvas.some(function (c) { return c.type === 'rich-caption' || c.type === 'caption' || c.type === 'caption-chunk'; });
+          var hasPreservedTTS = preservedNonCanvas.some(function (c) { return c.type === 'text-to-speech' || c.type === 'tts-chunk'; });
+          if (hasPreservedCaption || hasPreservedTTS) {
+            clips = fromCanvas.filter(function (c, idx) {
+              var obj = canvasObjects[idx];
+              if (!obj) return true;
+              if (hasPreservedCaption && obj.cfsIsCaption) return false;
+              if (hasPreservedTTS && obj.cfsAudioType === 'text-to-speech') return false;
+              return true;
+            }).concat(preservedNonCanvas);
+          }
         }
       }
       var total = (coreScene && canvas && coreScene.getTimelineFromCanvas) ? coreScene.getTimelineFromCanvas(canvas).durationSec : 5;
@@ -7924,116 +10398,129 @@
       if (template && template.timeline && template.timeline.soundtrack && typeof template.timeline.soundtrack.length === 'number') {
         total = Math.max(total, template.timeline.soundtrack.length);
       }
+      /* Also check caption word timings and TTS chunk durations for total */
+      if (canvas && canvas.getObjects) {
+        canvas.getObjects().forEach(function (obj) {
+          var objStart = obj.cfsStart != null ? obj.cfsStart : 0;
+          var capWords = obj.cfsCaptionWords || (obj.cfsOriginalClip && obj.cfsOriginalClip.asset && Array.isArray(obj.cfsOriginalClip.asset.words) ? obj.cfsOriginalClip.asset.words : null);
+          if (capWords && capWords.length) {
+            total = Math.max(total, objStart + (capWords[capWords.length - 1].end || 0) + 0.5);
+          }
+          if (obj._cfsTtsChunks && obj._cfsTtsChunks.length) {
+            var lastCh = obj._cfsTtsChunks[obj._cfsTtsChunks.length - 1];
+            if (lastCh.timeEnd) total = Math.max(total, objStart + lastCh.timeEnd + 0.3);
+            if (obj._cfsTtsDuration > 0) total = Math.max(total, objStart + obj._cfsTtsDuration + 0.3);
+          }
+        });
+      }
+      /* Auto-extend template clip lengths to match total */
+      if (template && template.timeline && Array.isArray(template.timeline.tracks)) {
+        var roundedTotal = Math.ceil(total * 10) / 10;
+        template.timeline.tracks.forEach(function (tr) {
+          (tr.clips || []).forEach(function (clip) {
+            if (typeof clip.length === 'number' && clip.length < roundedTotal) {
+              clip.length = roundedTotal;
+            }
+          });
+        });
+        if (canvas && canvas.getObjects) {
+          canvas.getObjects().forEach(function (obj) {
+            if (typeof obj.cfsLength === 'number' && obj.cfsLength < roundedTotal) {
+              obj.cfsLength = roundedTotal;
+            }
+          });
+        }
+      }
       total = Math.ceil(total);
       function onClipSelect(index) {
         if (!canvas) return;
-        var objs = canvas.getObjects();
         var clip = clips[index];
-        if (objs[index]) {
-          selectedAudioClip = null;
-          selectedLumaClip = null;
-          selectedCaptionClip = null;
-          selectedTtsClip = null;
-          selectedHtmlClip = null;
-          selectedTextToImageClip = null;
-          selectedImageToVideoClip = null;
-          canvas.setActiveObject(objs[index]);
-          var timeSec = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
-          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSec);
-          canvas.renderAll();
-          refreshLayersPanel();
-          refreshPropertyPanel();
-        } else if (clip && clip.type === 'audio') {
-          selectedLumaClip = null;
-          selectedCaptionClip = null;
-          selectedTtsClip = null;
-          selectedHtmlClip = null;
-          selectedTextToImageClip = null;
-          selectedImageToVideoClip = null;
-          selectedAudioClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSec = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
-          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSec);
-          canvas.discardActiveObject();
-          canvas.renderAll();
-          refreshPropertyPanel();
-        } else if (clip && clip.type === 'luma') {
-          selectedAudioClip = null;
-          selectedCaptionClip = null;
-          selectedTtsClip = null;
-          selectedHtmlClip = null;
-          selectedTextToImageClip = null;
-          selectedImageToVideoClip = null;
-          selectedLumaClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSecLuma = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
-          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecLuma);
-          canvas.discardActiveObject();
-          canvas.renderAll();
-          refreshPropertyPanel();
-        } else if (clip && clip.type === 'caption') {
-          selectedAudioClip = null;
-          selectedLumaClip = null;
-          selectedTtsClip = null;
-          selectedHtmlClip = null;
-          selectedTextToImageClip = null;
-          selectedImageToVideoClip = null;
-          selectedCaptionClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSecCap = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
-          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecCap);
-          canvas.discardActiveObject();
-          canvas.renderAll();
-          refreshPropertyPanel();
-        } else if (clip && clip.type === 'text-to-speech') {
-          selectedAudioClip = null;
-          selectedLumaClip = null;
-          selectedCaptionClip = null;
-          selectedHtmlClip = null;
-          selectedTextToImageClip = null;
-          selectedImageToVideoClip = null;
+        if (!clip) return;
+
+        /* Clear all non-visual clip selections first */
+        selectedAudioClip = null;
+        selectedLumaClip = null;
+        selectedCaptionClip = null;
+        selectedTtsClip = null;
+        selectedHtmlClip = null;
+        selectedTextToImageClip = null;
+        selectedImageToVideoClip = null;
+
+        /* Determine clip type and handle accordingly */
+        var clipType = clip.type || '';
+
+        if (clipType === 'text-to-speech') {
           selectedTtsClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSecTts = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
+          var timeSecTts = numericStart(clip) + numericLength(clip, total) / 2;
           if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecTts);
           canvas.discardActiveObject();
           canvas.renderAll();
           refreshPropertyPanel();
-        } else if (clip && clip.type === 'html') {
-          selectedAudioClip = null;
-          selectedLumaClip = null;
-          selectedCaptionClip = null;
-          selectedTtsClip = null;
-          selectedTextToImageClip = null;
-          selectedImageToVideoClip = null;
+        } else if (clipType === 'audio') {
+          selectedAudioClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
+          var timeSec = numericStart(clip) + numericLength(clip, total) / 2;
+          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSec);
+          canvas.discardActiveObject();
+          canvas.renderAll();
+          refreshPropertyPanel();
+        } else if (clipType === 'luma') {
+          selectedLumaClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
+          var timeSecLuma = numericStart(clip) + numericLength(clip, total) / 2;
+          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecLuma);
+          canvas.discardActiveObject();
+          canvas.renderAll();
+          refreshPropertyPanel();
+        } else if (clipType === 'caption' || clipType === 'rich-caption') {
+          selectedCaptionClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
+          var timeSecCap = numericStart(clip) + numericLength(clip, total) / 2;
+          if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecCap);
+          canvas.discardActiveObject();
+          canvas.renderAll();
+          refreshPropertyPanel();
+        } else if (clipType === 'html') {
           selectedHtmlClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSecHtml = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
+          var timeSecHtml = numericStart(clip) + numericLength(clip, total) / 2;
           if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecHtml);
           canvas.discardActiveObject();
           canvas.renderAll();
           refreshPropertyPanel();
-        } else if (clip && clip.type === 'text-to-image') {
-          selectedAudioClip = null;
-          selectedLumaClip = null;
-          selectedCaptionClip = null;
-          selectedTtsClip = null;
-          selectedHtmlClip = null;
-          selectedImageToVideoClip = null;
+        } else if (clipType === 'text-to-image') {
           selectedTextToImageClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSecTti = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
+          var timeSecTti = numericStart(clip) + numericLength(clip, total) / 2;
           if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecTti);
           canvas.discardActiveObject();
           canvas.renderAll();
           refreshPropertyPanel();
-        } else if (clip && clip.type === 'image-to-video') {
-          selectedAudioClip = null;
-          selectedLumaClip = null;
-          selectedCaptionClip = null;
-          selectedTtsClip = null;
-          selectedHtmlClip = null;
-          selectedTextToImageClip = null;
+        } else if (clipType === 'image-to-video') {
           selectedImageToVideoClip = (clip.templateTrackIndex != null && clip.templateClipIndex != null) ? { templateTrackIndex: clip.templateTrackIndex, templateClipIndex: clip.templateClipIndex } : null;
-          var timeSecItv = clip ? (numericStart(clip) + numericLength(clip, total) / 2) : 0;
+          var timeSecItv = numericStart(clip) + numericLength(clip, total) / 2;
           if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecItv);
           canvas.discardActiveObject();
           canvas.renderAll();
           refreshPropertyPanel();
+        } else {
+          /* Visual canvas object — find matching object by clip name or canvas index */
+          var objs = canvas.getObjects();
+          var matchObj = null;
+          if (clip.name) {
+            for (var oi = 0; oi < objs.length; oi++) {
+              if (objs[oi].name === clip.name) { matchObj = objs[oi]; break; }
+            }
+          }
+          if (!matchObj && clip.canvasIndex != null && objs[clip.canvasIndex]) {
+            matchObj = objs[clip.canvasIndex];
+          }
+          if (!matchObj && objs[index]) {
+            matchObj = objs[index];
+          }
+          if (matchObj) {
+            canvas.setActiveObject(matchObj);
+            var timeSecObj = numericStart(clip) + numericLength(clip, total) / 2;
+            if (coreScene && coreScene.seekToTime) coreScene.seekToTime(canvas, timeSecObj);
+            canvas.renderAll();
+            refreshLayersPanel();
+            refreshPropertyPanel();
+          }
         }
       }
       function onClipMove(index, newStartSec) {
@@ -8044,6 +10531,8 @@
             tr.clips[clip.templateClipIndex].start = newStartSec;
             saveStateDebounced();
             refreshTimeline();
+            /* If this is a TTS/audio/video clip, captions may need updating */
+            if (isCaptionInvalidatingType(clip.type)) debouncedRegenerateCaptions();
             return;
           }
         }
@@ -8095,6 +10584,8 @@
             tr.clips[clip.templateClipIndex].length = newLengthSec;
             saveStateDebounced();
             refreshTimeline();
+            /* If this is a TTS/audio/video clip, captions may need updating */
+            if (isCaptionInvalidatingType(clip.type)) debouncedRegenerateCaptions();
             return;
           }
         }
@@ -8115,7 +10606,46 @@
       lastClips = clips.slice ? clips.slice() : clips;
       editEvents.emit('duration:changed', { duration: total });
       editEvents.emit('timeline:updated', { clips: lastClips, duration: total });
-      panel.render(timelineContainer, { template: template, canvas: canvas, clips: clips, totalDuration: total, minTracks: timelineMinTracks, onAddClip: addClip, onClipSelect: onClipSelect, onClipMove: onClipMove, onClipTrackChange: onClipTrackChange, onClipResize: onClipResize, onAddTrack: function () { timelineMinTracks++; refreshTimeline(); }, snapGridSec: 0.5, allClipsForSnap: clips, getSnapDisabled: function () { return stateRef._snapDisabled || false; } });
+      function onChunkSelect(parentClipIndex, chunkIndex, templateTrackIndex, templateClipIndex, chunkType) {
+        /* Seek playhead to the chunk's start time */
+        var parentClip = clips[parentClipIndex];
+        if (!parentClip) return;
+        /* Find the actual caption/TTS asset to read word timings */
+        var tplAsset = null;
+        if (template && template.timeline && Array.isArray(template.timeline.tracks) && templateTrackIndex != null && templateClipIndex != null) {
+          var tr = template.timeline.tracks[templateTrackIndex];
+          if (tr && tr.clips && tr.clips[templateClipIndex]) {
+            tplAsset = tr.clips[templateClipIndex].asset;
+          }
+        }
+        /* Compute chunk start time */
+        var chunkStart = 0;
+        if (tplAsset && tplAsset.words && global.__CFS_chunkUtils) {
+          var chunks = global.__CFS_chunkUtils.buildCaptionChunks(tplAsset.words, tplAsset.display);
+          if (chunks[chunkIndex]) chunkStart = chunks[chunkIndex].timeStart;
+        }
+        var clipStart = (typeof parentClip.displayStart === 'number') ? parentClip.displayStart : (typeof parentClip.start === 'number' ? parentClip.start : 0);
+        var seekTime = clipStart + chunkStart;
+        if (typeof setPlayheadTime === 'function') setPlayheadTime(seekTime);
+        if (coreScene && coreScene.seekToTime && canvas) coreScene.seekToTime(canvas, seekTime);
+        if (canvas) { canvas.discardActiveObject(); canvas.renderAll(); }
+        /* Select the parent caption/TTS clip for property panel */
+        selectedAudioClip = null;
+        selectedLumaClip = null;
+        selectedHtmlClip = null;
+        selectedTextToImageClip = null;
+        selectedImageToVideoClip = null;
+        if (chunkType === 'caption-chunk') {
+          selectedCaptionClip = { templateTrackIndex: templateTrackIndex, templateClipIndex: templateClipIndex, selectedChunkIndex: chunkIndex };
+          selectedTtsClip = null;
+        } else {
+          selectedTtsClip = { templateTrackIndex: templateTrackIndex, templateClipIndex: templateClipIndex, selectedChunkIndex: chunkIndex };
+          selectedCaptionClip = null;
+        }
+        refreshPropertyPanel();
+      }
+      lastRenderedClips = clips; /* Store for delete/selection index matching */
+      panel.render(timelineContainer, { template: template, canvas: canvas, clips: clips, totalDuration: total, minTracks: timelineMinTracks, selectedClipIndices: selectedClipIndices, lockedTracks: lockedTracks, razorMode: razorMode, onAddClip: addClip, onClipSelect: onClipSelect, onClipMove: onClipMove, onClipTrackChange: onClipTrackChange, onClipResize: onClipResize, onChunkSelect: onChunkSelect, onClipSplit: function (clipIdx, splitTime) { splitAllAtPlayhead(splitTime); }, onTrackLockToggle: function (ti, locked) { if (locked) lockedTracks.add(ti); else lockedTracks.delete(ti); refreshTimeline(); }, onSelectionChange: function (indices) { selectedClipIndices.clear(); indices.forEach(function (i) { selectedClipIndices.add(i); }); /* Update CSS classes directly instead of full re-render to preserve indices */ var clipEls = timelineContainer.querySelectorAll('.cfs-editor-clip[data-object-index]'); clipEls.forEach(function (el) { var oi = parseInt(el.getAttribute('data-object-index'), 10); if (selectedClipIndices.has(oi)) el.classList.add('cfs-editor-clip-selected'); else el.classList.remove('cfs-editor-clip-selected'); }); }, onAddTrack: function () { timelineMinTracks++; refreshTimeline(); }, snapGridSec: 0.5, allClipsForSnap: clips, getSnapDisabled: function () { return stateRef._snapDisabled || false; } });
       updatePlayheadExtent();
       setPlayheadTime(currentPlayheadSec);
     }
@@ -8139,6 +10669,7 @@
             invalidateFabricTextLayout(canvas);
             fabricHead = _savedUndoHistory.fabricHead;
             undoPatches = Array.isArray(_savedUndoHistory.patches) ? _savedUndoHistory.patches : [];
+            if (_savedUndoHistory.mergeHead) { _mergeHead = _savedUndoHistory.mergeHead; restoreMergeState(_savedUndoHistory.mergeHead); }
             redoPatches.length = 0;
             updateUndoRedoButtons();
             _savedUndoHistory = null;
@@ -8411,12 +10942,13 @@
         editEvents.emit('save:completed', {});
       },
       getUndoHistory: function () {
-        return { fabricHead: fabricHead, patches: undoPatches };
+        return { fabricHead: fabricHead, patches: undoPatches, mergeHead: _mergeHead };
       },
       setUndoHistory: function (history) {
         if (!history) return;
         if (history.fabricHead) fabricHead = history.fabricHead;
         if (Array.isArray(history.patches)) undoPatches = history.patches;
+        if (history.mergeHead) { _mergeHead = history.mergeHead; restoreMergeState(history.mergeHead); }
         redoPatches.length = 0;
         updateUndoRedoButtons();
       },

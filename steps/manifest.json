@@ -31,6 +31,7 @@
     "sendToEndpoint",
     "waitForHttpPoll",
     "uploadPost",
+    "uploadToStorage",
     "savePostDraftToFolder",
     "setVideoSegments",
     "combineVideos",
@@ -165,6 +166,18 @@
     "getConsoleLogs",
     "scanImportFolder",
     "moveProjectFile",
-    "detectMediaType"
+    "detectMediaType",
+    "getAccountStatus",
+    "getShotstackCredits",
+    "getStorageInfo",
+    "getStorageFiles",
+    "deleteStorageFile",
+    "cancelScheduledPost",
+    "getShotstackRenders",
+    "getUploadPostProfiles",
+    "assertCondition",
+    "logMessage",
+    "setBatchVariable",
+    "getPostingLimits"
   ]
 }

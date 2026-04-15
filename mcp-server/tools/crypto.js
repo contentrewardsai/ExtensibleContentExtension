@@ -18,8 +18,10 @@ async function isDryRunEnabled(ctx) {
 }
 
 /** Helper: wrap write tool with optional dry-run */
-function writeToolHandler(ctx, buildPayload) {
+function writeToolHandler(ctx, buildPayload, toolName) {
   return async (args) => {
+    const gateErr = await ctx.cryptoGate.guard(toolName);
+    if (gateErr) return gateErr;
     const dryRun = await isDryRunEnabled(ctx);
     const payload = buildPayload(args);
 
@@ -54,6 +56,8 @@ export function registerCryptoTools(server, ctx) {
       extra: z.record(z.string(), z.any()).optional().describe('Additional operation-specific fields'),
     },
     async ({ readKind, address, mint, extra }) => {
+      const gateErr = await ctx.cryptoGate.guard('solana_rpc_read');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_SOLANA_RPC_READ', readKind };
       if (address) payload.address = address;
       if (mint) payload.mint = mint;
@@ -70,6 +74,8 @@ export function registerCryptoTools(server, ctx) {
       mint: z.string().describe('Token mint address to check'),
     },
     async ({ mint }) => {
+      const gateErr = await ctx.cryptoGate.guard('solana_rugcheck');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_RUGCHECK_TOKEN_REPORT', mint });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -80,6 +86,8 @@ export function registerCryptoTools(server, ctx) {
     'Get the status of perpetual futures automation (Raydium/Jupiter perps).',
     {},
     async () => {
+      const gateErr = await ctx.cryptoGate.guard('solana_perps_status');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_PERPS_AUTOMATION_STATUS' });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -92,6 +100,8 @@ export function registerCryptoTools(server, ctx) {
       jupiterApiKey: z.string().max(2048).optional().describe('Optional Jupiter API key override'),
     },
     async ({ jupiterApiKey }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_perps_markets');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_JUPITER_PERPS_MARKETS' };
       if (jupiterApiKey) payload.jupiterApiKey = jupiterApiKey;
       const res = await ctx.sendMessage(payload);
@@ -107,6 +117,8 @@ export function registerCryptoTools(server, ctx) {
       extra: z.record(z.string(), z.any()).optional().describe('Additional probe fields'),
     },
     async ({ mint, extra }) => {
+      const gateErr = await ctx.cryptoGate.guard('solana_pump_market_probe');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_PUMPFUN_MARKET_PROBE', mint };
       if (extra) { const { type: _drop, ...rest } = extra; Object.assign(payload, rest); }
       const res = await ctx.sendMessage(payload);
@@ -134,7 +146,7 @@ export function registerCryptoTools(server, ctx) {
       if (slippageBps != null) p.slippageBps = slippageBps;
       if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
-    })
+    }, 'solana_swap')
   );
 
   server.tool(
@@ -147,7 +159,7 @@ export function registerCryptoTools(server, ctx) {
     },
     writeToolHandler(ctx, ({ destination, lamports }) => ({
       type: 'CFS_SOLANA_TRANSFER_SOL', toPubkey: destination, lamports,
-    }))
+    }), 'solana_transfer_sol')
   );
 
   server.tool(
@@ -161,7 +173,7 @@ export function registerCryptoTools(server, ctx) {
     },
     writeToolHandler(ctx, ({ destination, mint, amount }) => ({
       type: 'CFS_SOLANA_TRANSFER_SPL', toOwner: destination, mint, amountRaw: amount,
-    }))
+    }), 'solana_transfer_spl')
   );
 
   server.tool(
@@ -176,7 +188,7 @@ export function registerCryptoTools(server, ctx) {
       const p = { type: 'CFS_SOLANA_ENSURE_TOKEN_ACCOUNT', mint };
       if (owner) p.owner = owner;
       return p;
-    })
+    }, 'solana_ensure_token_account')
   );
 
   server.tool(
@@ -188,14 +200,14 @@ export function registerCryptoTools(server, ctx) {
     },
     writeToolHandler(ctx, ({ lamports }) => ({
       type: 'CFS_SOLANA_WRAP_SOL', lamports,
-    }))
+    }), 'solana_wrap_sol')
   );
 
   server.tool(
     'solana_unwrap_sol',
     'Unwrap all wSOL back to SOL.',
     { confirm: confirmField },
-    writeToolHandler(ctx, () => ({ type: 'CFS_SOLANA_UNWRAP_WSOL' }))
+    writeToolHandler(ctx, () => ({ type: 'CFS_SOLANA_UNWRAP_WSOL' }), 'solana_unwrap_sol')
   );
 
   server.tool(
@@ -213,7 +225,7 @@ export function registerCryptoTools(server, ctx) {
       if (slippageBps != null) p.slippageBps = slippageBps;
       if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
-    })
+    }, 'solana_pumpfun_buy')
   );
 
   server.tool(
@@ -231,7 +243,7 @@ export function registerCryptoTools(server, ctx) {
       if (slippageBps != null) p.slippageBps = slippageBps;
       if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
-    })
+    }, 'solana_pumpfun_sell')
   );
 
   server.tool(
@@ -244,6 +256,8 @@ export function registerCryptoTools(server, ctx) {
       confirm: confirmField,
     },
     async ({ mint, solLamports, slippageBps, confirm }) => {
+      const gateErr = await ctx.cryptoGate.guard('solana_pump_or_jupiter_buy');
+      if (gateErr) return gateErr;
       const WSOL = 'So11111111111111111111111111111111111111112';
       const dryRun = await isDryRunEnabled(ctx);
       const slip = slippageBps != null ? slippageBps : 50;
@@ -288,6 +302,8 @@ export function registerCryptoTools(server, ctx) {
       confirm: confirmField,
     },
     async ({ mint, tokenAmountRaw, slippageBps, confirm }) => {
+      const gateErr = await ctx.cryptoGate.guard('solana_pump_or_jupiter_sell');
+      if (gateErr) return gateErr;
       const WSOL = 'So11111111111111111111111111111111111111112';
       const dryRun = await isDryRunEnabled(ctx);
       const slip = slippageBps != null ? slippageBps : 50;
@@ -338,7 +354,7 @@ export function registerCryptoTools(server, ctx) {
       if (solLamports) p.solLamports = solLamports;
       if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
-    })
+    }, 'solana_sellability_probe')
   );
 
   /* ─── Jupiter V2 API tools ─── */
@@ -350,6 +366,8 @@ export function registerCryptoTools(server, ctx) {
       mintAddresses: z.string().describe('Comma-separated mint addresses (up to 50)'),
     },
     async ({ mintAddresses }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_price_v3');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_JUPITER_PRICE_V3', mintAddresses });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -362,6 +380,8 @@ export function registerCryptoTools(server, ctx) {
       query: z.string().describe('Search query: token name, symbol, or mint address'),
     },
     async ({ query }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_token_search');
+      if (gateErr) return gateErr;
       const res = await ctx.sendMessage({ type: 'CFS_JUPITER_TOKEN_SEARCH', query });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -387,7 +407,7 @@ export function registerCryptoTools(server, ctx) {
       if (maxOutAmountPerCycle) p.maxOutAmountPerCycle = maxOutAmountPerCycle;
       if (startAt) p.startAt = startAt;
       return p;
-    })
+    }, 'jupiter_dca_create')
   );
 
   server.tool(
@@ -413,7 +433,7 @@ export function registerCryptoTools(server, ctx) {
       if (expireInSeconds) p.expireInSeconds = expireInSeconds;
       if (slippageBps != null) p.slippageBps = slippageBps;
       return p;
-    })
+    }, 'jupiter_limit_order')
   );
 
   server.tool(
@@ -427,7 +447,7 @@ export function registerCryptoTools(server, ctx) {
     },
     writeToolHandler(ctx, ({ operation, mint, amount }) => ({
       type: 'CFS_JUPITER_EARN', earnOperation: operation, mint, amount,
-    }))
+    }), 'jupiter_earn')
   );
 
   /* ─── Jupiter Prediction Markets ─── */
@@ -445,6 +465,8 @@ export function registerCryptoTools(server, ctx) {
       marketId: z.string().optional().describe('Market ID (for getMarket/getOrderbook)'),
     },
     async ({ operation, query, category, filter, eventId, marketId }) => {
+      const gateErr = await ctx.cryptoGate.guard('jupiter_prediction_search');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_JUPITER_PREDICTION_SEARCH', operation };
       if (query) payload.query = query;
       if (category) payload.category = category;
@@ -477,7 +499,7 @@ export function registerCryptoTools(server, ctx) {
       if (limitPrice) p.limitPrice = limitPrice;
       if (positionPubkey) p.positionPubkey = positionPubkey;
       return p;
-    })
+    }, 'jupiter_prediction_trade')
   );
 
   /* ─── BSC ─── */
@@ -490,6 +512,8 @@ export function registerCryptoTools(server, ctx) {
       params: z.record(z.string(), z.any()).optional().describe('Operation-specific parameters'),
     },
     async ({ operation, params }) => {
+      const gateErr = await ctx.cryptoGate.guard('bsc_query');
+      if (gateErr) return gateErr;
       const payload = { type: 'CFS_BSC_QUERY', operation };
       if (params) { const { type: _drop, operation: _dropOp, ...rest } = params; Object.assign(payload, rest); }
       const res = await ctx.sendMessage(payload);
@@ -509,7 +533,7 @@ export function registerCryptoTools(server, ctx) {
       const p = { type: 'CFS_BSC_POOL_EXECUTE', operation };
       if (params) { const { type: _drop, operation: _dropOp, ...rest } = params; Object.assign(p, rest); }
       return p;
-    })
+    }, 'bsc_execute')
   );
 
   server.tool(
@@ -528,6 +552,6 @@ export function registerCryptoTools(server, ctx) {
       if (spendBnbWei) p.spendBnbWei = spendBnbWei;
       if (extra) { const { type: _drop, ...rest } = extra; Object.assign(p, rest); }
       return p;
-    })
+    }, 'bsc_sellability_probe')
   );
 }

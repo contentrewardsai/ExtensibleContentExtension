@@ -82,6 +82,16 @@
     'asterFuturesWait',
     'asterFuturesTrade',
     'asterUserStreamWait',
+    'jupiterPriceV3',
+    'jupiterTokenSearch',
+    'jupiterDCA',
+    'jupiterLimitOrder',
+    'jupiterEarn',
+    'jupiterFlashloan',
+    'jupiterPredictionTrade',
+    'jupiterPredictionSearch',
+    'pancakeV3RangeWatch',
+    'walletApprove',
   ];
 
   var TYPE_SET = Object.create(null);

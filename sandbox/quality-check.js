@@ -13,8 +13,15 @@
 
   try {
   if (typeof window !== 'undefined') {
-    try { window.caches; } catch (_) {
-      Object.defineProperty(window, 'caches', { get: () => undefined, configurable: true, enumerable: true });
+    /* Full no-op Cache API polyfill for sandbox (Cache API is blocked). */
+    let needsPolyfill = false;
+    try { const c = window.caches; if (!c || typeof c.open !== 'function') needsPolyfill = true; } catch (_) { needsPolyfill = true; }
+    if (needsPolyfill) {
+      const noopCache = { match: async () => undefined, put: async () => {}, delete: async () => false, keys: async () => [], matchAll: async () => [] };
+      const cacheStorage = { open: async () => noopCache, has: async () => false, delete: async () => false, keys: async () => [], match: async () => undefined };
+      try {
+        Object.defineProperty(window, 'caches', { get: () => cacheStorage, configurable: true, enumerable: true });
+      } catch (_) {}
     }
   }
 
@@ -144,30 +151,62 @@
     };
   }
 
-  async function transcribeAudio(audioBlob) {
+  async function transcribeAudio(audioInput) {
+    /* Accept both Blob and base64 data URL string (for chrome.runtime.sendMessage transport) */
+    let audioBlob = audioInput;
+    if (typeof audioInput === 'string' && audioInput.startsWith('data:')) {
+      try {
+        const res = await fetch(audioInput);
+        audioBlob = await res.blob();
+      } catch (e) {
+        return { ok: false, error: 'Failed to decode data URL: ' + (e && e.message) };
+      }
+    }
     if (!audioBlob || !(audioBlob instanceof Blob)) return { ok: false, error: 'No audio blob' };
     const url = URL.createObjectURL(audioBlob);
     try {
       const pipe = await getAsrPipeline();
-      const result = await pipe(url, { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5 });
-      let text = '';
-      let words = [];
-      if (typeof result === 'string') {
-        text = result;
-      } else if (result?.text) {
-        text = result.text;
+
+      /* Helper: extract text + word timings from a Whisper result */
+      function parseResult(result) {
+        let text = '';
+        let words = [];
+        if (typeof result === 'string') {
+          text = result;
+        } else if (result?.text) {
+          text = result.text;
+        }
+        if (Array.isArray(result?.chunks)) {
+          if (!text) text = result.chunks.map(c => c.text || '').join(' ');
+          words = result.chunks
+            .filter(c => c && c.text && String(c.text).trim())
+            .map(c => {
+              const ts = Array.isArray(c.timestamp) ? c.timestamp : [];
+              return {
+                text: String(c.text).trim(),
+                start: (typeof ts[0] === 'number') ? ts[0] : -1,
+                end: (typeof ts[1] === 'number') ? ts[1] : -1,
+              };
+            })
+            /* Filter out words where Whisper couldn't determine timestamps */
+            .filter(w => w.start >= 0 && w.end >= 0 && w.end > w.start);
+        }
+        return { text: String(text || '').trim(), words };
       }
-      if (Array.isArray(result?.chunks)) {
-        if (!text) text = result.chunks.map(c => c.text || '').join(' ');
-        words = result.chunks
-          .filter(c => c && c.text)
-          .map(c => ({
-            text: String(c.text).trim(),
-            start: Array.isArray(c.timestamp) ? (c.timestamp[0] || 0) : 0,
-            end: Array.isArray(c.timestamp) ? (c.timestamp[1] || c.timestamp[0] || 0) : 0,
-          }));
+
+      /* Attempt 1: word-level timestamps with chunking */
+      let parsed = parseResult(
+        await pipe(url, { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5 })
+      );
+
+      /* Attempt 2: if no word timestamps, retry without chunking params (better for short audio) */
+      if (!parsed.words.length) {
+        try {
+          parsed = parseResult(await pipe(url, { return_timestamps: 'word' }));
+        } catch (_) { /* keep attempt 1 result */ }
       }
-      return { ok: true, text: String(text || '').trim(), words: words.length ? words : undefined };
+
+      return { ok: true, text: parsed.text, words: parsed.words.length ? parsed.words : undefined };
     } catch (e) {
       return { ok: false, error: e.message || 'Transcription failed', text: '' };
     } finally {
@@ -332,6 +371,93 @@
     }
   }
 
+  /* ---- Kokoro TTS (text-to-speech) ---- */
+
+  let kokoroInstance = null;
+
+  async function getKokoroTTS() {
+    if (kokoroInstance) return kokoroInstance;
+    /* Import kokoro-js; it bundles its own @huggingface/transformers internally. */
+    const kokoroMod = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
+    const { KokoroTTS } = kokoroMod;
+    /* kokoro-js re-exports Transformers.js env; disable caching for sandbox. */
+    if (kokoroMod.env) {
+      kokoroMod.env.useBrowserCache = false;
+      kokoroMod.env.useWasmCache = false;
+      kokoroMod.env.allowLocalModels = false;
+      if (kokoroMod.env.backends?.onnx?.wasm) {
+        kokoroMod.env.backends.onnx.wasm.numThreads = 1;
+      }
+    }
+    kokoroInstance = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+      dtype: 'q8',
+      device: 'wasm',
+    });
+    return kokoroInstance;
+  }
+
+  /**
+   * Synthesise speech from text using Kokoro-82M.
+   * @param {string} text - Text to speak.
+   * @param {object} [options] - { voice?: string }
+   * @returns {{ ok, audioBase64?, contentType?, error? }}
+   */
+  async function synthesizeSpeech(text, options) {
+    const t = String(text || '').trim();
+    if (!t) return { ok: false, error: 'No text provided' };
+    try {
+      const tts = await getKokoroTTS();
+      const DEFAULT_VOICE = 'af_heart';
+      let voice = (options && options.voice) || '';
+
+      /* Resolve voice: Kokoro voices follow a `xx_name` pattern (e.g. af_heart, am_adam).
+         If the requested voice doesn't match, use the default.  If list_voices is
+         available, also check against the actual voice list. */
+      function isKokoroVoice(v) {
+        if (!v || typeof v !== 'string') return false;
+        /* Kokoro format: 2-letter prefix + underscore + name, e.g. af_heart */
+        if (/^[a-z]{2}_[a-z]+$/i.test(v)) return true;
+        /* Single-prefix like "af" is also valid */
+        if (/^[a-z]{2}$/i.test(v)) return true;
+        return false;
+      }
+
+      if (!isKokoroVoice(voice)) {
+        voice = DEFAULT_VOICE;
+      } else {
+        try {
+          const available = typeof tts.list_voices === 'function' ? tts.list_voices() : null;
+          if (available && Array.isArray(available) && available.length > 0 && !available.includes(voice)) {
+            voice = DEFAULT_VOICE;
+          }
+        } catch (_) { /* keep the pattern-matched voice */ }
+      }
+
+      /* Generate with the resolved voice; retry once with DEFAULT if it still fails */
+      let audio;
+      try {
+        audio = await tts.generate(t, { voice });
+      } catch (voiceErr) {
+        if (voice !== DEFAULT_VOICE) {
+          audio = await tts.generate(t, { voice: DEFAULT_VOICE });
+        } else {
+          throw voiceErr;
+        }
+      }
+      /* toBlob() returns a WAV Blob */
+      const blob = audio.toBlob();
+      /* Convert to base64 for postMessage transport (sandboxed iframe → offscreen → generator) */
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+      return { ok: true, audioBase64: base64, contentType: 'audio/wav', size: blob.size };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || 'Kokoro TTS failed' };
+    }
+  }
+
   const QualityCheck = {
     runEmbeddingCheck,
     runWhisperCheck,
@@ -339,6 +465,7 @@
     embedText,
     generateChat,
     runLlm,
+    synthesizeSpeech,
   };
 
   sendReady();

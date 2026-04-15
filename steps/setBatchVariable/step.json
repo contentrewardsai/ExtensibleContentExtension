@@ -1,0 +1,21 @@
+{
+  "id": "setBatchVariable",
+  "label": "Set Variables",
+  "category": "data",
+  "description": "Set row variables from template expressions. Simpler alternative to 'Set row fields' for common assignments. Values support {{variable}} templates and are auto-coerced (numbers, booleans preserved).",
+  "defaultAction": {
+    "type": "setBatchVariable",
+    "runIf": "",
+    "assignments": [
+      { "variable": "myVar", "value": "{{someValue}}" }
+    ]
+  },
+  "inputs": [
+    { "key": "assignments", "description": "Array of { variable, value } pairs. Values support {{variable}} templates." }
+  ],
+  "outputs": [],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}} or variable name", "hint": "Skip step when empty/falsy." },
+    { "key": "assignments", "label": "Assignments (JSON array)", "inputType": "textarea", "placeholder": "[{\"variable\": \"hasCredits\", \"value\": \"{{credits}}\"}, {\"variable\": \"env\", \"value\": \"stage\"}]", "hint": "Each entry: { \"variable\": \"name\", \"value\": \"template or literal\" }. Auto-coerces numbers and booleans." }
+  ]
+}
