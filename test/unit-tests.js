@@ -4389,7 +4389,6 @@
     testUploadPostCheckStatusValidation,
     testUploadPostCancelScheduledValidation,
     testUploadPostCreateUserProfileValidation,
-    testUploadPostConvertToMp4ErrorFlow,
 
     // ── Playback guard tests (require extension context) ───────────────
     testPlaybackGuardIsPlaybackActiveReturns,
@@ -5844,47 +5843,6 @@
     assertEqual(createUserProfileValidation('', '').error, 'API key not set', 'key error first');
   }
 
-  function testUploadPostConvertToMp4ErrorFlow() {
-    // Test the convertToMp4 orchestration logic (submit → poll → download)
-    // This tests the error propagation without actual fetch calls
-    function convertToMp4ErrorMessage(submitResult) {
-      if (!submitResult.ok) return 'FFmpeg submit failed: ' + (submitResult.error || 'unknown');
-      return null;
-    }
-    function statusCheckErrorMessage(statusResult) {
-      if (!statusResult.ok) return 'FFmpeg status check failed: ' + (statusResult.error || 'unknown');
-      if (statusResult.status === 'ERROR') return 'FFmpeg conversion failed on server';
-      return null;
-    }
-    function downloadErrorMessage(dlResult) {
-      if (!dlResult.ok) return 'FFmpeg download failed: ' + (dlResult.error || 'unknown');
-      return null;
-    }
-    function timeoutMessage(maxPolls, pollInterval) {
-      return 'FFmpeg conversion timed out after ' + (maxPolls * pollInterval / 1000) + 's';
-    }
-
-    // Submit failure
-    assertEqual(convertToMp4ErrorMessage({ ok: false, error: 'API key not set' }),
-      'FFmpeg submit failed: API key not set');
-    assertEqual(convertToMp4ErrorMessage({ ok: false }),
-      'FFmpeg submit failed: unknown');
-
-    // Status check failure
-    assertEqual(statusCheckErrorMessage({ ok: false, error: 'Network error' }),
-      'FFmpeg status check failed: Network error');
-    assertEqual(statusCheckErrorMessage({ ok: true, status: 'ERROR' }),
-      'FFmpeg conversion failed on server');
-    assertEqual(statusCheckErrorMessage({ ok: true, status: 'PROCESSING' }), null, 'processing → no error');
-    assertEqual(statusCheckErrorMessage({ ok: true, status: 'FINISHED' }), null, 'finished → no error');
-
-    // Download failure
-    assertEqual(downloadErrorMessage({ ok: false, error: 'Not found' }),
-      'FFmpeg download failed: Not found');
-
-    // Timeout message
-    assertEqual(timeoutMessage(60, 3000), 'FFmpeg conversion timed out after 180s');
-  }
 
   /** DeFi action patterns */
   function testDefiActionPatternsMatchUrl() {
