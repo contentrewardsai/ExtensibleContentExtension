@@ -16,11 +16,19 @@
       return Promise.reject(new Error('Canvas or loadFromJSON missing'));
     }
     return new Promise(function (resolve, reject) {
-      canvas.loadFromJSON(json, function () {
-        canvas.renderAll();
-        if (callback) callback(null);
-        resolve();
-      }, reject);
+      try {
+        canvas.loadFromJSON(json, function () {
+          canvas.renderAll();
+          if (callback) callback(null);
+          resolve();
+        }, function (o, obj, _cb) {
+          /* Reviver: accept every object as-is. Fabric v5 calls _cb(obj) or _cb(null) to continue. */
+          if (typeof _cb === 'function') _cb(obj);
+        });
+      } catch (e) {
+        if (callback) callback(e);
+        reject(e);
+      }
     });
   }
 
@@ -531,15 +539,33 @@
           const mergeName = mergePlaceholderToName(asset.text);
           const font = asset.font || {};
           let clipW = clip.width != null ? Number(clip.width) : (asset.width != null ? Number(asset.width) : 800);
-          const clipH = clip.height != null ? Number(clip.height) : (asset.height != null ? Number(asset.height) : 400);
+          let clipH = clip.height != null ? Number(clip.height) : (asset.height != null ? Number(asset.height) : 400);
+          /* ShotStack treats empty-text clips with backgrounds as full-canvas overlays
+             when their dimensions exceed the canvas in either axis. */
+          var isFullCanvasBg = asset.background && typeof asset.background.color === 'string'
+            && (!asset.text || asset.text.trim() === '')
+            && (clipW > width || clipH > height);
+          if (isFullCanvasBg) {
+            clipW = width;
+            clipH = height;
+          }
           let rleft, rtop;
-          if (asset.left != null && asset.top != null) {
+          if (isFullCanvasBg) {
+            rleft = 0;
+            rtop = 0;
+          } else if (asset.left != null && asset.top != null) {
             rleft = Number(asset.left);
             rtop = Number(asset.top);
           } else {
             const pos = positionFromClip(width, height, clip, clipW, clipH);
             rleft = pos.left;
             rtop = pos.top;
+          }
+          /* Clamp text box to canvas width so text isn't clipped when
+             asset.width > canvas (e.g. 1160px box on 1080px canvas). */
+          if (clipW > width && !isFullCanvasBg) {
+            clipW = width;
+            rleft = 0;
           }
           if (asset.padding != null) {
             var pad = asset.padding;
@@ -588,14 +614,37 @@
           richObj.cfsWidthPct = clipW / width;
           if (font.weight != null) richObj.fontWeight = (font.weight === 'bold' || font.weight === 800) ? 'bold' : String(font.weight);
           if (font.opacity != null) richObj.opacity = Math.max(0, Math.min(1, Number(font.opacity)));
+          /* Clip-level opacity overrides font opacity if set */
+          if (clip.opacity != null && !isNaN(Number(clip.opacity))) richObj.opacity = Math.max(0, Math.min(1, Number(clip.opacity)));
           const style = asset.style || {};
-          if (style.letterSpacing != null) richObj.cfsLetterSpacing = Number(style.letterSpacing);
-          if (style.lineHeight != null) richObj.cfsLineHeight = Number(style.lineHeight);
-          if (style.textTransform) richObj.cfsTextTransform = style.textTransform;
-          if (style.textDecoration) richObj.cfsTextDecoration = style.textDecoration;
+          if (style.letterSpacing != null) {
+            richObj.cfsLetterSpacing = Number(style.letterSpacing);
+            /* Fabric charSpacing is in 1/1000 em; ShotStack letterSpacing is in px */
+            var csFontSize = richObj.fontSize || 48;
+            richObj.charSpacing = (Number(style.letterSpacing) / csFontSize) * 1000;
+          }
+          if (style.lineHeight != null) {
+            richObj.cfsLineHeight = Number(style.lineHeight);
+            richObj.lineHeight = Number(style.lineHeight);
+          }
+          if (style.textTransform) {
+            richObj.cfsTextTransform = style.textTransform;
+            /* Apply transform directly to text content */
+            if (style.textTransform === 'uppercase' && richObj.text) richObj.text = richObj.text.toUpperCase();
+            else if (style.textTransform === 'lowercase' && richObj.text) richObj.text = richObj.text.toLowerCase();
+            else if (style.textTransform === 'capitalize' && richObj.text) richObj.text = richObj.text.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+          }
+          if (style.textDecoration) {
+            richObj.cfsTextDecoration = style.textDecoration;
+            if (style.textDecoration === 'underline') richObj.underline = true;
+            else if (style.textDecoration === 'line-through' || style.textDecoration === 'strikethrough') richObj.linethrough = true;
+          }
           if (style.gradient) richObj.cfsGradient = style.gradient;
           if (asset.stroke && (asset.stroke.width || asset.stroke.color)) {
             richObj.cfsStroke = { width: Number(asset.stroke.width) || 0, color: asset.stroke.color || '#000000', opacity: asset.stroke.opacity != null ? Number(asset.stroke.opacity) : 1 };
+            /* Apply to Fabric native stroke */
+            richObj.stroke = asset.stroke.color || '#000000';
+            richObj.strokeWidth = Number(asset.stroke.width) || 0;
           }
           if (asset.shadow && (asset.shadow.offsetX != null || asset.shadow.offsetY != null)) {
             richObj.cfsShadow = {
@@ -605,6 +654,15 @@
               color: asset.shadow.color || '#000000',
               opacity: asset.shadow.opacity != null ? Number(asset.shadow.opacity) : 0.5,
             };
+            /* Apply to Fabric native shadow */
+            var _ShadowCtor = (typeof fabric !== 'undefined' && fabric.Shadow) || null;
+            var _shadowOpts = {
+              offsetX: Number(asset.shadow.offsetX) || 0,
+              offsetY: Number(asset.shadow.offsetY) || 0,
+              blur: Number(asset.shadow.blur) || 0,
+              color: asset.shadow.color || 'rgba(0,0,0,0.5)',
+            };
+            richObj.shadow = _ShadowCtor ? new _ShadowCtor(_shadowOpts) : _shadowOpts;
           }
           if (asset.align) {
             var hAlign = asset.align.horizontal || 'left';
@@ -612,6 +670,24 @@
             richObj.cfsAlignHorizontal = hAlign;
             richObj.cfsAlignVertical = vAlign;
             richObj.textAlign = (hAlign === 'center' ? 'center' : hAlign === 'right' ? 'right' : 'left');
+            /* Apply vertical alignment offset to match Pixi's centering logic.
+               Estimate text height from fontSize * lineHeight * lineCount. */
+            var hasExplicitH = (clip.height != null) || (asset.height != null);
+            if (hasExplicitH && clipH > 0 && (vAlign === 'center' || vAlign === 'middle')) {
+              var vFontSize = richObj.fontSize || 48;
+              var vLineHeight = richObj.lineHeight || 1.16;
+              var vLineCount = (richObj.text || '').split('\n').length;
+              var vEstTextH = vFontSize * vLineHeight * vLineCount;
+              richObj.top = rtop + Math.max(0, (clipH - vEstTextH) / 2);
+              richObj.cfsTopPct = richObj.top / height;
+            } else if (hasExplicitH && clipH > 0 && vAlign === 'bottom') {
+              var vFontSize = richObj.fontSize || 48;
+              var vLineHeight = richObj.lineHeight || 1.16;
+              var vLineCount = (richObj.text || '').split('\n').length;
+              var vEstTextH = vFontSize * vLineHeight * vLineCount;
+              richObj.top = rtop + Math.max(0, clipH - vEstTextH);
+              richObj.cfsTopPct = richObj.top / height;
+            }
           }
           richObj.originX = 'left';
           richObj.originY = 'top';
@@ -654,6 +730,7 @@
                 bgRect.ry = Number(asset.background.borderRadius);
               }
               if (clip._cfsHideOnImage) bgRect.cfsHideOnImage = true;
+              if (clip.opacity != null && !isNaN(Number(clip.opacity))) bgRect.opacity = Math.max(0, Math.min(1, Number(clip.opacity)));
               objects.push(bgRect);
             } else {
               richObj.backgroundColor = asset.background.color;
@@ -801,6 +878,7 @@
             name: asset.alias || (videoMergeName || 'video_' + clipIndex),
             scaleX: vidScale,
             scaleY: vidScale,
+            opacity: (clip.opacity != null && !isNaN(Number(clip.opacity))) ? Number(clip.opacity) : 1,
             selectable: true,
             evented: true,
             cfsVideoSrc: videoSrc,
@@ -810,8 +888,8 @@
             cfsLengthAuto: clip.length === 'auto',
             cfsTrackIndex: trackIdx,
             objects: [
-              { type: 'rect', width: baseVw, height: baseVh, fill: '#2d3748', left: 0, top: 0 },
-              { type: 'text', text: 'Video', fontSize: 18, fill: '#e2e8f0', originX: 'center', originY: 'center', left: baseVw / 2, top: baseVh / 2 },
+              { type: 'rect', width: baseVw, height: baseVh, fill: '#2d3748', opacity: 0, left: 0, top: 0 },
+              { type: 'text', text: 'Video', fontSize: 18, fill: '#e2e8f0', opacity: 0.05, originX: 'center', originY: 'center', left: baseVw / 2, top: baseVh / 2 },
             ],
           };
           videoGroup.cfsVideoWidth = clip.width != null ? Number(clip.width) : (asset.width != null ? Number(asset.width) : baseVw);
@@ -1691,10 +1769,17 @@
   }
 
   var TRANSITION_DURATIONS = {
-    fade: 0.5, slideLeft: 0.4, slideRight: 0.4, slideUp: 0.4, slideDown: 0.4,
+    fade: 0.3, fadeSlow: 0.6, fadeFast: 0.15,
+    reveal: 0.5, revealSlow: 0.8, revealFast: 0.25,
+    wipeLeft: 0.35, wipeRight: 0.35, wipeUp: 0.35, wipeDown: 0.35,
+    slideLeft: 0.4, slideRight: 0.4, slideUp: 0.4, slideDown: 0.4,
     slideLeftSlow: 0.7, slideRightSlow: 0.7, slideUpSlow: 0.7, slideDownSlow: 0.7,
+    zoomIn: 0.35, zoomOut: 0.35, zoomInSlow: 0.6, zoomOutSlow: 0.6,
     carouselLeft: 0.5, carouselRight: 0.5, carouselUp: 0.5, carouselDown: 0.5,
-    zoom: 0.5, reveal: 0.5, wipeLeft: 0.5, wipeRight: 0.5, wipeUp: 0.5, wipeDown: 0.5,
+    carouselLeftSlow: 0.8, carouselRightSlow: 0.8, carouselUpSlow: 0.8, carouselDownSlow: 0.8,
+    shuffle: 0.5,
+    shuffleTopRight: 0.5, shuffleRightTop: 0.5, shuffleRightBottom: 0.5, shuffleBottomRight: 0.5,
+    shuffleBottomLeft: 0.5, shuffleLeftBottom: 0.5, shuffleLeftTop: 0.5, shuffleTopLeft: 0.5,
   };
 
   function transitionProgress(t, clipStart, clipLength, transIn, transOut) {
@@ -1713,21 +1798,27 @@
     var baseLeft = obj._cfsBaseLeft;
     var baseTop = obj._cfsBaseTop;
     var baseOpacity = obj._cfsBaseOpacity;
+    var baseScaleX = obj._cfsBaseScaleX;
+    var baseScaleY = obj._cfsBaseScaleY;
     var inName = (trans['in'] || trans.in || '').toString();
     var outName = (trans.out || '').toString();
     if (!inName && !outName) return;
 
     var prog = transitionProgress(timeSec, clipStart, clipLength, inName, outName);
-    var slideDist = Math.max(obj.width || 200, obj.height || 200, 200);
+    var objW = (obj.width || 200) * (baseScaleX || 1);
+    var objH = (obj.height || 200) * (baseScaleY || 1);
+    var slideDist = Math.max(objW, objH, 200);
     var newLeft = baseLeft;
     var newTop = baseTop;
     var newOpacity = baseOpacity;
+    var newScaleX = baseScaleX;
+    var newScaleY = baseScaleY;
 
     var fadeAlphaIn = false;
     var fadeAlphaOut = false;
     if (inName) {
       var inLower = inName.toLowerCase();
-      if (inLower === 'fade') {
+      if (inLower.indexOf('fade') !== -1) {
         fadeAlphaIn = true;
       } else if (inLower.indexOf('slide') === 0 || inLower.indexOf('wipe') === 0) {
         var dir = inLower.indexOf('left') !== -1 ? -1 : (inLower.indexOf('right') !== -1 ? 1 : (inLower.indexOf('up') !== -1 ? -1 : 1));
@@ -1735,19 +1826,35 @@
         var offset = (1 - prog.inProgress) * slideDist * dir;
         if (axis === 'x') newLeft = baseLeft + offset; else newTop = baseTop + offset;
       } else if (inLower.indexOf('carousel') === 0) {
+        /* carouselUp = content enters from below (positive Y offset → base position).
+           Match Pixi direction: Up → +1, Down → -1 (inverted from slide convention). */
         var cDir = inLower.indexOf('left') !== -1 ? 1 : (inLower.indexOf('right') !== -1 ? -1 : (inLower.indexOf('up') !== -1 ? 1 : -1));
         var cAxis = (inLower.indexOf('left') !== -1 || inLower.indexOf('right') !== -1) ? 'x' : 'y';
         var cOff = (1 - prog.inProgress) * slideDist * 0.5 * cDir;
         if (cAxis === 'x') newLeft = baseLeft + cOff; else newTop = baseTop + cOff;
-      } else if (inLower === 'zoom') {
+      } else if (inLower.indexOf('zoom') !== -1) {
         fadeAlphaIn = true;
-      } else if (inLower === 'reveal') {
+        var zs = prog.inProgress;
+        newScaleX = baseScaleX * zs;
+        newScaleY = baseScaleY * zs;
+        var centerX = baseLeft + objW / 2;
+        var centerY = baseTop + objH / 2;
+        newLeft = centerX - (objW * zs) / 2;
+        newTop = centerY - (objH * zs) / 2;
+      } else if (inLower.indexOf('reveal') !== -1) {
         fadeAlphaIn = true;
+        var rs = 0.9 + 0.1 * prog.inProgress;
+        newScaleX = baseScaleX * rs;
+        newScaleY = baseScaleY * rs;
+        var centerX = baseLeft + objW / 2;
+        var centerY = baseTop + objH / 2;
+        newLeft = centerX - (objW * rs) / 2;
+        newTop = centerY - (objH * rs) / 2;
       }
     }
     if (outName) {
       var outLower = outName.toLowerCase();
-      if (outLower === 'fade') {
+      if (outLower.indexOf('fade') !== -1) {
         fadeAlphaOut = true;
       } else if (outLower.indexOf('slide') === 0 || outLower.indexOf('wipe') === 0) {
         var oDir = outLower.indexOf('left') !== -1 ? -1 : (outLower.indexOf('right') !== -1 ? 1 : (outLower.indexOf('up') !== -1 ? -1 : 1));
@@ -1755,12 +1862,29 @@
         var oOff = prog.outProgress * slideDist * oDir;
         if (oAxis === 'x') newLeft = newLeft + oOff; else newTop = newTop + oOff;
       } else if (outLower.indexOf('carousel') === 0) {
+        /* Match Pixi: carouselUp out = content exits upward (negative Y). */
         var cODir = outLower.indexOf('left') !== -1 ? -1 : (outLower.indexOf('right') !== -1 ? 1 : (outLower.indexOf('up') !== -1 ? -1 : 1));
         var cOAxis = (outLower.indexOf('left') !== -1 || outLower.indexOf('right') !== -1) ? 'x' : 'y';
         var cOOff = prog.outProgress * slideDist * 0.5 * cODir;
         if (cOAxis === 'x') newLeft = newLeft + cOOff; else newTop = newTop + cOOff;
-      } else if (outLower === 'fade' || outLower === 'zoom' || outLower === 'reveal') {
+      } else if (outLower.indexOf('zoom') !== -1) {
         fadeAlphaOut = true;
+        var zso = 1 - prog.outProgress;
+        newScaleX = baseScaleX * zso;
+        newScaleY = baseScaleY * zso;
+        var centerX = baseLeft + objW / 2;
+        var centerY = baseTop + objH / 2;
+        newLeft = centerX - (objW * zso) / 2;
+        newTop = centerY - (objH * zso) / 2;
+      } else if (outLower.indexOf('reveal') !== -1) {
+        fadeAlphaOut = true;
+        var rso = 1 - prog.outProgress * 0.1;
+        newScaleX = baseScaleX * rso;
+        newScaleY = baseScaleY * rso;
+        var centerX = baseLeft + objW / 2;
+        var centerY = baseTop + objH / 2;
+        newLeft = centerX - (objW * rso) / 2;
+        newTop = centerY - (objH * rso) / 2;
       }
     }
     if (fadeAlphaIn) newOpacity = newOpacity * prog.inProgress;
@@ -1770,6 +1894,10 @@
       obj.set('left', newLeft);
       obj.set('top', newTop);
       obj.set('opacity', Math.max(0, Math.min(1, newOpacity)));
+      if (newScaleX !== baseScaleX || newScaleY !== baseScaleY) {
+        obj.set('scaleX', newScaleX);
+        obj.set('scaleY', newScaleY);
+      }
     }
   }
 
@@ -1791,14 +1919,26 @@
     if (eff.indexOf('zoomin') !== -1) {
       var zs = eff.indexOf('slow') !== -1 ? (1 + p * 0.15) : (1 + p * 0.3);
       if (obj.set) {
+        var objW = (obj.width || 0) * baseScaleX;
+        var objH = (obj.height || 0) * baseScaleY;
+        var centerX = baseLeft + objW / 2;
+        var centerY = baseTop + objH / 2;
         obj.set('scaleX', baseScaleX * zs);
         obj.set('scaleY', baseScaleY * zs);
+        obj.set('left', centerX - (objW * zs) / 2);
+        obj.set('top', centerY - (objH * zs) / 2);
       }
     } else if (eff.indexOf('zoomout') !== -1) {
       var zos = eff.indexOf('slow') !== -1 ? (1.15 - p * 0.15) : (1.3 - p * 0.3);
       if (obj.set) {
+        var objW = (obj.width || 0) * baseScaleX;
+        var objH = (obj.height || 0) * baseScaleY;
+        var centerX = baseLeft + objW / 2;
+        var centerY = baseTop + objH / 2;
         obj.set('scaleX', baseScaleX * zos);
         obj.set('scaleY', baseScaleY * zos);
+        obj.set('left', centerX - (objW * zos) / 2);
+        obj.set('top', centerY - (objH * zos) / 2);
       }
     } else if (eff.indexOf('slideleft') !== -1) {
       if (obj.set) obj.set('left', baseLeft - p * 80);

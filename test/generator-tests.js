@@ -2358,7 +2358,7 @@
   global.testTimelinePanelExportsConstants = function () {
     var panel = global.__CFS_timelinePanel;
     if (!panel) return;
-    assertTrue(panel.TRACK_LABEL_WIDTH === 52, 'TRACK_LABEL_WIDTH should be 52');
+    assertTrue(panel.TRACK_LABEL_WIDTH === 60, 'TRACK_LABEL_WIDTH should be 60');
     assertTrue(panel.TRACK_ROW_HEIGHT === 40, 'TRACK_ROW_HEIGHT should be 40');
   };
 

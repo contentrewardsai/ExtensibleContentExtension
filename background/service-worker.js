@@ -7234,9 +7234,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const params = {};
-        if (msg.profile) params.profile = msg.profile;
-        const r = await uploadPostGet('/uploadposts/facebook/pages', auth.apiKey, params);
+        var params2 = {};
+        if (msg.profile) params2.profile = msg.profile;
+        var r = await uploadPostGet('/uploadposts/facebook/pages', auth.apiKey, params2);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -7256,9 +7256,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const params = {};
-        if (msg.profile) params.profile = msg.profile;
-        const r = await uploadPostGet('/uploadposts/linkedin/pages', auth.apiKey, params);
+        var params2 = {};
+        if (msg.profile) params2.profile = msg.profile;
+        var r = await uploadPostGet('/uploadposts/linkedin/pages', auth.apiKey, params2);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -7278,9 +7278,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const params = {};
-        if (msg.profile) params.profile = msg.profile;
-        const r = await uploadPostGet('/uploadposts/pinterest/boards', auth.apiKey, params);
+        var params2 = {};
+        if (msg.profile) params2.profile = msg.profile;
+        var r = await uploadPostGet('/uploadposts/pinterest/boards', auth.apiKey, params2);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -7301,10 +7301,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const params = {};
-        if (msg.mediaId) params.media_id = msg.mediaId;
-        if (msg.postUrl) params.post_url = msg.postUrl;
-        const r = await uploadPostGet('/uploadposts/comments', auth.apiKey, params);
+        var params2 = {};
+        if (msg.mediaId) params2.media_id = msg.mediaId;
+        if (msg.postUrl) params2.post_url = msg.postUrl;
+        var r = await uploadPostGet('/uploadposts/comments', auth.apiKey, params2);
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -7324,7 +7324,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const r = await uploadPostPost('/uploadposts/comments/reply', auth.apiKey, {
+        var r = await uploadPostPost('/uploadposts/comments/reply', auth.apiKey, {
           comment_id: msg.commentId,
           message: msg.message,
         });
@@ -7347,7 +7347,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const r = await uploadPostPost('/uploadposts/dms/send', auth.apiKey, {
+        var r = await uploadPostPost('/uploadposts/dms/send', auth.apiKey, {
           recipient_id: msg.recipientId,
           message: msg.message,
         });
@@ -7368,7 +7368,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: r.ok, json: r.json, ...(r.ok ? {} : { error: r.json.error || 'HTTP ' + r.status }) });
           return;
         }
-        const r = await uploadPostGet('/analytics/' + encodeURIComponent(msg.profileUsername), auth.apiKey, {});
+        var r = await uploadPostGet('/analytics/' + encodeURIComponent(msg.profileUsername), auth.apiKey, {});
         if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
         sendResponse({ ok: true, json: r.json });
       } catch (e) { sendResponse({ ok: false, error: e?.message || 'Request failed' }); }
@@ -7392,14 +7392,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         if (msg.requestId) {
-          const r = await uploadPostGet('/uploadposts/post-analytics/' + encodeURIComponent(msg.requestId), auth.apiKey, {});
+          var r = await uploadPostGet('/uploadposts/post-analytics/' + encodeURIComponent(msg.requestId), auth.apiKey, {});
           if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
           sendResponse({ ok: true, json: r.json });
         } else if (msg.profileUsername) {
-          const params = {};
-          if (msg.startDate) params.start_date = msg.startDate;
-          if (msg.endDate) params.end_date = msg.endDate;
-          const r = await uploadPostGet('/uploadposts/total-impressions/' + encodeURIComponent(msg.profileUsername), auth.apiKey, params);
+          var params2 = {};
+          if (msg.startDate) params2.start_date = msg.startDate;
+          if (msg.endDate) params2.end_date = msg.endDate;
+          var r = await uploadPostGet('/uploadposts/total-impressions/' + encodeURIComponent(msg.profileUsername), auth.apiKey, params2);
           if (!r.ok) { sendResponse({ ok: false, error: r.json.error || r.json.message || 'HTTP ' + r.status, json: r.json }); return; }
           sendResponse({ ok: true, json: r.json });
         } else {
