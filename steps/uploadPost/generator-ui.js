@@ -812,15 +812,7 @@
                 setStatus(statusEl, msg, '');
               });
               if (local.ok) { converted.blob = local.blob; return converted; }
-              console.warn('[CFS] Local FFmpeg WASM failed, trying cloud:', local.error);
-            }
-
-            if (global.UploadPost && global.UploadPost.convertToMp4) {
-              var cloud = await global.UploadPost.convertToMp4(out.blob, function (msg) {
-                setStatus(statusEl, msg, '');
-              });
-              if (cloud.ok) { converted.blob = cloud.blob; return converted; }
-              setStatus(statusEl, 'MP4 conversion failed: ' + cloud.error + '. Uploading original format.', 'error');
+              console.warn('[CFS] Local FFmpeg WASM conversion failed, uploading original format:', local.error);
             }
 
             return out;

@@ -1043,62 +1043,6 @@
     return safeApiFetch(SOCIAL_POST_PREFIX + '/post-analytics?' + q.toString());
   }
 
-  // -- FFmpeg (proxied) --
-
-  /**
-   * POST /api/extension/social-post/ffmpeg (auth) — proxy FFmpeg conversion
-   * Uses raw fetch for multipart.
-   * @param {FormData} formData — file, command, output_extension
-   */
-  async function proxyFfmpegSubmit(formData) {
-    const { token } = await getToken();
-    if (!token) return { ok: false, error: 'Not logged in' };
-    try {
-      const res = await fetch(APP_ORIGIN + SOCIAL_POST_PREFIX + '/ffmpeg', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + token },
-        body: formData,
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, error: json.message || json.error || res.statusText, status: res.status, json };
-      return { ok: true, ...json };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'Network error' };
-    }
-  }
-
-  /**
-   * GET /api/extension/social-post/ffmpeg/:jobId (auth)
-   * @param {string} jobId
-   */
-  async function proxyFfmpegStatus(jobId) {
-    return safeApiFetch(SOCIAL_POST_PREFIX + '/ffmpeg/' + encodeURIComponent(jobId));
-  }
-
-  /**
-   * GET /api/extension/social-post/ffmpeg/:jobId/download (auth)
-   * Returns blob.
-   * @param {string} jobId
-   */
-  async function proxyFfmpegDownload(jobId) {
-    const { token } = await getToken();
-    if (!token) return { ok: false, error: 'Not logged in' };
-    try {
-      const res = await fetch(APP_ORIGIN + SOCIAL_POST_PREFIX + '/ffmpeg/' + encodeURIComponent(jobId) + '/download', {
-        headers: { Authorization: 'Bearer ' + token },
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        return { ok: false, error: text || res.statusText };
-      }
-      const blob = await res.blob();
-      const ct = res.headers.get('content-type') || 'video/mp4';
-      return { ok: true, blob, contentType: ct };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'Network error' };
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // ShotStack Proxy — routes ShotStack operations through the backend
   // so the master ShotStack API key never leaves the server.
@@ -1266,10 +1210,6 @@
     proxyGetPinterestBoards,
     proxyGetInstagramComments,
     proxyGetPostAnalytics,
-    // FFmpeg
-    proxyFfmpegSubmit,
-    proxyFfmpegStatus,
-    proxyFfmpegDownload,
     // ShotStack Proxy
     proxyShotstackRender,
     proxyShotstackPoll,
