@@ -1129,7 +1129,7 @@
   /**
    * POST /api/extension/shotstack/store-render (auth) — download CDN output → Supabase.
    * Called after a successful render to persist the output before the CDN URL expires (24h).
-   * @param {{ renderId: string, url: string, environment: string, format?: string, durationSeconds?: number }} params
+   * @param {{ renderId: string, url: string, environment: string, format?: string, project_id?: string, template_id?: string, durationSeconds?: number }} params
    * @returns {Promise<{ ok: boolean, file_url?: string, file_id?: string, error?: string }>}
    */
   async function storeShotstackRender(params) {
