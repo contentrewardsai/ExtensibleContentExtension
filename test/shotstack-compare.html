@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ShotStack Import — Pixi vs Fabric vs Reference</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #e0e0e0; font-family: 'Inter', system-ui, sans-serif; }
+  h1 { text-align: center; padding: 12px 0 4px; font-size: 18px; color: #a0a0ff; }
+  .controls { text-align: center; padding: 8px; }
+  .controls button { background: #333366; color: #e0e0e0; border: 1px solid #555; padding: 6px 14px; margin: 0 4px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .controls button:hover { background: #444488; }
+  .controls button.active { background: #5566aa; }
+  .controls span { margin: 0 8px; font-size: 13px; }
+  #status { text-align: center; padding: 4px; font-size: 12px; color: #aaa; min-height: 20px; }
+  .compare-row { display: flex; justify-content: center; gap: 8px; padding: 4px 8px; flex-wrap: wrap; }
+  .panel { text-align: center; }
+  .panel h3 { font-size: 13px; margin-bottom: 4px; color: #888; }
+  .panel canvas, .panel video { border: 1px solid #333; border-radius: 4px; background: #000; }
+  #diffCanvas { border-color: #663333; }
+  #log { max-height: 200px; overflow-y: auto; background: #111; margin: 8px; padding: 8px; font-size: 11px; font-family: monospace; border-radius: 4px; border: 1px solid #333; }
+  #log .warn { color: #ffaa00; }
+  #log .ok { color: #44dd44; }
+  #log .err { color: #ff4444; }
+</style>
+</head>
+<body>
+<h1>ShotStack Template Import — Pixi vs Fabric vs Reference</h1>
+
+<div class="controls">
+  <button id="btnPlay">▶ Play Compare</button>
+  <button id="btnPause">⏸ Pause</button>
+  <button id="btnStep">Step →</button>
+  <input id="seekTime" type="number" step="0.1" min="0" style="width:60px;background:#222;color:#eee;border:1px solid #555;padding:4px;font-size:12px;border-radius:3px;" placeholder="t" title="Seek to time (s)">
+  <button id="btnSeek" style="font-size:12px;padding:4px 8px;">Seek</button>
+  <button id="btnDiffReport" style="font-size:12px;padding:4px 8px;background:#553333;">Diff Report</button>
+  <span id="timeDisplay">0.000s / 0.000s</span>
+</div>
+<div id="status">Auto-loading template...</div>
+
+<div class="compare-row">
+  <div class="panel">
+    <h3>Reference (ShotStack)</h3>
+    <video id="refVideo" width="216" height="384" muted playsinline></video>
+  </div>
+  <div class="panel">
+    <h3>Pixi Renderer</h3>
+    <canvas id="pixiCanvas" width="1080" height="1920" style="width:216px;height:384px;"></canvas>
+  </div>
+  <div class="panel">
+    <h3>Fabric Renderer</h3>
+    <canvas id="fabricCanvasEl" width="1080" height="1920" style="width:216px;height:384px;"></canvas>
+  </div>
+  <div class="panel">
+    <h3>Diff (Pixi vs Fabric)</h3>
+    <canvas id="diffCanvas" width="1080" height="1920" style="width:216px;height:384px;"></canvas>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<!-- Dependencies -->
+<script src="../lib/pixi.min.js"></script>
+<script src="../lib/pixi-unsafe-eval.min.js"></script>
+<script src="../lib/fabric.min.js"></script>
+<script src="../generator/core/wrap-text.js?v=2"></script>
+<script src="../generator/core/font-loader.js?v=2"></script>
+<script src="../generator/core/position-from-clip.js?v=2"></script>
+<script src="../generator/core/scene.js?v=4"></script>
+<script src="../generator/core/pixi-timeline-player.js?v=20"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Template JSON ── */
+  var TEMPLATE = {"timeline":{"fonts":[{"src":"https://templates.shotstack.io/new-arrivals-spotlight/ec598fcd-3e7a-4e43-8d8f-bef4f45021e4/source.ttf"},{"src":"https://templates.shotstack.io/new-arrivals-spotlight/997fd84a-9d7c-4975-932f-ad3587aaaa70/source.ttf"}],"background":"#FFFFFF","tracks":[{"clips":[{"length":"end","asset":{"type":"audio","src":"https://templates.shotstack.io/new-arrivals-spotlight/860e44ca-90ef-45cb-b170-4aed39c4651c/source.mp3","volume":1,"effect":"fadeOut"},"start":0}]},{"clips":[{"fit":"none","scale":1,"asset":{"type":"text","text":"{{ BRAND_NAME }}","alignment":{"horizontal":"center","vertical":"center"},"font":{"color":"#e3d8c6","family":"Montserrat SemiBold","size":"180","lineHeight":1},"width":1160,"height":593},"start":2.81,"length":2.29,"offset":{"x":0,"y":0.167},"position":"center","effect":"zoomInSlow","transition":{"in":"fade","out":"fade"}}]},{"clips":[{"fit":"none","scale":1,"asset":{"type":"text","text":"Shop new arrivals\ntoday","alignment":{"horizontal":"center","vertical":"center"},"font":{"color":"#000000","family":"Raleway ExtraBold","size":"100","lineHeight":1},"width":1080,"height":325},"start":3.11,"length":"end","offset":{"x":0,"y":-0.257},"position":"center","transition":{"in":"fade"}}]},{"clips":[{"fit":"none","scale":1,"asset":{"type":"text","text":"","alignment":{"horizontal":"center","vertical":"center"},"font":{"color":"#000000","family":"Montserrat ExtraBold","size":72,"lineHeight":1},"width":1080,"height":250,"background":{"color":"#d5c49b"}},"start":3.11,"length":"end","offset":{"y":-0.256,"x":0},"position":"center","transition":{"in":"slideDown"},"opacity":1}]},{"clips":[{"fit":"none","scale":1,"asset":{"type":"text","text":"","alignment":{"horizontal":"center","vertical":"center"},"font":{"color":"#000000","family":"Montserrat ExtraBold","size":72,"lineHeight":1},"width":1080,"height":325,"background":{"color":"#ffffff"}},"start":3.14,"length":"end","offset":{"y":-0.256,"x":0},"position":"center","opacity":0.1,"transition":{"in":"slideUp"}}]},{"clips":[{"length":"end","fit":"contain","asset":{"type":"video","src":"https://templates.shotstack.io/new-arrivals-spotlight/bpo1ib7c67nzhytx1361sk9o/source_0132214c.webm"},"start":0,"position":"center"}]},{"clips":[{"fit":"none","scale":1,"asset":{"type":"text","text":"","alignment":{"horizontal":"center","vertical":"center"},"font":{"color":"#000000","family":"Montserrat ExtraBold","size":72,"lineHeight":1},"width":1920,"height":1080,"background":{"color":"#c1a775"}},"start":0,"length":2.5,"transition":{"out":"fade"},"position":"center"}]},{"clips":[{"length":"end","fit":"contain","asset":{"type":"video","src":"https://templates.shotstack.io/new-arrivals-spotlight/bpo1ib7c67nzhytx1361sk9o/source_91a34304.webm"},"start":1.79,"opacity":0.5}]},{"clips":[{"length":2.2,"asset":{"type":"image","src":"https://templates.shotstack.io/new-arrivals-spotlight/ff41a690-16f1-4e4f-b258-ce21c24bfcdc/source.jpg"},"start":12.82,"effect":"zoomOutSlow","transition":{"in":"carouselUpSlow"}}]},{"clips":[{"length":3.34,"asset":{"type":"image","src":"https://templates.shotstack.io/new-arrivals-spotlight/9f5adbab-c08d-4add-ac21-2ebbbf0888fb/source.jpg"},"start":10.62,"effect":"zoomOutSlow","transition":{"in":"carouselUpSlow"}}]},{"clips":[{"length":3.34,"asset":{"type":"image","src":"https://templates.shotstack.io/new-arrivals-spotlight/73eaac3b-f691-416c-8ecb-0138b23e0ce5/source.jpg"},"start":8.4,"effect":"zoomOutSlow","transition":{"in":"carouselUpSlow"}}]},{"clips":[{"length":3.34,"asset":{"type":"image","src":"https://templates.shotstack.io/new-arrivals-spotlight/0b2ab3ed-a5ca-4cdd-ac75-1a82f8c58c23/source.jpg"},"start":6.2,"effect":"zoomOutSlow","transition":{"in":"carouselUpSlow"},"position":"center"}]},{"clips":[{"length":3.34,"asset":{"type":"image","src":"https://templates.shotstack.io/new-arrivals-spotlight/3a36bf11-ceb6-4d18-9ef0-7da213e21b53/source.jpg"},"start":3.98,"effect":"zoomOutSlow","transition":{"in":"carouselUp"},"position":"center"}]},{"clips":[{"length":3.34,"asset":{"type":"image","src":"https://templates.shotstack.io/new-arrivals-spotlight/40e95741-6650-4759-a4a2-86d626540811/source.jpg"},"start":1.73,"effect":"zoomOutSlow"}]}]},"output":{"format":"mp4","fps":25,"size":{"width":1080,"height":1920}},"merge":[{"find":"BRAND_NAME","replace":"BRAND NAME"},{"find":"IMAGE_1","replace":"https://templates.shotstack.io/new-arrivals-spotlight/fa03d367-9c11-40a6-8f12-ce25f02e151d/source.jpg"},{"find":"IMAGE_2","replace":"https://templates.shotstack.io/new-arrivals-spotlight/654bd5b6-951d-47b0-a5c3-a2440a4f579d/source.jpg"},{"find":"IMAGE_3","replace":"https://templates.shotstack.io/new-arrivals-spotlight/3ee148e5-571d-4aa2-a42e-208d96dc0d6f/source.jpg"},{"find":"IMAGE_4","replace":"https://templates.shotstack.io/new-arrivals-spotlight/03aac303-fd44-45e0-8b87-317ee4698bbc/source.jpg"},{"find":"IMAGE_5","replace":"https://templates.shotstack.io/new-arrivals-spotlight/662394c0-1763-4ab5-9f42-33885792f777/source.jpg"},{"find":"IMAGE_6","replace":"https://templates.shotstack.io/new-arrivals-spotlight/fb5944c6-6765-4670-9d74-5d7d3d72c1c1/source.jpg"}]};
+
+  /* ── Merge → flat map ── */
+  var mergeMap = {};
+  (TEMPLATE.merge || []).forEach(function (m) { if (m && m.find) mergeMap[m.find] = m.replace || ''; });
+
+  /* ── DOM refs ── */
+  var refVideo = document.getElementById('refVideo');
+  var pixiDisplayCanvas = document.getElementById('pixiCanvas');
+  var diffCanvas = document.getElementById('diffCanvas');
+  var statusEl = document.getElementById('status');
+  var logEl = document.getElementById('log');
+  var timeDisplay = document.getElementById('timeDisplay');
+
+  /* ── Reference video ── */
+  refVideo.crossOrigin = 'anonymous';
+  refVideo.playsInline = true;
+  refVideo.preload = 'auto';
+  refVideo.addEventListener('loadeddata', function () {
+    log('Reference video loaded: ' + refVideo.videoWidth + 'x' + refVideo.videoHeight + ', duration=' + refVideo.duration.toFixed(2) + 's', 'ok');
+  });
+  refVideo.addEventListener('error', function () {
+    var e = refVideo.error;
+    log('Reference video ERROR: ' + (e ? e.message || 'code ' + e.code : 'unknown'), 'err');
+  });
+  refVideo.src = '../uploads/bcb270bf-2f93-4cc9-b442-bb17e8887b55/source/media/import/ShotStack-preview.mp4';
+  refVideo.load();
+
+  /* ── State ── */
+  var pixiPlayer = null;
+  var fabricCanvas = null;
+  var totalDuration = 0;
+  var currentTime = 0;
+  var playing = false;
+  var playTimer = null;
+  var COMPARE_FPS = 10;
+  var STEP_MS = 1000 / COMPARE_FPS;
+  var mediaBlobMap = {};  /* original URL → blob URL */
+
+  function log(msg, cls) {
+    var d = document.createElement('div');
+    d.className = cls || '';
+    d.textContent = '[' + new Date().toISOString().slice(11, 23) + '] ' + msg;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log('[ShotStack Compare] ' + msg);
+  }
+
+  /* ── Pre-download all media through CORS proxy ── */
+  async function preDownloadMedia() {
+    var urls = new Set();
+    var tracks = (TEMPLATE.timeline && TEMPLATE.timeline.tracks) || [];
+    tracks.forEach(function (track) {
+      (track.clips || []).forEach(function (clip) {
+        var asset = clip.asset || {};
+        var src = asset.src || '';
+        if ((asset.type === 'image' || asset.type === 'video' || asset.type === 'image-to-video') && src.startsWith('http')) {
+          urls.add(src);
+        }
+      });
+    });
+    log('Pre-downloading ' + urls.size + ' media files via proxy...');
+    var promises = [];
+    urls.forEach(function (url) {
+      promises.push(
+        fetch('/proxy?url=' + encodeURIComponent(url))
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+          .then(function (blob) {
+            mediaBlobMap[url] = URL.createObjectURL(blob);
+            log('  ✓ ' + url.split('/').pop());
+          })
+          .catch(function (e) { log('  ✗ ' + url.split('/').pop() + ': ' + e.message, 'err'); })
+      );
+    });
+    await Promise.all(promises);
+    log('Pre-download complete: ' + Object.keys(mediaBlobMap).length + '/' + urls.size + ' files', 'ok');
+
+    /* ── Load custom fonts from template ── */
+    var fonts = (TEMPLATE.timeline && TEMPLATE.timeline.fonts) || [];
+    if (fonts.length) {
+      log('Loading ' + fonts.length + ' custom fonts...');
+      /* Map font filename conventions to CSS font-family names */
+      var fontNameMap = {
+        'Montserrat-SemiBold': 'Montserrat SemiBold',
+        'Montserrat-ExtraBold': 'Montserrat ExtraBold',
+        'Raleway-ExtraBold': 'Raleway ExtraBold',
+      };
+      var fontPromises = fonts.map(function (f) {
+        var src = f.src;
+        if (!src || !src.startsWith('http')) return Promise.resolve();
+        return fetch('/proxy?url=' + encodeURIComponent(src))
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+          .then(function (blob) {
+            var blobUrl = URL.createObjectURL(blob);
+            /* Guess font family name from filename */
+            var filename = src.split('/').pop().replace('.ttf', '').replace('.otf', '');
+            var familyName = fontNameMap[filename] || filename;
+            /* Also try a broader guess from the URL path */
+            if (familyName === filename) {
+              /* Check any known family names mentioned in template clips */
+              var allFamilies = [];
+              tracks.forEach(function (track) {
+                (track.clips || []).forEach(function (clip) {
+                  var a = clip.asset || {};
+                  if (a.font && a.font.family) allFamilies.push(a.font.family);
+                });
+              });
+              /* Assign fonts in order if names can't be determined from filename */
+              if (familyName === 'source' && allFamilies.length) {
+                var fontIdx = fonts.indexOf(f);
+                /* Deduplicate families */
+                var unique = [];
+                allFamilies.forEach(function (fam) { if (unique.indexOf(fam) === -1) unique.push(fam); });
+                if (fontIdx < unique.length) familyName = unique[fontIdx];
+              }
+            }
+            /* Register as @font-face */
+            var style = document.createElement('style');
+            style.textContent = '@font-face { font-family: "' + familyName + '"; src: url("' + blobUrl + '") format("truetype"); }';
+            document.head.appendChild(style);
+            /* Preload using FontFace API if available */
+            if (window.FontFace) {
+              var ff = new FontFace(familyName, 'url(' + blobUrl + ')');
+              return ff.load().then(function (loaded) {
+                document.fonts.add(loaded);
+                log('  ✓ Font: ' + familyName, 'ok');
+              });
+            } else {
+              log('  ✓ Font (CSS): ' + familyName);
+            }
+          })
+          .catch(function (e) { log('  ✗ Font: ' + src.split('/').pop() + ': ' + e.message, 'err'); });
+      });
+      await Promise.all(fontPromises);
+      log('Font loading complete', 'ok');
+    }
+  }
+
+  /* Rewrite remote URLs in template to use blob URLs */
+  function rewriteTemplateSrcs(template) {
+    var copy = JSON.parse(JSON.stringify(template));
+    (copy.timeline.tracks || []).forEach(function (track) {
+      (track.clips || []).forEach(function (clip) {
+        var asset = clip.asset || {};
+        if (asset.src && mediaBlobMap[asset.src]) {
+          /* Preserve original extension info for format detection after blob URL rewrite */
+          if (asset.src.toLowerCase().indexOf('.webm') !== -1) {
+            asset._originalFormat = 'webm';
+          }
+          asset.src = mediaBlobMap[asset.src];
+        }
+      });
+    });
+    return copy;
+  }
+
+  /* ── Load template into Pixi ── */
+  async function loadPixi() {
+    log('Loading Pixi renderer...');
+    var createPlayer = window.__CFS_pixiShotstackPlayer;
+    if (!createPlayer) { log('ERROR: __CFS_pixiShotstackPlayer not available', 'err'); return; }
+    pixiPlayer = createPlayer({ merge: mergeMap });
+    var rewritten = rewriteTemplateSrcs(TEMPLATE);
+    await pixiPlayer.load(rewritten);
+    totalDuration = pixiPlayer.getDuration();
+    log('Pixi loaded. Duration: ' + totalDuration.toFixed(2) + 's, Canvas: ' + pixiPlayer._width + 'x' + pixiPlayer._height, 'ok');
+    /* Diagnostic: inspect clip displays for video alpha/transparency */
+    (pixiPlayer._clipDisplays || []).forEach(function (disp, i) {
+      var meta = disp.cfsClipMeta;
+      if (!meta) return;
+      var clip = meta.clip || {};
+      var aType = (clip.asset || {}).type;
+      if (aType === 'video') {
+        var hasVideo = !!disp._videoEl;
+        var hasTex = !!(disp.texture);
+        var texAlpha = hasTex && disp.texture.source ? disp.texture.source.alphaMode : 'n/a';
+        var src = (clip.asset || {}).src || '';
+        log('  Video clip #' + i + ' track=' + meta.trackIndex + ' hasVideo=' + hasVideo +
+            ' alpha=' + disp.alpha + ' alphaMode=' + texAlpha +
+            ' visible=' + disp.visible + ' src=' + src.split('/').pop(), 'warn');
+        if (disp._lumaMaskSprite) log('    has lumaMaskSprite', 'warn');
+        if (disp._cfsLumaChildren) log('    has lumaChildren: ' + disp._cfsLumaChildren.length, 'warn');
+      }
+    });
+  }
+
+  /* ── Load template into Fabric ── */
+  async function loadFabric() {
+    log('Loading Fabric renderer...');
+    var scene = window.__CFS_coreScene;
+    if (!scene) { log('ERROR: __CFS_coreScene not available', 'err'); return; }
+    if (typeof fabric === 'undefined') { log('ERROR: fabric.js not available', 'err'); return; }
+
+    var rewritten = rewriteTemplateSrcs(TEMPLATE);
+    var structure = scene.shotstackToFabricStructure(rewritten);
+    log('Fabric structure: ' + structure.objects.length + ' objects, ' + structure.width + 'x' + structure.height);
+
+    /* Create Fabric canvas on a hidden full-size canvas element */
+    var hiddenCanvas = document.createElement('canvas');
+    hiddenCanvas.width = structure.width;
+    hiddenCanvas.height = structure.height;
+    hiddenCanvas.id = 'fabricCanvasHidden';
+    hiddenCanvas.style.display = 'none';
+    document.body.appendChild(hiddenCanvas);
+
+    fabricCanvas = new fabric.Canvas(hiddenCanvas, {
+      width: structure.width,
+      height: structure.height,
+      renderOnAddRemove: false,
+      selection: false,
+      enableRetinaScaling: false,
+    });
+
+    /* Build Fabric JSON */
+    var jsonData = {
+      version: '5.3.0',
+      objects: structure.objects,
+      background: TEMPLATE.timeline.background || '#FFFFFF',
+    };
+
+    return new Promise(function (resolve, reject) {
+      scene.loadFromJSON(fabricCanvas, jsonData).then(function () {
+        log('Fabric loadFromJSON complete');
+        scene.injectMergeData(fabricCanvas, mergeMap);
+        fabricCanvas.renderAll();
+
+        /* Wait for all images to load before applying fit */
+        function waitForImages(canvas, maxWait) {
+          return new Promise(function (resolve) {
+            var start = Date.now();
+            function check() {
+              var allLoaded = true;
+              canvas.getObjects().forEach(function (obj) {
+                if (obj.type !== 'image') return;
+                var el = obj.getElement ? obj.getElement() : (obj._element || null);
+                if (!el) { allLoaded = false; return; }
+                if (!el.complete && el.naturalWidth === 0) { allLoaded = false; }
+              });
+              if (allLoaded || Date.now() - start > maxWait) {
+                resolve();
+              } else {
+                setTimeout(check, 100);
+              }
+            }
+            check();
+          });
+        }
+        waitForImages(fabricCanvas, 5000).then(function () {
+          scene.applyFitToImages(fabricCanvas, structure.width, structure.height);
+          fabricCanvas.renderAll();
+          window._testFabricCanvas = fabricCanvas;
+          log('Fabric ready with ' + fabricCanvas.getObjects().length + ' objects', 'ok');
+          resolve();
+        });
+      }).catch(function (e) {
+        log('Fabric loadFromJSON error: ' + (e && e.message || e), 'err');
+        reject(e);
+      });
+    });
+  }
+
+  /* ── Seek all renderers ── */
+  function seekAll(t) {
+    currentTime = Math.max(0, Math.min(t, totalDuration));
+    timeDisplay.textContent = currentTime.toFixed(3) + 's / ' + totalDuration.toFixed(2) + 's';
+
+    /* Reference video */
+    if (refVideo.readyState >= 2) {
+      refVideo.currentTime = currentTime;
+      /* Re-draw diff once video has actually seeked to show correct ref comparison */
+      refVideo.addEventListener('seeked', function _onSeeked() {
+        refVideo.removeEventListener('seeked', _onSeeked);
+        drawDiff();
+      }, { once: true });
+    }
+
+    /* Pixi */
+    if (pixiPlayer) {
+      pixiPlayer.seek(currentTime);
+      drawPixiToDisplay();
+      /* Re-draw once video frames have actually decoded */
+      if (typeof pixiPlayer._waitForVideoSeeks === 'function') {
+        pixiPlayer._waitForVideoSeeks().then(function () {
+          /* Force texture updates after seeks complete */
+          (pixiPlayer._clipDisplays || []).forEach(function (d) {
+            if (d._videoEl && d.texture && d.texture.source && typeof d.texture.source.update === 'function') {
+              d.texture.source.update();
+            }
+            if (d._lumaMaskSprite && d._lumaMaskSprite.texture && d._lumaMaskSprite.texture.source) {
+              d._lumaMaskSprite.texture.source.update();
+            }
+          });
+          if (pixiPlayer._app && pixiPlayer._app.renderer) pixiPlayer._app.renderer.render(pixiPlayer._stage);
+          drawPixiToDisplay();
+          drawDiff();
+        });
+      }
+    }
+
+    /* Fabric */
+    if (fabricCanvas) {
+      var scene = window.__CFS_coreScene;
+      if (scene) {
+        scene.seekToTime(fabricCanvas, currentTime);
+      }
+      fabricCanvas.renderAll();
+      /* Draw Fabric to the visible display canvas */
+      drawFabricToDisplay();
+    }
+
+    /* Draw diff */
+    drawDiff();
+  }
+
+  function drawPixiToDisplay() {
+    if (!pixiPlayer) return;
+    var srcCanvas = pixiPlayer.getCanvas();
+    if (!srcCanvas) return;
+    var ctx = pixiDisplayCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pixiDisplayCanvas.width, pixiDisplayCanvas.height);
+    ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, srcCanvas.height, 0, 0, pixiDisplayCanvas.width, pixiDisplayCanvas.height);
+  }
+
+  function drawFabricToDisplay() {
+    if (!fabricCanvas) return;
+    var displayEl = document.getElementById('fabricCanvasEl');
+    if (!displayEl) return;
+    var ctx = displayEl.getContext('2d');
+    ctx.clearRect(0, 0, displayEl.width, displayEl.height);
+    var srcEl = fabricCanvas.lowerCanvasEl || fabricCanvas.getElement();
+    if (srcEl) {
+      /* Use physical canvas dimensions to handle Retina scaling correctly */
+      ctx.drawImage(srcEl, 0, 0, srcEl.width, srcEl.height, 0, 0, displayEl.width, displayEl.height);
+    }
+  }
+
+  function drawDiff() {
+    var ctx = diffCanvas.getContext('2d');
+    var w = diffCanvas.width;
+    var h = diffCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    var pixiCtx = pixiDisplayCanvas.getContext('2d');
+    var pixiData;
+    try { pixiData = pixiCtx.getImageData(0, 0, w, h); } catch(e) { return; }
+
+    /* Get Fabric from a temp scale-down */
+    var tempCanvas = document.createElement('canvas');
+    tempCanvas.width = w;
+    tempCanvas.height = h;
+    var tempCtx = tempCanvas.getContext('2d');
+    if (fabricCanvas) {
+      var srcEl = fabricCanvas.lowerCanvasEl || fabricCanvas.getElement();
+      if (srcEl) {
+        tempCtx.drawImage(srcEl, 0, 0, fabricCanvas.width, fabricCanvas.height, 0, 0, w, h);
+      }
+    }
+    var fabricData;
+    try { fabricData = tempCtx.getImageData(0, 0, w, h); } catch(e) { return; }
+
+    var diffData = ctx.createImageData(w, h);
+    var totalPixels = w * h;
+    var diffPixels = 0;
+    var threshold = 30;
+    for (var i = 0; i < totalPixels * 4; i += 4) {
+      var dr = Math.abs(pixiData.data[i] - fabricData.data[i]);
+      var dg = Math.abs(pixiData.data[i + 1] - fabricData.data[i + 1]);
+      var db = Math.abs(pixiData.data[i + 2] - fabricData.data[i + 2]);
+      var maxDiff = Math.max(dr, dg, db);
+      if (maxDiff > threshold) {
+        diffPixels++;
+        diffData.data[i] = 255;
+        diffData.data[i + 1] = 0;
+        diffData.data[i + 2] = 0;
+        diffData.data[i + 3] = Math.min(255, maxDiff * 3);
+      } else {
+        diffData.data[i] = Math.round((pixiData.data[i] + fabricData.data[i]) / 2);
+        diffData.data[i + 1] = Math.round((pixiData.data[i + 1] + fabricData.data[i + 1]) / 2);
+        diffData.data[i + 2] = Math.round((pixiData.data[i + 2] + fabricData.data[i + 2]) / 2);
+        diffData.data[i + 3] = 80;
+      }
+    }
+    ctx.putImageData(diffData, 0, 0);
+
+    var diffPct = ((diffPixels / totalPixels) * 100).toFixed(1);
+
+    /* Also compute Pixi vs Reference (ShotStack video) diff */
+    var refDiffText = '';
+    if (refVideo && refVideo.readyState >= 2 && refVideo.videoWidth > 0) {
+      var refTemp = document.createElement('canvas');
+      refTemp.width = w; refTemp.height = h;
+      var refTmpCtx = refTemp.getContext('2d');
+      refTmpCtx.drawImage(refVideo, 0, 0, refVideo.videoWidth, refVideo.videoHeight, 0, 0, w, h);
+      var refData;
+      try { refData = refTmpCtx.getImageData(0, 0, w, h); } catch(e) { refData = null; }
+      if (refData) {
+        var refDiffPx = 0;
+        for (var ri = 0; ri < totalPixels * 4; ri += 4) {
+          var rdr = Math.abs(pixiData.data[ri] - refData.data[ri]);
+          var rdg = Math.abs(pixiData.data[ri + 1] - refData.data[ri + 1]);
+          var rdb = Math.abs(pixiData.data[ri + 2] - refData.data[ri + 2]);
+          if (Math.max(rdr, rdg, rdb) > threshold) refDiffPx++;
+        }
+        refDiffText = ' | Pixi vs Ref: ' + ((refDiffPx / totalPixels) * 100).toFixed(1) + '%';
+      }
+    }
+
+    statusEl.textContent = 't=' + currentTime.toFixed(3) + 's | Pixi vs Fabric: ' + diffPct + '%' + refDiffText;
+    statusEl.style.color = diffPixels > totalPixels * 0.05 ? '#ff4444' : (diffPixels > totalPixels * 0.01 ? '#ffaa00' : '#44dd44');
+  }
+
+  /* ── Playback ── */
+  function startPlay() {
+    if (playing) return;
+    playing = true;
+    document.getElementById('btnPlay').classList.add('active');
+    function tick() {
+      if (!playing) return;
+      currentTime += STEP_MS / 1000;
+      if (currentTime >= totalDuration) { currentTime = 0; }
+      seekAll(currentTime);
+      playTimer = setTimeout(tick, STEP_MS);
+    }
+    tick();
+  }
+
+  function stopPlay() {
+    playing = false;
+    document.getElementById('btnPlay').classList.remove('active');
+    if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+  }
+
+  document.getElementById('btnPlay').addEventListener('click', function () { if (playing) stopPlay(); else startPlay(); });
+  document.getElementById('btnPause').addEventListener('click', stopPlay);
+  document.getElementById('btnStep').addEventListener('click', function () {
+    stopPlay();
+    currentTime += STEP_MS / 1000;
+    if (currentTime >= totalDuration) currentTime = 0;
+    seekAll(currentTime);
+  });
+
+  document.getElementById('btnSeek').addEventListener('click', function () {
+    stopPlay();
+    var t = parseFloat(document.getElementById('seekTime').value);
+    if (!isNaN(t) && t >= 0) {
+      currentTime = Math.min(t, totalDuration);
+      seekAll(currentTime);
+    }
+  });
+
+  document.getElementById('btnDiffReport').addEventListener('click', function () {
+    stopPlay();
+    var times = [];
+    for (var t = 0; t <= totalDuration; t += 0.5) times.push(parseFloat(t.toFixed(1)));
+    var results = [];
+    times.forEach(function (t) {
+      currentTime = t;
+      seekAll(t);
+      /* Read diff percentages from status text */
+      var sText = statusEl.textContent;
+      var fabMatch = sText.match(/Pixi vs Fabric:\s*([\d.]+)%/);
+      var refMatch = sText.match(/Pixi vs Ref:\s*([\d.]+)%/);
+      var fabPct = fabMatch ? fabMatch[1] : '?';
+      var refPct = refMatch ? refMatch[1] : '?';
+      results.push({ t: t, fab: fabPct, ref: refPct });
+    });
+    log('─── DIFF REPORT ───', 'ok');
+    var fabSum = 0, fabCount = 0, refSum = 0, refCount = 0;
+    results.forEach(function (r) {
+      var line = 't=' + r.t.toFixed(1) + 's: Fab=' + r.fab + '%';
+      if (r.ref !== '?') line += ' Ref=' + r.ref + '%';
+      log(line);
+      if (r.fab !== '?') { fabSum += parseFloat(r.fab); fabCount++; }
+      if (r.ref !== '?') { refSum += parseFloat(r.ref); refCount++; }
+    });
+    if (fabCount > 0) log('AVG Pixi vs Fabric: ' + (fabSum / fabCount).toFixed(1) + '% across ' + fabCount + ' frames', 'ok');
+    if (refCount > 0) log('AVG Pixi vs Reference: ' + (refSum / refCount).toFixed(1) + '% across ' + refCount + ' frames', 'ok');
+    log('─── END REPORT ───', 'ok');
+  });
+
+  /* ── Auto-load on page ready ── */
+  window.addEventListener('load', async function () {
+    log('Page loaded. Checking dependencies...');
+    log('PIXI: ' + (typeof PIXI !== 'undefined') + ', fabric: ' + (typeof fabric !== 'undefined'));
+    log('__CFS_coreScene: ' + (typeof __CFS_coreScene !== 'undefined'));
+    log('__CFS_pixiShotstackPlayer: ' + (typeof __CFS_pixiShotstackPlayer !== 'undefined'));
+    log('__CFS_positionFromClip: ' + (typeof __CFS_positionFromClip !== 'undefined'));
+
+    /* Pre-download all remote media through CORS proxy */
+    try {
+      await preDownloadMedia();
+    } catch (e) {
+      log('Media pre-download warning: ' + (e && e.message || e), 'err');
+    }
+
+    try {
+      await loadPixi();
+    } catch (e) {
+      log('Pixi load error: ' + e.message, 'err');
+      console.error(e);
+    }
+
+    try {
+      await loadFabric();
+    } catch (e) {
+      log('Fabric load error: ' + e.message, 'err');
+      console.error(e);
+    }
+
+    seekAll(0);
+    statusEl.textContent = 'Ready. Use Play or Step to compare frames at ' + COMPARE_FPS + 'fps.';
+    log('Auto-load complete. Duration: ' + totalDuration.toFixed(2) + 's', 'ok');
+  });
+
+})();
+</script>
+</body>
+</html>

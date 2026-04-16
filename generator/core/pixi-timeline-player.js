@@ -953,13 +953,28 @@
       } else {
         pixiText.y = (clipMeta.y || 0) + pad;
       }
-      pixiText.x = (clipMeta.x || 0) + pad;
+      if (alignment.h === 'center' || alignment.h === 'middle') {
+        pixiText.x = (clipMeta.x || 0) + tw / 2;
+        if (pixiText.anchor) pixiText.anchor.x = 0.5;
+      } else if (alignment.h === 'right') {
+        pixiText.x = (clipMeta.x || 0) + tw - pad;
+        if (pixiText.anchor) pixiText.anchor.x = 1;
+      } else {
+        pixiText.x = (clipMeta.x || 0) + pad;
+      }
       container.addChild(pixiText);
       container._cfsTextChild = pixiText;
       if (container.eventMode !== undefined) container.eventMode = 'none';
       return container;
     }
-    pixiText.x = clipMeta.x || 0;
+    var _noClip = clipMeta.clip || {};
+    var _noBgElemW = asset.width != null ? Number(asset.width) : (_noClip.width != null ? Number(_noClip.width) : 0);
+    if ((alignment.h === 'center' || alignment.h === 'middle') && _noBgElemW > 0) {
+      pixiText.x = (clipMeta.x || 0) + _noBgElemW / 2;
+      if (pixiText.anchor) pixiText.anchor.x = 0.5;
+    } else {
+      pixiText.x = clipMeta.x || 0;
+    }
     var clip = clipMeta.clip || {};
     var elemH = asset.height != null ? Number(asset.height) : (clip.height != null ? Number(clip.height) : 0);
     if (elemH > 0 && (alignment.v === 'center' || alignment.v === 'middle')) {
@@ -1144,8 +1159,10 @@
     if (sprite.eventMode !== undefined) sprite.eventMode = 'none';
     var lumFilter = createLuminanceToAlphaFilter();
     if (lumFilter) {
-      sprite.filters = sprite.filters || [];
-      sprite.filters.push(lumFilter);
+      /* Pixi v8: sprite.filters getter returns a frozen array — must create new one */
+      var existing = sprite.filters ? Array.from(sprite.filters) : [];
+      existing.push(lumFilter);
+      sprite.filters = existing;
     }
     var clip = clipMeta.clip || {};
     var applied = applyFitAndScale(clip, w, h, w, h);
@@ -1210,6 +1227,11 @@
         var vh = video.videoHeight || h;
         var tex = null;
         try {
+          /* WebM VP9 videos may have alpha channels — they need premultiplied alpha
+             for correct compositing. Other video formats keep no-premultiply. */
+          var isWebm = (src || '').toLowerCase().indexOf('.webm') !== -1 ||
+                       ((asset._originalFormat || '').toLowerCase() === 'webm');
+          var vidAlphaMode = isWebm ? 'premultiply-alpha-on-upload' : 'no-premultiply-alpha';
           if (typeof PIXI.VideoSource === 'function') {
             var vidSource = new PIXI.VideoSource({
               resource: video,
@@ -1217,13 +1239,13 @@
               height: vh,
               autoPlay: false,
               autoLoad: false,
-              alphaMode: 'no-premultiply-alpha'
+              alphaMode: vidAlphaMode
             });
             tex = new PIXI.Texture({ source: vidSource });
           } else {
             tex = PIXI.Texture.from && PIXI.Texture.from(video);
             if (tex && tex.source) {
-              tex.source.alphaMode = 'no-premultiply-alpha';
+              tex.source.alphaMode = vidAlphaMode;
             }
           }
           if (tex && tex.frame && (tex.frame.width !== vw || tex.frame.height !== vh)) {
@@ -1263,6 +1285,26 @@
             if (typeof maskG.fill === 'function') maskG.fill(0xffffff);
             sprite.mask = maskG;
           }
+        }
+        /* WebM VP9 alpha: Chrome's <video> element decodes VP9 alpha correctly,
+           but WebGL's texImage2D may lose the alpha channel.  We route WebM video
+           frames through a 2D canvas intermediary that preserves alpha, and use
+           that canvas as the Pixi texture source instead of the video element. */
+        var isWebm = (src || '').toLowerCase().indexOf('.webm') !== -1 ||
+                     ((asset._originalFormat || '').toLowerCase() === 'webm');
+        if (isWebm) {
+          var alphaCanvas = document.createElement('canvas');
+          alphaCanvas.width = vw;
+          alphaCanvas.height = vh;
+          sprite._cfsAlphaCanvas = alphaCanvas;
+          sprite._cfsAlphaCtx = alphaCanvas.getContext('2d');
+          /* Draw initial frame to canvas (preserves VP9 alpha) */
+          try { sprite._cfsAlphaCtx.drawImage(video, 0, 0, vw, vh); } catch(_){}
+          /* Replace the sprite's texture source with the canvas */
+          try {
+            var canvasTex = PIXI.Texture.from(alphaCanvas, { alphaMode: 'premultiply-alpha-on-upload' });
+            sprite.texture = canvasTex;
+          } catch(_){}
         }
         resolve(sprite);
       }, { once: true });
@@ -2396,6 +2438,13 @@
         var dur = disp._videoDuration != null ? disp._videoDuration : meta.length;
         disp._videoEl.currentTime = Math.max(0, Math.min(trimOffset + rel * speed, dur));
         if (disp._videoEl.playbackRate !== speed) disp._videoEl.playbackRate = speed;
+        /* WebM VP9 alpha: redraw video frame to canvas intermediary to preserve alpha */
+        if (disp._cfsAlphaCanvas && disp._cfsAlphaCtx) {
+          try {
+            disp._cfsAlphaCtx.clearRect(0, 0, disp._cfsAlphaCanvas.width, disp._cfsAlphaCanvas.height);
+            disp._cfsAlphaCtx.drawImage(disp._videoEl, 0, 0, disp._cfsAlphaCanvas.width, disp._cfsAlphaCanvas.height);
+          } catch(_){}
+        }
         if (disp.texture && disp.texture.source && typeof disp.texture.source.update === 'function') {
           disp.texture.source.update();
         }
@@ -2404,6 +2453,14 @@
         var relLuma = this._currentTime - start;
         var durLuma = disp._lumaMaskSprite._videoDuration != null ? disp._lumaMaskSprite._videoDuration : meta.length;
         disp._lumaMaskSprite._videoEl.currentTime = Math.max(0, Math.min(relLuma, durLuma));
+        /* Force Pixi to re-read the luma video frame */
+        var mTex = disp._lumaMaskSprite.texture;
+        if (mTex && mTex.source && typeof mTex.source.update === 'function') {
+          mTex.source.update();
+        } else if (mTex && mTex.baseTexture && mTex.baseTexture.resource) {
+          if (typeof mTex.baseTexture.resource.update === 'function') mTex.baseTexture.resource.update();
+          mTex.baseTexture.update();
+        }
       }
     }, this);
 
