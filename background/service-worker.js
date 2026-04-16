@@ -7741,6 +7741,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           url: msg.url,
           environment: msg.environment || 'stage',
           format: msg.format,
+          project_id: msg.project_id,
+          template_id: msg.template_id,
           durationSeconds: msg.durationSeconds,
         });
         if (!r.ok) {

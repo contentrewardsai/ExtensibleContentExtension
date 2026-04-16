@@ -804,12 +804,18 @@
 
                 /* Store render in Supabase if user has backend auth (fire-and-forget) */
                 try {
+                  var storeProjectId = (global.__CFS_generatorProjectId || '').trim() || undefined;
+                  var storeIface = global.__CFS_generatorInterface;
+                  var storeCurrent = storeIface && storeIface.getCurrentPlugin ? storeIface.getCurrentPlugin() : null;
+                  var storeTemplateId = (storeCurrent && storeCurrent.id) || undefined;
                   chrome.runtime.sendMessage({
                     type: 'STORE_SHOTSTACK_RENDER',
                     renderId: renderId,
                     url: pollResp.url,
                     environment: environment,
                     format: format,
+                    project_id: storeProjectId,
+                    template_id: storeTemplateId,
                   }, function (storeResp) {
                     if (storeResp && storeResp.ok && storeResp.file_url) {
                       saveResultEl.textContent = (saveResultEl.textContent || '') + ' · Stored in cloud';
