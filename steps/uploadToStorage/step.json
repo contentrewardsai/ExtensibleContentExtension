@@ -9,13 +9,16 @@
     "fileVariableKey": "fileUrl",
     "filenameVariableKey": "",
     "contentTypeVariableKey": "",
+    "projectIdVariableKey": "",
+    "defaultProjectId": "",
     "saveUrlToVariable": "uploadedFileUrl",
     "saveFileIdToVariable": "uploadedFileId"
   },
   "inputs": [
     { "key": "fileVariableKey", "description": "Row variable containing the file to upload — a data: URI, blob: URI, or a URL to fetch" },
     { "key": "filenameVariableKey", "description": "Row variable for the filename (optional, auto-detected if empty)" },
-    { "key": "contentTypeVariableKey", "description": "Row variable for the content type / MIME (optional, auto-detected)" }
+    { "key": "contentTypeVariableKey", "description": "Row variable for the content type / MIME (optional, auto-detected)" },
+    { "key": "projectIdVariableKey", "description": "Row variable containing the project ID for storage organization (optional, falls back to defaultProjectId → Library default → 'default')" }
   ],
   "outputs": [
     { "key": "saveUrlToVariable", "description": "Row variable to store the public URL of the uploaded file" },
@@ -26,6 +29,8 @@
     { "key": "fileVariableKey", "label": "File variable key", "inputType": "text", "placeholder": "fileUrl", "hint": "Row variable with a data: URI, blob: URI, or URL to fetch and upload." },
     { "key": "filenameVariableKey", "label": "Filename variable key (optional)", "inputType": "text", "placeholder": "filename", "hint": "Override filename. Auto-detected from URL if empty." },
     { "key": "contentTypeVariableKey", "label": "Content type variable key (optional)", "inputType": "text", "placeholder": "contentType", "hint": "Override MIME type. Auto-detected if empty." },
+    { "key": "projectIdVariableKey", "label": "Project ID variable key (optional)", "inputType": "text", "placeholder": "projectId", "hint": "Row variable for project ID. Falls back to defaultProjectId, Library default, then 'default'." },
+    { "key": "defaultProjectId", "label": "Default project ID (optional)", "inputType": "text", "placeholder": "default", "hint": "Used when row has no projectId / _cfsProjectId." },
     { "key": "saveUrlToVariable", "label": "Save URL to variable", "inputType": "text", "placeholder": "uploadedFileUrl" },
     { "key": "saveFileIdToVariable", "label": "Save file ID to variable", "inputType": "text", "placeholder": "uploadedFileId" }
   ]

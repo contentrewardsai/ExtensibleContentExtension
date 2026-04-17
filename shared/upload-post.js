@@ -72,20 +72,23 @@
   /**
    * Upload a File/Blob to Supabase storage via the backend presigned URL flow.
    * @param {File|Blob} fileOrBlob
+   * @param {string} [projectId] - optional project_id for storage organization (defaults to 'default')
    * @returns {Promise<{ ok: boolean, file_url?: string, file_id?: string, error?: string }>}
    */
-  async function _uploadMediaToSupabase(fileOrBlob) {
+  async function _uploadMediaToSupabase(fileOrBlob, projectId) {
     if (!window.ExtensionApi || typeof window.ExtensionApi.getPostStorageUploadUrl !== 'function') {
       return { ok: false, error: 'Backend storage API not available' };
     }
     var filename = fileOrBlob.name || 'upload';
     var ct = fileOrBlob.type || 'application/octet-stream';
     var size = fileOrBlob.size || 0;
+    var pid = (projectId && String(projectId).trim()) ? String(projectId).trim() : 'default';
     // 1. Get presigned URL from backend
     var presigned = await window.ExtensionApi.getPostStorageUploadUrl({
       filename: filename,
       content_type: ct,
       size_bytes: size,
+      project_id: pid,
     });
     if (!presigned.ok) return { ok: false, error: presigned.error || 'Failed to get upload URL' };
     // 2. PUT file to Supabase
@@ -132,11 +135,12 @@
     var videoUrl = null;
     var photoUrls = [];
     var opts = _flattenOpts(params.options);
+    var projectId = (params.project_id || params.projectId || opts.project_id || '').toString().trim() || 'default';
 
     // Upload media to Supabase if Files/Blobs provided
     if (postType === 'video' && params.video) {
       if (params.video instanceof File || params.video instanceof Blob) {
-        var upload = await _uploadMediaToSupabase(params.video);
+        var upload = await _uploadMediaToSupabase(params.video, projectId);
         if (!upload.ok) return upload;
         videoUrl = upload.file_url;
       } else if (typeof params.video === 'string') {
@@ -148,7 +152,7 @@
       for (var i = 0; i < params.photos.length; i++) {
         var photo = params.photos[i];
         if (photo instanceof File || photo instanceof Blob) {
-          var pUpload = await _uploadMediaToSupabase(photo);
+          var pUpload = await _uploadMediaToSupabase(photo, projectId);
           if (!pUpload.ok) return pUpload;
           photoUrls.push(pUpload.file_url);
         } else if (typeof photo === 'string') {

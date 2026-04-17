@@ -63,6 +63,24 @@
     var contentType = ctVar ? getRowValue(row, ctVar) : null;
     contentType = contentType ? String(contentType).trim() : '';
 
+    // --- Resolve project ID (required by backend route) ---
+    var projectId = '';
+    var pidKey = (action.projectIdVariableKey || '').trim() || 'projectId';
+    if (typeof CFS_projectIdResolve !== 'undefined') {
+      var pr = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
+        projectIdVariableKey: pidKey,
+        defaultProjectId: action.defaultProjectId,
+      });
+      if (pr.ok) projectId = pr.projectId;
+    } else {
+      // Manual fallback when CFS_projectIdResolve is unavailable
+      var rv = getRowValue(row, pidKey, 'projectId', '_cfsProjectId');
+      if (rv) projectId = String(rv).trim();
+      if (!projectId && action.defaultProjectId) projectId = String(action.defaultProjectId).trim();
+    }
+    // Ultimate fallback — always send a project_id to avoid backend 400
+    if (!projectId) projectId = 'default';
+
     // --- Fetch the file into a Blob ---
     var blob;
     if (fileValue.startsWith('data:') || fileValue.startsWith('blob:')) {
@@ -117,6 +135,7 @@
       filename: filename,
       content_type: contentType,
       size_bytes: blob.size || 0,
+      project_id: projectId,
     });
     if (!presigned || !presigned.ok) {
       throw new Error('Upload to Storage: Failed to get upload URL — ' + ((presigned && presigned.error) || 'unknown error'));
