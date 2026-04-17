@@ -683,28 +683,7 @@
     });
   }
 
-  /**
-   * GET /api/extension/upload-post-key (auth)
-   * Returns only the profile user — the API key is NO LONGER sent to the client.
-   * Backend-connected users post through the server proxy instead.
-   * @returns {Promise<{ ok: boolean, upload_post_profile_user?: string, error?: string }>}
-   */
-  async function getUploadPostProfile() {
-    const res = await safeApiFetch('/api/extension/upload-post-key');
-    if (!res.ok) {
-      // 404 = endpoint not implemented yet; treat as no key
-      if (res.status === 404) return { ok: true };
-      return res;
-    }
-    const profileUser = res.upload_post_profile_user ?? res.data?.upload_post_profile_user;
-    return {
-      ok: true,
-      ...(typeof profileUser === 'string' && profileUser.trim() ? { upload_post_profile_user: profileUser.trim() } : {}),
-    };
-  }
 
-  /** @deprecated Use getUploadPostProfile instead. No longer returns API key. */
-  const getUploadPostApiKey = getUploadPostProfile;
 
   /**
    * True if another backend slot is available (client pre-check; server still enforces).
@@ -1174,8 +1153,7 @@
     deleteFollowing,
     getSocialMediaProfiles,
     addRemoveSocialMedia,
-    getUploadPostProfile,
-    getUploadPostApiKey, // deprecated alias
+
     hasUpgraded,
     canAddConnectedProfile,
     canAddBackendConnectedProfile,

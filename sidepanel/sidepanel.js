@@ -9620,13 +9620,6 @@
       return;
     }
     var user = postData.user || pathSegments[2];
-    if (typeof window.ExtensionApi !== 'undefined' && window.ExtensionApi.getUploadPostProfile) {
-      try {
-        var configRes = await window.ExtensionApi.getUploadPostProfile();
-        if (configRes && configRes.ok && configRes.upload_post_profile_user)
-          user = configRes.upload_post_profile_user;
-      } catch (_) {}
-    }
     const platform = Array.isArray(postData.platform) && postData.platform.length ? postData.platform : ['instagram'];
     const media = postData.media || {};
     let title = (postData.title || '').trim();

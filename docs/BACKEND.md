@@ -10,7 +10,7 @@ The Extensible Content extension uses **Whop** for authentication and **extensib
 - **Sidebar naming** – Name each sidebar (e.g. "Office PC", "Laptop") for multi-window awareness
 - **Projects, workflows, following** – Synced to extensiblecontent.com via ExtensionApi
 - **Social profiles** – Connected profiles for Pulse via `/api/extension/social-profiles`
-- **Upload-Post API key** – Optional per-user key from `/api/extension/upload-post-key`
+- **Social post proxy** – All upload, status, scheduling, and analytics calls are proxied through the backend with the master API key
 
 ---
 
@@ -36,7 +36,7 @@ The Extensible Content extension uses **Whop** for authentication and **extensib
 | **Platforms** | `GET /api/extension/platforms` (no auth) |
 | **Monetization** | `GET /api/extension/monetization` (no auth) |
 | **Social profiles** | `GET/POST /api/extension/social-profiles` |
-| **Upload-Post key** | `GET /api/extension/upload-post-key` |
+| **Social post proxy** | `POST/GET/DELETE /api/extension/social-post/*` (19 routes; see EXTENSION_API_REQUIREMENTS.md) |
 | **Pro status** | `GET /api/extension/has-upgraded` |
 | **Default project** | `GET/PATCH /api/extension/user/default-project` |
 
@@ -53,7 +53,7 @@ The extension uses `ExtensionApi` for all backend calls. Key methods:
 - `getFollowing()`, `createFollowing()`, `updateFollowing()`, `deleteFollowing()`
 - `getIndustries()`, `getPlatforms()`, `getMonetization()` – Options for project form
 - `getSocialMediaProfiles()`, `addRemoveSocialMedia()`
-- `getUploadPostApiKey()`, `hasUpgraded()`
+- `hasUpgraded()`
 
 ### Workflow catalog (auto-enrich / discovery)
 

@@ -246,11 +246,6 @@ The extension stores **per-step narration** inside `workflow.analyzed.actions[i]
 
 **POST body:** `{ name?, user?, id?, access_url? }`
 
-### Upload-Post Key
-
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| GET | `/upload-post-key` | Get user's Upload-Post API key | `{ upload_post_api_key?, upload_post_profile_user? }` |
 
 ### Knowledge Q&A (extension)
 
@@ -282,7 +277,7 @@ Context:
 
 Tasks:
 1. Add database tables: users, projects, workflows, following, sidebars, social_profiles, user_settings, **knowledge_questions / knowledge_answers** (with **`workflow_kb_check_bypass`** and **`submission_kind`** on answers if using `for_review`; see §8).
-2. Implement API routes under /api/extension/ for: has-upgraded, user/default-project, industries, platforms, monetization, projects, workflows (including **workflows/catalog** for domain-scoped published listings), **workflow-step-media** (multipart narration upload to Supabase `workflow-data`), following, sidebars, social-profiles, upload-post-key, **knowledge/qa**, **knowledge/questions**, **knowledge/answers**, **knowledge/votes**.
+2. Implement API routes under /api/extension/ for: has-upgraded, user/default-project, industries, platforms, monetization, projects, workflows (including **workflows/catalog** for domain-scoped published listings), **workflow-step-media** (multipart narration upload to Supabase `workflow-data`), following, sidebars, social-profiles, social-post (19 proxy routes), shotstack (ingest, store-render), **knowledge/qa**, **knowledge/questions**, **knowledge/answers**, **knowledge/votes**.
 3. Persist workflow JSON **without stripping** `analyzed.actions[].comment` / `comment.items` (step narration blocks). See **Step narration in workflow JSON** in this doc.
 4. Ensure CORS allows chrome-extension:// origin.
 5. Map Whop user from token to local user; create user on first request if not exists.
