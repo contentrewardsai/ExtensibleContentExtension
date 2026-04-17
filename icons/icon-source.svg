@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="streamGreenVertical" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00E676" />
+      <stop offset="100%" stop-color="#00C853" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="4" y="10" width="85" height="85" rx="20" fill="url(#streamGreenVertical)"/>
+
+  <!-- Play triangle -->
+  <path d="M 36 30 L 64 52 L 36 75 Z" fill="#FFFFFF"/>
+
+  <!-- Signal arcs -->
+  <path d="M 98 25 A 50 50 0 0 1 98 80" fill="none" stroke="url(#streamGreenVertical)" stroke-width="6" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 112 12 A 70 70 0 0 1 112 93" fill="none" stroke="url(#streamGreenVertical)" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+</svg>
