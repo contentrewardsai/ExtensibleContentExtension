@@ -3,7 +3,7 @@
   if (typeof window.__CFS_registerStepSidepanel !== 'function') return;
   window.__CFS_registerStepSidepanel('uploadToStorage', {
     label: 'Upload to Storage',
-    defaultAction: { type: 'uploadToStorage', runIf: '', fileVariableKey: 'fileUrl', filenameVariableKey: '', contentTypeVariableKey: '', saveUrlToVariable: 'uploadedFileUrl', saveFileIdToVariable: 'uploadedFileId' },
+    defaultAction: { type: 'uploadToStorage', runIf: '', fileVariableKey: 'fileUrl', filenameVariableKey: '', contentTypeVariableKey: '', projectIdVariableKey: '', defaultProjectId: '', saveUrlToVariable: 'uploadedFileUrl', saveFileIdToVariable: 'uploadedFileId' },
     getSummary: function(action) {
       var fileVar = (action.fileVariableKey || '').trim() || 'fileUrl';
       var saveVar = (action.saveUrlToVariable || '').trim();
