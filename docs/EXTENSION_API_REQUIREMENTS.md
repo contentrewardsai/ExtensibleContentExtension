@@ -40,3 +40,17 @@ Upload Post plan limits still apply on their API. Not signed in: Connected add r
 - `createUserProfileWithKey(apiKey, username)` — POST `/uploadposts/users` per OpenAPI.
 
 Load order for pages using `ExtensionApi`: `config.js` (or Whop auth config) then `api.js`.
+
+---
+
+## Social Post Proxy (`/api/extension/social-post/*`)
+
+All social posting operations are proxied through the backend with the master Upload Post API key. The extension sends requests with the Whop Bearer token; the backend resolves the user and forwards to Upload Post. See **docs/BACKEND.md § Social Post Proxy** for the full 19-route table.
+
+Key routes: `upload`, `status`, `scheduled`, `scheduled/:jobId` (DELETE), `history`, `profiles`, `profiles/generate-jwt`, `analytics`, `post-analytics`, `send-dm`, `reply-comment`, `instagram-comments`, `facebook-pages`, `linkedin-pages`, `pinterest-boards`, `storage`, `storage/files`, `storage/upload`, `storage/files/:fileId` (DELETE).
+
+## ShotStack Proxy (`/api/extension/shotstack/*`)
+
+ShotStack ingest and render storage proxied through the backend. See **docs/BACKEND.md § ShotStack** for the full 4-route table.
+
+Key routes: `ingest` (GET/POST), `ingest/:sourceId` (GET/DELETE), `store-render` (POST — downloads CDN render before 24h expiry and persists to Supabase `post-media` bucket).

@@ -36,7 +36,8 @@ The Extensible Content extension uses **Whop** for authentication and **extensib
 | **Platforms** | `GET /api/extension/platforms` (no auth) |
 | **Monetization** | `GET /api/extension/monetization` (no auth) |
 | **Social profiles** | `GET/POST /api/extension/social-profiles` |
-| **Social post proxy** | `POST/GET/DELETE /api/extension/social-post/*` (19 routes; see EXTENSION_API_REQUIREMENTS.md) |
+| **Social post proxy** | `POST/GET/DELETE /api/extension/social-post/*` (19 routes — upload, status, scheduled, history, profiles, analytics, DM, comments, pages, storage) |
+| **ShotStack** | `GET/POST/DELETE /api/extension/shotstack/ingest/*`, `POST /api/extension/shotstack/store-render` |
 | **Pro status** | `GET /api/extension/has-upgraded` |
 | **Default project** | `GET/PATCH /api/extension/user/default-project` |
 
@@ -54,6 +55,8 @@ The extension uses `ExtensionApi` for all backend calls. Key methods:
 - `getIndustries()`, `getPlatforms()`, `getMonetization()` – Options for project form
 - `getSocialMediaProfiles()`, `addRemoveSocialMedia()`
 - `hasUpgraded()`
+- **Social post proxy:** `proxyUploadPost()`, `proxyUploadStatus()`, `proxyScheduledPosts()`, `proxyCancelScheduledPost()`, `proxyUploadHistory()`, `proxyConnectedProfiles()`, `proxyGenerateJwt()`, `proxyStorageQuota()`, `proxyStorageFiles()`, `proxyStorageDelete()`, `proxyStorageUploadUrl()`, `proxyAnalytics()`, `proxySendDm()`, `proxyReplyComment()`, `proxyFacebookPages()`, `proxyLinkedInPages()`, `proxyPinterestBoards()`, `proxyInstagramComments()`, `proxyPostAnalytics()`
+- **ShotStack:** `shotstackIngestList()`, `shotstackIngestUpload()`, `shotstackIngestStatus()`, `shotstackIngestDelete()`, `storeShotstackRender()`, `shotstackCredits()`
 
 ### Workflow catalog (auto-enrich / discovery)
 
@@ -107,6 +110,92 @@ Before uploading, the sidebar calls **`GET /api/extension/workflows/:id`**; if t
 2. **Workflow persistence** — After `PATCH`, a round-trip `GET` returns `analyzed.actions[].comment.items` unchanged when the client sent them.
 
 **Note:** Multipart `kind` is only **`video`** or **`audio`**. **Image** and **link** blocks use plain URLs in `comment.items` only; they do not use this upload endpoint unless you add a future `kind` (extension would need a matching change).
+
+---
+
+## Social Post Proxy (19 routes)
+
+All social posting operations are proxied through the backend. The extension sends requests with the Whop Bearer token; the backend resolves the user, looks up their Upload Post account, and forwards to the Upload Post API with the master API key. The extension never sees the master key.
+
+**Flow:** Extension → Bearer token → Backend → `getExtensionUser()` → Upload Post API (master key)
+
+### Upload & Status
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/social-post/upload` | Route video/photo/text uploads by `postType` |
+| GET | `/social-post/status?request_id=` | Poll upload job status |
+
+### Scheduling
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/social-post/scheduled` | List scheduled posts |
+| DELETE | `/social-post/scheduled/:jobId` | Cancel a scheduled post |
+
+### History & Profiles
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/social-post/history` | Paginated upload history |
+| GET | `/social-post/profiles` | List connected social profiles |
+| POST | `/social-post/profiles/generate-jwt` | Generate JWT access URL for connecting accounts |
+
+### Analytics & Engagement
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/social-post/analytics` | Fetch engagement/reach analytics |
+| GET | `/social-post/post-analytics?post_id=` | Per-post analytics |
+| POST | `/social-post/send-dm` | Send Instagram DMs |
+| POST | `/social-post/reply-comment` | Reply to Instagram comments |
+| GET | `/social-post/instagram-comments?post_id=` | List Instagram comments |
+
+### Platform Pages
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/social-post/facebook-pages` | List Facebook pages |
+| GET | `/social-post/linkedin-pages` | List LinkedIn pages |
+| GET | `/social-post/pinterest-boards` | List Pinterest boards |
+
+### Storage (Supabase `post-media` bucket)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/social-post/storage` | Storage quota info |
+| GET | `/social-post/storage/files` | List uploaded files |
+| POST | `/social-post/storage/upload` | Get presigned upload URL |
+| DELETE | `/social-post/storage/files/:fileId` | Delete a stored file |
+
+---
+
+## ShotStack (4 routes)
+
+ShotStack operations are proxied through the backend using the master ShotStack API key. The extension calls these via `SHOTSTACK_*` messages to the service worker.
+
+### Ingest
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/shotstack/ingest` | List ingested sources |
+| POST | `/shotstack/ingest` | Upload media (base64 → ShotStack) |
+| GET | `/shotstack/ingest/:sourceId` | Poll ingest status |
+| DELETE | `/shotstack/ingest/:sourceId` | Delete ingested source |
+
+### Store Render
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/shotstack/store-render` | Download CDN render → persist to Supabase storage |
+
+Body: `{ renderId, url, project_id, template_id, environment?, format? }`
+
+The store-render route:
+1. Verifies the render record exists in `shotstack_renders` (user ownership check)
+2. Downloads the file from the ShotStack CDN before the 24h URL expiry
+3. Uploads to Supabase `post-media` bucket at `{userId}/{projectId}/generations/{templateId}/{timestamp}_{renderId}.{format}`
+4. Updates the render record with the permanent Supabase URL
 
 ---
 
