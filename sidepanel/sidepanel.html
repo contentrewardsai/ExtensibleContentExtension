@@ -15,7 +15,7 @@
           <button id="authLoginWhop" class="btn btn-primary">Login with Whop</button>
         </div>
         <div class="form-row auth-reload-row" style="margin-top:8px; gap:4px; align-items:center;">
-          <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root; workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
+          <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root; workflows/ and steps/ will be subfolders">Set project folder</button>
           <button type="button" id="downloadLaminiBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusLoggedOut" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="reloadExtensionBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (chrome.runtime.reload). Rebuilds manifests only if a project folder is set; otherwise reloads code only. Use a normal webpage to record, not chrome://.">Reload Extension</button>
@@ -25,12 +25,12 @@
       <div id="authLoggedIn" class="auth-logged-in" style="display:none">
         <p><strong id="authUsernameDisplay"></strong> <span id="authProBadge" class="auth-pro-badge" style="display:none">Pro</span> <button id="authLogout" class="btn btn-outline btn-small">Log out</button> <span id="connectionStatusIcon" class="connection-status-icon" role="img" aria-label="Connection status" data-tooltip="Connection status"></span></p>
         <div id="backendOfflineBanner" class="backend-offline-banner hint" style="display:none; margin-bottom:10px;" role="status">
-          Backend unavailable. Local workflows, playback, and generators (e.g. bulk images, book export) still work offline.
+          Backend unavailable. Local workflows and playback still work offline.
         </div>
         <div class="form-row auth-reload-row" style="margin-bottom:6px; gap:4px; align-items:center;">
           <button type="button" id="reloadExtensionBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (no chrome://extensions needed). Rebuilds manifests when the project folder is set and writable; otherwise reloads code only. Record workflows on a normal https:// page, not chrome://.">Reload Extension</button>
           <span id="reloadExtensionStatus" class="hint" style="font-size:11px; display:none;"></span>
-          <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root (ideally your extension folder for Load unpacked); workflows/, steps/, generator/templates/ will be subfolders">Set project folder</button>
+          <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root (ideally your extension folder for Load unpacked); workflows/ and steps/ will be subfolders">Set project folder</button>
           <button type="button" id="downloadLaminiBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
@@ -78,7 +78,7 @@
           <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultColorSecondary" style="min-width:80px;font-size:12px;">Secondary</label><input type="color" id="projectDefaultColorSecondary" value="#34A853" style="width:40px;height:28px;border:none;padding:0;cursor:pointer;"><input type="text" id="projectDefaultColorSecondaryHex" placeholder="#34A853" style="flex:1;max-width:90px;font-size:12px;"></div>
           <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultLogoDark" style="min-width:80px;font-size:12px;">Logo (dark)</label><select id="projectDefaultLogoDark" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><button type="button" class="btn btn-outline btn-small" id="projectDefaultLogoDarkUpload" title="Upload a logo file to source/logos/" style="margin-left:4px;font-size:11px;">Upload</button></div>
           <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultLogoLight" style="min-width:80px;font-size:12px;">Logo (light)</label><select id="projectDefaultLogoLight" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><button type="button" class="btn btn-outline btn-small" id="projectDefaultLogoLightUpload" title="Upload a logo file to source/logos/" style="margin-left:4px;font-size:11px;">Upload</button></div>
-          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultProfileId" style="min-width:80px;font-size:12px;">Default profile</label><select id="projectDefaultProfileId" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><span id="projectDefaultProfileRefreshBtn" class="hint" style="cursor:pointer;margin-left:4px;font-size:11px;text-decoration:underline;" title="Refresh profile list">↻</span></div>
+          <div class="form-row" style="margin-bottom:4px;"><label for="projectDefaultProfileId" style="min-width:80px;font-size:12px;">Default HighLevel profile</label><select id="projectDefaultProfileId" style="flex:1;min-width:0;font-size:12px;"><option value="">— none —</option></select><span id="projectDefaultProfileRefreshBtn" class="hint" style="cursor:pointer;margin-left:4px;font-size:11px;text-decoration:underline;" title="Refresh HighLevel profiles from backend">↻</span></div>
           <p id="projectDefaultsStatus" class="hint" style="margin:4px 0 0 0;font-size:11px;display:none;" aria-live="polite"></p>
         </div>
         <div class="add-project-form-actions">
@@ -146,11 +146,6 @@
         <div id="activityRunHistory" class="activity-run-history"></div>
         <p id="activityHistoryEmpty" class="hint activity-empty" style="display:none">No runs yet.</p>
       </div>
-      <div class="activity-upload-history-section">
-        <h3 class="activity-heading">Upload Post history</h3>
-        <div id="activityUploadPostHistory" class="activity-run-history"></div>
-        <p id="activityUploadPostHistoryEmpty" class="hint activity-empty" style="display:none">No Upload Post uploads yet.</p>
-      </div>
       <div class="activity-socket-section">
         <h3 class="activity-heading">Live activity</h3>
         <p id="activitySocketStatus" class="socket-status hint" style="display:none"></p>
@@ -194,13 +189,9 @@
       </div>
       <div class="library-main-content">
       <h2>Library</h2>
-      <div class="form-row" style="margin-bottom:12px;flex-wrap:wrap;gap:8px;align-items:center">
-        <span id="libraryPendingCount" class="hint" style="display:none">0 pending generations to save.</span>
-        <button type="button" class="btn btn-primary btn-small" id="savePendingGenerationsBtn" style="display:none" title="Save queued generations to uploads/{projectId}/generations/ (or your folder name) with numeric names">Save pending generations</button>
-      </div>
-      <h3 class="activity-heading">Content Generator</h3>
-      <p class="hint" style="margin:0 0 8px 0;">Open the Content Generator in a new tab to create content.</p>
-      <button type="button" class="btn btn-outline" id="openGeneratorLink" title="Open in new tab">Content Generator</button>
+      <h3 class="activity-heading">Content Rewards AI</h3>
+      <p class="hint" style="margin:0 0 8px 0;">Create content in the Content Rewards AI app on Whop.</p>
+      <button type="button" class="btn btn-outline" id="openContentRewardsLink" title="Open in new tab">Content Rewards AI</button>
       <h3 class="activity-heading">Projects</h3>
       <p id="libraryProjectsEmpty" class="hint activity-empty" style="display:none">Sign in to see projects. Generations save to <code>uploads/{projectId}/generations/</code>.</p>
       <p class="hint" style="margin:0 0 8px 0;">Click a project to open its uploads folder — then add subfolders, upload files, or download.</p>
@@ -208,20 +199,8 @@
 
       <div id="uploadsBrowserWrap" class="uploads-browser-under-project" style="display:none; margin-top:8px; margin-left:12px; padding-left:12px; border-left:2px solid var(--border-color,#e5e5e7);">
         <div class="uploads-toolbar form-row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-          <button type="button" class="btn btn-outline btn-small" id="uploadsPostsBtn" title="Open posts folder for this project (uploads/{projectId}/posts/)">Posts</button>
-          <button type="button" class="btn btn-outline btn-small" id="uploadsNewPostBtn" title="Create a new post folder with post.json" style="display:none;">New post</button>
           <button type="button" class="btn btn-outline btn-small" id="uploadsNewSubfolderBtn" title="Create a new subfolder in current path">New subfolder</button>
           <button type="button" class="btn btn-outline btn-small" id="uploadsUploadBtn" title="Copy files from your computer into this folder">Upload file(s)</button>
-        </div>
-        <div id="uploadsPostCard" class="uploads-post-card" style="display:none; margin-bottom:12px; padding:12px; border:1px solid var(--border-color,#e5e5e7); border-radius:8px; background:var(--bg-secondary,#f9f9f9);">
-          <div id="uploadsPostCardContent"></div>
-          <div class="form-row" style="margin-top:8px;flex-wrap:wrap;gap:8px;">
-            <button type="button" class="btn btn-outline btn-small" id="uploadsPostSetApiKeyBtn">Set Upload-Post API key</button>
-            <button type="button" class="btn btn-primary btn-small" id="uploadsPostSubmitBtn">Submit to Upload-Post</button>
-            <button type="button" class="btn btn-outline btn-small" id="uploadsPostCheckStatusBtn" title="Poll Upload-Post for request_id or job_id and update post.json">Check status</button>
-            <button type="button" class="btn btn-outline btn-small" id="uploadsPostCancelScheduledBtn" style="display:none;" title="Cancel this scheduled post on Upload-Post and clear job_id">Cancel scheduled</button>
-          </div>
-          <p id="uploadsPostCardStatus" class="hint" style="margin:8px 0 0 0; font-size:12px;"></p>
         </div>
         <div id="uploadsPathBar" class="hint" style="margin-bottom:6px;font-size:12px;"></div>
         <div id="uploadsParentRow" style="margin-bottom:6px;display:none;">
@@ -345,7 +324,7 @@
           <button id="scheduleFromData" class="btn btn-outline" title="Schedule multiple runs from CSV or JSON (one row per run)">Schedule from CSV/JSON</button>
           <button type="button" id="goToActivityTabBtn" class="btn btn-outline btn-small" title="Open Activity tab (upcoming runs and history)">Activity</button>
         </div>
-        <p class="hint" style="margin:6px 0 0 0;font-size:11px;line-height:1.35;">Scheduled runs open a tab on the workflow start URL. Workflows with <strong>Run generator</strong> need Chrome running, a linked <strong>project folder</strong>, and the correct <strong>selected project</strong> for <code>project:…</code> templates; the side panel does not need to stay open after folder access is granted.</p>
+        <p class="hint" style="margin:6px 0 0 0;font-size:11px;line-height:1.35;">Scheduled runs open a tab on the workflow start URL; the side panel does not need to stay open after folder access is granted.</p>
         <p id="workflowLastRunStatus" class="workflow-last-run-status hint" style="margin:6px 0 0 0;font-size:11px;min-height:16px;" aria-live="polite"></p>
         <div id="scheduleRunForm" class="schedule-run-form" style="display:none">
           <div class="step-field">
@@ -490,18 +469,6 @@
         </div>
         <div id="followingList" class="following-list"></div>
         <p id="followingStatus" class="hint following-status" style="display:none;" role="status"></p>
-      </div>
-      <div class="connected-section">
-        <div class="connected-heading-row">
-          <h3 class="connected-heading">Connected:</h3>
-          <button type="button" id="connectedAddNewBtn" class="btn btn-outline btn-small">Add New</button>
-        </div>
-        <div id="connectedAddForm" class="connected-add-form" style="display:none">
-          <input type="text" id="connectedAddName" placeholder="Name" class="connected-add-input">
-          <button type="button" id="connectedAddSaveBtn" class="btn btn-primary btn-small">Save</button>
-        </div>
-        <div id="connectedProfilesList" class="connected-profiles-list"></div>
-        <p id="connectedProfilesStatus" class="hint connected-profiles-status" style="display:none;" role="status"></p>
       </div>
     </section>
 
@@ -769,7 +736,6 @@
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
   <script src="../extension/sidebars-api.js"></script>
-  <script src="../shared/upload-post.js"></script>
   <script src="../shared/selectors.js"></script>
   <script src="../shared/analyzer.js"></script>
   <script src="../shared/discovery-selector-filters.js"></script>
@@ -778,7 +744,6 @@
   <script src="../shared/selector-parity.js"></script>
   <script src="../shared/run-variation.js"></script>
   <script src="../shared/step-validator.js"></script>
-  <script src="../shared/generator-template-schema.js"></script>
   <script src="../steps/sidepanel-registry.js"></script>
   <script src="../steps/sidepanel-loader.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
@@ -793,10 +758,11 @@
   <script src="../shared/download-xenova-lamini.js"></script>
   <script src="../shared/github-extension-update.js"></script>
   <script src="../shared/defi-action-patterns.js"></script>
-  <script src="../shared/social-action-patterns.js"></script>
   <script src="../shared/data-action-patterns.js"></script>
   <script src="../shared/action-patterns-registry.js"></script>
   <script src="../shared/workflow-edit-history.js"></script>
+  <script src="../shared/removed-step-types.js"></script>
+  <script src="../shared/workflow-removed-steps-migration.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

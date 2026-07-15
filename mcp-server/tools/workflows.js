@@ -52,23 +52,6 @@ export function registerWorkflowTools(server, ctx) {
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
   );
-  /* ── run_generator ── */
-  server.tool(
-    'run_generator',
-    'Generate content (image, video, audio, text) from a template. Browse extensible://generators to see available templates and their merge fields. Pass inputMap to set merge field values.',
-    {
-      pluginId: z.string().describe('Template ID (e.g. "ad-apple-notes", "ad-facebook"). Browse extensible://generators for the list.'),
-      inputMap: z.record(z.string(), z.any()).describe('Map of merge field names to values. Use the merge field "find" values from the template.'),
-      entry: z.string().optional().describe('Optional entry point override'),
-    },
-    async ({ pluginId, inputMap, entry }) => {
-      const payload = { type: 'RUN_GENERATOR', pluginId, inputs: inputMap || {} };
-      if (entry) payload.entry = entry;
-      const res = await ctx.sendMessage(payload);
-      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
-    }
-  );
-
   /* ── create_workflow ── */
   server.tool(
     'create_workflow',

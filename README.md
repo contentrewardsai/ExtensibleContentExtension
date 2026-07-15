@@ -1,6 +1,8 @@
 # Extensible Content
 
-A Chrome extension that records your workflows, analyzes patterns across multiple runs, and automates them via spreadsheet-driven execution. **Works on any website** – from simple forms to complex AI tools – with robust support for common patterns (Radix UI, file uploads with crop, video generation, etc.).
+A Chrome extension that records your workflows, analyzes patterns across multiple runs, and automates them via spreadsheet-driven execution. **Works on any website** – from simple forms to complex AI tools – with robust support for common patterns (Radix UI, file uploads with crop, etc.).
+
+> **Content creation moved to Whop.** The built-in content generator and social posting (ShotStack rendering, Upload Post) have been removed from this extension. Create and publish content in the [Content Rewards AI app on Whop](https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/). The Library tab links to it.
 
 ## Features
 
@@ -13,7 +15,7 @@ A Chrome extension that records your workflows, analyzes patterns across multipl
 
 ## Requirements
 
-**Chrome 116 or later** is required for full functionality (Plan, Library, workflow recording and playback, generators, screen capture, etc.). On Chrome 114–115, the **Pulse** and **Activity** tabs work; other tabs show an upgrade prompt. The extension may not load on Chrome versions below 114.
+**Chrome 116 or later** is required for full functionality (Plan, Library, workflow recording and playback, screen capture, etc.). On Chrome 114–115, the **Pulse** and **Activity** tabs work; other tabs show an upgrade prompt. The extension may not load on Chrome versions below 114.
 
 ## Privacy and permissions
 
@@ -112,7 +114,7 @@ Use the variable key from the recorded step, or `fileUrl`. For a custom filename
 
 ## Development
 
-Edit files and reload the extension at `chrome://extensions/` to test changes. When adding new step types (or generator templates or workflow folders), set the **project folder** to your extension root (same folder you use for "Load unpacked"), then click **Reload Extension** in the side panel (between username and Sidebar Name)—it rebuilds **steps/manifest.json**, **generator/templates/manifest.json**, and **workflows/manifest.json** from the project folder and reloads. No Node or scripts required.
+Edit files and reload the extension at `chrome://extensions/` to test changes. When adding new step types (or workflow folders), set the **project folder** to your extension root (same folder you use for "Load unpacked"), then click **Reload Extension** in the side panel (between username and Sidebar Name)—it rebuilds **steps/manifest.json** and **workflows/manifest.json** from the project folder and reloads. No Node or scripts required.
 
 **Optional:** Run `node scripts/validate-step-definitions.cjs` to validate all `steps/{id}/step.json` files. See **docs/TESTING.md** for unit tests (side panel **Settings** → **Tests**, optional **Open unit tests page**, or `npm run test:unit` headless), E2E checklist, and `npm run test:e2e` (Playwright) / `npm run test:e2e:puppeteer`.
 
@@ -182,9 +184,9 @@ The extension is designed to work across many websites:
 
 ## For developers
 
-**Documentation index:** See **docs/PROJECT_STRUCTURE.md** (§ Documentation) for the full index – project-wide docs in **docs/**, feature docs in **generator/docs/** and **steps/** (README + docs per feature).
+**Documentation index:** See **docs/PROJECT_STRUCTURE.md** (§ Documentation) for the full index – project-wide docs in **docs/** and feature docs in **steps/** (README + docs per feature).
 
-**Quick links:** **docs/NOTES.md** (policies); **docs/WORKFLOW_SPEC.md** (workflow model); **docs/PROGRAMMATIC_API.md** (SET_IMPORTED_ROWS, RUN_WORKFLOW); **docs/PLATFORM_DEFAULTS.md** (Upload Post platform defaults: settings ↔ `config/platform-defaults.json`); **steps/CONTRACT.md** (step plugin contract, `opts.ctx` API); **docs/REMAINING_IMPLEMENTATION.md** (done/next); **docs/TESTING.md** (§ Manual test checklist).
+**Quick links:** **docs/NOTES.md** (policies); **docs/WORKFLOW_SPEC.md** (workflow model); **docs/PROGRAMMATIC_API.md** (SET_IMPORTED_ROWS, RUN_WORKFLOW); **steps/CONTRACT.md** (step plugin contract, `opts.ctx` API); **docs/REMAINING_IMPLEMENTATION.md** (done/next); **docs/TESTING.md** (§ Manual test checklist).
 
 ## Help
 

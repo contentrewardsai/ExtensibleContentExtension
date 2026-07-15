@@ -300,7 +300,6 @@ import { registerMeteoraTools } from './tools/meteora.js';
 import { registerAsterTools } from './tools/aster.js';
 import { registerLlmTools } from './tools/llm.js';
 import { registerApifyTools } from './tools/apify.js';
-import { registerSocialTools } from './tools/social.js';
 import { registerSystemTools } from './tools/system.js';
 import { registerResources } from './tools/resources.js';
 import { registerPrompts } from './tools/prompts.js';
@@ -308,7 +307,6 @@ import { registerSubscriptions, getSubscriptionStatus, clearAllSubscriptions } f
 import { createCryptoGate } from './crypto-gate.js';
 import { registerSidebarTools, registerSidebarRoutes } from './tools/sidebar.js';
 import { registerProjectTools } from './tools/project-files.js';
-import { registerGeneratorTools } from './tools/generator.js';
 import { registerExtensionUpdateTools } from './tools/extension-update.js';
 
 /* ── MCP Server factory ── */
@@ -344,14 +342,12 @@ function createMcpServer() {
   registerAsterTools(server, ctx);
   registerLlmTools(server, ctx);
   registerApifyTools(server, ctx);
-  registerSocialTools(server, ctx);
   registerSystemTools(server, ctx);
   registerResources(server, ctx);
   registerPrompts(server, ctx);
   registerSubscriptions(server, ctx);
   registerSidebarTools(server, ctx);
   registerProjectTools(server, ctx);
-  registerGeneratorTools(server, ctx);
   registerExtensionUpdateTools(server, ctx);
   return server;
 }

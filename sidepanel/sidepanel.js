@@ -493,77 +493,8 @@
         div.innerHTML = `<span class="activity-scheduled-name">${escapeHtml(r.workflowName || r.workflowId)}</span><span class="activity-item-when">${escapeHtml(whenStr)}</span><div class="activity-item-actions">${rescheduleBtn}${changeTimeBtn}${deleteBtn}</div>`;
         scheduledListEl.appendChild(div);
       });
-      // Show JWT refresh system task if UploadPost key is set or user is logged in via backend
-      const jwtKeyData = await chrome.storage.local.get(['uploadPostApiKey', 'uploadPostJwtRefreshTime', 'whop_auth']);
-      const hasUploadPostAuth = (jwtKeyData.uploadPostApiKey && jwtKeyData.uploadPostApiKey.trim()) || (jwtKeyData.whop_auth && (jwtKeyData.whop_auth.access_token || jwtKeyData.whop_auth.accessToken));
-      if (hasUploadPostAuth) {
-        const jwtTime = jwtKeyData.uploadPostJwtRefreshTime || '23:59';
-        const div = document.createElement('div');
-        div.className = 'activity-scheduled-item';
-        div.innerHTML = `<span class="activity-scheduled-name">UploadPost JWT Refresh</span><span class="activity-item-when">${escapeHtml('Recurring: daily at ' + jwtTime)}</span><div class="activity-item-actions"><button type="button" class="btn btn-outline btn-small activity-change-jwt-time">Change Time</button></div>`;
-        scheduledListEl.appendChild(div);
-      }
-
-      // Scheduled Upload Posts (from UploadPost API)
-      var hasScheduledUploads = false;
-      if (typeof UploadPost !== 'undefined' && UploadPost.getAuthMode) {
-        const authMode = await UploadPost.getAuthMode();
-        if (authMode.mode) {
-          try {
-            const schedRes = await UploadPost.listScheduled();
-            if (schedRes.ok && Array.isArray(schedRes.json) && schedRes.json.length > 0) {
-              hasScheduledUploads = true;
-              schedRes.json.forEach(function (sp) {
-                const sdiv = document.createElement('div');
-                sdiv.className = 'activity-scheduled-item';
-                const when = formatActivityDateTime(sp.scheduled_date);
-                const name = (sp.profile_username ? sp.profile_username + ': ' : '') + (sp.title || sp.post_type || 'Upload Post');
-                sdiv.innerHTML = '<span class="activity-scheduled-name">' + escapeHtml(name) + '</span><span class="activity-item-when">' + escapeHtml(when) + '</span><div class="activity-item-actions"><button type="button" class="btn btn-outline btn-small activity-cancel-upload-post" data-job-id="' + escapeAttr(sp.job_id || '') + '">Cancel</button></div>';
-                scheduledListEl.appendChild(sdiv);
-              });
-            }
-          } catch (_) {}
-        }
-      }
     }
-    if (scheduledEmptyEl) scheduledEmptyEl.style.display = (futureScheduled.length === 0 && !hasScheduledUploads && !batchRunInfo) ? '' : 'none';
-
-    scheduledListEl?.querySelectorAll('.activity-cancel-upload-post').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const jobId = btn.getAttribute('data-job-id');
-        if (!jobId) return;
-        try {
-          const res = await UploadPost.cancelScheduled(jobId);
-          if (res.ok) {
-            const stored = await chrome.storage.local.get(['scheduledUploadPosts']);
-            const list = Array.isArray(stored.scheduledUploadPosts) ? stored.scheduledUploadPosts : [];
-            const filtered = list.filter(p => p.job_id !== jobId && p.request_id !== jobId);
-            await chrome.storage.local.set({ scheduledUploadPosts: filtered });
-            refreshActivityPanel();
-          } else {
-            setStatus('Cancel failed: ' + (res.error || 'Unknown error'), 'error');
-          }
-        } catch (e) {
-          setStatus('Cancel failed: ' + e.message, 'error');
-        }
-      });
-    });
-
-    scheduledListEl?.querySelectorAll('.activity-change-jwt-time').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const data = await chrome.storage.local.get(['uploadPostJwtRefreshTime']);
-        const current = data.uploadPostJwtRefreshTime || '23:59';
-        const newTime = window.prompt('Enter daily JWT refresh time (HH:MM):', current);
-        if (newTime == null || !newTime.trim()) return;
-        if (!/^\d{1,2}:\d{2}$/.test(newTime.trim())) {
-          setStatus('Invalid time format. Use HH:MM.', 'error');
-          return;
-        }
-        await chrome.storage.local.set({ uploadPostJwtRefreshTime: newTime.trim() });
-        chrome.runtime.sendMessage({ type: 'SETUP_UPLOAD_POST_JWT_ALARM' });
-        refreshActivityPanel();
-      });
-    });
+    if (scheduledEmptyEl) scheduledEmptyEl.style.display = (futureScheduled.length === 0 && !batchRunInfo) ? '' : 'none';
 
     const histData = await chrome.storage.local.get(['workflowRunHistory']);
     const runHistory = Array.isArray(histData.workflowRunHistory) ? histData.workflowRunHistory : [];
@@ -579,52 +510,6 @@
       });
     }
     if (historyEmptyEl) historyEmptyEl.style.display = runHistory.length === 0 ? '' : 'none';
-
-    // Upload Post upload history
-    const uploadHistEl = document.getElementById('activityUploadPostHistory');
-    const uploadHistEmptyEl = document.getElementById('activityUploadPostHistoryEmpty');
-    if (uploadHistEl) {
-      uploadHistEl.innerHTML = '';
-      if (typeof UploadPost !== 'undefined' && UploadPost.getAuthMode) {
-        const authMode = await UploadPost.getAuthMode();
-        if (authMode.mode) {
-          try {
-            const histRes = await UploadPost.getHistory({ page: 1, limit: 20 });
-            if (histRes.ok && histRes.json && Array.isArray(histRes.json.history)) {
-              const existingRequestIds = new Set(runHistory.filter(h => h.requestId).map(h => h.requestId));
-              const uploads = histRes.json.history.filter(u => !existingRequestIds.has(u.request_id));
-              if (uploads.length > 0) {
-                uploads.forEach(u => {
-                  const div = document.createElement('div');
-                  div.className = 'activity-run-history-item' + (u.success === false ? ' failed' : '');
-                  const timeStr = formatActivityDateTime(u.upload_timestamp);
-                  const platform = u.platform || '';
-                  const mediaType = u.media_type || '';
-                  const status = u.success ? 'success' : 'failed';
-                  const profileUser = u.profile_username || '';
-                  let detail = `${platform} ${mediaType} – ${status}`;
-                  if (profileUser) detail = `${profileUser}: ${detail}`;
-                  if (u.error_message) detail += ` (${u.error_message})`;
-                  let postLink = '';
-                  if (u.post_url) postLink = ` <a href="${escapeHtml(u.post_url)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;">View</a>`;
-                  div.innerHTML = `<span class="activity-item-time">${escapeHtml(timeStr)}</span><span class="activity-item-detail">${escapeHtml(detail)}${postLink}</span>`;
-                  uploadHistEl.appendChild(div);
-                });
-              }
-              if (uploadHistEmptyEl) uploadHistEmptyEl.style.display = uploads.length === 0 ? '' : 'none';
-            } else {
-              if (uploadHistEmptyEl) uploadHistEmptyEl.style.display = '';
-            }
-          } catch (_) {
-            if (uploadHistEmptyEl) uploadHistEmptyEl.style.display = '';
-          }
-        } else {
-          if (uploadHistEmptyEl) uploadHistEmptyEl.style.display = '';
-        }
-      } else {
-        if (uploadHistEmptyEl) uploadHistEmptyEl.style.display = '';
-      }
-    }
 
     // Your connected sidebars: Whop/Supabase (GET /api/extension/sidebars).
     if (sidebarsEl && sidebarsEmptyEl) {
@@ -846,6 +731,22 @@
     } catch (_) {}
   }
 
+  function notifyRemovedStepsMigrationReport(report) {
+    if (!report || !report.length || typeof setStatus !== 'function') return;
+    const parts = report.map((r) => `${r.name || r.id} (−${r.removedCount})`);
+    setStatus(`Removed obsolete steps from: ${parts.join(', ')}`, 'success');
+  }
+
+  async function applyRemovedStepsMigrationAndPersistIfNeeded() {
+    const mig = typeof CFS_workflowRemovedStepsMigration !== 'undefined' ? CFS_workflowRemovedStepsMigration : null;
+    if (!mig || typeof mig.migrateWorkflowsRemovedSteps !== 'function') return;
+    const { report } = mig.migrateWorkflowsRemovedSteps(workflows);
+    if (report && report.length > 0) {
+      await chrome.storage.local.set({ workflows });
+      notifyRemovedStepsMigrationReport(report);
+    }
+  }
+
   async function ensureBundledDiscoveryGlobalHints() {
     try {
       const data = await chrome.storage.local.get(['discoveryGlobalHints']);
@@ -1061,6 +962,7 @@
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab?.url) currentTabUrl = tab.url;
       } catch (_) {}
+      await applyRemovedStepsMigrationAndPersistIfNeeded();
       renderWorkflowList();
       renderWorkflowSelects();
       renderProcessSelects();
@@ -1169,6 +1071,7 @@
               workflows[wf.id] = wf;
             }
           }
+          await applyRemovedStepsMigrationAndPersistIfNeeded();
           await chrome.storage.local.set({ workflows });
           renderWorkflowList();
           renderWorkflowSelects();
@@ -1847,22 +1750,6 @@
     }
   }
 
-  /** Extract {{varName}} from runGenerator inputMap values so generator inputs appear in Data columns. */
-  function extractInputMapVariableKeys(inputMap) {
-    const found = new Set();
-    if (!inputMap) return found;
-    if (typeof inputMap === 'string') {
-      try { inputMap = JSON.parse(inputMap || '{}'); } catch (_) { return found; }
-    }
-    if (typeof inputMap !== 'object') return found;
-    const strValues = (v) => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.filter(s => typeof s === 'string') : []);
-    for (const v of Object.values(inputMap).flatMap(strValues)) {
-      const matches = v.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g);
-      if (matches) matches.forEach(m => { const name = m.replace(/\{\{\s*|\s*\}\}/g, ''); if (name.length >= 2) found.add(name); });
-    }
-    return found;
-  }
-
   function getWorkflowVariableKeys(wf) {
     const keys = new Map();
     const norm = (k) => (k || '').toLowerCase().trim();
@@ -1896,12 +1783,6 @@
           if (en && !keys.has(en)) keys.set(en, { rowKey: extra.rowKey || extra.label, label: extra.label || extra.rowKey, type: a.type, hint: extra.hint || 'text' });
         });
       } else if (a.type === 'download') keys.set('downloadfilename', { rowKey: 'downloadFilename', label: 'downloadFilename', type: 'download', hint: 'text' });
-      if (a.type === 'runGenerator' && a.inputMap) {
-        extractInputMapVariableKeys(a.inputMap).forEach(varName => {
-          const n = norm(varName);
-          if (n && !keys.has(n)) keys.set(n, { rowKey: varName, label: varName, placeholderText: varName, type: 'runGenerator', hint: 'text' });
-        });
-      }
     }
     if (keys.size > 0) return Array.from(keys.values()).map(function(k) {
       if (!k.placeholderText) k.placeholderText = k.label || k.rowKey;
@@ -1920,7 +1801,7 @@
     return Array.from(keys.values());
   }
 
-  /** Keep workflow.csvColumns in sync with variable keys from steps (and runGenerator inputMap). Call after analyze merge or step add/remove/save. */
+  /** Keep workflow.csvColumns in sync with variable keys from steps. Call after analyze merge or step add/remove/save. */
   function syncWorkflowCsvColumnsFromSteps(wf) {
     if (!wf) return;
     const keyObjects = getWorkflowVariableKeys(wf);
@@ -2251,11 +2132,10 @@
   // Pulse data is stored locally; on init we sync from Backend and update local. Mutations update Backend and sync local.
   // Cache TTL 1 hour; invalidated when user updates data (add/edit/delete) so next view refetches.
   const PULSE_CACHE_MS = 60 * 60 * 1000;
+  /** Backend HighLevel/social profiles cache (GET /api/extension/social-profiles). */
   const CONNECTED_PROFILES_STORAGE_KEY = 'connectedProfiles';
   let connectedProfilesCache = null;
   let connectedProfilesCacheTime = 0;
-  /** Merged Connected list length (same basis as POST /social-profiles cap); drives canAddConnectedProfile with max_accounts from has-upgraded. */
-  let lastMergedConnectedProfilesCount = 0;
   let followingLastFetchTime = 0;
   function invalidatePulseConnectedCache() {
     connectedProfilesCache = null;
@@ -2263,342 +2143,6 @@
   }
   function invalidatePulseFollowingCache() {
     followingLastFetchTime = 0;
-  }
-
-  async function updateConnectedHeadingAndButton() {
-    const headingEl = document.querySelector('.connected-heading');
-    const btnEl = document.getElementById('connectedAddNewBtn');
-    if (!headingEl || !btnEl) return;
-    const auth = await getAuthState();
-    btnEl.disabled = false;
-    btnEl.removeAttribute('title');
-    if (!auth.isLoggedIn) {
-      headingEl.textContent = 'Connected:';
-      btnEl.textContent = 'Add New';
-      return;
-    }
-    const upgraded = typeof ExtensionApi !== 'undefined' ? await ExtensionApi.hasUpgraded().catch(() => ({ ok: false })) : { ok: false };
-    const num = upgraded.num_accounts;
-    const max = upgraded.max_accounts;
-    const maxNum = typeof max === 'number' && Number.isFinite(max) ? max : NaN;
-    const numNum = typeof num === 'number' && Number.isFinite(num) ? num : NaN;
-    if (!Number.isNaN(numNum) && !Number.isNaN(maxNum) && maxNum > 0) {
-      headingEl.textContent = `Connected: (${numNum} / ${maxNum})`;
-    } else {
-      headingEl.textContent = 'Connected:';
-    }
-    const localKey = typeof UploadPost !== 'undefined' && UploadPost.getLocalApiKey
-      ? await UploadPost.getLocalApiKey()
-      : null;
-    const canBackendSlot = typeof ExtensionApi !== 'undefined' && ExtensionApi.canAddConnectedProfile
-      ? ExtensionApi.canAddConnectedProfile(numNum, maxNum)
-      : false;
-    const canAddAny = canBackendSlot || !!localKey;
-    if (!canAddAny) {
-      btnEl.textContent = 'Upgrade to Add More';
-      btnEl.disabled = true;
-      btnEl.setAttribute('title', 'Account limit reached. Add an Upload Post API key in Settings to add more.');
-    } else {
-      btnEl.textContent = 'Add New';
-      if (!canBackendSlot && localKey) {
-        btnEl.setAttribute('title', 'Backend slots full — new profiles use your Settings Upload Post API key');
-      }
-    }
-  }
-
-  async function loadConnectedProfiles() {
-    const listEl = document.getElementById('connectedProfilesList');
-    const statusEl = document.getElementById('connectedProfilesStatus');
-    if (!listEl || !statusEl) return;
-    const setConnectedStatusInline = (msg, type = '') => {
-      if (!statusEl) return;
-      statusEl.textContent = msg || '';
-      statusEl.className = 'hint connected-profiles-status' + (type ? ' ' + type : '');
-      statusEl.style.display = msg ? 'block' : 'none';
-    };
-    listEl.innerHTML = '';
-    setConnectedStatusInline('');
-    const auth = await getAuthState();
-    let profiles;
-    if (!auth.isLoggedIn) {
-      try {
-        if (typeof UploadPost !== 'undefined' && UploadPost.getUserProfiles) {
-          setConnectedStatusInline('Loading…');
-          const upRes = await UploadPost.getUserProfiles();
-          setConnectedStatusInline('');
-          if (upRes.ok && Array.isArray(upRes.profiles) && upRes.profiles.length > 0) {
-            profiles = upRes.profiles.map(p => ({
-              name: p.username || 'Connected account',
-              social_accounts: p.social_accounts || {},
-              _source: 'uploadpost',
-              _username: p.username || '',
-            }));
-            connectedProfilesCache = profiles;
-            connectedProfilesCacheTime = Date.now();
-            try { await chrome.storage.local.set({ [CONNECTED_PROFILES_STORAGE_KEY]: profiles }); } catch (_) {}
-          }
-        }
-        if (!profiles || profiles.length === 0) {
-          const data = await chrome.storage.local.get([CONNECTED_PROFILES_STORAGE_KEY]);
-          const cached = Array.isArray(data[CONNECTED_PROFILES_STORAGE_KEY]) ? data[CONNECTED_PROFILES_STORAGE_KEY] : [];
-          if (cached.length > 0) {
-            profiles = cached;
-            connectedProfilesCache = profiles;
-          } else {
-            setConnectedStatusInline('No connected profiles. Add your Upload Post API key in Settings to see accounts.');
-            return;
-          }
-        }
-      } catch (_) {
-        setConnectedStatusInline('Sign in or add your Upload Post API key in Settings to see connected profiles.');
-        return;
-      }
-    } else {
-      const useCache = connectedProfilesCache && (Date.now() - connectedProfilesCacheTime) < PULSE_CACHE_MS;
-      if (useCache) {
-        profiles = connectedProfilesCache;
-      } else {
-        setConnectedStatusInline('Loading…');
-        const backendProfiles = [];
-        const res = typeof ExtensionApi !== 'undefined' ? await ExtensionApi.getSocialMediaProfiles() : { ok: false };
-        if (res.ok && Array.isArray(res.profiles)) backendProfiles.push(...res.profiles);
-        const uploadPostProfiles = [];
-        const toUploadPostProfile = (p) => ({
-          name: p.username || 'Connected account',
-          social_accounts: p.social_accounts || {},
-          _source: 'uploadpost',
-          _username: p.username || '',
-        });
-        if (typeof UploadPost !== 'undefined') {
-          if (UploadPost.getUserProfiles) {
-            const upRes = await UploadPost.getUserProfiles();
-            if (upRes.ok && Array.isArray(upRes.profiles) && upRes.profiles.length > 0) {
-              uploadPostProfiles.push(...upRes.profiles.map(toUploadPostProfile));
-            }
-          }
-          if (UploadPost.getLocalApiKey && UploadPost.getUserProfilesWithKey) {
-            const localKey = await UploadPost.getLocalApiKey();
-            if (localKey) {
-              const localRes = await UploadPost.getUserProfilesWithKey(localKey);
-              if (localRes.ok && Array.isArray(localRes.profiles) && localRes.profiles.length > 0) {
-                uploadPostProfiles.push(...localRes.profiles.map(toUploadPostProfile));
-              }
-            }
-          }
-        }
-        const keyFor = (p) => (p._username || p.username || p.name || p.user || p.data?.username || p.data?.name || p.id || '').toString().toLowerCase().trim();
-        const seen = new Set();
-        profiles = [];
-        for (const p of backendProfiles) {
-          const k = keyFor(p);
-          if (k && !seen.has(k)) { seen.add(k); profiles.push(p); }
-        }
-        for (const p of uploadPostProfiles) {
-          const k = keyFor(p);
-          if (k && !seen.has(k)) { seen.add(k); profiles.push(p); }
-        }
-        const stored = await chrome.storage.local.get([CONNECTED_PROFILES_STORAGE_KEY]);
-        const local = Array.isArray(stored[CONNECTED_PROFILES_STORAGE_KEY]) ? stored[CONNECTED_PROFILES_STORAGE_KEY] : [];
-        for (const p of local) {
-          const k = keyFor(p);
-          if (!k) { profiles.push(p); continue; }
-          if (!seen.has(k)) { seen.add(k); profiles.push(p); }
-        }
-        setConnectedStatusInline('');
-        connectedProfilesCache = profiles;
-        connectedProfilesCacheTime = Date.now();
-        try {
-          await chrome.storage.local.set({ [CONNECTED_PROFILES_STORAGE_KEY]: profiles });
-        } catch (_) {}
-        if (window.reportSidebarInstanceToBackend) window.reportSidebarInstanceToBackend();
-      }
-    }
-    lastMergedConnectedProfilesCount = (profiles && Array.isArray(profiles)) ? profiles.length : 0;
-    if (auth.isLoggedIn) await updateConnectedHeadingAndButton();
-    if (!profiles || profiles.length === 0) {
-      setConnectedStatusInline('No connected profiles yet.');
-      return;
-    }
-    // Normalize profile fields (API may use snake_case, camelCase, nested .data, or different keys)
-    const getStr = (obj, ...keys) => {
-      const sources = [obj, obj?.data, obj?.value].filter(Boolean);
-      for (const src of sources) {
-        for (const k of keys) {
-          const v = src[k];
-          if (v != null && String(v).trim() !== '') return String(v).trim();
-        }
-      }
-      return '';
-    };
-    // Resolve lookup_result (may be object or JSON string; key may be lookup_result/lookupResult or nested in .data/.value/.row)
-    const getLookupResult = (p) => {
-      let lr = p.lookup_result ?? p.lookupResult ?? p.data?.lookup_result ?? p.data?.lookupResult ?? p.value?.lookup_result ?? p.value?.lookupResult ?? p.row?.lookup_result ?? p.row?.lookupResult ?? p.fields?.lookup_result ?? p.fields?.lookupResult;
-      if (typeof lr === 'string') {
-        try { lr = JSON.parse(lr); } catch (_) { return null; }
-      }
-      return lr && typeof lr === 'object' ? lr : null;
-    };
-    // Resolve profile.social_accounts from lookup_result (profile may be under .profile or .data.profile etc.)
-    const socialAccounts = (p) => {
-      let sa = null;
-      const lr = getLookupResult(p);
-      if (lr) {
-        const profile = lr.profile ?? lr.data?.profile ?? lr.result?.profile;
-        if (profile) sa = profile.social_accounts ?? profile.socialAccounts ?? profile.data?.social_accounts ?? profile.data?.socialAccounts ?? null;
-      }
-      if (!sa || typeof sa !== 'object') {
-        sa = p.social_accounts ?? p.socialAccounts ?? p.data?.social_accounts ?? null;
-      }
-      if (!sa || typeof sa !== 'object') return {};
-      const out = {};
-      for (const [k, v] of Object.entries(sa)) out[k.toLowerCase()] = v;
-      return out;
-    };
-    const socialLink = (account, platform) => {
-      if (account == null || account === false || account === 0) return null;
-      if (account === true || account === 'connected') {
-        const label = platform.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        return { href: '', title: label, img: '', connected: true };
-      }
-      if (typeof account === 'string' && account.trim()) {
-        const label = platform.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        return { href: '', title: label, img: '', connected: true };
-      }
-      if (typeof account !== 'object' || Array.isArray(account)) return null;
-      if (Object.keys(account).length === 0) return null;
-      const handle = (account.handle || account.username || '').toString().replace(/^@/, '').trim();
-      const username = (account.username || '').toString().trim();
-      const displayName = (account.display_name || account.displayName || '').toString().trim();
-      const simg = account.social_images ?? account.socialImages;
-      const rawImg = Array.isArray(simg) ? (simg[0] || '') : (simg || '');
-      const imgUrl = (typeof rawImg === 'string' ? rawImg : (rawImg?.url || '')).trim();
-      const h = handle || username;
-      const connectedLabel = displayName || platform.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      if (platform === 'youtube') {
-        if (!handle && !username) return { href: '', title: connectedLabel, img: imgUrl, connected: true };
-        const href = handle ? `https://www.youtube.com/@${handle}` : `https://www.youtube.com/channel/${username}`;
-        return { href, title: displayName || 'YouTube', img: imgUrl };
-      }
-      if (h) {
-        if (platform === 'instagram') return { href: `https://www.instagram.com/${h}`, title: displayName || 'Instagram', img: imgUrl };
-        if (platform === 'tiktok') return { href: `https://www.tiktok.com/@${h}`, title: displayName || 'TikTok', img: imgUrl };
-        if (platform === 'x') return { href: `https://x.com/${h}`, title: displayName || 'X', img: imgUrl };
-        if (platform === 'pinterest') return { href: `https://www.pinterest.com/${h}/`, title: displayName || 'Pinterest', img: imgUrl };
-        if (platform === 'reddit') return { href: `https://www.reddit.com/user/${h}`, title: displayName || 'Reddit', img: imgUrl };
-        if (platform === 'facebook') return { href: `https://www.facebook.com/${h}`, title: displayName || 'Facebook', img: imgUrl };
-        if (platform === 'linkedin') return { href: `https://www.linkedin.com/in/${h}`, title: displayName || 'LinkedIn', img: imgUrl };
-        if (platform === 'threads') return { href: `https://www.threads.net/@${h}`, title: displayName || 'Threads', img: imgUrl };
-        if (platform === 'bluesky') return { href: `https://bsky.app/profile/${h}`, title: displayName || 'Bluesky', img: imgUrl };
-        if (platform === 'telegram') return { href: `https://t.me/${h}`, title: displayName || 'Telegram', img: imgUrl };
-      }
-      return { href: '', title: connectedLabel, img: imgUrl, connected: true };
-    };
-    const ytSvg = '<svg viewBox="0 0 24 24"><path d="M23.498 6.186a2.998 2.998 0 00-2.113-2.122C19.48 3.5 12 3.5 12 3.5s-7.48 0-9.385.564A2.998 2.998 0 00.502 6.186 31.04 31.04 0 000 12a31.04 31.04 0 00.502 5.814 2.998 2.998 0 002.113 2.122C4.52 20.5 12 20.5 12 20.5s7.48 0 9.385-.564a2.998 2.998 0 002.113-2.122A31.04 31.04 0 0024 12a31.04 31.04 0 00-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>';
-    const igSvg = '<svg viewBox="0 0 24 24"><path fill="white" d="M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9 A5.5 5.5 0 0 1 16.5 22h-9 A5.5 5.5 0 0 1 2 16.5v-9 A5.5 5.5 0 0 1 7.5 2zm9 2h-9 A3.5 3.5 0 0 0 4 7.5v9 A3.5 3.5 0 0 0 7.5 20h9 A3.5 3.5 0 0 0 20 16.5v-9 A3.5 3.5 0 0 0 16.5 4z M12 7a5 5 0 1 1 0 10 a5 5 0 0 1 0-10zm0 2 a3 3 0 1 0 0 6 a3 3 0 0 0 0-6zm4.75-2.25 a.75.75 0 1 1-1.5 0 a.75.75 0 0 1 1.5 0z"/></svg>';
-    const ttSvg = '<svg viewBox="0 0 24 24"><path fill="white" d="M17.5 6.1c-1.2-.7-2.1-1.8-2.4-3.1h-2.9v12.1 c0 1.4-1.1 2.5-2.5 2.5s-2.5-1.1-2.5-2.5 1.1-2.5 2.5-2.5c.3 0 .6.1.9.2V9.9 c-.3-.1-.6-.1-.9-.1-3 0-5.5 2.4-5.5 5.5 0 3 2.4 5.5 5.5 5.5s5.5-2.4 5.5-5.5V8.5 c1 .7 2.2 1.1 3.5 1.1V6.7 c-.6 0-1.2-.2-1.7-.6z"/></svg>';
-    const xSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
-    const pinSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738.098.119.112.224.083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.214 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/></svg>';
-    const redditSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484 1.105 3.467 1.105.984 0 2.625-.263 3.467-1.105a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.547-1.691.73-2.556.73-1.026 0-2.031-.246-2.556-.73a.326.326 0 0 0-.232-.095z"/></svg>';
-    const fbSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>';
-    const liSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>';
-    const threadsSvg = '<svg viewBox="0 0 960 960" fill="currentColor"><path d="M404.63 392.13c-11.92-7.93-51.53-35.49-51.53-35.49 33.4-47.88 77.46-66.52 138.36-66.52 43.07 0 79.64 14.52 105.75 42 26.12 27.49 41.02 66.8 44.41 117.07 14.48 6.07 27.85 13.22 39.99 21.4 48.96 33 75.92 82.34 75.92 138.91 0 120.23-98.34 224.67-276.35 224.67-152.84 0-311.63-89.11-311.63-354.45 0-263.83 153.81-353.92 311.2-353.92 72.68 0 243.16 10.76 307.27 222.94l-60.12 15.63C678.33 213.2 574.4 189.14 479.11 189.14c-157.52 0-246.62 96.13-246.62 300.65 0 183.38 99.59 280.8 248.71 280.8 122.68 0 214.15-63.9 214.15-157.44 0-63.66-53.37-94.14-56.1-94.14-10.42 54.62-38.36 146.5-161.01 146.5-71.46 0-133.07-49.47-133.07-114.29 0-92.56 87.61-126.06 156.8-126.06 25.91 0 57.18 1.75 73.46 5.07 0-28.21-23.81-76.49-83.96-76.49-55.15-.01-69.14 17.92-86.84 38.39z"/></svg>';
-    const copySvg = '<svg fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h8m-8 4h8m-8 4h6M5 7h-.01M5 11h-.01M5 15h-.01M4 4h16v16H4z"/></svg>';
-    const openSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M10 14l11-11"/></svg>';
-
-    const gbpSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 9.74l-2 1.02v7.24c-1.007 2.041-5.606 3-8.5 3C7.606 21 3.007 20.001 2 18V10.76L0 9.74 12 4l12 5.74zM12 17a3 3 0 100-6 3 3 0 000 6z"/></svg>';
-    const bskySvg = '<svg viewBox="0 0 600 530" fill="currentColor"><path d="M300 120c-52.5 40-106.5 121.5-135 172.5 0 75 37.5 112.5 75 120-22.5 7.5-82.5 15-120-37.5C82.5 322.5 75 405 300 480c225-75 217.5-157.5 180-105-37.5 52.5-97.5 45-120 37.5 37.5-7.5 75-45 75-120C406.5 241.5 352.5 160 300 120z"/></svg>';
-    const tgSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>';
-
-    const platformConfig = [
-      { key: 'youtube', title: 'YouTube', svg: ytSvg, cls: 'youtube', fallbackKeys: ['youtube_handle', 'youtubeHandle'], hrefFallback: (v) => `https://www.youtube.com/${v.replace(/^\/+/, '')}` },
-      { key: 'instagram', title: 'Instagram', svg: igSvg, cls: 'instagram', fallbackKeys: ['instagram_handle', 'instagramHandle'], hrefFallback: (v) => `https://www.instagram.com/${v.replace(/^@/, '')}` },
-      { key: 'tiktok', title: 'TikTok', svg: ttSvg, cls: 'tiktok', fallbackKeys: ['tiktok_handle', 'tiktokHandle'], hrefFallback: (v) => `https://www.tiktok.com/@${v.replace(/^@/, '')}` },
-      { key: 'x', title: 'X', svg: xSvg, cls: 'x', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'pinterest', title: 'Pinterest', svg: pinSvg, cls: 'pinterest', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'reddit', title: 'Reddit', svg: redditSvg, cls: 'reddit', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'facebook', title: 'Facebook', svg: fbSvg, cls: 'facebook', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'linkedin', title: 'LinkedIn', svg: liSvg, cls: 'linkedin', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'threads', title: 'Threads', svg: threadsSvg, cls: 'threads', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'bluesky', title: 'Bluesky', svg: bskySvg, cls: 'bluesky', fallbackKeys: [], hrefFallback: () => '' },
-      { key: 'google_business', title: 'Google Business', svg: gbpSvg, cls: 'google-business', fallbackKeys: ['googlebusiness'], hrefFallback: () => '' },
-      { key: 'telegram', title: 'Telegram', svg: tgSvg, cls: 'telegram', fallbackKeys: [], hrefFallback: () => '' },
-    ];
-    const renderSocialIcon = (link, svg, cls, title) => {
-      if (!link) return '';
-      const imgOrSvg = link.img
-        ? `<img class="connected-social-avatar" src="${escapeHtml(link.img)}" alt="" data-social-fallback><span class="connected-social-fallback" style="display:none" aria-hidden="true">${svg}</span>`
-        : svg;
-      if (link.href) {
-        return `<a class="connected-social-icon ${cls}" href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(link.title || title)}">${imgOrSvg}</a>`;
-      }
-      return `<span class="connected-social-icon ${cls}" title="${escapeHtml(link.title || title)} (connected)">${imgOrSvg}</span>`;
-    };
-    const jwtStoreData = await chrome.storage.local.get('uploadPostJwtTokens').catch(() => ({}));
-    const jwtStore = jwtStoreData.uploadPostJwtTokens || {};
-    listEl.innerHTML = profiles.map((p) => {
-      let name = getStr(p, 'name');
-      if (!name) {
-        const lr = getLookupResult(p);
-        const prof = lr?.profile ?? lr?.data?.profile;
-        name = prof?.username ?? prof?.display_name ?? prof?.displayName ?? 'Connected account';
-      }
-      name = name || 'Unnamed';
-      let accessUrl = getStr(p, 'access_url', 'accessUrl', 'url', 'link', 'connect_url', 'connectUrl');
-      if (!accessUrl && p._source === 'uploadpost') {
-        const uname = p._username || p.name || '';
-        const jwt = jwtStore[uname];
-        if (jwt && jwt.access_url) accessUrl = jwt.access_url;
-      }
-      const sa = socialAccounts(p);
-      const socialParts = [];
-      for (const { key, title, svg, cls, fallbackKeys, hrefFallback } of platformConfig) {
-        const link = socialLink(sa[key], key);
-        if (link) {
-          socialParts.push(renderSocialIcon(link, svg, cls, title));
-        } else if (fallbackKeys.length && hrefFallback) {
-          const fallbackVal = getStr(p, ...fallbackKeys);
-          if (fallbackVal) {
-            const href = hrefFallback(fallbackVal);
-            socialParts.push(`<a class="connected-social-icon ${cls}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title)}">${svg}</a>`);
-          }
-        }
-      }
-      const socials = socialParts.join('');
-      const connectLink = accessUrl
-        ? `<a class="connected-open-btn" href="${escapeHtml(accessUrl)}" target="_blank" rel="noopener noreferrer" title="Connect Accounts">Connect Accounts ${openSvg}</a>`
-        : `<span class="connected-open-btn connected-open-btn-disabled" title="Connect Accounts">Connect Accounts ${openSvg}</span>`;
-      return `<div class="connected-item">
-        <span class="connected-item-name">${escapeHtml(name)}</span>
-        <input class="connected-item-url" type="text" value="${escapeHtml(accessUrl)}" readonly>
-        <button type="button" class="connected-icon-btn" title="Copy URL" data-copy="${escapeHtml(accessUrl)}">${copySvg}</button>
-        ${connectLink}
-        <div class="connected-socials">${socials}</div>
-      </div>`;
-    }).join('');
-
-    listEl.querySelectorAll('.connected-icon-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const url = btn.getAttribute('data-copy') || '';
-        if (!url) return;
-        navigator.clipboard.writeText(url).then(() => {
-          const svg = btn.querySelector('svg');
-          if (svg) {
-            const prev = svg.style.stroke;
-            svg.style.stroke = '#16a34a';
-            setTimeout(() => { svg.style.stroke = prev; }, 1000);
-          }
-        });
-      });
-    });
-    listEl.querySelectorAll('img.connected-social-avatar[data-social-fallback]').forEach((img) => {
-      img.addEventListener('error', () => {
-        img.style.display = 'none';
-        const fallback = img.nextElementSibling;
-        if (fallback && fallback.classList.contains('connected-social-fallback')) {
-          fallback.style.display = 'inline-flex';
-        }
-      });
-    });
   }
 
   function setChromeUpgradeVisibilityForTab(tabId) {
@@ -2632,7 +2176,6 @@
       if (!showUpgrade) {
         if (tabId === 'automations' && typeof checkBackendStatus === 'function') checkBackendStatus();
         if (tabId === 'pulse') {
-          loadConnectedProfiles();
           loadFollowing();
           loadPulseFollowingAutomationBanner();
         }
@@ -2661,7 +2204,6 @@
   });
   setChromeUpgradeVisibilityForTab(initialTab);
   if (initialTab === 'pulse') {
-    loadConnectedProfiles();
     loadFollowing();
   } else if (initialTab === 'automations' && typeof checkBackendStatus === 'function') {
     checkBackendStatus();
@@ -2685,150 +2227,6 @@
         } catch (_) {}
       });
     }
-  });
-
-  // Connected: Add New / Save (user is sent from logged-in auth, not shown)
-  const connectedAddForm = document.getElementById('connectedAddForm');
-  const connectedAddName = document.getElementById('connectedAddName');
-  document.getElementById('connectedAddNewBtn')?.addEventListener('click', () => {
-    const addBtn = document.getElementById('connectedAddNewBtn');
-    if (addBtn && addBtn.disabled) return;
-    const isHidden = !connectedAddForm || connectedAddForm.style.display === 'none';
-    if (connectedAddForm) connectedAddForm.style.display = isHidden ? 'flex' : 'none';
-    if (connectedAddName) connectedAddName.value = '';
-  });
-  function setConnectedStatus(msg, type = '') {
-    const el = document.getElementById('connectedProfilesStatus');
-    if (!el) return;
-    el.textContent = msg || '';
-    el.className = 'hint connected-profiles-status' + (type ? ' ' + type : '');
-    el.style.display = msg ? 'block' : 'none';
-  }
-
-  /** Slug for Upload Post POST /uploadposts/users username field. */
-  function slugifyConnectedProfileName(raw) {
-    const s = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
-    return s || ('user_' + Date.now());
-  }
-
-  /**
-   * Backend slots full or skipped: create Upload Post user with Settings API key and append to connectedProfiles.
-   * @returns {Promise<boolean>} true if UI should stop (success or error already shown)
-   */
-  async function addConnectedProfileViaLocalKeyOverflow(name, whopUser) {
-    const localKey = typeof UploadPost !== 'undefined' && UploadPost.getLocalApiKey
-      ? await UploadPost.getLocalApiKey()
-      : null;
-    if (!localKey) {
-      setConnectedStatus('Backend account limit reached. Add an Upload Post API key in Settings to add more profiles.', 'error');
-      return false;
-    }
-    const usernameForUp = slugifyConnectedProfileName(name);
-    if (typeof UploadPost.createUserProfileWithKey === 'function') {
-      const upRes = await UploadPost.createUserProfileWithKey(localKey, usernameForUp);
-      if (!upRes.ok && upRes.status !== 409) {
-        setConnectedStatus(upRes.error || 'Upload Post could not create profile.', 'error');
-        return false;
-      }
-    }
-    const data = await chrome.storage.local.get([CONNECTED_PROFILES_STORAGE_KEY]);
-    const existing = Array.isArray(data[CONNECTED_PROFILES_STORAGE_KEY]) ? data[CONNECTED_PROFILES_STORAGE_KEY] : [];
-    const newProfile = {
-      id: 'overflow_' + Date.now(),
-      name,
-      username: whopUser,
-      _username: usernameForUp,
-      social_accounts: {},
-      _source: 'local_key_overflow',
-    };
-    const { profiles: updated, added } = ExtensionApi.appendConnectedProfileOverflow(existing, newProfile);
-    if (!added) {
-      setConnectedStatus('A profile with this name already exists in Connected.', 'error');
-      return false;
-    }
-    await chrome.storage.local.set({ [CONNECTED_PROFILES_STORAGE_KEY]: updated });
-    invalidatePulseConnectedCache();
-    if (connectedAddForm) connectedAddForm.style.display = 'none';
-    if (connectedAddName) connectedAddName.value = '';
-    await loadConnectedProfiles();
-    setConnectedStatus('Profile added (Upload Post — local API key).', 'success');
-    return true;
-  }
-
-  document.getElementById('connectedAddSaveBtn')?.addEventListener('click', async () => {
-    const name = connectedAddName?.value?.trim() ?? '';
-    if (!name) {
-      setConnectedStatus('Enter a name.', 'error');
-      return;
-    }
-    if (typeof ExtensionApi === 'undefined') {
-      setConnectedStatus('Extension API not loaded.', 'error');
-      return;
-    }
-    const auth = await getAuthState();
-    if (!auth.isLoggedIn) {
-      setConnectedStatus('Sign in to add a connected profile.', 'error');
-      return;
-    }
-    const user = auth?.username ?? '';
-    const upgraded = await ExtensionApi.hasUpgraded().catch(() => ({}));
-    const numAccounts = typeof upgraded.num_accounts === 'number' && Number.isFinite(upgraded.num_accounts)
-      ? upgraded.num_accounts
-      : 0;
-    const maxAccounts = typeof upgraded.max_accounts === 'number' && Number.isFinite(upgraded.max_accounts)
-      ? upgraded.max_accounts
-      : 0;
-    const hasBackendSlot = maxAccounts > 0 && numAccounts < maxAccounts;
-
-    if (hasBackendSlot) {
-      const gate = ExtensionApi.addSocialProfileIfAllowed(numAccounts, maxAccounts, { name, user });
-      if (!gate.ok) {
-        setConnectedStatus(gate.error || 'Account limit reached.', 'error');
-        return;
-      }
-      const res = await ExtensionApi.addRemoveSocialMedia(gate.body);
-      if (res.ok) {
-        if (connectedAddForm) connectedAddForm.style.display = 'none';
-        if (connectedAddName) connectedAddName.value = '';
-        invalidatePulseConnectedCache();
-        await loadConnectedProfiles();
-        setConnectedStatus('Profile added.', 'success');
-        return;
-      }
-      if (res.status === 403) {
-        if (await addConnectedProfileViaLocalKeyOverflow(name, user)) return;
-        setConnectedStatus(res.error || 'Failed to add profile.', 'error');
-        return;
-      }
-      if (res.status === 404) {
-        const localKey = typeof UploadPost !== 'undefined' && UploadPost.getLocalApiKey
-          ? await UploadPost.getLocalApiKey()
-          : null;
-        if (localKey) {
-          if (await addConnectedProfileViaLocalKeyOverflow(name, user)) return;
-          return;
-        }
-        const data = await chrome.storage.local.get([CONNECTED_PROFILES_STORAGE_KEY]);
-        const existing = Array.isArray(data[CONNECTED_PROFILES_STORAGE_KEY]) ? data[CONNECTED_PROFILES_STORAGE_KEY] : [];
-        const newProfile = { id: 'local_' + Date.now(), name, username: user, social_accounts: {}, _source: 'local' };
-        const { profiles: updated, added } = ExtensionApi.appendConnectedProfileIfUnderCap(existing, newProfile, maxAccounts);
-        if (!added) {
-          setConnectedStatus('Account limit reached. Upgrade to add more connected profiles.', 'error');
-          return;
-        }
-        await chrome.storage.local.set({ [CONNECTED_PROFILES_STORAGE_KEY]: updated });
-        invalidatePulseConnectedCache();
-        if (connectedAddForm) connectedAddForm.style.display = 'none';
-        if (connectedAddName) connectedAddName.value = '';
-        await loadConnectedProfiles();
-        setConnectedStatus('Profile added (saved locally until backend is ready).', 'success');
-        return;
-      }
-      setConnectedStatus(res.error || 'Failed to add profile.', 'error');
-      return;
-    }
-
-    if (await addConnectedProfileViaLocalKeyOverflow(name, user)) return;
   });
 
   // ——— Following (profiles + accounts on platforms) ———
@@ -5466,9 +4864,11 @@
     if (whopLoggedIn && window.reportSidebarInstanceToBackend) window.reportSidebarInstanceToBackend();
   });
 
-  document.getElementById('openGeneratorLink')?.addEventListener('click', (e) => {
+  document.getElementById('openContentRewardsLink')?.addEventListener('click', (e) => {
     e.preventDefault();
-    chrome.tabs.create({ url: chrome.runtime.getURL('generator/index.html') });
+    const url = (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig.CONTENT_REWARDS_AI_URL)
+      || 'https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/';
+    chrome.tabs.create({ url });
   });
 
   function shortRandomId() {
@@ -5798,30 +5198,6 @@
     });
   }
 
-  /** Base template ids (no .json) under uploads/{projectId}/templates/ in the linked project folder. */
-  async function listUploadsProjectTemplateIds(projectRoot, projectId) {
-    if (!projectRoot || !projectId) return [];
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'read' });
-      if (perm !== 'granted') return [];
-      const uploadsDir = await projectRoot.getDirectoryHandle('uploads', { create: false });
-      const projDir = await uploadsDir.getDirectoryHandle(projectId, { create: false });
-      const templatesDir = await projDir.getDirectoryHandle('templates', { create: false });
-      const out = [];
-      for await (const entry of templatesDir.values()) {
-        if (!entry || entry.kind !== 'file') continue;
-        const name = entry.name || '';
-        if (!/\.json$/i.test(name)) continue;
-        const base = name.replace(/\.json$/i, '');
-        if (base) out.push(base);
-      }
-      out.sort((a, b) => a.localeCompare(b));
-      return out;
-    } catch (_) {
-      return [];
-    }
-  }
-
   function setStoredProjectFolderHandle(handle) {
     return new Promise((resolve) => {
       try {
@@ -5925,75 +5301,6 @@
    * Find literal paths uploads/{sourceProjectId}/... in serialized JSON.
    * @returns {string[]} full relative paths from project root
    */
-  function collectUploadsPathsForProjectInJson(jsonStr, sourceProjectId) {
-    if (!jsonStr || !sourceProjectId) return [];
-    const prefix = 'uploads/' + sourceProjectId + '/';
-    const out = new Set();
-    let idx = 0;
-    while (idx < jsonStr.length) {
-      const i = jsonStr.indexOf(prefix, idx);
-      if (i === -1) break;
-      let j = i + prefix.length;
-      while (j < jsonStr.length) {
-        const c = jsonStr[j];
-        if (c === '"' || c === "'" || c === ' ' || c === '\n' || c === '\r' || c === '\t' || c === '}' || c === ']' || c === ',') break;
-        j++;
-      }
-      const rel = jsonStr.slice(i + prefix.length, j).replace(/\\/g, '/').replace(/^\/+/, '');
-      if (rel) out.add(prefix + rel);
-      idx = i + 1;
-    }
-    return Array.from(out);
-  }
-
-  /**
-   * Copy referenced uploads/{source}/ files to uploads/{dest}/ (skip if dest exists), rewrite JSON.
-   * @returns {{ templateJson: object, copied: number, skipped: number, missing: number, warnings: string[] }}
-   */
-  async function replicateUploadsMediaForTemplateJson(projectRoot, sourceProjectId, destProjectId, templateJson) {
-    const warnings = [];
-    if (!sourceProjectId || !destProjectId || sourceProjectId === destProjectId) {
-      const tj = typeof templateJson === 'object' && templateJson !== null ? templateJson : {};
-      return { templateJson: tj, copied: 0, skipped: 0, missing: 0, warnings };
-    }
-    let str = typeof templateJson === 'string' ? templateJson : JSON.stringify(templateJson);
-    const paths = collectUploadsPathsForProjectInJson(str, sourceProjectId);
-    let copied = 0;
-    let skipped = 0;
-    let missing = 0;
-    const prefixSrc = 'uploads/' + sourceProjectId + '/';
-    const prefixDst = 'uploads/' + destProjectId + '/';
-    for (let pi = 0; pi < paths.length; pi++) {
-      const fromRel = paths[pi];
-      if (fromRel.indexOf(prefixSrc) !== 0) continue;
-      const suffix = fromRel.slice(prefixSrc.length);
-      const toRel = prefixDst + suffix;
-      const existsDest = await projectPathFileExists(projectRoot, toRel);
-      if (existsDest) {
-        skipped++;
-        continue;
-      }
-      const bytes = await readFileBytesFromProjectFolder(projectRoot, fromRel);
-      if (!bytes) {
-        missing++;
-        warnings.push('Missing: ' + fromRel);
-        continue;
-      }
-      const ok = await writeFileBytesToProjectFolder(projectRoot, toRel, bytes);
-      if (ok) copied++;
-      else warnings.push('Write failed: ' + toRel);
-    }
-    str = str.split(prefixSrc).join(prefixDst);
-    let outObj;
-    try {
-      outObj = JSON.parse(str);
-    } catch (e) {
-      warnings.push('Path rewrite broke JSON; saving original object');
-      outObj = typeof templateJson === 'object' && templateJson !== null ? templateJson : {};
-    }
-    return { templateJson: outObj, copied, skipped, missing, warnings };
-  }
-
   async function writeJsonToProjectFolder(projectRoot, relativePath, data) {
     if (!projectRoot || typeof relativePath !== 'string') return false;
     try {
@@ -6049,7 +5356,7 @@
           colors: { primary: '#6C5CE7', secondary: '#A29BFE', accent: '#FD79A8', background: '#1A1A2E', text: '#FFFFFF' },
           logoDark: '',
           logoLight: '',
-          uploadPostProfileId: '',
+          defaultSocialProfile: { user: '', platform: '' },
           importPollIntervalMs: 10000,
         };
         const fh = await sourceDir.getFileHandle('defaults.json', { create: true });
@@ -6062,6 +5369,15 @@
       console.warn('[CFS] ensureProjectFolderStructure failed for', projectId, e?.message || e);
       return false;
     }
+  }
+
+  function resolveDefaultSocialProfileUser(defaults) {
+    return (
+      defaults?.defaultSocialProfile?.user ||
+      defaults?.uploadPostProfileId ||
+      defaults?.defaultSocialProfile?.profileId ||
+      ''
+    ).trim();
   }
 
   /**
@@ -6823,7 +6139,6 @@
           }
         }
         await setStoredProjectFolderHandle(handle);
-        loadGeneratorTemplates().catch(() => {});
         await syncProjectFolderStepsToBackground(handle);
         updateProjectFolderStatus();
         if (typeof window.__cfsRefreshGithubSyncSummary === 'function') {
@@ -8427,23 +7742,6 @@
     } catch (_) {}
   }
 
-  async function discoverTemplatesFromFolder(projectRoot) {
-    const ids = [];
-    try {
-      const genDir = await projectRoot.getDirectoryHandle('generator', { create: false });
-      const templatesDir = await genDir.getDirectoryHandle('templates', { create: false });
-      for await (const [name, handle] of templatesDir.entries()) {
-        if (handle.kind !== 'directory' || name.startsWith('.')) continue;
-        try {
-          await handle.getFileHandle('template.json', { create: false });
-          ids.push(name);
-        } catch (_) {}
-      }
-    } catch (_) {}
-    ids.sort((a, b) => a.localeCompare(b));
-    return ids;
-  }
-
   async function discoverWorkflowsFromFolder(projectRoot) {
     const ids = [];
     try {
@@ -8482,142 +7780,6 @@
     const w = await fh.createWritable();
     await w.write(JSON.stringify(manifest, null, 2) + '\n');
     await w.close();
-  }
-
-  async function writeTemplatesManifest(projectRoot, templateIds) {
-    if (templateIds.length === 0) return;
-    const genDir = await projectRoot.getDirectoryHandle('generator', { create: true });
-    const templatesDir = await genDir.getDirectoryHandle('templates', { create: true });
-    let existing = [];
-    try {
-      const mh = await templatesDir.getFileHandle('manifest.json', { create: false });
-      const data = JSON.parse(await (await mh.getFile()).text());
-      existing = Array.isArray(data.templates) ? data.templates : [];
-    } catch (_) {}
-    const ordered = [...existing.filter((id) => templateIds.includes(id)), ...templateIds.filter((id) => !existing.includes(id))];
-    const manifest = {
-      version: '1',
-      description: 'Registry of generator templates. Each template has template.json (ShotStack format with __CFS_ editor metadata in merge fields).',
-      templates: ordered,
-    };
-    const fh = await templatesDir.getFileHandle('manifest.json', { create: true });
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(manifest, null, 2) + '\n');
-    await w.close();
-  }
-
-  /** Write a single template to generator/templates/<templateId>/ (template.json only; editor metadata embedded in merge fields). */
-  async function writeTemplateToProjectFolder(projectRoot, templateId, templateJson, saveOptions) {
-    saveOptions = saveOptions || {};
-    const genDir = await projectRoot.getDirectoryHandle('generator', { create: true });
-    const templatesDir = await genDir.getDirectoryHandle('templates', { create: true });
-    const folderHandle = await templatesDir.getDirectoryHandle(templateId, { create: true });
-
-    const templateHandle = await folderHandle.getFileHandle('template.json', { create: true });
-    const templateWritable = await templateHandle.createWritable();
-    await templateWritable.write(typeof templateJson === 'string' ? templateJson : JSON.stringify(templateJson, null, 2));
-    await templateWritable.close();
-
-    if (!saveOptions.overwrite) {
-      let existing = [];
-      try {
-        const mh = await templatesDir.getFileHandle('manifest.json', { create: false });
-        const data = JSON.parse(await (await mh.getFile()).text());
-        existing = Array.isArray(data.templates) ? data.templates : [];
-      } catch (_) {}
-      if (!existing.includes(templateId)) {
-        existing.push(templateId);
-        existing.sort((a, b) => a.localeCompare(b));
-        const manifest = {
-          version: '1',
-          description: 'Registry of generator templates. Each template has template.json (ShotStack format with __CFS_ editor metadata in merge fields).',
-          templates: existing,
-        };
-        const fh = await templatesDir.getFileHandle('manifest.json', { create: true });
-        const w = await fh.createWritable();
-        await w.write(JSON.stringify(manifest, null, 2) + '\n');
-        await w.close();
-      }
-    }
-  }
-
-  /** If a template save was queued from the generator, write uploads/{projectId}/templates/{id}.json and clear the queue. */
-  async function processPendingTemplateSave() {
-    try {
-      const data = await chrome.storage.local.get('cfs_pending_template_save');
-      const pending = data.cfs_pending_template_save;
-      if (!pending || !pending.templateId || pending.templateJson === undefined) return;
-      if (!pending.projectId) {
-        setStatus('Template save failed: pick a project in the Generator (project selector) before saving.', 'error');
-        await chrome.storage.local.remove('cfs_pending_template_save');
-        return;
-      }
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot) {
-        setStatus('Set project folder first (Library → Set project folder) to save templates under uploads/.', 'error');
-        return;
-      }
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') {
-        setStatus('Permission denied for project folder. Allow read/write to save the template.', 'error');
-        return;
-      }
-      await ensureProjectFolderStructure(projectRoot, pending.projectId, pending.projectName || pending.projectId);
-      let tmpl = pending.templateJson;
-      if (typeof tmpl === 'string') {
-        try {
-          tmpl = JSON.parse(tmpl);
-        } catch (pe) {
-          setStatus('Template save failed: invalid JSON.', 'error');
-          await chrome.storage.local.remove('cfs_pending_template_save');
-          return;
-        }
-      }
-      let copied = 0;
-      let skipped = 0;
-      let missing = 0;
-      const rep =
-        pending.replicateUploadsAssets && pending.sourceProjectId && pending.sourceProjectId !== pending.projectId
-          ? await replicateUploadsMediaForTemplateJson(projectRoot, pending.sourceProjectId, pending.projectId, tmpl)
-          : { templateJson: tmpl, copied: 0, skipped: 0, missing: 0, warnings: [] };
-      tmpl = rep.templateJson;
-      copied = rep.copied;
-      skipped = rep.skipped;
-      missing = rep.missing;
-      const relPath = 'uploads/' + pending.projectId + '/templates/' + pending.templateId + '.json';
-      const isOverwrite = !!pending.overwrite;
-      if (!isOverwrite && (await projectPathFileExists(projectRoot, relPath))) {
-        setStatus(
-          'Template save skipped: ' + relPath + ' already exists. Choose another ID or use overwrite.',
-          'error'
-        );
-        await chrome.storage.local.remove('cfs_pending_template_save');
-        return;
-      }
-      const wrote = await writeJsonToProjectFolder(projectRoot, relPath, tmpl);
-      await chrome.storage.local.remove('cfs_pending_template_save');
-      if (!wrote) {
-        setStatus('Template save failed: could not write ' + relPath + '.', 'error');
-        return;
-      }
-      let msg =
-        (isOverwrite ? 'Template "' : 'Template "') +
-        pending.templateId +
-        '" saved to ' +
-        relPath +
-        '.';
-      if (pending.replicateUploadsAssets && pending.sourceProjectId && pending.sourceProjectId !== pending.projectId) {
-        msg += ' Media: ' + copied + ' copied, ' + skipped + ' skipped (already present), ' + missing + ' missing.';
-        if (rep.warnings && rep.warnings.length) {
-          msg += ' ' + rep.warnings.slice(0, 3).join(' ');
-          if (rep.warnings.length > 3) msg += '…';
-        }
-      }
-      setStatus(msg, 'success');
-    } catch (err) {
-      const msg = err.name === 'AbortError' ? 'Cancelled.' : (err.message || String(err));
-      setStatus('Template save failed: ' + msg, 'error');
-    }
   }
 
   async function writeWorkflowsManifest(projectRoot, workflowIds) {
@@ -8670,10 +7832,8 @@
       }
       setReloadStatus('Rebuilding manifests…', false);
       const stepIds = await discoverStepsFromFolder(projectRoot);
-      const templateIds = await discoverTemplatesFromFolder(projectRoot);
       const workflowIds = await discoverWorkflowsFromFolder(projectRoot);
       if (stepIds.length) await writeStepsManifest(projectRoot, stepIds);
-      if (templateIds.length) await writeTemplatesManifest(projectRoot, templateIds);
       if (workflowIds.length) await writeWorkflowsManifest(projectRoot, workflowIds);
       setReloadStatus('Reloading…', false);
       chrome.runtime.reload();
@@ -8943,22 +8103,10 @@
   });
 
 
-  processPendingTemplateSave();
-
   async function refreshLibraryPanel() {
     if (typeof renderGetStartedSection === 'function') renderGetStartedSection();
     const listEl = document.getElementById('libraryProjectsList');
     const emptyEl = document.getElementById('libraryProjectsEmpty');
-    const pendingCountEl = document.getElementById('libraryPendingCount');
-    const savePendingBtn = document.getElementById('savePendingGenerationsBtn');
-    chrome.runtime.sendMessage({ type: 'GET_PENDING_GENERATIONS' }, function(res) {
-      const list = (res && res.ok && Array.isArray(res.list)) ? res.list : [];
-      if (pendingCountEl) {
-        pendingCountEl.textContent = list.length ? list.length + ' pending generation(s) to save.' : '';
-        pendingCountEl.style.display = list.length ? '' : 'none';
-      }
-      if (savePendingBtn) savePendingBtn.style.display = list.length ? 'inline-block' : 'none';
-    });
     if (!listEl) return;
     listEl.innerHTML = '';
     var remoteProjects = [];
@@ -9053,194 +8201,6 @@
     return dir;
   }
 
-  async function getPostsDir(projectRoot) {
-    if (!projectRoot) return null;
-    return projectRoot.getDirectoryHandle('posts', { create: true });
-  }
-
-  /**
-   * @param {FileSystemDirectoryHandle} postDir
-   * @param {string} folderLabel - _folder value for UI
-   * @param {Array} posts - mutates
-   */
-  async function tryReadPostFolder(postDir, folderLabel, posts) {
-    try {
-      const fh = await postDir.getFileHandle('post.json');
-      const file = await fh.getFile();
-      const text = await file.text();
-      const data = JSON.parse(text);
-      data._folder = folderLabel;
-      posts.push(data);
-    } catch (_) {}
-  }
-
-  async function readLegacyRootPosts(projectRoot, posts, userFilter) {
-    try {
-      const postsDir = await projectRoot.getDirectoryHandle('posts', { create: false });
-      for await (const [accountName, accountHandle] of postsDir.entries()) {
-        if (accountHandle.kind !== 'directory') continue;
-        if (userFilter && safeSlug(userFilter) !== accountName) continue;
-        for await (const [postName, postHandle] of accountHandle.entries()) {
-          if (postHandle.kind !== 'directory') continue;
-          await tryReadPostFolder(postHandle, 'posts/' + accountName + '/' + postName, posts);
-        }
-      }
-    } catch (_) {}
-  }
-
-  async function readUploadsPostsForProject(projectRoot, projectId, posts, userFilter) {
-    if (!projectId || typeof projectId !== 'string') return;
-    try {
-      const uploads = await projectRoot.getDirectoryHandle('uploads', { create: false });
-      const projDir = await uploads.getDirectoryHandle(projectId, { create: false });
-      const postsRoot = await projDir.getDirectoryHandle('posts', { create: false });
-      try {
-        const pending = await postsRoot.getDirectoryHandle('pending', { create: false });
-        for await (const [postName, postHandle] of pending.entries()) {
-          if (postHandle.kind !== 'directory') continue;
-          await tryReadPostFolder(
-            postHandle,
-            'uploads/' + projectId + '/posts/pending/' + postName,
-            posts
-          );
-        }
-      } catch (_) {}
-      for await (const [accountName, accountHandle] of postsRoot.entries()) {
-        if (accountHandle.kind !== 'directory' || accountName === 'pending') continue;
-        if (userFilter && safeSlug(userFilter) !== accountName) continue;
-        for await (const [postName, postHandle] of accountHandle.entries()) {
-          if (postHandle.kind !== 'directory') continue;
-          await tryReadPostFolder(
-            postHandle,
-            'uploads/' + projectId + '/posts/' + accountName + '/' + postName,
-            posts
-          );
-        }
-      }
-    } catch (_) {}
-  }
-
-  function safeSlug(str) {
-    if (!str || typeof str !== 'string') return '_unknown';
-    return str.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || '_unknown';
-  }
-
-  function postTimestampId() {
-    return 'post_' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  }
-
-  /**
-   * @param {object} postData
-   * @param {object|null} mediaFiles
-   * @param {object} [writeOpts] - projectId, placement ('pending'|'posted'), postId, defaultProjectId
-   */
-  async function writePostToFolder(postData, mediaFiles, writeOpts) {
-    writeOpts = writeOpts || {};
-    const projectRoot = await getStoredProjectFolderHandle();
-    if (!projectRoot) return null;
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
-    } catch (_) { return null; }
-
-    var placement = (writeOpts.placement || postData.cfs_placement || 'posted').toLowerCase() === 'pending' ? 'pending' : 'posted';
-    var resolvedPid = (writeOpts.projectId || postData.cfs_project_id || '').trim();
-    if (!resolvedPid && typeof globalThis.__CFS_generatorProjectId === 'string' && globalThis.__CFS_generatorProjectId.trim()) {
-      resolvedPid = globalThis.__CFS_generatorProjectId.trim();
-    }
-    if (!resolvedPid && typeof CFS_projectIdResolve !== 'undefined') {
-      var snap = {
-        projectId: postData.projectId,
-        _cfsProjectId: postData._cfsProjectId,
-      };
-      if (typeof CFS_projectIdResolve.resolveProjectIdAsync === 'function') {
-        var rAsync = await CFS_projectIdResolve.resolveProjectIdAsync(snap, {
-          uploadsPathSegments: uploadsPathSegments,
-          defaultProjectId: writeOpts.defaultProjectId,
-        });
-        if (rAsync.ok) resolvedPid = rAsync.projectId;
-      } else {
-        var rSync = CFS_projectIdResolve.resolveProjectId(snap, {
-          uploadsPathSegments: uploadsPathSegments,
-          defaultProjectId: writeOpts.defaultProjectId,
-        });
-        if (rSync.ok) resolvedPid = rSync.projectId;
-      }
-    }
-    if (!resolvedPid) {
-      try { console.warn('[CFS] writePostToFolder: missing projectId (set cfs_project_id, row stamp, or Library uploads project).'); } catch (_) {}
-      return null;
-    }
-
-    var accountSlug = safeSlug(postData.user);
-    var postId = (writeOpts.postId || '').trim() || postTimestampId();
-    var postDir;
-
-    if (placement === 'pending') {
-      var pendingBase = await getUploadsDir(projectRoot, [resolvedPid, 'posts', 'pending']);
-      if (!pendingBase) return null;
-      postDir = await pendingBase.getDirectoryHandle(postId, { create: true });
-    } else {
-      var acctBase = await getUploadsDir(projectRoot, [resolvedPid, 'posts', accountSlug]);
-      if (!acctBase) return null;
-      postDir = await acctBase.getDirectoryHandle(postId, { create: true });
-    }
-
-    var now = new Date().toISOString();
-    var manifest = Object.assign({
-      version: 2,
-      status: 'draft',
-      created_at: now,
-      updated_at: now,
-    }, postData);
-    manifest.updated_at = now;
-    manifest.cfs_project_id = resolvedPid;
-    manifest.cfs_placement = placement;
-    delete manifest.projectId;
-
-    if (mediaFiles && typeof mediaFiles === 'object') {
-      for (const [filename, blob] of Object.entries(mediaFiles)) {
-        if (!blob) continue;
-        const fh = await postDir.getFileHandle(filename, { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob);
-        await w.close();
-      }
-    }
-    const fh = await postDir.getFileHandle('post.json', { create: true });
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(manifest, null, 2));
-    await w.close();
-    var relPath = placement === 'pending'
-      ? ('uploads/' + resolvedPid + '/posts/pending/' + postId)
-      : ('uploads/' + resolvedPid + '/posts/' + accountSlug + '/' + postId);
-    return { postId, path: relPath, projectId: resolvedPid, placement: placement };
-  }
-
-  async function readPostsFromFolder(userFilter) {
-    const projectRoot = await getStoredProjectFolderHandle();
-    if (!projectRoot) return [];
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'read' });
-      if (perm !== 'granted') return [];
-    } catch (_) { return []; }
-    const posts = [];
-    await readLegacyRootPosts(projectRoot, posts, userFilter);
-    const hint = uploadsPathSegments.length ? uploadsPathSegments[0] : null;
-    if (hint) {
-      await readUploadsPostsForProject(projectRoot, hint, posts, userFilter);
-    } else {
-      try {
-        const uploads = await projectRoot.getDirectoryHandle('uploads', { create: false });
-        for await (const [projId, h] of uploads.entries()) {
-          if (h.kind !== 'directory') continue;
-          await readUploadsPostsForProject(projectRoot, projId, posts, userFilter);
-        }
-      } catch (_) {}
-    }
-    return posts;
-  }
-
   function resolveProfileId(profileId, profileName) {
     if (profileId) {
       const match = followingProfilesCache.find(p => p.id === profileId && !p.deleted);
@@ -9253,9 +8213,6 @@
     }
     return null;
   }
-
-  window.__CFS_writePostToFolder = writePostToFolder;
-  window.__CFS_readPostsFromFolder = readPostsFromFolder;
 
   async function refreshUploadsList() {
     if (!uploadsPathSegments.length) {
@@ -9334,14 +8291,6 @@
       var parentBtn = document.getElementById('uploadsParentBtn');
       if (parentBtn) parentBtn.textContent = uploadsPathSegments.length > 1 ? '↑ Parent folder' : '↑ Back to projects';
     }
-    var postsBtn = document.getElementById('uploadsPostsBtn');
-    var newPostBtn = document.getElementById('uploadsNewPostBtn');
-    if (postsBtn) postsBtn.style.display = (uploadsPathSegments.length === 1) ? '' : 'none';
-    if (newPostBtn) newPostBtn.style.display = (uploadsPathSegments.length === 3 && uploadsPathSegments[1] === 'posts') ? '' : 'none';
-    var postCard = document.getElementById('uploadsPostCard');
-    if (postCard) postCard.style.display = 'none';
-    var cancelSchedBtn = document.getElementById('uploadsPostCancelScheduledBtn');
-    if (cancelSchedBtn) cancelSchedBtn.style.display = 'none';
     const entries = [];
     for await (const [name, handle] of dir.entries()) {
       entries.push({ name, kind: handle.kind });
@@ -9427,48 +8376,8 @@
       }
       listEl.appendChild(row);
     }
-    if (uploadsPathSegments.length === 4 && uploadsPathSegments[1] === 'posts') {
-      try {
-        const postFileHandle = await dir.getFileHandle('post.json', { create: false });
-        const postFile = await postFileHandle.getFile();
-        const postText = await postFile.text();
-        const postData = JSON.parse(postText);
-        const card = document.getElementById('uploadsPostCard');
-        const content = document.getElementById('uploadsPostCardContent');
-        const statusEl = document.getElementById('uploadsPostCardStatus');
-        if (card && content) {
-          card.style.display = 'block';
-          const title = (postData.title || 'Untitled').slice(0, 80);
-          const platforms = Array.isArray(postData.platform) ? postData.platform.join(', ') : '';
-          const status = postData.status || 'draft';
-          let html = '<p><strong>' + escapeHtml(title) + '</strong></p><p class="hint" style="margin:4px 0;">Status: ' + escapeHtml(status) + (platforms ? ' · ' + escapeHtml(platforms) : '') + '</p>';
-          if (postData.results && typeof postData.results === 'object') {
-            const urls = [];
-            Object.keys(postData.results).forEach(function (p) {
-              const r = postData.results[p];
-              if (r && r.success && r.url) urls.push('<a href="' + escapeHtml(r.url) + '" target="_blank" rel="noopener">' + escapeHtml(p) + '</a>');
-            });
-            if (urls.length) html += '<p class="hint" style="margin:4px 0;">Posted: ' + urls.join(', ') + '</p>';
-          }
-          content.innerHTML = html;
-          if (statusEl) statusEl.textContent = '';
-          var cancelBtn = document.getElementById('uploadsPostCancelScheduledBtn');
-          if (cancelBtn) cancelBtn.style.display = (status === 'scheduled' && postData.job_id) ? '' : 'none';
-          window.__CFS_currentPostDir = dir;
-          window.__CFS_currentPostData = postData;
-          window.__CFS_currentPostPath = uploadsPathSegments.slice();
-        }
-      } catch (_) {
-        window.__CFS_currentPostDir = null;
-        window.__CFS_currentPostData = null;
-        window.__CFS_currentPostPath = null;
-      }
-    } else {
-      window.__CFS_currentPostDir = null;
-      window.__CFS_currentPostData = null;
-      window.__CFS_currentPostPath = null;
-    }
   }
+
 
   function refreshUploadsListWithPath(segments) {
     uploadsPathSegments = segments || [];
@@ -9538,456 +8447,6 @@
     } catch (e) {
       if (e.name !== 'AbortError') setStatus('Upload failed: ' + (e.message || e), 'error');
     }
-  });
-
-  document.getElementById('uploadsPostsBtn')?.addEventListener('click', async function() {
-    if (uploadsPathSegments.length < 1) return;
-    const proj = uploadsPathSegments[0];
-    uploadsPathSegments = [proj, 'posts'];
-    const projectRoot = await getStoredProjectFolderHandle();
-    if (projectRoot) {
-      try {
-        const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-        if (perm === 'granted') {
-          const postsParent = await getUploadsDir(projectRoot, [proj, 'posts']);
-          if (postsParent) await postsParent.getDirectoryHandle('pending', { create: true });
-        }
-      } catch (_) {}
-    }
-    refreshUploadsList();
-  });
-
-  document.getElementById('uploadsNewPostBtn')?.addEventListener('click', async function() {
-    if (uploadsPathSegments.length !== 3 || uploadsPathSegments[1] !== 'posts') return;
-    const projectRoot = await getStoredProjectFolderHandle();
-    if (!projectRoot) { setStatus('Set project folder first.', 'error'); return; }
-    const accountHandle = uploadsPathSegments[2];
-    const postId = 'post_' + new Date().toISOString().slice(0, 19).replace(/[-:]/g, '-').replace('T', '_');
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') throw new Error('Permission denied');
-      const dir = await getUploadsDir(projectRoot, uploadsPathSegments);
-      if (!dir) throw new Error('Could not open posts folder');
-      const postDir = await dir.getDirectoryHandle(postId, { create: true });
-      const defaultPost = {
-        version: 1,
-        user: accountHandle,
-        platform: ['instagram', 'threads'],
-        title: 'New post',
-        description: '',
-        media: { video: null, photos: [], caption_file: null },
-        status: 'draft',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      const fh = await postDir.getFileHandle('post.json', { create: true });
-      const writable = await fh.createWritable();
-      await writable.write(JSON.stringify(defaultPost, null, 2));
-      await writable.close();
-      uploadsPathSegments = uploadsPathSegments.concat([postId]);
-      setStatus('Created post folder ' + postId + '.', 'success');
-      refreshUploadsList();
-    } catch (e) {
-      setStatus('Failed to create post: ' + (e.message || e), 'error');
-    }
-  });
-
-  document.getElementById('uploadsPostSetApiKeyBtn')?.addEventListener('click', async function() {
-    const key = window.prompt('Enter your Upload-Post API key (from upload-post.com):');
-    if (key == null) return;
-    if (typeof window.UploadPost !== 'undefined' && window.UploadPost.setApiKey) {
-      await window.UploadPost.setApiKey(key);
-      setStatus('API key saved.', 'success');
-      var statusEl = document.getElementById('uploadsPostCardStatus');
-      if (statusEl) statusEl.textContent = 'API key saved.';
-    }
-  });
-
-  document.getElementById('uploadsPostSubmitBtn')?.addEventListener('click', async function() {
-    const dir = window.__CFS_currentPostDir;
-    const postData = window.__CFS_currentPostData;
-    const pathSegments = window.__CFS_currentPostPath;
-    const statusEl = document.getElementById('uploadsPostCardStatus');
-    const setPostStatus = function (msg, isError) {
-      if (statusEl) { statusEl.textContent = msg || ''; statusEl.className = 'hint' + (isError ? ' error' : ''); }
-    };
-    if (!dir || !postData || !pathSegments || pathSegments.length !== 4) {
-      setPostStatus('No post selected. Open a post folder first.', true);
-      return;
-    }
-    if (typeof window.UploadPost === 'undefined') {
-      setPostStatus('Upload-Post script not loaded.', true);
-      return;
-    }
-    var user = postData.user || pathSegments[2];
-    const platform = Array.isArray(postData.platform) && postData.platform.length ? postData.platform : ['instagram'];
-    const media = postData.media || {};
-    let title = (postData.title || '').trim();
-    if (!title && media.caption_file && String(media.caption_file).trim()) {
-      try {
-        const capFh = await dir.getFileHandle(media.caption_file.trim(), { create: false });
-        const capFile = await capFh.getFile();
-        title = (await capFile.text()).trim();
-      } catch (_) {}
-    }
-    if (!title) title = 'Post';
-    const description = postData.description || '';
-    const options = postData.options || {};
-    setPostStatus('Submitting…');
-    try {
-      const hasVideo = media.video && String(media.video).trim();
-      const hasPhotos = Array.isArray(media.photos) && media.photos.length > 0;
-      let result;
-      if (hasVideo) {
-        const videoRef = media.video.trim();
-        const isVideoUrl = /^https?:\/\//i.test(videoRef);
-        let videoPayload;
-        if (isVideoUrl) {
-          videoPayload = videoRef;
-        } else {
-          try {
-            const vh = await dir.getFileHandle(videoRef, { create: false });
-            videoPayload = await vh.getFile();
-          } catch (_) {
-            setPostStatus('Video file not found: ' + videoRef, true);
-            return;
-          }
-        }
-        result = await window.UploadPost.submitVideo({
-          user: user,
-          platform: platform,
-          title: title,
-          description: description,
-          video: videoPayload,
-          options: { ...options, async_upload: true },
-        });
-      } else if (hasPhotos) {
-        const photoItems = [];
-        for (let i = 0; i < media.photos.length; i++) {
-          const name = media.photos[i];
-          if (!name || !String(name).trim()) continue;
-          const ref = name.trim();
-          if (/^https?:\/\//i.test(ref)) {
-            photoItems.push(ref);
-          } else {
-            try {
-              const fh = await dir.getFileHandle(ref, { create: false });
-              photoItems.push(await fh.getFile());
-            } catch (_) {
-              setPostStatus('Photo not found: ' + ref, true);
-              return;
-            }
-          }
-        }
-        if (photoItems.length === 0) {
-          setPostStatus('No photo files or URLs found.', true);
-          return;
-        }
-        result = await window.UploadPost.submitPhotos({
-          user: user,
-          platform: platform,
-          title: title,
-          description: description,
-          photos: photoItems,
-          options: { ...options, async_upload: true },
-        });
-      } else {
-        result = await window.UploadPost.submitText({
-          user: user,
-          platform: platform,
-          title: title,
-          description: description,
-          options: { ...options, async_upload: true },
-        });
-      }
-      if (!result.ok) {
-        setPostStatus(result.error || 'Submit failed', true);
-        return;
-      }
-      const json = result.json || {};
-      const requestId = json.request_id;
-      const jobId = json.job_id;
-      const results = json.results || {};
-      const updated = {
-        ...postData,
-        status: 'posting',
-        request_id: requestId || postData.request_id,
-        job_id: jobId || postData.job_id,
-        results: Object.keys(results).length ? results : postData.results,
-        updated_at: new Date().toISOString(),
-      };
-      const fh = await dir.getFileHandle('post.json', { create: true });
-      const writable = await fh.createWritable();
-      await writable.write(JSON.stringify(updated, null, 2));
-      await writable.close();
-      window.__CFS_currentPostData = updated;
-      setPostStatus('Submitted. Request ID: ' + (requestId || jobId || '—') + '. Use Upload Status to poll, or refresh this folder later.');
-      refreshUploadsList();
-    } catch (e) {
-      setPostStatus('Error: ' + (e.message || e), true);
-    }
-  });
-
-  document.getElementById('uploadsPostCheckStatusBtn')?.addEventListener('click', async function() {
-    const dir = window.__CFS_currentPostDir;
-    const postData = window.__CFS_currentPostData;
-    const statusEl = document.getElementById('uploadsPostCardStatus');
-    const setPostStatus = function (msg, isError) {
-      if (statusEl) { statusEl.textContent = msg || ''; statusEl.className = 'hint' + (isError ? ' error' : ''); }
-    };
-    if (!dir || !postData) {
-      setPostStatus('No post selected.', true);
-      return;
-    }
-    const requestId = postData.request_id;
-    const jobId = postData.job_id;
-    if (!requestId && !jobId) {
-      setPostStatus('No request_id or job_id to check. Submit first.', true);
-      return;
-    }
-    if (typeof window.UploadPost === 'undefined' || !window.UploadPost.checkStatus) {
-      setPostStatus('Upload-Post script not loaded.', true);
-      return;
-    }
-    setPostStatus('Checking status…');
-    try {
-      const result = await window.UploadPost.checkStatus({ request_id: requestId, job_id: jobId });
-      if (!result.ok) {
-        setPostStatus(result.error || 'Check failed', true);
-        return;
-      }
-      const json = result.json || {};
-      const status = json.status || json.state;
-      let results = postData.results || {};
-      if (json.results && typeof json.results === 'object') {
-        results = {};
-        Object.keys(json.results).forEach(function (p) {
-          const r = json.results[p];
-          results[p] = { success: !!r.success, url: r.url || r.post_url, post_id: r.publish_id || r.platform_post_id, error: r.error };
-        });
-      }
-      const isComplete = status === 'completed' || status === 'finished';
-      const updated = {
-        ...postData,
-        status: isComplete ? 'posted' : (status || postData.status),
-        results: results,
-        posted_at: isComplete ? new Date().toISOString() : postData.posted_at,
-        updated_at: new Date().toISOString(),
-      };
-      const fh = await dir.getFileHandle('post.json', { create: true });
-      const writable = await fh.createWritable();
-      await writable.write(JSON.stringify(updated, null, 2));
-      await writable.close();
-      window.__CFS_currentPostData = updated;
-      setPostStatus(isComplete ? 'Posted. Refresh to see URLs.' : 'Status: ' + (status || '—'));
-      refreshUploadsList();
-    } catch (e) {
-      setPostStatus('Error: ' + (e.message || e), true);
-    }
-  });
-
-  document.getElementById('uploadsPostCancelScheduledBtn')?.addEventListener('click', async function() {
-    const dir = window.__CFS_currentPostDir;
-    const postData = window.__CFS_currentPostData;
-    const statusEl = document.getElementById('uploadsPostCardStatus');
-    const setPostStatus = function (msg, isError) {
-      if (statusEl) { statusEl.textContent = msg || ''; statusEl.className = 'hint' + (isError ? ' error' : ''); }
-    };
-    if (!dir || !postData || !postData.job_id) {
-      setPostStatus('No scheduled job to cancel.', true);
-      return;
-    }
-    if (typeof window.UploadPost === 'undefined' || !window.UploadPost.cancelScheduled) {
-      setPostStatus('Upload-Post script not loaded.', true);
-      return;
-    }
-    setPostStatus('Cancelling…');
-    try {
-      const result = await window.UploadPost.cancelScheduled(postData.job_id);
-      if (!result.ok) {
-        setPostStatus(result.error || 'Cancel failed', true);
-        return;
-      }
-      const updated = {
-        ...postData,
-        status: 'draft',
-        job_id: null,
-        scheduled_at: null,
-        updated_at: new Date().toISOString(),
-      };
-      const fh = await dir.getFileHandle('post.json', { create: true });
-      const writable = await fh.createWritable();
-      await writable.write(JSON.stringify(updated, null, 2));
-      await writable.close();
-      window.__CFS_currentPostData = updated;
-      setPostStatus('Scheduled post cancelled.');
-      refreshUploadsList();
-    } catch (e) {
-      setPostStatus('Error: ' + (e.message || e), true);
-    }
-  });
-
-  document.getElementById('savePendingGenerationsBtn')?.addEventListener('click', async function() {
-    const projectRoot = await getStoredProjectFolderHandle();
-    if (!projectRoot) {
-      setStatus('Set project folder first (Library).', 'error');
-      return;
-    }
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') {
-        setStatus('Permission denied for project folder.', 'error');
-        return;
-      }
-    } catch (e) {
-      setStatus('Could not get folder permission: ' + (e.message || e), 'error');
-      return;
-    }
-    const res = await new Promise(function(r) {
-      chrome.runtime.sendMessage({ type: 'GET_PENDING_GENERATIONS' }, r);
-    });
-    const list = (res && res.ok && Array.isArray(res.list)) ? res.list : [];
-    if (list.length === 0) {
-      setStatus('No pending generations.', '');
-      if (window.refreshLibraryPanel) refreshLibraryPanel();
-      return;
-    }
-    const storage = await chrome.storage.local.get(['selectedProjectId']);
-    const defaultProjectId = (storage.selectedProjectId || '').trim();
-    const uploadsProj = (uploadsPathSegments.length && uploadsPathSegments[0]) ? String(uploadsPathSegments[0]).trim() : '';
-    const keepQueued = [];
-    let saved = 0;
-    for (let i = 0; i < list.length; i++) {
-      const item = list[i];
-      const projectId = (item.projectId && String(item.projectId).trim()) || uploadsProj || defaultProjectId || 'default';
-      const safeProjectId = projectId.replace(/[^\w-]/g, '_') || 'default';
-      const folderName = (item.folder || 'generations').replace(/[^\w-]/g, '_') || 'generations';
-      try {
-        const genDir = await getUploadsDir(projectRoot, [safeProjectId, folderName]);
-        if (!genDir) {
-          keepQueued.push(item);
-          continue;
-        }
-        const data = item.data != null ? String(item.data) : '';
-        const remoteUrl = (item.url && String(item.url).trim()) ? String(item.url).trim() : '';
-        let ext = 'png';
-        let bytes;
-        let gotBytes = false;
-        if (data.startsWith('data:')) {
-          const m = data.match(/^data:([^;]+);/);
-          if (m) {
-            const mt = m[1].toLowerCase();
-            if (mt.indexOf('png') !== -1) ext = 'png';
-            else if (mt.indexOf('jpeg') !== -1 || mt.indexOf('jpg') !== -1) ext = 'jpg';
-            else if (mt.indexOf('webp') !== -1) ext = 'webp';
-            else if (mt.indexOf('webm') !== -1) ext = 'webm';
-            else if (mt.indexOf('mp4') !== -1) ext = 'mp4';
-            else if (mt.indexOf('gif') !== -1) ext = 'gif';
-            else if (mt.indexOf('plain') !== -1) ext = 'txt';
-            else if (mt.indexOf('wav') !== -1) ext = 'wav';
-            else if (mt.indexOf('mpeg') !== -1 || mt.indexOf('mp3') !== -1) ext = 'mp3';
-          }
-          const base64 = data.indexOf(',') !== -1 ? data.split(',')[1] : '';
-          const binary = atob(base64 || '');
-          bytes = new Uint8Array(binary.length);
-          for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
-          gotBytes = true;
-        } else if (data.startsWith('blob:') || (remoteUrl && remoteUrl.startsWith('blob:'))) {
-          const blobSrc = data.startsWith('blob:') ? data.trim() : remoteUrl;
-          try {
-            const br = await fetch(blobSrc);
-            const blob = await br.blob();
-            const buf = await blob.arrayBuffer();
-            bytes = new Uint8Array(buf);
-            const mt = (blob.type || '').toLowerCase();
-            if (mt.indexOf('png') !== -1) ext = 'png';
-            else if (mt.indexOf('jpeg') !== -1 || mt.indexOf('jpg') !== -1) ext = 'jpg';
-            else if (mt.indexOf('webp') !== -1) ext = 'webp';
-            else if (mt.indexOf('webm') !== -1) ext = 'webm';
-            else if (mt.indexOf('mp4') !== -1) ext = 'mp4';
-            else if (mt.indexOf('gif') !== -1) ext = 'gif';
-            else if (mt.indexOf('text/plain') !== -1) ext = 'txt';
-            else if (mt.indexOf('wav') !== -1) ext = 'wav';
-            else if (mt.indexOf('mpeg') !== -1 || mt.indexOf('mp3') !== -1) ext = 'mp3';
-            else ext = 'bin';
-            gotBytes = true;
-          } catch (_) {
-            keepQueued.push(item);
-            continue;
-          }
-        } else if (remoteUrl && /^https?:\/\//i.test(remoteUrl)) {
-          const fmt = (item.format && String(item.format).trim()) ? String(item.format).trim().toLowerCase() : '';
-          ext = fmt || 'mp4';
-          if (ext === 'jpeg') ext = 'jpg';
-          const fetchResp = await new Promise(function(resolve) {
-            chrome.runtime.sendMessage({
-              type: 'FETCH_FILE',
-              url: remoteUrl,
-              filename: 'render.' + ext,
-            }, resolve);
-          });
-          if (!fetchResp || !fetchResp.ok) {
-            keepQueued.push(item);
-            continue;
-          }
-          const fn = (fetchResp.filename && String(fetchResp.filename)) || '';
-          const fnExt = fn.match(/\.([a-zA-Z0-9]+)(\?|$)/);
-          if (fnExt && fnExt[1]) {
-            var fe = fnExt[1].toLowerCase();
-            if (fe === 'jpeg') fe = 'jpg';
-            ext = fe;
-          }
-          const binaryR = atob(fetchResp.base64 || '');
-          bytes = new Uint8Array(binaryR.length);
-          for (let jr = 0; jr < binaryR.length; jr++) bytes[jr] = binaryR.charCodeAt(jr);
-          gotBytes = true;
-        }
-        if (!gotBytes) {
-          keepQueued.push(item);
-          continue;
-        }
-        let filename;
-        if (item.filename && String(item.filename).trim()) {
-          filename = String(item.filename).trim().replace(/[^\w\-_.]/g, '_');
-          if (!filename.match(/\.[a-zA-Z0-9]+$/)) filename = filename + '.' + ext;
-        } else {
-          const useRowNaming = (item.namingFormat || 'numeric') === 'row';
-          if (useRowNaming) {
-            const rowNum = (item.rowIndex != null ? Number(item.rowIndex) : i) + 1;
-            filename = 'row-' + rowNum + '.' + ext;
-          } else {
-            const existing = [];
-            for await (const [name] of genDir.entries()) {
-              const num = name.match(/^(\d+)\./);
-              if (num) existing.push(parseInt(num[1], 10));
-            }
-            const nextNum = existing.length === 0 ? 1 : Math.max.apply(null, existing) + 1;
-            filename = String(nextNum).padStart(3, '0') + '.' + ext;
-          }
-        }
-        const fileHandle = await genDir.getFileHandle(filename, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(bytes);
-        await writable.close();
-        saved++;
-      } catch (err) {
-        keepQueued.push(item);
-        try { console.warn('[CFS] save pending generation:', err); } catch (_) {}
-      }
-    }
-    await new Promise(function(r) {
-      chrome.runtime.sendMessage({ type: 'SET_PENDING_GENERATIONS', list: keepQueued }, function() { r(); });
-    });
-    if (saved > 0 && keepQueued.length === 0) {
-      setStatus('Saved ' + saved + ' generation(s) under uploads/<projectId>/<folder>/ for each queued row.', 'success');
-    } else if (saved > 0 && keepQueued.length > 0) {
-      setStatus('Saved ' + saved + ' generation(s); ' + keepQueued.length + ' still in queue (fix issues and click Save again).', 'success');
-    } else if (keepQueued.length > 0) {
-      setStatus('No files saved; ' + keepQueued.length + ' item(s) still in queue.', 'error');
-    } else {
-      setStatus('Nothing to save.', '');
-    }
-    if (window.refreshLibraryPanel) refreshLibraryPanel();
   });
 
   document.getElementById('createWorkflow')?.addEventListener('click', async () => {
@@ -11742,70 +10201,6 @@
       if (typeof syncDataSectionFromImport === 'function') syncDataSectionFromImport();
       if (typeof updateRunAllButtonState === 'function') updateRunAllButtonState();
       setStatus(`Extracted ${msg.rows.length} row(s). Use Prev/Next to browse, then Run Current Row or Run All Rows to process them.`, 'success');
-      return false;
-    }
-    if (msg.type === 'SAVE_POST_TO_FOLDER') {
-      (async () => {
-        try {
-          const rowSnap = msg.rowSnapshot && typeof msg.rowSnapshot === 'object' ? msg.rowSnapshot : {};
-          const postData = Object.assign({}, msg.postData || {});
-          if ((postData.projectId == null || String(postData.projectId).trim() === '') && rowSnap.projectId != null && String(rowSnap.projectId).trim() !== '') {
-            postData.projectId = rowSnap.projectId;
-          }
-          if ((postData._cfsProjectId == null || String(postData._cfsProjectId).trim() === '') && rowSnap._cfsProjectId != null && String(rowSnap._cfsProjectId).trim() !== '') {
-            postData._cfsProjectId = rowSnap._cfsProjectId;
-          }
-          const pidKey = (msg.projectIdVariableKey || '').trim() || 'projectId';
-          let resolved = (msg.resolvedProjectId || '').trim();
-          if (!resolved && typeof CFS_projectIdResolve !== 'undefined') {
-            const mergedRow = Object.assign({}, rowSnap);
-            if (postData.cfs_project_id) mergedRow.projectId = postData.cfs_project_id;
-            if (typeof CFS_projectIdResolve.resolveProjectIdAsync === 'function') {
-              const rAsync = await CFS_projectIdResolve.resolveProjectIdAsync(mergedRow, {
-                projectIdVariableKey: pidKey,
-                defaultProjectId: msg.defaultProjectId,
-                uploadsPathSegments: uploadsPathSegments,
-              });
-              if (rAsync.ok) resolved = rAsync.projectId;
-            } else {
-              const rSync = CFS_projectIdResolve.resolveProjectId(mergedRow, {
-                projectIdVariableKey: pidKey,
-                defaultProjectId: msg.defaultProjectId,
-                uploadsPathSegments: uploadsPathSegments,
-              });
-              if (rSync.ok) resolved = rSync.projectId;
-            }
-          }
-          const placement = (msg.placement || 'posted').toLowerCase() === 'pending' ? 'pending' : 'posted';
-          const folderPostId = (msg.postFolderId != null && String(msg.postFolderId).trim()) ? String(msg.postFolderId).trim() : '';
-          const result = await writePostToFolder(postData, msg.mediaFiles || null, {
-            projectId: resolved,
-            placement: placement,
-            defaultProjectId: msg.defaultProjectId,
-            postId: folderPostId,
-          });
-          chrome.runtime.sendMessage({
-            type: 'SAVE_POST_TO_FOLDER_RESULT',
-            ok: !!result,
-            result: result,
-            error: result ? undefined : 'writePostToFolder returned null (missing projectId or permission)',
-            _replyId: msg._replyId,
-          });
-        } catch (e) {
-          chrome.runtime.sendMessage({ type: 'SAVE_POST_TO_FOLDER_RESULT', ok: false, error: e.message, _replyId: msg._replyId });
-        }
-      })();
-      return false;
-    }
-    if (msg.type === 'READ_POSTS_FROM_FOLDER') {
-      (async () => {
-        try {
-          const posts = await readPostsFromFolder(msg.userFilter || null);
-          chrome.runtime.sendMessage({ type: 'READ_POSTS_FROM_FOLDER_RESULT', ok: true, posts, _replyId: msg._replyId });
-        } catch (e) {
-          chrome.runtime.sendMessage({ type: 'READ_POSTS_FROM_FOLDER_RESULT', ok: false, error: e.message, _replyId: msg._replyId });
-        }
-      })();
       return false;
     }
     if (msg.type === 'GET_FOLLOWING_DATA') {
@@ -13915,10 +12310,6 @@
       let opts = field.options;
       if (field.optionsSource === 'workflows' && typeof window.__CFS_getWorkflowIds === 'function') {
         const ids = window.__CFS_getWorkflowIds() || [];
-        opts = ids.map(function(id) { return { value: id, label: id }; });
-      }
-      if (field.optionsSource === 'generatorPlugins' && window.__CFS_generatorTemplateIds) {
-        const ids = window.__CFS_generatorTemplateIds;
         opts = ids.map(function(id) { return { value: id, label: id }; });
       }
       if (!opts && field.options) opts = field.options;
@@ -16314,10 +14705,6 @@
         if (extras.some(function(e) { return norm(e.rowKey || e.label) === norm(rowKey); })) { steps.push(i + 1); return; }
       }
       if (a.type === 'download' && norm(rowKey) === 'downloadfilename') { steps.push(i + 1); return; }
-      if (a.type === 'runGenerator' && a.inputMap) {
-        const inputMapVars = extractInputMapVariableKeys(a.inputMap);
-        if ([...inputMapVars].some(v => norm(v) === norm(rowKey))) steps.push(i + 1);
-      }
     });
     return steps;
   }
@@ -18976,8 +17363,8 @@
         populateSelect('projectDefaultLogoLight', logoFiles, selectedLight || '');
       };
 
-      // — Populate profile select from connected profiles —
-      const populateProfileSelect = async (selectedProfileId) => {
+      // — Populate profile select from backend HighLevel/social profiles —
+      const populateProfileSelect = async (selectedProfileUser) => {
         let profiles = [];
         try {
           if (connectedProfilesCache && Array.isArray(connectedProfilesCache) && connectedProfilesCache.length > 0) {
@@ -18988,11 +17375,12 @@
           }
         } catch (_) {}
         const items = profiles.map(p => {
-          const name = p.name || p._username || 'Unnamed';
-          const username = p._username || p.name || '';
-          return { value: username, label: name + (username && username !== name ? ' (' + username + ')' : '') };
-        });
-        populateSelect('projectDefaultProfileId', items, selectedProfileId || '');
+          const user = (p.user || p._username || '').trim();
+          if (!user) return null;
+          const name = (p.name || user || 'Unnamed').trim();
+          return { value: user, label: name + (user && name !== user ? ' (' + user + ')' : '') };
+        }).filter(Boolean);
+        populateSelect('projectDefaultProfileId', items, selectedProfileUser || '');
       };
 
       // Set plain text fields — handle both flat (logoDark) and nested (logos.dark) schema formats
@@ -19009,12 +17397,12 @@
         // Resolve logo/profile from flat or nested keys
         savedDefaults._resolvedLogoDark = savedDefaults.logoDark || savedDefaults.logos?.dark || '';
         savedDefaults._resolvedLogoLight = savedDefaults.logoLight || savedDefaults.logos?.light || '';
-        savedDefaults._resolvedProfileId = savedDefaults.uploadPostProfileId || savedDefaults.defaultSocialProfile?.profileId || '';
+        savedDefaults._resolvedProfileUser = resolveDefaultSocialProfileUser(savedDefaults);
       }
 
       // Populate dropdowns (async, after DOM is ready)
       await populateLogoSelects(savedDefaults?._resolvedLogoDark, savedDefaults?._resolvedLogoLight);
-      await populateProfileSelect(savedDefaults?._resolvedProfileId);
+      await populateProfileSelect(savedDefaults?._resolvedProfileUser);
 
       // — Logo upload handler —
       const setupLogoUpload = (btnId, selectId) => {
@@ -19062,7 +17450,7 @@
       document.getElementById('projectDefaultProfileRefreshBtn')?.addEventListener('click', async () => {
         const currentVal = document.getElementById('projectDefaultProfileId')?.value || '';
         try {
-          if (typeof loadConnectedProfiles === 'function') await loadConnectedProfiles();
+          if (typeof syncPulseFromBackend === 'function') await syncPulseFromBackend();
         } catch (_) {}
         await populateProfileSelect(currentVal);
       });
@@ -19148,6 +17536,7 @@
         if (defaultsSection && defaultsSection.style.display !== 'none') {
           try {
             const existing = await loadProjectDefaults(projectRoot, id) || {};
+            const selectedProfileUser = (document.getElementById('projectDefaultProfileId')?.value || '').trim();
             const updated = Object.assign({}, existing, {
               description: (document.getElementById('projectDefaultDescription')?.value || '').trim(),
               colors: {
@@ -19156,9 +17545,12 @@
               },
               logoDark: (document.getElementById('projectDefaultLogoDark')?.value || '').trim() || undefined,
               logoLight: (document.getElementById('projectDefaultLogoLight')?.value || '').trim() || undefined,
-              uploadPostProfileId: (document.getElementById('projectDefaultProfileId')?.value || '').trim() || undefined,
+              defaultSocialProfile: Object.assign({}, existing.defaultSocialProfile || {}, {
+                user: selectedProfileUser || undefined,
+              }),
               updatedAt: new Date().toISOString(),
             });
+            delete updated.uploadPostProfileId;
             await saveProjectDefaults(projectRoot, id, updated);
           } catch (defErr) {
             console.warn('[CFS] Failed to save project defaults:', defErr);
@@ -19655,108 +18047,7 @@
     if (PULSE_WATCH_VISIBILITY_STORAGE_KEYS.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
       refreshPulseWatchActivityPanel().catch(() => {});
     }
-    if (changes.selectedProjectId) {
-      loadGeneratorTemplates().catch(() => {});
-    }
-    const pendTpl = changes.cfs_pending_template_save;
-    if (pendTpl && pendTpl.newValue && pendTpl.newValue.templateId) {
-      processPendingTemplateSave().catch(() => {});
-    } else if (pendTpl && pendTpl.oldValue != null && pendTpl.newValue === undefined) {
-      loadGeneratorTemplates().catch(() => {});
-    }
   });
-
-  /**
-   * Load template.json text and return inputSchema from __CFS_INPUT_SCHEMA (for Run generator step UI).
-   * @param {string} templateKey - e.g. ad-facebook, project:my-id, builtin:ad-facebook
-   */
-  window.__CFS_loadGeneratorTemplateInputSchema = async function (templateKey) {
-    const parseApi = globalThis.__CFS_parseGeneratorTemplateInputSchema;
-    if (!parseApi || typeof parseApi.parseFromTemplateJsonText !== 'function') {
-      return { inputSchema: [], error: 'Schema parser not loaded' };
-    }
-    const key = String(templateKey || '').trim();
-    if (!key) return { inputSchema: [], error: 'Missing template id' };
-
-    function parseTemplateKey(tk) {
-      const t = String(tk || '');
-      if (t.indexOf('project:') === 0) return { source: 'project', id: t.slice(8).trim() };
-      if (t.indexOf('builtin:') === 0) return { source: 'builtin', id: t.slice(8).trim() };
-      return { source: 'builtin', id: t.trim() };
-    }
-
-    const parsedKey = parseTemplateKey(key);
-    if (!parsedKey.id) return { inputSchema: [], error: 'Missing template id' };
-
-    const st = await chrome.storage.local.get(['selectedProjectId']);
-    const projectId = (st.selectedProjectId || '').trim();
-
-    let text = null;
-    const root = await getStoredProjectFolderHandle();
-
-    if (parsedKey.source === 'project') {
-      if (!projectId) {
-        return { inputSchema: [], error: 'Select a project (Library / Generator) for project: templates.' };
-      }
-      if (!root) {
-        return { inputSchema: [], error: 'Set project folder to load project templates.' };
-      }
-      const relPath = 'uploads/' + projectId + '/templates/' + parsedKey.id + '.json';
-      text = await readFileFromProjectFolder(root, relPath);
-      if (!text) {
-        return { inputSchema: [], error: 'Template not found (' + relPath + ').' };
-      }
-    } else {
-      if (root) {
-        text = await readFileFromProjectFolder(root, 'generator/templates/' + parsedKey.id + '/template.json');
-      }
-      if (!text) {
-        try {
-          const url = chrome.runtime.getURL(
-            'generator/templates/' + encodeURIComponent(parsedKey.id) + '/template.json'
-          );
-          const r = await fetch(url);
-          if (r.ok) text = await r.text();
-        } catch (_) {}
-      }
-      if (!text) {
-        return { inputSchema: [], error: 'Could not load template (bundled or project folder).' };
-      }
-    }
-
-    return parseApi.parseFromTemplateJsonText(text);
-  };
-
-  /** Prefetch generator template ids for runGenerator step: manifest + uploads/{selectedProject}/templates/*.json as project:id. */
-  function loadGeneratorTemplates() {
-    const fallback = ['ad-apple-notes', 'ad-facebook', 'ad-twitter', 'blank-canvas'];
-    const url = chrome.runtime.getURL('generator/templates/manifest.json');
-    return fetch(url)
-      .then((r) => (r.ok ? r.json() : {}))
-      .then(async (data) => {
-        const builtin = Array.isArray(data.templates) ? data.templates.slice() : [];
-        const st = await chrome.storage.local.get(['selectedProjectId']);
-        const projectId = (st.selectedProjectId || '').trim();
-        if (!projectId) {
-          window.__CFS_generatorTemplateIds = builtin.length ? builtin : fallback;
-          return window.__CFS_generatorTemplateIds;
-        }
-        const root = await getStoredProjectFolderHandle();
-        if (!root) {
-          window.__CFS_generatorTemplateIds = builtin.length ? builtin : fallback;
-          return window.__CFS_generatorTemplateIds;
-        }
-        const projBases = await listUploadsProjectTemplateIds(root, projectId);
-        const prefixed = projBases.map((id) => 'project:' + id);
-        window.__CFS_generatorTemplateIds = builtin.concat(prefixed);
-        return window.__CFS_generatorTemplateIds;
-      })
-      .catch(() => {
-        window.__CFS_generatorTemplateIds = fallback;
-        return window.__CFS_generatorTemplateIds;
-      });
-  }
-  loadGeneratorTemplates();
 
   loadWorkflows().then(() => {
     checkAndRunOverdueScheduledRuns(); applyPendingProgrammaticApi();

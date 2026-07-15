@@ -1,7 +1,6 @@
 /**
  * Trim video: trim beginning, end, or both based on time. Reuses video-combiner
  * (single segment with startTime/endTime). Outputs WebM data URL to saveAsVariable.
- * Optional: queue save to project folder.
  */
 (function() {
   'use strict';
@@ -63,35 +62,5 @@
     const data = response.data || response.url;
     const varName = (action.saveAsVariable || 'trimmedVideo').trim();
     if (varName && row && typeof row === 'object') row[varName] = data;
-
-    if (action.saveToProject && typeof action.saveToProject === 'string' && action.saveToProject.trim()) {
-      const folder = action.saveToProject.trim();
-      let projectId = action.projectIdVariable != null
-        ? resolveUrl(row, String(action.projectIdVariable), getRowValue)
-        : '';
-      projectId = projectId != null && String(projectId).trim() ? String(projectId).trim() : '';
-      if (!projectId && typeof CFS_projectIdResolve !== 'undefined') {
-        const r = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
-          defaultProjectId: action.defaultProjectId,
-        });
-        if (r.ok) projectId = r.projectId;
-      }
-      const rowIndex = (ctx.currentRowIndex != null ? ctx.currentRowIndex : (row._rowIndex != null ? row._rowIndex : 0));
-      const filename = (action.saveFilename != null && String(action.saveFilename).trim())
-        ? resolveUrl(row, String(action.saveFilename).trim(), getRowValue)
-        : null;
-      await sendMessage({
-        type: 'QUEUE_SAVE_GENERATION',
-        payload: {
-          projectId: projectId ? projectId : null,
-          folder,
-          data,
-          rowIndex,
-          variableName: varName,
-          namingFormat: (action.namingFormat || 'numeric').toLowerCase() === 'row' ? 'row' : 'numeric',
-          filename: filename && filename.trim() ? filename.trim() : undefined,
-        },
-      });
-    }
   });
 })();

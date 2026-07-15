@@ -19,7 +19,7 @@ A **workflow** is a process that can be run **once** or **multiple times** (e.g.
 
 These can be implemented as **steps** (e.g. “Watch video progress”, “Check completions”) so the same JSON drives behavior everywhere.
 
-**Step-based vs generator workflows:** The workflows described in this doc are **executable step sequences** (run by the player using `steps/`). Some **generator templates** (`generator/templates/`) can take **workflow JSON as input data** to produce content (e.g. Book and Walkthrough output use workflow JSON as input); they do not run the workflow. See § Step-based vs generator workflows below for how the two concepts differ and how they connect (e.g. via the Run generator step).
+**Content creation:** The built-in generator and **runGenerator** step were removed from this extension. Create and publish content in the [Content Rewards AI app on Whop](https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/). Workflows in this doc are **executable step sequences** run by the player using `steps/`.
 
 ---
 
@@ -96,7 +96,7 @@ Import/export uses this same shape so workflows are portable and can be shared, 
 
 ## 8. Directory structure (modular / extensible)
 
-*High-level overview; see **docs/PROJECT_STRUCTURE.md** for the complete layout (steps/, generator/, offscreen/, sandbox/, etc.) and full docs index.*
+*High-level overview; see **docs/PROJECT_STRUCTURE.md** for the complete layout (steps/, offscreen/, sandbox/, etc.) and full docs index.*
 
 ```
 ExtensibleContent/
@@ -116,7 +116,7 @@ ExtensibleContent/
 └── manifest.json
 ```
 
-- **workflows/** – Presets and workflow plugins; loadable by the extension without network. Generator templates (e.g. Simple Text, Text to Speech, Speech to Text) live under **generator/templates/**.
+- **workflows/** – Presets and workflow plugins; loadable by the extension without network.
 - **shared/** – Reusable modules; new step types or behaviors can live here or in content/ and be driven by JSON.
 - **docs/** – Specs and “how to extend” so users and contributors can add or fix workflows in a consistent way.
 
@@ -133,7 +133,7 @@ ExtensibleContent/
 
 ## 10. Step comments, sections, selectors, and output formats
 
-See **WORKFLOW_SECTIONS_AND_OUTPUTS_SPEC.md** for: step comments (text, image, video, audio, URLs); workflow selectors (multiple strategies, stability scoring, test on live page, fallback chain); generator templates for video tutorial, post images, book, tutorial export, walkthrough embed; and workflow Q&A (questions, answers as workflows, credits). The **unified editor** (generator) supports output type: Walkthrough (embed script + config, edit step content).
+See **WORKFLOW_SECTIONS_AND_OUTPUTS_SPEC.md** for: step comments (text, image, video, audio, URLs); workflow selectors (multiple strategies, stability scoring, test on live page, fallback chain); and workflow Q&A (questions, answers as workflows, credits).
 
 ---
 
@@ -160,7 +160,7 @@ The extension uses a single format for workflow plugins and workflows.
 
 ### Reload extension
 
-Set the **project folder** to your extension root and click **Reload Extension** in the side panel (between username and Sidebar Name). It discovers new steps, generator templates, and workflows, rebuilds manifests, and reloads the extension.
+Set the **project folder** to your extension root and click **Reload Extension** in the side panel (between username and Sidebar Name). It discovers new steps and workflows, rebuilds manifests, and reloads the extension.
 
 ### Import
 
@@ -168,32 +168,23 @@ Import from file, URL, or paste accepts JSON with a `workflows` object or a sing
 
 ---
 
-## 12. Step-based vs generator workflows
+## 12. Removed generator integration
 
-This section clarifies the difference between **workflows as data for generator templates** and **workflows as executable step sequences**.
+The built-in content generator, **runGenerator** step, and related offscreen runner were removed from this extension. Content creation and social publishing now live in the [Content Rewards AI app on Whop](https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/).
 
-| Concept | Where it lives | What it is | Who consumes it |
-|---------|----------------|------------|------------------|
-| **Step-based workflow** | `workflows/`, sidepanel, workflow JSON | A **process**: a sequence of steps (click, type, runGenerator, wait, etc.) that the **player** runs on a tab. Can run once or once per row. | **Player** (content/player.js), step handlers under `steps/` |
-| **Workflow as template input** | Passed as the `workflowJson` input to a generator template | **Data**: the same workflow JSON (steps, step comments, structure) given to a **generator template** so it can produce content (book, manifest, tutorial script, etc.). The template does **not** run the workflow. | **Generator templates** under `generator/templates/` (e.g. ad-apple-notes; Book, Walkthrough use workflow JSON as input) |
-
-**Step-based workflows:** A workflow is a JSON object with `id`, `name`, `urlPattern`, `analyzed.actions` (or `actions`), etc. Each **action** is a step: `type` (e.g. `click`, `type`, `runGenerator`, `waitForVideos`). The **player** runs the workflow: for each step it invokes the matching **step handler** from `steps/<stepType>/handler.js`. Steps run in order; variables are read from/written to the current row.
-
-**Workflows used by generator templates:** Some generator templates take **workflow JSON as an input**. Their `extension.json` declares an input (often `workflowJson`) of type `textarea`; they receive it via the **Run generator** step's **inputMap**. The template engine receives the **whole workflow** as a string (or parsed object) and uses it only as **data** to produce **one** output (e.g. book HTML, JSON manifest, tutorial JS). The template does **not** run the workflow.
-
-**How they connect:** The **Run generator** step is a step type in a step-based workflow. When it runs, it sends **inputMap** (generator input id → value) to the template engine. For workflow-based templates, **workflowJson** is one of those inputs; use `{{currentWorkflow}}` in the input map to pass the current workflow. The step-based workflow (the process) passes **its own JSON** into the template as **data**; the template engine then uses it to build a book, manifest, or script.
+Workflows remain **executable step sequences**: a JSON object with `id`, `name`, `urlPattern`, `analyzed.actions` (or `actions`), etc. Each **action** is a step: `type` (e.g. `click`, `type`, `wait`, `waitForVideos`, `transcribeAudio`). The **player** runs the workflow by invoking the matching **step handler** from `steps/<stepType>/handler.js`. Steps run in order; variables are read from/written to the current row.
 
 ---
 
 ## 13. Scheduled run data
 
-**When you schedule a run:** the sidepanel stores the **current row** so all fields (including data passed to generator templates via inputMap) are available when the run executes.
+**When you schedule a run:** the sidepanel stores the **current row** so all fields are available when the run executes.
 
 - **One-time:** `id`, `workflowId`, `workflowName`, `runAt` (timestamp), optional `timezone` (display), `row`.
 - **Recurring:** `id`, `workflowId`, `workflowName`, `type: 'recurring'`, `timezone`, `time` (HH:mm), `pattern` (daily|weekly|monthly|yearly|**interval**), optional `dayOfWeek` / `dayOfMonth` / `monthDay`, optional **`intervalMinutes`** and **`lastRunAtMs`** (for **interval**; see [INTEGRATIONS.md](INTEGRATIONS.md)), `row`.
 - `row` is set from: the selected execution row (if you have imported rows and one is selected), or the Row data textarea parsed as JSON. If there are no rows and no valid JSON, `row` is undefined and the run gets `{}`.
 
-**When the run executes:** the background sends **`row: entry.row || {}`** to the player. Variable substitution and generator inputMap (e.g. `{{prompt}}`, `{{title}}`) use those values.
+**When the run executes:** the background sends **`row: entry.row || {}`** to the player. Variable substitution (e.g. `{{prompt}}`, `{{title}}`) uses those values.
 
 **Playback time limit:** scheduled/recurring executions (background alarm and overdue sidepanel catch-up) use **60 minutes** when the workflow contains an **Apify** step, otherwise **5 minutes** for the whole workflow (tab open + all steps). Sidepanel **Run workflow** / **Run from step**, **Run all rows** (per row, including navigations within the row), **Process** runs (per workflow segment), and **remote** tab playback follow the same **60 vs 5 minute** rule (see **steps/apifyActorRun/README.md**). Long external operations (e.g. Apify async polling) must fit within that budget together with the rest of the workflow.
 
@@ -217,4 +208,4 @@ You can paste **CSV** (header row + data rows) or **JSON** (array of objects). E
 | `month_day` | **Recurring yearly:** Month/day each year, e.g. `3/15` for March 15. |
 | `month` | **Recurring yearly:** Month 1–12 when not using `month_day`. |
 
-All other columns are stored as **row data** for that run (e.g. `prompt`, `title`, custom fields for generators).
+All other columns are stored as **row data** for that run (e.g. `prompt`, `title`, custom fields).

@@ -1,6 +1,6 @@
 # Step plugins
 
-Steps are the building blocks of workflows. Each step type is a **plugin folder** under `steps/`. To add a new step **without editing any manifest**: set the **project folder** to your extension root and click **Reload Extension** in the side panel (between username and Sidebar Name). It discovers new steps (and generator templates and workflows) in the project folder, rebuilds the manifests, and reloads the extension.
+Steps are the building blocks of workflows. Each step type is a **plugin folder** under `steps/`. To add a new step **without editing any manifest**: set the **project folder** to your extension root and click **Reload Extension** in the side panel (between username and Sidebar Name). It discovers new steps (and workflows) in the project folder, rebuilds the manifests, and reloads the extension.
 
 ## Plugin folder layout (per step)
 
@@ -68,7 +68,7 @@ Secrets must **never** be committed; see **docs/SOLANA_AUTOMATION.md** and **con
 4. **Add sidepanel.js** – Call `window.__CFS_registerStepSidepanel('myStep', { label: 'My Step', defaultAction: { type: 'myStep', ... }, getSummary: function(action) { return '...'; } });` so the step appears in the type dropdown and add-step menu.
 
 5. **Register and reload** (pick one):
-   - **Reload Extension button:** Set project folder to your extension root, then click **Reload Extension** in the side panel. It rebuilds steps (and generator/workflow) manifests from the project folder and reloads—no manifest edit.
+   - **Reload Extension button:** Set project folder to your extension root, then click **Reload Extension** in the side panel. It rebuilds steps (and workflow) manifests from the project folder and reloads—no manifest edit.
    - **Manual:** Add `"myStep"` to the **steps** array in **steps/manifest.json**, then reload the extension at chrome://extensions.
 
 After that, the new step is available: the extension loads handlers from **steps/manifest.json** at runtime (see **steps/loader.js**). No changes to the extension manifest or to `sidepanel/sidepanel.js` / `content/player.js` are required.
@@ -100,7 +100,6 @@ Each step documents its configuration, behavior, and **tests** in `steps/{id}/RE
 |------|--------|----------|
 | **Extract data** | **steps/extractData/README.md** | listSelector, itemSelector, fields (JSON), maxItems; Select on page; output to imported rows; Test extraction; Testing. |
 | **Loop** | **steps/loop/README.md** | listVariable (loop over row array); count; itemVariable, indexVariable ({{item}}, {{itemIndex}}); waitBeforeNext; nested steps; Testing. |
-| **Run generator** | **steps/runGenerator/README.md** | **pluginId** literal or `{{rowVar}}`; inputMap, saveAsVariable; input mapping and special variables; output types; video templates and Pixi requirement; Testing. |
 | **Run workflow** | **steps/runWorkflow/README.md** | workflowId (child workflow); rowMapping (parent key → child key); runIf; sub-workflow receives current row. |
 | **Capture audio** | **steps/captureAudio/README.md** | mode (element / tab / display); selectors; durationMs; saveAsVariable for transcribeAudio. |
 | **Transcription → trim** | *(compose steps)* | **transcribeAudio** **saveWordsToVariable** (JSON `[{text,start,end},…]`). **trimFromWordRange** maps inclusive word indices → **clipStart** / **clipEnd** for **trimVideo**; or use **rowSetFields** / **rowMath** manually. **extractAudioFromVideo** before Whisper on large videos. |
@@ -121,8 +120,6 @@ Each step documents its configuration, behavior, and **tests** in `steps/{id}/RE
 | **Write JSON to project** | **steps/writeJsonToProject/README.md** | Relative path / literal with **`{{projectId}}`** (row / Library default / **defaultProjectId**); row variable or JSON literal; shallow merge; `CFS_PROJECT_*` file messages. |
 | **Apify Actor / Task** | **steps/apifyActorRun/README.md** | Actor or task id (max 512 chars); token max 2048; `build` max 256; `shared/apify-run-query-validation.js`, `shared/apify-dataset-response.js`, `shared/apify-extract-run-id.js`; Settings **Test token** (`APIFY_TEST_TOKEN`); sync / async; dataset or OUTPUT; `APIFY_RUN` / **`APIFY_RUN_CANCEL`** on Stop (tab-scoped). |
 | **Apify — start / wait / dataset** | **steps/apifyRunStart/README.md**, **steps/apifyRunWait/**, **steps/apifyDatasetItems/** | Split async pipeline: **`APIFY_RUN_START`**, **`APIFY_RUN_WAIT`**, **`APIFY_DATASET_ITEMS`** (same cancel / token / caps as above). |
-| **Upload to Upload Post** | **steps/uploadPost/README.md** | Platform variable; video URL; title, description; API key; row variables with defaults; Upload Post API; supported platforms. |
-| **Save post draft (pending)** | **steps/savePostDraftToFolder/** | `post.json` under **uploads/{projectId}/posts/pending/**; **projectId** from row / **defaultProjectId** / Library **Uploads** project (side panel); **postFolderId** → stable folder name; **optionsVariableKey**; **savePathToVariable**. |
 | **Solana Jupiter swap** | **steps/solanaJupiterSwap/README.md** | Jupiter v6; raw amount; dex filters; optional **`jupiterWrapAndUnwrapSol`**; `CFS_SOLANA_EXECUTE_SWAP`; rebuild `build:solana`. |
 | **Solana transfer SOL** | **steps/solanaTransferSol/README.md** | `SystemProgram.transfer`; lamports; `CFS_SOLANA_TRANSFER_SOL`. |
 | **Solana transfer SPL** | **steps/solanaTransferSpl/README.md** | `CFS_SOLANA_TRANSFER_SPL`; classic Token + Token-2022; `npm run build:solana`. |

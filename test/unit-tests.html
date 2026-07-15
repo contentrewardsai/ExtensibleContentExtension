@@ -44,7 +44,6 @@
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
   <script src="../shared/step-validator.js"></script>
-  <script src="../shared/generator-template-schema.js"></script>
   <script src="../shared/step-comment.js"></script>
   <script src="../shared/template-resolver.js"></script>
   <script src="../shared/selectors.js"></script>
@@ -69,11 +68,11 @@
   <script src="../shared/row-list-normalize.js"></script>
   <script src="../shared/project-id-resolve.js"></script>
   <script src="../shared/defi-action-patterns.js"></script>
-  <script src="../shared/social-action-patterns.js"></script>
   <script src="../shared/data-action-patterns.js"></script>
   <script src="../shared/action-patterns-registry.js"></script>
-  <script src="../shared/shotstack-merge-placeholder-fill.js"></script>
   <script src="../shared/workflow-edit-history.js"></script>
+  <script src="../shared/removed-step-types.js"></script>
+  <script src="../shared/workflow-removed-steps-migration.js"></script>
   <script src="workflow-edit-history-tests.js"></script>
   <script src="unit-tests.js"></script>
   <!-- Tunnel UI fixture — mirrors settings.html elements for tunnel-tests.js DOM checks -->
@@ -129,16 +128,12 @@
   <script src="../steps/checkSuccessfulGenerations/handler.js"></script>
   <script src="../steps/qualityCheck/handler.js"></script>
   <script src="../steps/extractData/handler.js"></script>
-  <script src="../steps/runGenerator/handler.js"></script>
   <script src="../steps/sendToEndpoint/handler.js"></script>
   <script src="../steps/waitForHttpPoll/handler.js"></script>
-  <script src="../steps/uploadPost/handler.js"></script>
-  <script src="../steps/savePostDraftToFolder/handler.js"></script>
   <script src="../steps/setVideoSegments/handler.js"></script>
   <script src="../steps/combineVideos/handler.js"></script>
   <script src="../steps/trimVideo/handler.js"></script>
   <script src="../steps/trimFromWordRange/handler.js"></script>
-  <script src="../steps/saveGenerationToProject/handler.js"></script>
   <script src="../steps/captureAudio/handler.js"></script>
   <script src="../steps/transcribeAudio/handler.js"></script>
   <script src="../steps/whisperCheck/handler.js"></script>
@@ -156,17 +151,6 @@
   <script src="../steps/rowListConcat/handler.js"></script>
   <script src="../steps/rowListDedupe/handler.js"></script>
   <script src="../steps/delayBeforeNextRun/handler.js"></script>
-  <script src="../steps/getFacebookPages/handler.js"></script>
-  <script src="../steps/getLinkedInPages/handler.js"></script>
-  <script src="../steps/getPinterestBoards/handler.js"></script>
-  <script src="../steps/getInstagramComments/handler.js"></script>
-  <script src="../steps/replyInstagramComment/handler.js"></script>
-  <script src="../steps/sendInstagramDm/handler.js"></script>
-  <script src="../steps/getAnalytics/handler.js"></script>
-  <script src="../steps/getPostAnalytics/handler.js"></script>
-  <script src="../steps/getPostHistory/handler.js"></script>
-  <script src="../steps/getScheduledPosts/handler.js"></script>
-  <script src="../steps/renderShotstack/handler.js"></script>
   <script src="../steps/getFollowingProfiles/handler.js"></script>
   <script src="../steps/getFollowingProfile/handler.js"></script>
   <script src="../steps/createFollowingProfile/handler.js"></script>
@@ -268,6 +252,10 @@
   <script src="../steps/scanImportFolder/handler.js"></script>
   <script src="../steps/moveProjectFile/handler.js"></script>
   <script src="../steps/detectMediaType/handler.js"></script>
+  <script src="../steps/getAccountStatus/handler.js"></script>
+  <script src="../steps/assertCondition/handler.js"></script>
+  <script src="../steps/logMessage/handler.js"></script>
+  <script src="../steps/setBatchVariable/handler.js"></script>
   <!-- STEP_HANDLERS_END -->
   <!-- STEP_TESTS_START -->
   <script src="../steps/click/step-tests.js"></script>
@@ -295,16 +283,12 @@
   <script src="../steps/checkSuccessfulGenerations/step-tests.js"></script>
   <script src="../steps/qualityCheck/step-tests.js"></script>
   <script src="../steps/extractData/step-tests.js"></script>
-  <script src="../steps/runGenerator/step-tests.js"></script>
   <script src="../steps/sendToEndpoint/step-tests.js"></script>
   <script src="../steps/waitForHttpPoll/step-tests.js"></script>
-  <script src="../steps/uploadPost/step-tests.js"></script>
-  <script src="../steps/savePostDraftToFolder/step-tests.js"></script>
   <script src="../steps/setVideoSegments/step-tests.js"></script>
   <script src="../steps/combineVideos/step-tests.js"></script>
   <script src="../steps/trimVideo/step-tests.js"></script>
   <script src="../steps/trimFromWordRange/step-tests.js"></script>
-  <script src="../steps/saveGenerationToProject/step-tests.js"></script>
   <script src="../steps/captureAudio/step-tests.js"></script>
   <script src="../steps/transcribeAudio/step-tests.js"></script>
   <script src="../steps/whisperCheck/step-tests.js"></script>
@@ -322,17 +306,6 @@
   <script src="../steps/rowListConcat/step-tests.js"></script>
   <script src="../steps/rowListDedupe/step-tests.js"></script>
   <script src="../steps/delayBeforeNextRun/step-tests.js"></script>
-  <script src="../steps/getFacebookPages/step-tests.js"></script>
-  <script src="../steps/getLinkedInPages/step-tests.js"></script>
-  <script src="../steps/getPinterestBoards/step-tests.js"></script>
-  <script src="../steps/getInstagramComments/step-tests.js"></script>
-  <script src="../steps/replyInstagramComment/step-tests.js"></script>
-  <script src="../steps/sendInstagramDm/step-tests.js"></script>
-  <script src="../steps/getAnalytics/step-tests.js"></script>
-  <script src="../steps/getPostAnalytics/step-tests.js"></script>
-  <script src="../steps/getPostHistory/step-tests.js"></script>
-  <script src="../steps/getScheduledPosts/step-tests.js"></script>
-  <script src="../steps/renderShotstack/step-tests.js"></script>
   <script src="../steps/getFollowingProfiles/step-tests.js"></script>
   <script src="../steps/getFollowingProfile/step-tests.js"></script>
   <script src="../steps/createFollowingProfile/step-tests.js"></script>
@@ -434,13 +407,11 @@
   <script src="../steps/scanImportFolder/step-tests.js"></script>
   <script src="../steps/moveProjectFile/step-tests.js"></script>
   <script src="../steps/detectMediaType/step-tests.js"></script>
+  <script src="../steps/getAccountStatus/step-tests.js"></script>
+  <script src="../steps/assertCondition/step-tests.js"></script>
+  <script src="../steps/logMessage/step-tests.js"></script>
+  <script src="../steps/setBatchVariable/step-tests.js"></script>
   <!-- STEP_TESTS_END -->
-  <script src="../generator/core/wrap-text.js"></script>
-  <script src="../generator/core/position-from-clip.js"></script>
-  <script src="../generator/core/scene.js"></script>
-  <script src="../generator/editor/fabric-to-timeline.js"></script>
-  <script src="../generator/editor/timeline-panel.js"></script>
-  <script src="generator-tests.js"></script>
   <script src="backend-api-tests.js"></script>
   <script src="test-mode-panel.js"></script>
   <script src="unit-tests-bootstrap.js"></script>

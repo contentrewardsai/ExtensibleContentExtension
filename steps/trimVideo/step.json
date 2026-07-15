@@ -2,7 +2,7 @@
   "id": "trimVideo",
   "label": "Trim video",
   "category": "data",
-  "description": "Trim a video at the beginning, end, or both based on time. Uses the existing video-combiner (canvas + MediaRecorder). Output is a WebM data URL saved to a row variable. Optional: queue save to project folder.",
+  "description": "Trim a video at the beginning, end, or both based on time. Uses the existing video-combiner (canvas + MediaRecorder). Output is a WebM data URL saved to a row variable.",
   "defaultAction": {
     "type": "trimVideo",
     "variableKey": "mainVideo",
@@ -15,10 +15,6 @@
     { "key": "startTime", "label": "Start time (seconds)", "inputType": "number", "placeholder": "0" },
     { "key": "endTime", "label": "End time (seconds; omit for rest of video)", "inputType": "number", "placeholder": "" },
     { "key": "duration", "label": "Duration (seconds; alternative to endTime)", "inputType": "number", "placeholder": "" },
-    { "key": "saveAsVariable", "label": "Save trimmed video to variable", "inputType": "text", "placeholder": "trimmedVideo" },
-    { "key": "saveToProject", "label": "Also queue save to project (folder name; empty = skip)", "inputType": "text", "placeholder": "e.g. generations" },
-    { "key": "saveFilename", "label": "Filename when saving (optional; use {{title}} for row value; .webm added if no extension)", "inputType": "text", "placeholder": "{{title}}-trimmed or my-video" },
-    { "key": "projectIdVariable", "label": "Project ID for save (when saveToProject set; use {{projectId}})", "inputType": "text", "placeholder": "{{projectId}}" },
-    { "key": "defaultProjectId", "label": "Default project ID if variable empty (optional)", "inputType": "text", "placeholder": "default" }
+    { "key": "saveAsVariable", "label": "Save trimmed video to variable", "inputType": "text", "placeholder": "trimmedVideo" }
   ]
 }

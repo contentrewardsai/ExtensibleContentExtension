@@ -6,7 +6,7 @@
     defaultAction: {
       type: 'assertCondition',
       runIf: '',
-      condition: '{{shotstackCredits.credits}} > 0',
+      condition: '{{acct.loggedIn}}',
       errorMessage: 'Condition not met',
     },
     getSummary: function(action) {

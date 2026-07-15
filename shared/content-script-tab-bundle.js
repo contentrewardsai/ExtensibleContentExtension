@@ -13,6 +13,7 @@ var CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES = [
   'shared/run-if-condition.js',
   'shared/project-id-resolve.js',
   'shared/personal-info-sync.js',
+  'shared/removed-step-types.js',
   'steps/registry.js',
   'steps/loader.js',
   'content/recorder.js',

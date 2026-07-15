@@ -1,6 +1,6 @@
 /**
  * Shared manifest loading utilities.
- * Used by generator/load-from-manifest.js and potentially steps/loader.js.
+ * Used by steps/loader.js.
  * Fetches JSON manifests and optionally loads scripts in order.
  */
 (function(global) {

@@ -2245,6 +2245,13 @@
     ctx.prevAction = prevAction;
     const handler = stepHandlers[action.type];
     if (!handler) {
+      const removed = typeof globalThis.CFS_removedStepTypes !== 'undefined' && globalThis.CFS_removedStepTypes instanceof Set
+        ? globalThis.CFS_removedStepTypes
+        : null;
+      if (removed && removed.has(action.type)) {
+        try { console.warn('[CFS] Skipping removed step type:', action.type); } catch (_) {}
+        return;
+      }
       throw new Error('Unknown step type: "' + (action.type || '') + '". Check that the step is registered and the workflow uses a valid type.');
     }
     await handler(action, { ...opts, ctx });

@@ -14,46 +14,6 @@
   var TOKEN = '';
 
   var TESTS = [
-    { section: 'Social Post — Uploads & Status', tests: [
-      { method: 'POST', path: '/social-post/upload', body: { postType: 'text', profile_username: '__test__', platform: ['test'], title: 'API test' }, desc: 'Upload (text)', expect: '4xx proxy forward' },
-      { method: 'GET',  path: '/social-post/status?request_id=test-000', desc: 'Poll status', expect: '4xx missing data' },
-    ]},
-    { section: 'Social Post — Scheduling', tests: [
-      { method: 'GET',    path: '/social-post/scheduled', desc: 'List scheduled', expect: '4xx missing data' },
-      { method: 'DELETE', path: '/social-post/scheduled/nonexistent-job', desc: 'Cancel (404 ok)', expect: '4xx not found' },
-    ]},
-    { section: 'Social Post — History & Profiles', tests: [
-      { method: 'GET',  path: '/social-post/history', desc: 'Upload history', expect: '4xx missing data' },
-      { method: 'GET',  path: '/social-post/profiles', desc: 'List profiles', expect: '2xx or 4xx' },
-      { method: 'POST', path: '/social-post/profiles/generate-jwt', body: { username: '__test__' }, desc: 'Generate JWT', expect: '4xx proxy forward' },
-    ]},
-    { section: 'Social Post — Analytics', tests: [
-      { method: 'POST', path: '/social-post/analytics', body: { profile_username: '__test__' }, desc: 'Fetch analytics', expect: '4xx proxy forward' },
-      { method: 'POST', path: '/social-post/send-dm', body: { username: '__test__', message: 'test' }, desc: 'Send DM', expect: '4xx' },
-      { method: 'POST', path: '/social-post/reply-comment', body: { comment_id: 'test', message: 'test' }, desc: 'Reply comment', expect: '4xx' },
-      { method: 'GET',  path: '/social-post/instagram-comments?post_id=test', desc: 'IG comments', expect: '4xx' },
-      { method: 'GET',  path: '/social-post/post-analytics?post_id=test', desc: 'Post analytics', expect: '4xx' },
-    ]},
-    { section: 'Social Post — Platform Pages', tests: [
-      { method: 'GET', path: '/social-post/facebook-pages', desc: 'Facebook pages', expect: '4xx no account' },
-      { method: 'GET', path: '/social-post/linkedin-pages', desc: 'LinkedIn pages', expect: '4xx no account' },
-      { method: 'GET', path: '/social-post/pinterest-boards', desc: 'Pinterest boards', expect: '4xx no account' },
-    ]},
-    { section: 'Social Post — Storage', tests: [
-      { method: 'GET',    path: '/social-post/storage', desc: 'Storage quota', expect: '2xx quota info' },
-      { method: 'GET',    path: '/social-post/storage/files', desc: 'List files', expect: '2xx file list' },
-      { method: 'POST',   path: '/social-post/storage/upload', body: { filename: 'test.mp4', content_type: 'video/mp4', size_bytes: 1024 }, desc: 'Presigned URL', expect: '2xx or 4xx' },
-      { method: 'DELETE', path: '/social-post/storage/files/nonexistent-id', desc: 'Delete file (404 ok)', expect: '2xx or 4xx' },
-    ]},
-    { section: 'ShotStack — Ingest', tests: [
-      { method: 'GET',    path: '/shotstack/ingest', desc: 'List sources', expect: '2xx' },
-      { method: 'POST',   path: '/shotstack/ingest', body: { base64Data: 'dGVzdA==', environment: 'stage' }, desc: 'Upload ingest', expect: '2xx' },
-      { method: 'GET',    path: '/shotstack/ingest/nonexistent-source', desc: 'Poll status (404 ok)', expect: '4xx' },
-      { method: 'DELETE', path: '/shotstack/ingest/nonexistent-source', desc: 'Delete (404 ok)', expect: '2xx/4xx' },
-    ]},
-    { section: 'ShotStack — Store Render', tests: [
-      { method: 'POST', path: '/shotstack/store-render', body: { renderId: 'test-render', url: 'https://example.com/test.mp4', environment: 'stage', format: 'mp4', project_id: 'test-proj', template_id: 'test-tmpl' }, desc: 'Store render', expect: '404 (no render record)' },
-    ]},
     { section: 'Workflows Catalog', tests: [
       { method: 'GET', path: '/workflows/catalog', desc: 'Catalog (no filter)', expect: '2xx' },
       { method: 'GET', path: '/workflows/catalog?scope=published&limit=5', desc: 'Catalog (published)', expect: '2xx' },

@@ -14,7 +14,7 @@
     "light": ""
   },
   "defaultSocialProfile": {
-    "profileId": "",
+    "user": "",
     "platform": ""
   },
   "importPollIntervalMs": 10000

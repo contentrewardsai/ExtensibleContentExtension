@@ -27,8 +27,6 @@
   ],
   "host_permissions": [
     "<all_urls>",
-    "https://api.upload-post.com/*",
-    "https://api.shotstack.io/*",
     "https://cdn.jsdelivr.net/*",
     "https://huggingface.co/*",
     "https://*.huggingface.co/*",
@@ -85,6 +83,7 @@
         "shared/run-if-condition.js",
         "shared/project-id-resolve.js",
         "shared/personal-info-sync.js",
+        "shared/removed-step-types.js",
         "steps/registry.js",
         "steps/loader.js",
         "content/recorder.js",

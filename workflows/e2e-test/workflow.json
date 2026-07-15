@@ -229,23 +229,6 @@
         ]
       }
     },
-    "e2e-test-saveGenerationToProject": {
-      "id": "e2e-test-saveGenerationToProject",
-      "name": "E2E Save Generation to Project Test (smoke)",
-      "version": 1,
-      "initial_version": "e2e-test-saveGenerationToProject",
-      "urlPattern": { "origin": "http://127.0.0.1", "pathPattern": "*" },
-      "analyzed": {
-        "actions": [
-          {
-            "type": "saveGenerationToProject",
-            "variableName": "generatedImage",
-            "folder": "generations",
-            "namingFormat": "numeric"
-          }
-        ]
-      }
-    },
     "e2e-test-combineVideos": {
       "id": "e2e-test-combineVideos",
       "name": "E2E Combine Videos Test (image segments)",
