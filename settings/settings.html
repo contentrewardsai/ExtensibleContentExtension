@@ -113,18 +113,6 @@
     .status-msg.error { color: var(--error); }
     .pass { color: var(--success); }
     .fail { color: var(--error); }
-    .profile-card, .jwt-section {
-      background: var(--muted-bg); border: 1px solid var(--border);
-      border-radius: var(--radius-md); padding: 16px; margin-bottom: 12px;
-    }
-    .profile-card .profile-name { font-weight: 600; margin-bottom: 4px; }
-    .profile-card .profile-socials { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
-    .profile-card .profile-socials a { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; color: var(--accent); text-decoration: none; }
-    .profile-card .profile-socials a:hover { text-decoration: underline; }
-    .profile-card .profile-jwt { margin-top: 6px; font-size: 0.82rem; }
-    .profile-card .profile-jwt a { color: var(--accent); word-break: break-all; }
-    .jwt-info { font-size: 0.82rem; color: var(--muted); }
-    #profilesList:empty::after { content: 'No profiles loaded yet.'; color: var(--muted); font-size: 0.85rem; font-style: italic; }
     #testModePanel { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 24px; }
     #checklistList { list-style: none; padding: 0; }
     #checklistList li { margin: 8px 0; padding: 4px 0; display: flex; align-items: center; }
@@ -163,10 +151,6 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         General & APIs
       </div>
-      <div class="nav-item" data-target="tab-social">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-        Social Profiles
-      </div>
       <div class="nav-item" data-target="tab-crypto">
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M20 12V8H6a2 2 0 01-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12a2 2 0 002 2h14v-4"/><path d="M18 12a2 2 0 00-2 2c0 1.1.9 2 2 2h4v-4h-4z"/></svg>
         Crypto & Web3
@@ -195,71 +179,7 @@
         <h1>General & APIs</h1>
         <p class="tab-description">Manage core application keys, rendering engines, and AI models.</p>
 
-        <div class="section" id="localKeysSection">
-    <h2>Local Keys</h2>
-    <p class="hint">Store API keys locally in this browser. These are used by workflow steps and for fetching profiles.</p>
-    <div class="form-row">
-      <label for="uploadPostApiKeyInput">UploadPost API Key</label>
-      <input type="password" id="uploadPostApiKeyInput" placeholder="Enter your Upload Post API key">
-      <button type="button" id="toggleKeyVisibility" class="btn btn-small">Show</button>
-      <button type="button" id="saveApiKeyBtn" class="btn btn-primary btn-small">Save</button>
-    </div>
-    <p class="hint" style="margin-top:4px;font-size:0.85em;opacity:0.7;">
-      Optional. Enter your own Upload Post API key for direct posting. If blank and logged in,
-      posts route securely through your extensiblecontent.com account (requires upgraded plan with connected profiles).
-    </p>
-    <p id="apiKeyStatus" class="status-msg" style="display:none"></p>
-  </div>
-
-  <div class="section" id="postStorageSection" style="display:none">
-    <h2>Post Media Storage</h2>
-    <p class="hint">Media uploaded for backend-connected posting is stored in your account. Delete files to free space.</p>
-    <div id="storageUsageBar" style="margin-bottom:8px;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <div style="flex:1;height:8px;border-radius:4px;background:var(--border-color,#333);overflow:hidden;">
-          <div id="storageUsageFill" style="height:100%;width:0%;background:var(--accent-color,#6c5ce7);transition:width .3s;border-radius:4px;"></div>
-        </div>
-        <span id="storageUsageText" style="font-size:0.8em;opacity:0.7;">—</span>
-      </div>
-    </div>
-    <div id="storageFilesList" style="max-height:200px;overflow-y:auto;"></div>
-    <div style="margin-top:8px;">
-      <button type="button" id="refreshStorageBtn" class="btn btn-small">Refresh</button>
-    </div>
-  </div>
-
-  <div class="section" id="shotstackKeysSection">
-    <h2>ShotStack Keys</h2>
-    <p class="hint">API keys for ShotStack cloud video/audio rendering. Get keys from <a href="https://dashboard.shotstack.io/" target="_blank" rel="noopener noreferrer">dashboard.shotstack.io</a>.</p>
-    <p class="hint" style="margin-top:4px;font-size:0.85em;opacity:0.7;">
-      Optional. If not set and you are signed in, renders route securely through your extensiblecontent.com account.
-      Staging renders are free. Production renders use your account credits (1 credit = 1 minute, billed by the second).
-    </p>
-    <div class="form-row">
-      <label for="shotstackStagingKeyInput">Staging API Key</label>
-      <input type="password" id="shotstackStagingKeyInput" placeholder="Staging key (watermarked renders)">
-      <button type="button" class="btn btn-small toggle-ss-key" data-target="shotstackStagingKeyInput">Show</button>
-      <button type="button" id="saveSsStagingKeyBtn" class="btn btn-primary btn-small">Save</button>
-    </div>
-    <div class="form-row" style="margin-top:6px;">
-      <label for="shotstackProductionKeyInput">Production API Key</label>
-      <input type="password" id="shotstackProductionKeyInput" placeholder="Production key (no watermark)">
-      <button type="button" class="btn btn-small toggle-ss-key" data-target="shotstackProductionKeyInput">Show</button>
-      <button type="button" id="saveSsProductionKeyBtn" class="btn btn-primary btn-small">Save</button>
-    </div>
-    <p id="ssKeyStatus" class="status-msg" style="display:none"></p>
-    <div id="ssCreditsSection" class="jwt-section" style="margin-top:12px;display:none;">
-      <h3 style="margin-top:0;">ShotStack Render Credits</h3>
-      <p class="hint" style="margin-top:0;">Credits for production renders via your account. Staging is always free.</p>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span id="ssCreditsDisplay" style="font-size:0.95rem;font-weight:600;">—</span>
-        <button type="button" id="ssCreditsRefreshBtn" class="btn btn-small">Refresh</button>
-      </div>
-      <p id="ssCreditsStatus" class="status-msg" style="display:none"></p>
-    </div>
-  </div>
-
-  <div class="section" id="cfsLlmSection">
+        <div class="section" id="cfsLlmSection">
     <h2>Optional cloud LLMs</h2>
     <p class="hint">API keys stay in this browser. Use <strong>Lamini</strong> (default) for the built-in backend, or choose OpenAI, Claude, Gemini, or Grok for workflow LLM steps and Local AI Chat when a key is saved.</p>
 
@@ -384,71 +304,6 @@
   </div>
 
       </div><!-- /tab-general -->
-
-      <!-- TAB: SOCIAL PROFILES & DEFAULTS -->
-      <div id="tab-social" class="tab-pane">
-        <h1>Social Profiles</h1>
-        <p class="tab-description">Manage linked accounts, publishing defaults, and token expiration.</p>
-
-        <div class="section" id="profilesSection">
-    <h2>Upload Post Profiles</h2>
-    <p class="hint">Profiles from your local API key and remote backend, deduplicated.</p>
-    <button type="button" id="refreshProfilesBtn" class="btn btn-small">Refresh Profiles</button>
-    <p id="profilesStatus" class="status-msg" style="display:none"></p>
-    <div id="profilesList" style="margin-top: 12px;"></div>
-  </div>
-
-  <div class="section" id="jwtSection">
-    <h2>JWT Token Management</h2>
-    <p class="hint">JWT tokens for Upload Post profiles expire every 48 hours. They are automatically refreshed daily.</p>
-    <div class="jwt-section">
-      <div class="form-row">
-        <label for="jwtRefreshTime">Daily refresh time</label>
-        <input type="time" id="jwtRefreshTime" value="23:59">
-        <button type="button" id="saveJwtTimeBtn" class="btn btn-small">Save Time</button>
-        <button type="button" id="refreshJwtNowBtn" class="btn btn-primary btn-small">Refresh Now</button>
-      </div>
-      <p id="jwtTimeStatus" class="status-msg" style="display:none"></p>
-      <div class="jwt-info" id="jwtLastRefresh" style="margin-top: 8px;"></div>
-    </div>
-  </div>
-
-  <div class="section" id="platformDefaultsSection">
-    <h2>Upload Post Platform Defaults</h2>
-    <p class="hint">Set default values for each platform. Per-profile defaults override global defaults. Priority (highest to lowest): generator fields, workflow variables, profile+platform defaults, global platform defaults.</p>
-
-    <div class="form-row" style="margin-bottom:8px;">
-      <label for="pd-profile-select">Profile scope</label>
-      <select id="pd-profile-select" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
-        <option value="_global">All profiles (global default)</option>
-      </select>
-    </div>
-    <div class="form-row" style="margin-bottom:12px;">
-      <label for="pd-platform-select">Platform</label>
-      <select id="pd-platform-select" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
-        <option value="youtube">YouTube</option>
-        <option value="instagram">Instagram</option>
-        <option value="tiktok">TikTok</option>
-        <option value="facebook">Facebook</option>
-        <option value="linkedin">LinkedIn</option>
-        <option value="x">X (Twitter)</option>
-        <option value="threads">Threads</option>
-        <option value="pinterest">Pinterest</option>
-        <option value="reddit">Reddit</option>
-        <option value="bluesky">Bluesky</option>
-      </select>
-    </div>
-
-    <p class="hint" id="pd-scope-hint" style="margin-bottom:8px;"></p>
-    <div id="pd-fields-container" style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;"></div>
-
-    <div style="display:flex;gap:8px;">
-      <button type="button" id="savePlatformDefaultsBtn" class="btn btn-primary btn-small">Save Defaults</button>
-      <button type="button" id="clearPlatformDefaultsBtn" class="btn btn-small">Clear This Scope</button>
-    </div>
-    <p id="pdStatus" class="status-msg" style="display:none"></p>
-  </div>
-      </div><!-- /tab-social -->
 
       <!-- TAB: CRYPTO & WEB3 -->
       <div id="tab-crypto" class="tab-pane">
@@ -1005,7 +860,6 @@
   <script src="../extension/config.js"></script>
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
-  <script src="../shared/upload-post.js"></script>
   <script src="../shared/step-validator.js"></script>
   <script src="../shared/step-comment.js"></script>
   <script src="../shared/template-resolver.js"></script>
@@ -1031,13 +885,10 @@
   <script src="../shared/row-list-normalize.js"></script>
   <script src="../shared/project-id-resolve.js"></script>
   <script src="../shared/defi-action-patterns.js"></script>
-  <script src="../shared/social-action-patterns.js"></script>
   <script src="../shared/data-action-patterns.js"></script>
   <script src="../shared/action-patterns-registry.js"></script>
   <script src="../shared/download-xenova-lamini.js"></script>
   <script src="../shared/download-mcp-server.js"></script>
-  <script src="../shared/generator-template-schema.js"></script>
-  <script src="../shared/shotstack-merge-placeholder-fill.js"></script>
   <script src="../test/unit-tests.js"></script>
   <script src="../test/tunnel-tests.js"></script>
   <script src="../steps/registry.js"></script>
@@ -1067,16 +918,12 @@
   <script src="../steps/checkSuccessfulGenerations/handler.js"></script>
   <script src="../steps/qualityCheck/handler.js"></script>
   <script src="../steps/extractData/handler.js"></script>
-  <script src="../steps/runGenerator/handler.js"></script>
   <script src="../steps/sendToEndpoint/handler.js"></script>
   <script src="../steps/waitForHttpPoll/handler.js"></script>
-  <script src="../steps/uploadPost/handler.js"></script>
-  <script src="../steps/savePostDraftToFolder/handler.js"></script>
   <script src="../steps/setVideoSegments/handler.js"></script>
   <script src="../steps/combineVideos/handler.js"></script>
   <script src="../steps/trimVideo/handler.js"></script>
   <script src="../steps/trimFromWordRange/handler.js"></script>
-  <script src="../steps/saveGenerationToProject/handler.js"></script>
   <script src="../steps/captureAudio/handler.js"></script>
   <script src="../steps/transcribeAudio/handler.js"></script>
   <script src="../steps/whisperCheck/handler.js"></script>
@@ -1094,17 +941,6 @@
   <script src="../steps/rowListConcat/handler.js"></script>
   <script src="../steps/rowListDedupe/handler.js"></script>
   <script src="../steps/delayBeforeNextRun/handler.js"></script>
-  <script src="../steps/getFacebookPages/handler.js"></script>
-  <script src="../steps/getLinkedInPages/handler.js"></script>
-  <script src="../steps/getPinterestBoards/handler.js"></script>
-  <script src="../steps/getInstagramComments/handler.js"></script>
-  <script src="../steps/replyInstagramComment/handler.js"></script>
-  <script src="../steps/sendInstagramDm/handler.js"></script>
-  <script src="../steps/getAnalytics/handler.js"></script>
-  <script src="../steps/getPostAnalytics/handler.js"></script>
-  <script src="../steps/getPostHistory/handler.js"></script>
-  <script src="../steps/getScheduledPosts/handler.js"></script>
-  <script src="../steps/renderShotstack/handler.js"></script>
   <script src="../steps/getFollowingProfiles/handler.js"></script>
   <script src="../steps/getFollowingProfile/handler.js"></script>
   <script src="../steps/createFollowingProfile/handler.js"></script>
@@ -1206,6 +1042,10 @@
   <script src="../steps/scanImportFolder/handler.js"></script>
   <script src="../steps/moveProjectFile/handler.js"></script>
   <script src="../steps/detectMediaType/handler.js"></script>
+  <script src="../steps/getAccountStatus/handler.js"></script>
+  <script src="../steps/assertCondition/handler.js"></script>
+  <script src="../steps/logMessage/handler.js"></script>
+  <script src="../steps/setBatchVariable/handler.js"></script>
   <!-- STEP_HANDLERS_END -->
   <!-- STEP_TESTS_START -->
   <script src="../steps/click/step-tests.js"></script>
@@ -1233,16 +1073,12 @@
   <script src="../steps/checkSuccessfulGenerations/step-tests.js"></script>
   <script src="../steps/qualityCheck/step-tests.js"></script>
   <script src="../steps/extractData/step-tests.js"></script>
-  <script src="../steps/runGenerator/step-tests.js"></script>
   <script src="../steps/sendToEndpoint/step-tests.js"></script>
   <script src="../steps/waitForHttpPoll/step-tests.js"></script>
-  <script src="../steps/uploadPost/step-tests.js"></script>
-  <script src="../steps/savePostDraftToFolder/step-tests.js"></script>
   <script src="../steps/setVideoSegments/step-tests.js"></script>
   <script src="../steps/combineVideos/step-tests.js"></script>
   <script src="../steps/trimVideo/step-tests.js"></script>
   <script src="../steps/trimFromWordRange/step-tests.js"></script>
-  <script src="../steps/saveGenerationToProject/step-tests.js"></script>
   <script src="../steps/captureAudio/step-tests.js"></script>
   <script src="../steps/transcribeAudio/step-tests.js"></script>
   <script src="../steps/whisperCheck/step-tests.js"></script>
@@ -1260,17 +1096,6 @@
   <script src="../steps/rowListConcat/step-tests.js"></script>
   <script src="../steps/rowListDedupe/step-tests.js"></script>
   <script src="../steps/delayBeforeNextRun/step-tests.js"></script>
-  <script src="../steps/getFacebookPages/step-tests.js"></script>
-  <script src="../steps/getLinkedInPages/step-tests.js"></script>
-  <script src="../steps/getPinterestBoards/step-tests.js"></script>
-  <script src="../steps/getInstagramComments/step-tests.js"></script>
-  <script src="../steps/replyInstagramComment/step-tests.js"></script>
-  <script src="../steps/sendInstagramDm/step-tests.js"></script>
-  <script src="../steps/getAnalytics/step-tests.js"></script>
-  <script src="../steps/getPostAnalytics/step-tests.js"></script>
-  <script src="../steps/getPostHistory/step-tests.js"></script>
-  <script src="../steps/getScheduledPosts/step-tests.js"></script>
-  <script src="../steps/renderShotstack/step-tests.js"></script>
   <script src="../steps/getFollowingProfiles/step-tests.js"></script>
   <script src="../steps/getFollowingProfile/step-tests.js"></script>
   <script src="../steps/createFollowingProfile/step-tests.js"></script>
@@ -1372,13 +1197,11 @@
   <script src="../steps/scanImportFolder/step-tests.js"></script>
   <script src="../steps/moveProjectFile/step-tests.js"></script>
   <script src="../steps/detectMediaType/step-tests.js"></script>
+  <script src="../steps/getAccountStatus/step-tests.js"></script>
+  <script src="../steps/assertCondition/step-tests.js"></script>
+  <script src="../steps/logMessage/step-tests.js"></script>
+  <script src="../steps/setBatchVariable/step-tests.js"></script>
   <!-- STEP_TESTS_END -->
-  <script src="../generator/core/wrap-text.js"></script>
-  <script src="../generator/core/position-from-clip.js"></script>
-  <script src="../generator/core/scene.js"></script>
-  <script src="../generator/editor/fabric-to-timeline.js"></script>
-  <script src="../generator/editor/timeline-panel.js"></script>
-  <script src="../test/generator-tests.js"></script>
   <script src="../test/test-mode-panel.js"></script>
   <script src="settings.js"></script>
 </body>

@@ -238,11 +238,11 @@ So: the recorder correctly turns **click, type, select, ensureSelect, upload, do
 ### Variables (row data)
 
 - **Reading from row:** Steps that take per-row input use **`variableKey`** (and sometimes placeholder/name/aria-label) and `ctx.getRowValue(row, action.variableKey, ...)` or the player's `getRowValue`: e.g. `type`, `select`, `upload`, `download`, `goToUrl`, `openTab`.
-- **Writing to row:** Steps that produce a value use **`saveAsVariable`** and the player's `saveVariableIfNeeded`: e.g. `click` (with output selector), `runGenerator`, `transcribeAudio`, `combineVideos`. Naming is consistent: variableKey = input column, saveAsVariable = output variable name.
+- **Writing to row:** Steps that produce a value use **`saveAsVariable`** and the player's `saveVariableIfNeeded`: e.g. `click` (with output selector), `transcribeAudio`, `combineVideos`, `extractData`. Naming is consistent: variableKey = input column, saveAsVariable = output variable name.
 
-### Sending data to generator templates
+### Removed generator step
 
-- **runGenerator** uses **`inputMap`**: object mapping generator input id → `{{variable}}` or literal. One place; generator runner resolves `{{variable}}` from the current row. Other steps don't send data to generators; they only read from the row via variableKey.
+The **runGenerator** step and built-in generator were removed. Content creation is handled outside the extension (see **README.md**). Steps no longer send data to generator templates via **inputMap**.
 
 ### One tab vs another
 

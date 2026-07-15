@@ -266,7 +266,7 @@ export function registerProjectTools(server, ctx) {
         },
         logoDark: '',
         logoLight: '',
-        uploadPostProfileId: '',
+        defaultSocialProfile: { user: '', platform: '' },
         importPollIntervalMs: 10000,
       };
       try {
@@ -353,7 +353,7 @@ export function registerProjectTools(server, ctx) {
       }).optional(),
       logoDark: z.string().optional(),
       logoLight: z.string().optional(),
-      uploadPostProfileId: z.string().optional(),
+      defaultSocialProfileUser: z.string().optional().describe('HighLevel/social profile username (stored as defaultSocialProfile.user)'),
     },
     async ({ projectId, ...updates }) => {
       // Read existing defaults
@@ -371,7 +371,10 @@ export function registerProjectTools(server, ctx) {
       if (updates.description !== undefined) merged.description = updates.description;
       if (updates.logoDark !== undefined) merged.logoDark = updates.logoDark;
       if (updates.logoLight !== undefined) merged.logoLight = updates.logoLight;
-      if (updates.uploadPostProfileId !== undefined) merged.uploadPostProfileId = updates.uploadPostProfileId;
+      if (updates.defaultSocialProfileUser !== undefined) {
+        merged.defaultSocialProfile = { ...(existing.defaultSocialProfile || {}), user: updates.defaultSocialProfileUser };
+        delete merged.uploadPostProfileId;
+      }
       if (updates.colors) {
         merged.colors = { ...(existing.colors || {}), ...updates.colors };
       }

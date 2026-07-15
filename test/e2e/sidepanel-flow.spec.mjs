@@ -141,7 +141,7 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
         (u) => String(u).includes('/settings/settings.html'),
         { timeout: 30_000 },
       );
-      expect(newTab.url()).toBe(`chrome-extension://${extensionId}/settings/settings.html`);
+      expect(newTab.url()).toContain('settings/settings.html#tab-tests');
     } finally {
       await newTab.close().catch(() => {});
     }
@@ -1407,60 +1407,6 @@ test.describe('Sidepanel UI: error handling and validation', () => {
     });
     expect(resp).toBeTruthy();
     expect(typeof resp).toBe('object');
-  });
-});
-
-/* ================================================================
-   Section 14 – runGenerator step (positive)
-   ================================================================ */
-test.describe('Sidepanel UI: runGenerator step', () => {
-  test('RUN_GENERATOR with ad-apple-notes template produces image output', async ({ extensionContext, extensionId }) => {
-    test.setTimeout(120_000);
-
-    const resp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'RUN_GENERATOR',
-      pluginId: 'ad-apple-notes',
-      inputs: { nameInput: 'E2E Test Title', textInput: 'E2E test body content' },
-    });
-
-    expect(resp).toBeTruthy();
-    if (resp?.ok) {
-      expect(resp.type || resp.data).toBeTruthy();
-      if (typeof resp.data === 'string') {
-        expect(resp.data.length).toBeGreaterThan(100);
-      }
-    } else {
-      expect(resp?.error).toBeTruthy();
-    }
-  });
-
-  test('RUN_GENERATOR with blank-canvas template succeeds', async ({ extensionContext, extensionId }) => {
-    test.setTimeout(120_000);
-
-    const resp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'RUN_GENERATOR',
-      pluginId: 'blank-canvas',
-      inputs: {},
-    });
-
-    expect(resp).toBeTruthy();
-    if (resp?.ok) {
-      expect(resp.data || resp.type).toBeTruthy();
-    }
-  });
-
-  test('RUN_GENERATOR with invalid pluginId returns error', async ({ extensionContext, extensionId }) => {
-    test.setTimeout(30_000);
-
-    const resp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'RUN_GENERATOR',
-      pluginId: 'nonexistent-plugin-xyz-' + Date.now(),
-      inputs: {},
-    });
-
-    expect(resp).toBeTruthy();
-    expect(resp?.ok).toBe(false);
-    expect(resp?.error).toBeTruthy();
   });
 });
 

@@ -1,6 +1,6 @@
 /**
  * Template substitution utilities: {{variableName}} in strings.
- * Used by sendToEndpoint, runGenerator, and other steps that support row variable substitution.
+ * Used by sendToEndpoint and other steps that support row variable substitution.
  */
 (function (global) {
   'use strict';

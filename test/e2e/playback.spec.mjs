@@ -103,7 +103,7 @@ try {
   workflowIds = [
     'e2e-test-click', 'e2e-test-hover', 'e2e-test-runWorkflow', 'e2e-test-type',
     'e2e-test-select', 'e2e-test-key', 'e2e-test-wait', 'e2e-test-goToUrl',
-    'e2e-test-extract', 'e2e-test-send-endpoint', 'e2e-test-saveGenerationToProject',
+    'e2e-test-extract', 'e2e-test-send-endpoint',
     'e2e-test-transcribeAudio', 'e2e-test-whisperCheck', 'e2e-test-delayBeforeNextRun',
     'e2e-test-combineVideos', 'e2e-test-embeddingCheck', 'e2e-test-captureAudio',
     'e2e-test-chain-type-send', 'e2e-test-chain-send-forward', 'e2e-test-chain-click-type-send',

@@ -1439,88 +1439,6 @@ test.describe('DOWNLOAD_FILE', () => {
   });
 });
 
-// ─── Generation queue ────────────────────────────────────────────────
-test.describe('generation queue', () => {
-  test('QUEUE → GET → CLEAR lifecycle', async ({ extensionContext, extensionId }) => {
-    // Clear first
-    await sendExtensionMessage(extensionContext, extensionId, { type: 'CLEAR_PENDING_GENERATIONS' });
-
-    // Queue an entry
-    const qResp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'QUEUE_SAVE_GENERATION',
-      payload: {
-        projectId: 'proj-1',
-        folder: 'test-output',
-        data: 'base64data',
-        rowIndex: 0,
-        variableName: 'generatedImage',
-        namingFormat: 'numeric',
-      },
-    });
-    expect(qResp?.ok).toBe(true);
-
-    // Get pending
-    const gResp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'GET_PENDING_GENERATIONS',
-    });
-    expect(gResp?.ok).toBe(true);
-    expect(gResp?.list).toHaveLength(1);
-    expect(gResp?.list[0].projectId).toBe('proj-1');
-    expect(gResp?.list[0].folder).toBe('test-output');
-    expect(gResp?.list[0].data).toBe('base64data');
-    expect(gResp?.list[0].namingFormat).toBe('numeric');
-    expect(gResp?.list[0].queuedAt).toBeGreaterThan(0);
-
-    // Clear
-    const cResp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'CLEAR_PENDING_GENERATIONS',
-    });
-    expect(cResp?.ok).toBe(true);
-
-    // Verify cleared
-    const gResp2 = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'GET_PENDING_GENERATIONS',
-    });
-    expect(gResp2?.list).toHaveLength(0);
-  });
-
-  test('QUEUE_SAVE_GENERATION appends (not replaces)', async ({ extensionContext, extensionId }) => {
-    await sendExtensionMessage(extensionContext, extensionId, { type: 'CLEAR_PENDING_GENERATIONS' });
-
-    await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'QUEUE_SAVE_GENERATION', payload: { data: 'first' },
-    });
-    await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'QUEUE_SAVE_GENERATION', payload: { data: 'second' },
-    });
-
-    const gResp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'GET_PENDING_GENERATIONS',
-    });
-    expect(gResp?.list).toHaveLength(2);
-    expect(gResp?.list[0].data).toBe('first');
-    expect(gResp?.list[1].data).toBe('second');
-
-    await sendExtensionMessage(extensionContext, extensionId, { type: 'CLEAR_PENDING_GENERATIONS' });
-  });
-
-  test('QUEUE_SAVE_GENERATION defaults folder and namingFormat', async ({ extensionContext, extensionId }) => {
-    await sendExtensionMessage(extensionContext, extensionId, { type: 'CLEAR_PENDING_GENERATIONS' });
-
-    await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'QUEUE_SAVE_GENERATION', payload: { data: 'x' },
-    });
-
-    const gResp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'GET_PENDING_GENERATIONS',
-    });
-    expect(gResp?.list[0].folder).toBe('generations');
-    expect(gResp?.list[0].namingFormat).toBe('numeric');
-
-    await sendExtensionMessage(extensionContext, extensionId, { type: 'CLEAR_PENDING_GENERATIONS' });
-  });
-});
-
 // ─── FETCH_FILE ──────────────────────────────────────────────────────
 test.describe('FETCH_FILE', () => {
   test('fetches file and returns base64', async ({ extensionContext, extensionId, fixtureServer }) => {
@@ -1599,14 +1517,6 @@ test.describe('QC_CALL edge cases', () => {
 
 // ─── Offscreen-dependent handlers ────────────────────────────────────
 test.describe('offscreen-dependent handlers', () => {
-  test('RUN_GENERATOR rejects missing pluginId', async ({ extensionContext, extensionId }) => {
-    const resp = await sendExtensionMessage(extensionContext, extensionId, {
-      type: 'RUN_GENERATOR',
-    });
-    expect(resp?.ok).toBe(false);
-    expect(resp?.error).toContain('Missing pluginId');
-  });
-
   test('CALL_LLM attempts QC offscreen (may fail without model)', async ({ extensionContext, extensionId }) => {
     test.setTimeout(150_000);
     const resp = await sendExtensionMessage(extensionContext, extensionId, {

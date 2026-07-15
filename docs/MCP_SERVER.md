@@ -1,6 +1,6 @@
 # MCP Server
 
-The Extensible Content extension includes a local MCP (Model Context Protocol) server that exposes 87+ tools covering the full extension surface. External AI clients — Claude Desktop, Cursor, VS Code Copilot, or any MCP-compatible agent — can interact with your workflows, schedules, Following profiles, crypto wallets, DeFi protocols, LLM providers, Apify actors, social media accounts, and chain to other MCP servers.
+The Extensible Content extension includes a local MCP (Model Context Protocol) server that exposes 70+ tools covering the full extension surface. External AI clients — Claude Desktop, Cursor, VS Code Copilot, or any MCP-compatible agent — can interact with your workflows, schedules, Following profiles, crypto wallets, DeFi protocols, LLM providers, Apify actors, and chain to other MCP servers.
 
 ## Architecture
 
@@ -139,7 +139,7 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 
 > ⚠️ **WARNING:** MCP tools can execute real financial transactions through your extension wallets. Do not use large amounts of funds or funds you are concerned about losing. Always review tool calls in your AI client before approving.
 
-## Available Tools (84)
+## Available Tools (73)
 
 ### Workflows (6)
 | Tool | Description |
@@ -249,21 +249,6 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 | `apify_run_wait` | Wait for run completion |
 | `apify_dataset_items` | Fetch dataset items |
 | `apify_test_token` | Test API token |
-
-### Social Media (11)
-| Tool | Description |
-|------|-------------|
-| `get_facebook_pages` | List Facebook pages |
-| `get_linkedin_pages` | List LinkedIn pages |
-| `get_pinterest_boards` | List Pinterest boards |
-| `get_instagram_comments` | Get Instagram comments |
-| `reply_instagram_comment` | Reply to comment |
-| `send_instagram_dm` | Send DM |
-| `get_analytics` | Social analytics |
-| `get_post_analytics` | Post-level analytics |
-| `get_post_history` | Published post history |
-| `get_scheduled_posts` | Upcoming posts |
-| `upload_post` | Publish to platforms |
 
 ### System & MCP Gateway (7)
 | Tool | Description |

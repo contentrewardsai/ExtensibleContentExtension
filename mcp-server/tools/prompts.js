@@ -47,7 +47,6 @@ CAPABILITIES:
 • Workflows — Record, edit, and run browser automation workflows with 145+ step types
 • Scheduling — One-time and recurring workflow runs with timezone support${cryptoCapabilities}
 • Following/Pulse — Track wallet activity on Solana and BSC, with automated copy-trading workflows
-• Social Media — Post to YouTube, Instagram, Facebook, LinkedIn, Pinterest; analytics; DMs; comment replies
 • LLM — Call OpenAI, Claude, Gemini, Grok, or local LaMini from within workflows
 • Apify — Run web scraping actors and process datasets
 • Media — Video trimming, audio capture, transcription (Whisper)
@@ -61,8 +60,6 @@ RESOURCES (browse these for specifics):
 • extensible://steps/{id}/readme — step README.md (configuration details, background messages, related steps)
 • extensible://steps/categories — steps grouped by category${cryptoResources}
 • extensible://following — tracked profiles and wallets
-• extensible://generators — generator templates with merge fields
-• extensible://generators/{id} — full template.json for a generator
 • extensible://schedules — scheduled workflow runs
 • extensible://run-history — past run results
 • extensible://status — extension relay connection status
@@ -73,9 +70,7 @@ RESOURCES (browse these for specifics):
 TOOLS (use these to take action):
 • create_workflow, update_workflow, delete_workflow — programmatic workflow CRUD
 • run_workflow, set_imported_rows — execute workflows with data
-• run_generator — generate images/videos from templates
 • schedule_workflow_run, remove_scheduled_runs — manage schedules${cryptoTools}
-• upload_post, reply_instagram_comment, send_instagram_dm — social media
 • mutate_following — manage tracked profiles
 • read_storage — inspect any extension state
 • list_external_mcp_endpoints, list_external_mcp_tools, call_external_mcp_tool — chain to external MCP servers${cryptoNote}`,
@@ -119,10 +114,8 @@ STEP CATEGORIES:
 • data — extractData, llm, rowMath, rowSetFields, sendToEndpoint, waitForHttpPoll, readJsonFromProject, writeJsonToProject
 • flow — loop, runWorkflow, wait, delayBeforeNextRun, goToUrl, openTab${cryptoStepCategories}
 • following — getFollowingProfiles, createFollowingProfile, updateFollowingProfile, selectFollowingAccount
-• social — uploadPost, getAnalytics, getPostHistory, getScheduledPosts, sendInstagramDm, replyInstagramComment
 • apify — apifyActorRun, apifyRunStart, apifyRunWait, apifyDatasetItems
 • media — captureAudio, transcribeAudio, trimVideo, combineVideos, screenCapture, extractAudioFromVideo
-• generator — runGenerator, renderShotstack
 
 KEY CONCEPTS:
 • Steps use {{variables}} from row data for dynamic values
@@ -200,95 +193,6 @@ Please:
         }],
       };
     }
-  );
-
-  /* ── Content Generation ── */
-  server.prompt(
-    'content_generation',
-    'Generate images and videos from templates using the generator system and ShotStack rendering.',
-    {},
-    async () => {
-      let templateInfo = '';
-      try {
-        const res = await ctx.fetchExtensionFile('generator/templates/manifest.json');
-        if (res && res.ok && res.data) {
-          const manifest = JSON.parse(res.data);
-          templateInfo = (manifest.templates || []).join(', ');
-        }
-      } catch (_) {
-        templateInfo = '(could not load template list)';
-      }
-      return {
-        messages: [{
-          role: 'user',
-          content: {
-            type: 'text',
-            text: `Help me generate content (images and/or videos) using the extension's generator system.
-
-GENERATOR ARCHITECTURE:
-• Templates define visual layouts with merge fields (variables like {{headline}}, {{body}}, {{profileImage}})
-• Templates are in ShotStack Edit API format with timeline, tracks, clips, and output settings
-• Each template has merge fields that map inputs to visual elements
-• Output types: image, video, audio, text
-
-AVAILABLE TEMPLATES: ${templateInfo}
-
-HOW TO GENERATE CONTENT:
-
-1. **Browse templates**: Read extensible://generators to see all templates with their merge fields
-2. **View a specific template**: Read extensible://generators/{templateId} for full details
-3. **Generate directly**: Use the run_generator tool with a templateId and inputMap
-4. **Batch generate**: Create a workflow with a runGenerator step + row data for bulk content
-5. **Render video**: Use renderShotstack step to render via ShotStack cloud API (staging or production)
-
-WORKFLOW FOR BULK GENERATION:
-[runGenerator] → generates image/video per row
-[renderShotstack] → optional: cloud render for video output
-[uploadPost] → optional: publish to social media
-
-Each row in the data can have different values for merge fields, producing unique content per row.
-
-What would you like to create?`,
-          },
-        }],
-      };
-    }
-  );
-
-  /* ── Social Media Manager ── */
-  server.prompt(
-    'social_media_manager',
-    'Overview of social media features: posting, analytics, comments, and DMs.',
-    {},
-    async () => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: `Help me manage social media through the extension.
-
-SOCIAL FEATURES:
-• Upload posts to YouTube, Instagram, Facebook, LinkedIn, Pinterest (via UploadPost API)
-• Get analytics for profiles and individual posts
-• Read and reply to Instagram comments
-• Send Instagram DMs
-• Get scheduled (upcoming) posts
-• Get post history across platforms
-
-TOOLS:
-• upload_post — publish content to one or more platforms
-• get_analytics — profile-level analytics
-• get_post_analytics — per-post metrics
-• get_post_history — past published posts
-• get_scheduled_posts — upcoming scheduled posts
-• get_instagram_comments / reply_instagram_comment — engagement
-• send_instagram_dm — direct messaging
-• get_facebook_pages / get_linkedin_pages / get_pinterest_boards — connected accounts
-
-What would you like to do?`,
-        },
-      }],
-    })
   );
 
   /* ── MCP Network Topology ── */

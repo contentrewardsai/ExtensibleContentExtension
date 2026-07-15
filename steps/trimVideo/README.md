@@ -1,6 +1,6 @@
 # Trim video
 
-Trims a video at the beginning, end, or both based on time. Reuses the existing video-combiner (canvas + MediaRecorder + HTMLVideoElement). Output is a WebM data URL saved to a row variable. Optional: queue save to project folder.
+Trims a video at the beginning, end, or both based on time. Reuses the existing video-combiner (canvas + MediaRecorder + HTMLVideoElement). Output is a WebM data URL saved to a row variable.
 
 ## Inputs
 
@@ -12,13 +12,10 @@ Trims a video at the beginning, end, or both based on time. Reuses the existing 
 | **endTime** | Trim to this second; omit for rest of video. |
 | **duration** | Alternative to endTime: length in seconds from startTime. |
 | **saveAsVariable** | Row variable for output (default `trimmedVideo`). |
-| **saveToProject** | Optional: folder name (e.g. `generations`) to queue save. User clicks **Save pending generations** in the Library panel; files go under **uploads/{projectId}/{folder}/**. |
-| **saveFilename** | Optional: filename when saving. Use literal (e.g. `my-trimmed-video`) or `{{title}}` for row value. `.webm` is added if no extension. |
-| **projectIdVariable** | When saveToProject is set: project ID (e.g. `{{projectId}}`). |
 
 ## Output
 
-- **saveAsVariable**: Data URL of trimmed WebM (`data:video/webm;base64,...`). Use in subsequent steps (e.g. combineVideos, sendToEndpoint, saveGenerationToProject).
+- **saveAsVariable**: Data URL of trimmed WebM (`data:video/webm;base64,...`). Use in subsequent steps (e.g. combineVideos, sendToEndpoint).
 
 ## Examples
 
@@ -29,5 +26,5 @@ Trims a video at the beginning, end, or both based on time. Reuses the existing 
 
 ## Usage in workflow
 
-- Variable comes from earlier step (e.g. Run generator → `generatedVideo`, or a download/extract step).
-- Downstream: use trimmed video in **Combine videos**, **Send to endpoint**, or **Save generation to project**.
+- Variable comes from earlier step (e.g. a download/extract step).
+- Downstream: use trimmed video in **Combine videos** or **Send to endpoint**.

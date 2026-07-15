@@ -7,7 +7,6 @@
  * - Duration to endTime conversion
  * - Segment construction for COMBINE_VIDEOS payload
  * - Default variable name (trimmedVideo)
- * - Save to project optional parameters
  */
 (function (global) {
   'use strict';

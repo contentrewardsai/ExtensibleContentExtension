@@ -13,24 +13,23 @@ A second manifest entry injects **content/whop-auth-bridge.js** only on **extens
 | **shared/selectors.js** | Shared selector-generation utilities; used by recorder and player. Loaded first so steps and content scripts can use it. See **docs/SELECTOR_RESOLUTION.md** for when to use minimal vs rich resolution. |
 | **shared/recording-value.js** | `getRecordedTypingValue` for recorded type steps (input/textarea vs contenteditable). Loaded after selectors, before recorder. |
 | **shared/selector-parity.js** | Cross-workflow enrich / selector parity (`CFS_selectorParity`); loaded after recording-value, before manifest-loader. |
-| **shared/manifest-loader.js** | Manifest fetch utilities (`CFS_manifestLoader`); used by steps/loader and generator. |
+| **shared/manifest-loader.js** | Manifest fetch utilities (`CFS_manifestLoader`); used by steps/loader. |
 | **shared/template-resolver.js** | Template/variable resolution (`resolveTemplate`, `getByPath`); used by sendToEndpoint, Apify step, and other template-aware steps. |
 | **steps/registry.js** | Step handler registry (`__CFS_registerStepHandler`). Loaded before step handlers. |
 | **steps/loader.js** | Fetches steps/manifest.json and requests injection of each steps/{id}/handler.js via the background. Handlers are not in the extension manifest. |
-| **steps/{id}/handler.js** | Step plugins (click, type, wait, runGenerator, etc.). Injected at runtime by the loader; each registers one step type. |
+| **steps/{id}/handler.js** | Step plugins (click, type, wait, etc.). Injected at runtime by the loader; each registers one step type. |
 | **content/recorder.js** | Records user actions (clicks, typing, etc.) and sends them to the background. |
 | **content/player.js** | Runs workflows: dispatches to step handlers, manages row data, waits, retries. |
 | **content/auto-discovery.js** | MutationObserver-based discovery of input/output groups and patterns on the page. |
 
 So:
 
-- **content/** = tab-injected **entry points** (recorder, player, auto-discovery). They are not “steps” (steps are plugins the player calls) and not generator inputs/outputs (those are for the generator UI).
+- **content/** = tab-injected **entry points** (recorder, player, auto-discovery). They are not “steps” (steps are plugins the player calls).
 - **steps/** = step **plugins**; their handler.js files are also content scripts but live under steps/ by feature.
 
 ### Why not move content/* elsewhere?
 
-- **steps/** – Steps are individual step *types* (click, type, runGenerator…). The **player** is the orchestrator that runs those steps; the **recorder** records actions. They don’t belong inside steps/.
-- **generator/inputs**, **generator/outputs** – For the generator UI (extension page). They don’t run in the tab.
+- **steps/** – Steps are individual step *types* (click, type…). The **player** is the orchestrator that runs those steps; the **recorder** records actions. They don’t belong inside steps/.
 - **shared/** – For code *shared* across contexts (selectors, analyzer, backend). Putting player/recorder/auto-discovery in shared/ would mix “shared libraries” with “tab entry points”; the folder would have two different responsibilities.
 - **lib/** – Third-party libraries only (Sortable, html2canvas, etc.).
 - The side panel **Reload Extension** button rebuilds manifests from the project folder (no scripts folder).
@@ -45,17 +44,15 @@ So:
 |-----------|---------|-----------------------------|
 | **background/** | Service worker (message routing, offscreen docs, downloads). Loads **`aster-futures.js`** (Aster REST, **`CFS_ASTER_FUTURES`**, IP **request-weight** + account **order-count** pacing from **`exchangeInfo`** / response headers), **`solana-sellability-probe.js`** (**`CFS_SOLANA_SELLABILITY_PROBE`**), **`bsc-sellability-probe.js`** (**`CFS_BSC_SELLABILITY_PROBE`**), **`crypto-test-wallets.js`** (**`CFS_CRYPTO_TEST_ENSURE_WALLETS`** — devnet/Chapel labeled test wallets; see **`docs/TESTING.md`**), **`following-automation-runner.js`** (Pulse Following automation headless pipeline), and other domain modules. Prebuilt bundles (commit after `npm run build:*`): **`evm-lib.bundle.js`** (ethers for **`bsc-evm.js`**), **`infinity-sdk.bundle.js`** (Pancake Infinity SDK before **`bsc-evm.js`**), plus Solana/Raydium/Meteora/Pump bundles as listed in **`package.json`**. | Yes – manifest `background.service_worker` points here. |
 | **sidepanel/** | Side panel UI (workflows, recording, playback). | Yes – manifest `side_panel.default_path` points here. |
-| **generator/** | Generator UI + templates + inputs/outputs. Opened as an extension page. | Yes – feature-owned. |
-| **generator/extensions/** | Editor plugin scripts (e.g. STT, TTS) loaded at runtime; the loader API lives in **generator/editor/extensions/** (`loader.js`, `api.js`). | Yes – plugins vs loader are separate on purpose. |
 | **steps/** | Step plugins (handler.js + sidepanel.js + step.json per step). Many steps have **steps/{id}/README.md** (see **steps/README.md** § Step-specific documentation), including Solana automation under **steps/solana\*/** and **steps/raydium\*/** plus **docs/SOLANA_AUTOMATION.md**. | Yes – handler.js are content scripts but live here by feature. |
 | **shared/** | Code used by more than one context (selectors, analyzer, backend, book-builder, walkthrough-export). **`shared/cfs-always-on-automation.js`** — Pulse Following workflow gate + **`alwaysOn`** scope merge; loaded by the service worker before **`background/solana-watch.js`**. | Yes – shared libraries, not entry points. |
 | **shared/apify-*.js** | Apify helpers loaded by the service worker (and mirrored in unit tests): **`shared/apify-dataset-response.js`** (dataset items + pagination headers), **`shared/apify-run-query-validation.js`** (run query param guards), **`shared/apify-extract-run-id.js`** (run id hints for errors). Regression coverage: **`npm run test:apify`** (three verify scripts; also run in **Extension checks** CI). |
 | **shared/infi-bin-path-json-shape.js** | Pancake Infinity multi-hop **`infiBinPathJson`** shape validation (**`CFS_parseInfiBinPathJsonShape`**, **`CFS_infiBinPathCurrencyChainError`**). Loaded before **`background/bsc-evm.js`** in the service worker; **`parseInfiBinPathJson`** delegates here. Regression: **`npm run test:infi-bin-path-json`**. |
 | **lib/** | Third-party libraries (e.g. Sortable, html2canvas). | Yes – vendor code only. |
-| **offscreen/** | Offscreen documents: tab audio, generator runner, video combiner, QC, screen recorder, project folder I/O, **Aster user-stream** WebSocket (**aster-user-stream** for **`CFS_ASTER_USER_STREAM_WAIT`**). | Yes – manifest/background create these. |
+| **offscreen/** | Offscreen documents: tab audio, video combiner, QC, screen recorder, project folder I/O, **Aster user-stream** WebSocket (**aster-user-stream** for **`CFS_ASTER_USER_STREAM_WAIT`**). | Yes – manifest/background create these. |
 | **sandbox/** | Sandboxed page (e.g. quality-check). | Yes – manifest sandbox.pages. |
 | **workflows/** | Workflow JSON and workflow plugins. | Yes – workflow definitions. |
-| **config/** | Extension defaults; **config/discovery-hints.json** is a domain-free global catalog for auto-discovery (merged after workflow + step hints). Host-specific discovery lives only under each workflow’s `discovery.domains`. **config/platform-defaults.json** mirrors Upload Post platform defaults when a project folder is set; see **docs/PLATFORM_DEFAULTS.md**. | Yes – shipped defaults and optional project override. |
+| **config/** | Extension defaults; **config/discovery-hints.json** is a domain-free global catalog for auto-discovery (merged after workflow + step hints). Host-specific discovery lives only under each workflow’s `discovery.domains`. | Yes – shipped defaults and optional project override. |
 | **following/** | Following (Pulse) profiles and accounts, one JSON file per profile, under per-account subfolders. Created when project folder is set and user saves Following data. | Yes – user data. |
 | **uploads/** | Per-project upload folders (Library → Uploads). Used when this repo is the project folder. | Yes – user data. |
 | **docs/** | Project-wide specs, architecture, and guides. See § Documentation below. | N/A. |
@@ -70,7 +67,7 @@ Documentation is colocated with features where practical. Use this index to find
 
 ### Conventions
 
-- **Feature folders** use both `README.md` (overview, quick reference) and `docs/` (longer reference material) when needed. Example: **generator/README.md** + **generator/docs/**.
+- **Feature folders** use both `README.md` (overview, quick reference) and `docs/` (longer reference material) when needed. Example: **steps/README.md** + **steps/{id}/README.md**.
 - **Single source of truth** – Each topic has one canonical doc. Link from other docs instead of copying content.
 - **Project-wide** material lives in **docs/**; **feature-specific** material lives with the feature.
 
@@ -79,17 +76,11 @@ Documentation is colocated with features where practical. Use this index to find
 | Location | Contents |
 |----------|----------|
 | **docs/** | Project architecture, specs, testing, backend. See list below. |
-| **generator/README.md** | Generator overview, templates, inputs/outputs, troubleshooting. |
-| **generator/docs/** | ShotStack JSON reference, import/export, Fabric/Pixi timeline, timeline import/export, tutorial loader. For template authoring and timeline format. |
-| **generator/USAGE_AND_CLEANUP.md** | Usage notes and cleanup procedures. |
-| **generator/core/README.md** | Core stack (Fabric, GSAP, Howler, WebCodecs, FFmpeg). |
-| **generator/templates/README.md** | Template format, extension.json, template.json. |
-| **generator/editor/extensions/README.md** | Editor extensions (TTS, STT, toolbar buttons). |
 | **steps/README.md** | Step plugin system, adding steps, step-specific doc table. |
 | **steps/CONTRACT.md** | Step handler contract, `opts.ctx` API, step.json/sidepanel spec, common mistakes. |
 | **steps/TESTING.md** | Step-level tests (`steps/{id}/step-tests.js`). |
 | **steps/README-TEST-CONFIG.md** | Test configuration. |
-| **steps/{id}/README.md** | Per-step configuration and behavior (e.g. runGenerator, loop, extractData). |
+| **steps/{id}/README.md** | Per-step configuration and behavior (e.g. loop, extractData). |
 | **models/README.md** | Data models. |
 | **test/README.md** | Test suite overview. |
 
@@ -98,11 +89,10 @@ Documentation is colocated with features where practical. Use this index to find
 | Doc | Topic |
 |-----|-------|
 | **PROJECT_STRUCTURE.md** | This file. Directories, load order, documentation index. |
-| **WORKFLOW_SPEC.md** | Workflow model, steps, variables, format, step-based vs generator, scheduled run data. |
+| **WORKFLOW_SPEC.md** | Workflow model, steps, variables, format, scheduled run data. |
 | **INTEGRATIONS.md** | HTTP, Apify, project JSON file steps, scheduling vs batch delay, programmatic schedules. |
 | **PROGRAMMATIC_API.md** | SET_IMPORTED_ROWS, RUN_WORKFLOW. |
-| **GENERATOR_ARCHITECTURE.md** | Generator overview, unified editor, timeline, outputs. |
-| **PLUGIN_ARCHITECTURE.md** | Manifest + registry pattern, project folder, built-in APIs (ctx, sidepanel, generator inputs). |
+| **PLUGIN_ARCHITECTURE.md** | Manifest + registry pattern, project folder, built-in APIs (ctx, sidepanel). |
 | **STEP_PLUGINS.md** | Full step plugin contract, formSchema, sidepanel. |
 | **SELECTOR_RESOLUTION.md** | Minimal vs rich resolution, when to use which. |
 | **TESTING.md** | Unit tests, E2E (Playwright/Puppeteer), manual test checklist. |
@@ -111,12 +101,9 @@ Documentation is colocated with features where practical. Use this index to find
 | **AUDIT_REPORT.md** | Audit and hardening. |
 | **REMAINING_IMPLEMENTATION.md** | Implementation status (done vs remaining). |
 | **NOTES.md** | Project policies (e.g. no external LLM). |
-| **WORKFLOW_SECTIONS_AND_OUTPUTS_SPEC.md** | Step comments, selector robustness, generator output formats. |
+| **WORKFLOW_SECTIONS_AND_OUTPUTS_SPEC.md** | Step comments, selector robustness, output formats. |
 | **VIDEO_COMBINER_PAYLOAD.md** | Video combiner payload. |
 | **VIDEO_PROBE_API.md** | Video probe API. |
-| **PIXI_TIMELINE_PLAYER.md** | Pixi timeline player. |
-| **UPLOAD_POST_POSTS_SPEC.md** | Upload/post specs. |
-| **PLATFORM_DEFAULTS.md** | `config/platform-defaults.json` ↔ Settings “Upload Post Platform Defaults”, storage key, upload step. |
 | **STEPS_AND_RUNTIMES.md** | Steps vs runtimes, overlap, hover, recorder, implementation consistency. |
 | **PULSE_INDEXER_RFC.md** | Optional Pulse backend indexer (design sketch). |
 | **CRYPTO_BUNDLE_UPGRADE_RUNBOOK.md** | Rebuild `background/*.bundle.js` after chain SDK npm bumps. |

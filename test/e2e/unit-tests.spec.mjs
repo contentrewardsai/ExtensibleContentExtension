@@ -44,17 +44,12 @@ test('unit tests all pass', async ({ extensionContext, extensionId }) => {
 });
 
 test('Settings Open unit tests page opens test/unit-tests.html', async ({ extensionContext, extensionId }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(60_000);
   const settingsPage = await extensionContext.newPage();
   try {
-    await settingsPage.goto(`chrome-extension://${extensionId}/settings/settings.html`, { waitUntil: 'domcontentloaded' });
-    const cryptoEnsure = settingsPage.getByTestId(CFS_E2E_TESTID.settingsCryptoEnsure);
-    await cryptoEnsure.scrollIntoViewIfNeeded();
-    await expect(cryptoEnsure).toBeVisible({ timeout: 60_000 });
-    await expect(settingsPage.getByTestId(CFS_E2E_TESTID.settingsCryptoFundOnly)).toBeVisible();
-    await expect(settingsPage.getByTestId(CFS_E2E_TESTID.settingsCryptoReplace)).toBeVisible();
+    await settingsPage.goto(`chrome-extension://${extensionId}/settings/settings.html#tab-tests`, { waitUntil: 'domcontentloaded' });
     const openBtn = settingsPage.getByTestId(CFS_E2E_TESTID.settingsOpenUnitTestsPage);
-    await openBtn.waitFor({ state: 'visible', timeout: 90_000 });
+    await expect(openBtn).toBeVisible({ timeout: 30_000 });
     const pagePromise = extensionContext.waitForEvent('page');
     await openBtn.click();
     const unitTab = await pagePromise;

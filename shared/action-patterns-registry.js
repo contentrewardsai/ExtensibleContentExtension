@@ -1,11 +1,10 @@
 /**
- * Action Patterns Registry — unified API that merges DeFi, Social, and Data
+ * Action Patterns Registry — unified API that merges DeFi and Data
  * pattern sets into a single lookup. Used by the sidepanel analyzer for
- * auto-replace (DeFi + Social) and suggest-only (Data/Apify).
+ * auto-replace (DeFi) and suggest-only (Data/Apify).
  *
  * Depends on:
  *   - __CFS_DEFI_ACTION_PATTERNS   (shared/defi-action-patterns.js)
- *   - __CFS_SOCIAL_ACTION_PATTERNS (shared/social-action-patterns.js)
  *   - __CFS_DATA_ACTION_PATTERNS   (shared/data-action-patterns.js)
  */
 ;(function () {
@@ -15,7 +14,6 @@
     var g = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : {});
     return [
       g.__CFS_DEFI_ACTION_PATTERNS,
-      g.__CFS_SOCIAL_ACTION_PATTERNS,
       g.__CFS_DATA_ACTION_PATTERNS,
     ].filter(Boolean);
   }

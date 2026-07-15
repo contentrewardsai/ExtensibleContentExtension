@@ -838,22 +838,8 @@
           }
           break;
         }
-        case 'UPLOAD_POST':
-          if (!msg.apiKey || typeof msg.apiKey !== 'string') return { valid: false, error: 'apiKey required' };
-          if (!msg.formFields || typeof msg.formFields !== 'object') return { valid: false, error: 'formFields required' };
-          if (!msg.formFields.user || typeof msg.formFields.user !== 'string') return { valid: false, error: 'formFields.user required' };
-          if (!Array.isArray(msg.formFields.platform) || msg.formFields.platform.length === 0) return { valid: false, error: 'formFields.platform array required' };
-          var pt = msg.formFields.postType || 'video';
-          if (pt === 'video' && (!msg.formFields.video || typeof msg.formFields.video !== 'string')) return { valid: false, error: 'formFields.video required for video' };
-          if (pt === 'photo' && !msg.formFields.photos) return { valid: false, error: 'formFields.photos required for photo' };
-          if (pt === 'text' && (!msg.formFields.title || typeof msg.formFields.title !== 'string')) return { valid: false, error: 'formFields.title required for text' };
-          break;
         case 'RUN_WORKFLOW':
           if (!msg.workflowId || typeof msg.workflowId !== 'string') return { valid: false, error: 'workflowId required' };
-          break;
-        case 'SET_PENDING_GENERATIONS':
-          if (!Array.isArray(msg.list)) return { valid: false, error: 'list must be an array' };
-          if (msg.list.length > 500) return { valid: false, error: 'list length must be at most 500' };
           break;
         case 'CFS_CRYPTO_TEST_ENSURE_WALLETS':
           if (msg.fundOnly === true && msg.replaceExisting === true) {
@@ -884,11 +870,6 @@
 
     assertFalse(validateMessagePayload('FETCH_FILE', {}).valid);
     assertTrue(validateMessagePayload('FETCH_FILE', { url: 'http://x' }).valid);
-
-    assertFalse(validateMessagePayload('SET_PENDING_GENERATIONS', {}).valid);
-    assertFalse(validateMessagePayload('SET_PENDING_GENERATIONS', { list: 'bad' }).valid);
-    assertTrue(validateMessagePayload('SET_PENDING_GENERATIONS', { list: [] }).valid);
-    assertTrue(validateMessagePayload('SET_PENDING_GENERATIONS', { list: [{ data: 'x' }] }).valid);
 
     assertTrue(validateMessagePayload('CFS_CRYPTO_TEST_ENSURE_WALLETS', {}).valid);
     assertTrue(validateMessagePayload('CFS_CRYPTO_TEST_ENSURE_WALLETS', { fundOnly: true }).valid);
@@ -1045,17 +1026,6 @@
     assertFalse(validateMessagePayload('APIFY_RUN_WAIT', { runId: 'x', fetchAfter: 'bogus' }).valid);
     assertFalse(validateMessagePayload('APIFY_DATASET_ITEMS', {}).valid);
     assertTrue(validateMessagePayload('APIFY_DATASET_ITEMS', { datasetId: 'ds123' }).valid);
-
-    assertFalse(validateMessagePayload('UPLOAD_POST', {}).valid);
-    assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key' }).valid);
-    assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: {} }).valid);
-    assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: [], video: 'url' } }).valid);
-    assertTrue(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: ['tiktok'], video: 'https://v.com/a.mp4' } }).valid);
-    assertTrue(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: ['facebook'], postType: 'text', title: 'Hello' } }).valid);
-    assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: ['facebook'], postType: 'text' } }).valid);
-    assertTrue(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: ['instagram'], postType: 'photo', photos: ['https://img.com/a.jpg'] } }).valid);
-    assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: ['instagram'], postType: 'photo' } }).valid);
-    assertFalse(validateMessagePayload('UPLOAD_POST', { apiKey: 'key', formFields: { user: 'u', platform: ['tiktok'], postType: 'video' } }).valid);
 
     assertFalse(validateMessagePayload('RUN_WORKFLOW', {}).valid);
     assertFalse(validateMessagePayload('RUN_WORKFLOW', { workflowId: '' }).valid);
@@ -3478,41 +3448,6 @@
     assertEqual(copy.discovery.domains['labs.google'].inputCandidates.length, 1);
   }
 
-  function testShotstackMergePlaceholderFill() {
-    var fn = global.__CFS_ensureMergeEntriesForTimelinePlaceholders;
-    if (!fn) throw new Error('__CFS_ensureMergeEntriesForTimelinePlaceholders not loaded');
-    var t = {
-      timeline: { tracks: [{ clips: [{ asset: { type: 'title', text: 'Hi {{ FOO_BAR }} ok' } }] }] },
-      merge: []
-    };
-    fn(t);
-    assertEqual(t.merge.length, 1, 'one synthesized row');
-    assertEqual(t.merge[0].find, 'FOO_BAR');
-    assertEqual(t.merge[0].replace, '');
-
-    var t2 = {
-      timeline: { x: '{{ BAZ }}' },
-      merge: [{ find: 'BAZ', replace: 'hello' }]
-    };
-    fn(t2);
-    assertEqual(t2.merge.length, 1, 'no duplicate BAZ');
-
-    var t3 = {
-      timeline: { nested: '{{  spaced_key  }}' },
-      merge: []
-    };
-    fn(t3);
-    assertEqual(t3.merge.length, 1);
-    assertEqual(t3.merge[0].find, 'spaced_key');
-
-    var t4 = {
-      timeline: {},
-      merge: [{ find: 'X', replace: '{{ NESTED }}' }]
-    };
-    fn(t4);
-    assertTrue(t4.merge.some(function (m) { return m.find === 'NESTED'; }), 'placeholder in merge.replace');
-  }
-
   function testEnsureSelectCrossWorkflowMerge() {
     var x = global.CFS_crossWorkflowSelectors;
     if (!x) throw new Error('CFS_crossWorkflowSelectors missing');
@@ -4281,7 +4216,6 @@
     testDiscoveryOutputMergeAppendOnly,
     testCrossWorkflowMergeFallbacks,
     testEnsureSelectCrossWorkflowMerge,
-    testShotstackMergePlaceholderFill,
     testSelectorParityReportAndNthRefine,
     testSelectorParityMultiListNthRefine,
     testParityRecordedCardinalityMismatch,
@@ -4383,12 +4317,6 @@
     // ── Player audio capture tests ────────────────────────────────────
     testPlayerFindMediaElement,
     testPlayerCaptureAudioGuards,
-
-    // ── Upload-post validation tests ──────────────────────────────────
-    testUploadPostSubmitVideoValidation,
-    testUploadPostCheckStatusValidation,
-    testUploadPostCancelScheduledValidation,
-    testUploadPostCreateUserProfileValidation,
 
     // ── Playback guard tests (require extension context) ───────────────
     testPlaybackGuardIsPlaybackActiveReturns,
@@ -5774,76 +5702,6 @@
     assertEqual(clampDuration(120000), 60000, 'above max → 60s');
   }
 
-  // ── Upload-post validation tests ───────────────────────────────────
-
-  function testUploadPostSubmitVideoValidation() {
-    // Test submitVideo's input validation (before any fetch calls)
-    // Inline the validation logic
-    function validateSubmitVideoParams(params) {
-      if (!params.video && !(typeof params.video === 'string' && params.video)) {
-        if (!(params.video instanceof File)) {
-          return { ok: false, error: 'Missing video file or URL' };
-        }
-      }
-      return { ok: true };
-    }
-    // Actually test the exact logic from upload-post.js
-    function submitVideoValidation(params) {
-      if (params.video instanceof File) return { ok: true };
-      if (typeof params.video === 'string' && params.video) return { ok: true };
-      return { ok: false, error: 'Missing video file or URL' };
-    }
-    assertEqual(submitVideoValidation({ video: 'https://example.com/v.mp4' }).ok, true, 'URL video');
-    assertEqual(submitVideoValidation({ video: new File(['data'], 'v.mp4') }).ok, true, 'File video');
-    assertEqual(submitVideoValidation({}).ok, false, 'missing video');
-    assertEqual(submitVideoValidation({ video: '' }).ok, false, 'empty string');
-    assertEqual(submitVideoValidation({ video: null }).ok, false, 'null video');
-    assertEqual(submitVideoValidation({ video: 0 }).ok, false, 'number');
-  }
-
-  function testUploadPostCheckStatusValidation() {
-    // Inline the param validation from checkStatus
-    function checkStatusValidation(params) {
-      if (!params.request_id && !params.job_id) return { ok: false, error: 'request_id or job_id required' };
-      return { ok: true };
-    }
-    assertEqual(checkStatusValidation({ request_id: 'abc' }).ok, true, 'request_id');
-    assertEqual(checkStatusValidation({ job_id: 'xyz' }).ok, true, 'job_id');
-    assertEqual(checkStatusValidation({}).ok, false, 'neither');
-    assertEqual(checkStatusValidation({}).error, 'request_id or job_id required');
-  }
-
-  function testUploadPostCancelScheduledValidation() {
-    function cancelScheduledValidation(jobId) {
-      if (!jobId || !String(jobId).trim()) return { ok: false, error: 'job_id required' };
-      return { ok: true };
-    }
-    assertEqual(cancelScheduledValidation('abc').ok, true, 'valid');
-    assertEqual(cancelScheduledValidation('').ok, false, 'empty');
-    assertEqual(cancelScheduledValidation(null).ok, false, 'null');
-    assertEqual(cancelScheduledValidation(undefined).ok, false, 'undefined');
-    assertEqual(cancelScheduledValidation('   ').ok, false, 'whitespace');
-  }
-
-  function testUploadPostCreateUserProfileValidation() {
-    function createUserProfileValidation(apiKey, username) {
-      var key = typeof apiKey === 'string' ? apiKey.trim() : '';
-      var u = typeof username === 'string' ? username.trim() : '';
-      if (!key) return { ok: false, error: 'API key not set' };
-      if (!u) return { ok: false, error: 'username required' };
-      return { ok: true };
-    }
-    assertEqual(createUserProfileValidation('key123', 'user1').ok, true, 'valid');
-    assertEqual(createUserProfileValidation('', 'user1').ok, false, 'empty key');
-    assertEqual(createUserProfileValidation('key123', '').ok, false, 'empty username');
-    assertEqual(createUserProfileValidation(null, 'user1').ok, false, 'null key');
-    assertEqual(createUserProfileValidation('key123', null).ok, false, 'null username');
-    assertEqual(createUserProfileValidation('  ', 'user1').ok, false, 'whitespace key');
-    assertEqual(createUserProfileValidation('key123', '  ').ok, false, 'whitespace username');
-    assertEqual(createUserProfileValidation('', '').error, 'API key not set', 'key error first');
-  }
-
-
   /** DeFi action patterns */
   function testDefiActionPatternsMatchUrl() {
     var p = global.__CFS_DEFI_ACTION_PATTERNS;
@@ -5955,64 +5813,6 @@
     assertEqual(result.suggestion.type, 'solanaPumpOrJupiterBuy', 'maps to pumpOrJupiterBuy');
   }
 
-  /* ── Social pattern tests ── */
-
-  function testSocialPatternsMatchUrl() {
-    var p = global.__CFS_SOCIAL_ACTION_PATTERNS;
-    if (!p || typeof p.matchUrl !== 'function') return;
-
-    var tiktok = p.matchUrl('https://creator.tiktok.com/upload');
-    assertTrue(tiktok.length > 0, 'TikTok creator URL matches');
-    assertEqual(tiktok[0].platform, 'tiktok', 'platform is tiktok');
-
-    var youtube = p.matchUrl('https://studio.youtube.com/video/upload');
-    assertTrue(youtube.length > 0, 'YouTube Studio URL matches');
-    assertEqual(youtube[0].platform, 'youtube');
-
-    var igDm = p.matchUrl('https://instagram.com/direct/inbox');
-    assertTrue(igDm.length > 0, 'Instagram DM URL matches');
-    assertEqual(igDm[0].id, 'instagram-dm');
-
-    var igComment = p.matchUrl('https://instagram.com/p/ABC123/');
-    assertTrue(igComment.length > 0, 'Instagram post URL matches');
-    assertEqual(igComment[0].id, 'instagram-comment-reply');
-
-    var reddit = p.matchUrl('https://reddit.com/submit');
-    assertTrue(reddit.length > 0, 'Reddit submit URL matches');
-
-    var linkedin = p.matchUrl('https://linkedin.com/feed/share');
-    assertTrue(linkedin.length > 0, 'LinkedIn URL matches');
-
-    var bsky = p.matchUrl('https://bsky.app/compose');
-    assertTrue(bsky.length > 0, 'Bluesky URL matches');
-
-    var noMatch = p.matchUrl('https://google.com');
-    assertEqual(noMatch.length, 0, 'non-social URL returns empty');
-  }
-
-  function testSocialAutoReplace() {
-    var p = global.__CFS_SOCIAL_ACTION_PATTERNS;
-    if (!p) return;
-    for (var i = 0; i < p.patterns.length; i++) {
-      assertTrue(p.patterns[i].autoReplace === true, p.patterns[i].id + ' has autoReplace: true');
-    }
-  }
-
-  function testSocialSuggestApiConversion() {
-    var p = global.__CFS_SOCIAL_ACTION_PATTERNS;
-    if (!p || typeof p.suggestApiConversion !== 'function') return;
-
-    var actions = [
-      { type: 'type', selectors: ['caption-input'], value: 'My TikTok video' },
-      { type: 'click', selectors: ['post-button'] },
-    ];
-    var result = p.suggestApiConversion(actions, 'https://creator.tiktok.com/upload');
-    assertTrue(result.canConvert, 'TikTok can convert');
-    assertTrue(result.autoReplace === true, 'TikTok autoReplace');
-    assertEqual(result.suggestion.type, 'uploadPost', 'maps to uploadPost');
-    assertEqual(result.suggestion.platformDefault, 'tiktok', 'defaults applied');
-  }
-
   /* ── Data pattern tests ── */
 
   function testDataPatternsMatchUrl() {
@@ -6061,10 +5861,6 @@
     var raydium = r.matchUrl('https://app.raydium.io/swap');
     assertTrue(raydium.length > 0, 'registry: raydium URL matches');
 
-    /* Social match */
-    var tiktok = r.matchUrl('https://creator.tiktok.com/upload');
-    assertTrue(tiktok.length > 0, 'registry: TikTok URL matches');
-
     /* Data match */
     var apify = r.matchUrl('https://console.apify.com/actors/test');
     assertTrue(apify.length > 0, 'registry: Apify URL matches');
@@ -6080,9 +5876,6 @@
 
     var defi = r.matchSelector('https://app.raydium.io/swap', 'swap-input-amount');
     assertTrue(defi !== null, 'registry: DeFi selector match');
-
-    var social = r.matchSelector('https://creator.tiktok.com/upload', 'post-button');
-    assertTrue(social !== null, 'registry: social selector match');
 
     var data = r.matchSelector('https://console.apify.com/actors/test', 'run-button');
     assertTrue(data !== null, 'registry: data selector match');
@@ -6142,18 +5935,6 @@
     assertEqual(emptyResult.replacements.length, 0, 'empty actions → no replacements');
     var nullResult = r.replaceActionsWithApiSteps(null, 'https://app.raydium.io/swap');
     assertEqual(nullResult.replacements.length, 0, 'null actions → no replacements');
-
-    /* Social auto-replace: TikTok upload */
-    var socialActions = [
-      { type: 'type', selectors: ['caption-input'], value: 'My video' },
-      { type: 'click', selectors: ['post-button'] },
-    ];
-    var socialResult = r.replaceActionsWithApiSteps(socialActions, 'https://creator.tiktok.com/upload');
-    assertTrue(socialResult.replacements.length > 0, 'social auto-replace: has replacements');
-    var socialApiStep = socialResult.actions.find(function (a) { return a._autoReplaced; });
-    assertTrue(socialApiStep !== undefined, 'social auto-replace: API step inserted');
-    assertEqual(socialApiStep.type, 'uploadPost', 'social auto-replace: maps to uploadPost');
-    assertEqual(socialApiStep.platformDefault, 'tiktok', 'social auto-replace: platform default set');
   }
 
   /* ── Recorder pattern hint detection tests ── */
@@ -6486,6 +6267,55 @@
     });
   }
 
+  /** Removed step migration */
+  function testRemovedStepsStripTopLevel() {
+    var mig = global.CFS_workflowRemovedStepsMigration;
+    if (!mig) throw new Error('CFS_workflowRemovedStepsMigration not loaded');
+    var actions = [
+      { type: 'click', selectors: ['#a'] },
+      { type: 'runGenerator', inputMap: {} },
+      { type: 'wait', delay: 100 },
+    ];
+    var r = mig.stripRemovedStepsFromActions(actions);
+    assertEqual(r.removedCount, 1);
+    assertEqual(r.actions.length, 2);
+    assertEqual(r.actions[0].type, 'click');
+    assertEqual(r.actions[1].type, 'wait');
+  }
+
+  function testRemovedStepsStripLoopNested() {
+    var mig = global.CFS_workflowRemovedStepsMigration;
+    var actions = [{
+      type: 'loop',
+      count: 2,
+      steps: [
+        { type: 'uploadPost', platform: 'x' },
+        { type: 'type', selectors: ['#x'] },
+      ],
+    }];
+    var r = mig.stripRemovedStepsFromActions(actions);
+    assertEqual(r.removedCount, 1);
+    assertEqual(r.actions.length, 1);
+    assertEqual(r.actions[0].steps.length, 1);
+    assertEqual(r.actions[0].steps[0].type, 'type');
+  }
+
+  function testRemovedStepsMigrateWorkflowsLeavesValid() {
+    var mig = global.CFS_workflowRemovedStepsMigration;
+    var workflows = {
+      wf1: {
+        id: 'wf1',
+        name: 'Test',
+        analyzed: { actions: [{ type: 'click' }, { type: 'renderShotstack' }] },
+      },
+    };
+    var out = mig.migrateWorkflowsRemovedSteps(workflows);
+    assertEqual(out.report.length, 1);
+    assertEqual(out.report[0].removedCount, 1);
+    assertEqual(workflows.wf1.analyzed.actions.length, 1);
+    assertEqual(workflows.wf1.analyzed.actions[0].type, 'click');
+  }
+
   /* ── Inline test calls ── */
   testDefiActionPatternsMatchUrl();
   testDefiActionPatternsMatchSelector();
@@ -6493,9 +6323,6 @@
   testDefiNewPatternsMatchUrl();
   testDefiAutoReplaceFlag();
   testDefiSuggestApiConversionAutoReplace();
-  testSocialPatternsMatchUrl();
-  testSocialAutoReplace();
-  testSocialSuggestApiConversion();
   testDataPatternsMatchUrl();
   testDataAutoReplaceFalse();
   testDataSuggestApiConversion();
@@ -6509,37 +6336,9 @@
   testDefiFieldHintUrlExtraction();
   testFallbackActionsPreserved();
   testFallbackEligibilityPatterns();
-
-  /** Generator template inputSchema (__CFS_INPUT_SCHEMA) */
-  function testGeneratorTemplateSchemaParseFromObject() {
-    var api = global.__CFS_parseGeneratorTemplateInputSchema;
-    if (!api) throw new Error('__CFS_parseGeneratorTemplateInputSchema not loaded');
-    var o = {
-      merge: [{ find: '__CFS_INPUT_SCHEMA', replace: '[{"id":"headline","label":"Headline","mergeField":"TITLE"}]' }],
-    };
-    var r = api.parseFromTemplateObject(o);
-    assertEqual(r.error, null);
-    assertEqual(r.inputSchema.length, 1);
-    assertEqual(r.inputSchema[0].id, 'headline');
-  }
-
-  function testGeneratorTemplateSchemaParseInvalidJson() {
-    var api = global.__CFS_parseGeneratorTemplateInputSchema;
-    var r = api.parseFromTemplateJsonText('{');
-    assertTrue(r.error != null && r.error.length > 0);
-    assertEqual(r.inputSchema.length, 0);
-  }
-
-  function testGeneratorTemplateSchemaSuggestValue() {
-    var api = global.__CFS_parseGeneratorTemplateInputSchema;
-    assertEqual(api.suggestInputMapValue({ id: 'x', mergeField: 'TITLE' }, ''), '{{TITLE}}');
-    assertEqual(api.suggestInputMapValue({ id: 'headline' }, ''), '{{headline}}');
-    assertEqual(api.suggestInputMapValue({ id: 'headline' }, '{{custom}}'), '{{custom}}');
-  }
-
-  testGeneratorTemplateSchemaParseFromObject();
-  testGeneratorTemplateSchemaParseInvalidJson();
-  testGeneratorTemplateSchemaSuggestValue();
+  testRemovedStepsStripTopLevel();
+  testRemovedStepsStripLoopNested();
+  testRemovedStepsMigrateWorkflowsLeavesValid();
 
 })(typeof window !== 'undefined' ? window : globalThis);
 

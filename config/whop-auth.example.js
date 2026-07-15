@@ -8,12 +8,16 @@
 
   const APP_ORIGIN = 'https://www.extensiblecontent.com';
 
+  const CONTENT_REWARDS_AI_URL =
+    'https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/';
+
   function getLoginUrl() {
     return `${APP_ORIGIN.replace(/\/$/, '')}/extension/login`;
   }
 
   global.WhopAuthConfig = {
     APP_ORIGIN,
+    CONTENT_REWARDS_AI_URL,
     getLoginUrl,
   };
 })(typeof window !== 'undefined' ? window : self);

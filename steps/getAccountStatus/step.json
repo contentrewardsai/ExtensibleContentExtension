@@ -1,7 +1,7 @@
 {
   "id": "getAccountStatus",
   "label": "Get Account Status",
-  "description": "Get account status including plan tier, upgrade status, connected profiles, ShotStack credits, storage quota, and login state.",
+  "description": "Get account status including plan tier, upgrade status, and login state.",
   "category": "data",
   "defaultAction": {
     "type": "getAccountStatus",
