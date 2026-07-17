@@ -1719,12 +1719,45 @@ function cfsWhopIsTrustedAuthPageUrl(urlStr) {
   return false;
 }
 
+/** Session key holding the one-time login nonce the side panel put in /extension/login?code=<nonce>. */
+const CFS_WHOP_LOGIN_NONCE_KEY = 'cfs_whop_login_nonce';
+
+/**
+ * Verify the code echoed back by the login page against the stored one-time nonce.
+ * Only enforced when a nonce is present (login started from this extension); the nonce is
+ * consumed on success. Returns { ok } or { ok:false, error }.
+ */
+async function cfsWhopVerifyLoginNonce(code) {
+  let stored = '';
+  try {
+    const s = await chrome.storage.session.get(CFS_WHOP_LOGIN_NONCE_KEY);
+    stored = String(s?.[CFS_WHOP_LOGIN_NONCE_KEY] || '').trim();
+  } catch (_) {
+    return { ok: true };
+  }
+  if (!stored) return { ok: true };
+  const provided = code == null ? '' : String(code).trim();
+  // Reject only on a genuine mismatch (a code was echoed but is wrong). If the login page did not
+  // echo any code (e.g. not yet updated to carry the nonce), stay lenient so login still works.
+  if (provided && provided !== stored) {
+    return { ok: false, error: 'Login verification failed: code mismatch. Start login again from the side panel.' };
+  }
+  // One-time use: consume the nonce whether or not it was echoed for this attempt.
+  try {
+    await chrome.storage.session.remove(CFS_WHOP_LOGIN_NONCE_KEY);
+  } catch (_) {}
+  return { ok: true };
+}
+
 /**
  * Persist Whop tokens from STORE_TOKENS (nested tokens.data, camelCase, or flat access_token on msg).
+ * Verifies the echoed login nonce (msg.code) before storing.
  * @returns {Promise<void>}
  */
-function cfsWhopApplyStoreTokens(msg) {
-  if (!msg || typeof msg !== 'object') return Promise.reject(new Error('Invalid message'));
+async function cfsWhopApplyStoreTokens(msg) {
+  if (!msg || typeof msg !== 'object') throw new Error('Invalid message');
+  const verify = await cfsWhopVerifyLoginNonce(msg.code);
+  if (!verify.ok) throw new Error(verify.error || 'Login verification failed');
   let rawTokens = msg.tokens;
   if (rawTokens && typeof rawTokens === 'object' && rawTokens.data && typeof rawTokens.data === 'object') {
     rawTokens = rawTokens.data;
@@ -1740,7 +1773,7 @@ function cfsWhopApplyStoreTokens(msg) {
   }
   const t = rawTokens && typeof rawTokens === 'object' ? rawTokens : {};
   const access_token = String(t.access_token || t.accessToken || '').trim();
-  if (!access_token) return Promise.reject(new Error('No access token in payload'));
+  if (!access_token) throw new Error('No access token in payload');
   const refresh_token = t.refresh_token || t.refreshToken || '';
   let expires_in = t.expires_in ?? t.expiresIn;
   if (typeof expires_in !== 'number' || !Number.isFinite(expires_in) || expires_in < 0) expires_in = 3600;

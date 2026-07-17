@@ -17822,9 +17822,37 @@
       await updateAuthUI();
     });
 
-    loginWhopBtn?.addEventListener('click', () => {
-      const url = (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig.getLoginUrl) ? WhopAuthConfig.getLoginUrl() : 'https://www.extensiblecontent.com/extension/login';
-      chrome.tabs.create({ url });
+    loginWhopBtn?.addEventListener('click', async () => {
+      let code = '';
+      try {
+        code =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+      } catch (_) {
+        code = String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+      }
+      try {
+        await chrome.storage.session.set({ cfs_whop_login_nonce: code });
+      } catch (_) {
+        // If session storage is unavailable, fall back to opening login without a code.
+        code = '';
+      }
+      let extId = '';
+      try {
+        extId = (chrome.runtime && chrome.runtime.id) || '';
+      } catch (_) {}
+      let base;
+      if (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig.getLoginUrl) {
+        base = WhopAuthConfig.getLoginUrl(code, extId);
+      } else {
+        const params = new URLSearchParams();
+        if (code) params.set('code', code);
+        if (extId) params.set('ext_id', extId);
+        const qs = params.toString();
+        base = 'https://www.extensiblecontent.com/extension/login' + (qs ? '?' + qs : '');
+      }
+      chrome.tabs.create({ url: base });
     });
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
