@@ -49,14 +49,11 @@
     if (!tokens || typeof tokens !== 'object') return;
     const hasAccess = !!(tokens.access_token || tokens.accessToken);
     if (!hasAccess) return;
-    // The extension opened /extension/login?code=<nonce>; the page echoes that nonce
-    // back so the service worker can verify this response matches the login it started.
-    let code = data.code == null ? '' : String(data.code);
-    if (!code) {
-      try {
-        code = new URLSearchParams(window.location.search).get('code') || '';
-      } catch (_) {}
-    }
+    // The extension opened /extension/login?code=<nonce>; the page must echo that nonce back
+    // explicitly (data.code) so the service worker can verify the response. Do NOT read `code`
+    // from the page URL — after the Whop OAuth redirect that param holds Whop's authorization
+    // code, not our nonce, which would fail verification.
+    const code = data.code == null ? '' : String(data.code);
     chrome.runtime.sendMessage({
       type: 'STORE_TOKENS',
       tokens,
