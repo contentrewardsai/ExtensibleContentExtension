@@ -49,10 +49,19 @@
     if (!tokens || typeof tokens !== 'object') return;
     const hasAccess = !!(tokens.access_token || tokens.accessToken);
     if (!hasAccess) return;
+    // The extension opened /extension/login?code=<nonce>; the page echoes that nonce
+    // back so the service worker can verify this response matches the login it started.
+    let code = data.code == null ? '' : String(data.code);
+    if (!code) {
+      try {
+        code = new URLSearchParams(window.location.search).get('code') || '';
+      } catch (_) {}
+    }
     chrome.runtime.sendMessage({
       type: 'STORE_TOKENS',
       tokens,
       user: user && typeof user === 'object' ? user : {},
+      code,
     }).catch(() => {});
   });
 })();
