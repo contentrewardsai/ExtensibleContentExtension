@@ -178,5 +178,4 @@
 
   global.__CFS_evaluateFollowingAutomation = evaluateFollowingAutomation;
   global.__CFS_evaluateAlwaysOnAutomation = evaluateFollowingAutomation; // unified alias
-  global.__CFS_hasAnyWorkflowsForGate = hasAnyWorkflows;
 })(typeof self !== 'undefined' ? self : globalThis);

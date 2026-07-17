@@ -9,8 +9,8 @@ The Extensible Content extension uses **Whop** for authentication and **extensib
 - **Login** – Sign in with Whop at [extensiblecontent.com/extension/login](https://www.extensiblecontent.com/extension/login)
 - **Sidebar naming** – Name each sidebar (e.g. "Office PC", "Laptop") for multi-window awareness
 - **Projects, workflows, following** – Synced to extensiblecontent.com via ExtensionApi
-- **Social profiles** – Connected profiles for Pulse via `/api/extension/social-profiles`
-- **Social post proxy** – All upload, status, scheduling, and analytics calls are proxied through the backend with the master API key
+- **Social profiles** – Connected profiles for Pulse via `/api/extension/social-profiles` (extension lists/syncs profiles; posting is in the Whop app)
+- **Social post proxy (backend-only)** – Upload, status, scheduling, and analytics routes may still exist on the server for other clients; **this extension no longer calls them**
 
 ---
 

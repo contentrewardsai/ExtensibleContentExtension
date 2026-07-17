@@ -13,18 +13,7 @@
   var WATCH_HELIUS_KEY = 'cfs_solana_watch_helius_api_key';
   var WATCH_QUICKNODE_HTTP = 'cfs_quicknode_solana_http_url';
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
+  var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
 
   function defaultRpc(cluster) {
     var c = String(cluster || 'mainnet-beta').trim();

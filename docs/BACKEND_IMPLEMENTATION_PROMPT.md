@@ -1,5 +1,7 @@
 # Backend Implementation Prompt for extensiblecontent.com
 
+> **Scope:** This document is for the **backend server repo** (`extensiblecontent.com`), not the Chrome extension client. The extension no longer calls social-post proxy, ShotStack, or Upload-Post overflow routes; it still uses auth, projects, workflows, following, sidebars, and social-profiles listing.
+
 Use this document as a Cursor prompt to implement the extension backend APIs. The Extensible Content Chrome extension uses **Whop** for auth and expects these endpoints on `https://www.extensiblecontent.com`.
 
 ---

@@ -12,10 +12,13 @@ const bundlePath = path.join(root, 'shared/content-script-tab-bundle.js');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const fromManifest = manifest.content_scripts[0].js;
 
-const ctx = { console };
-vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(bundlePath, 'utf8'), ctx);
-const fromBundle = ctx.CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES;
+const bundleSrc = fs.readFileSync(bundlePath, 'utf8');
+const arrayMatch = bundleSrc.match(/var CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES = (\[[\s\S]*?\]);/);
+if (!arrayMatch) {
+  console.error('check-content-bundle: CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES array not found');
+  process.exit(1);
+}
+const fromBundle = vm.runInNewContext(arrayMatch[1]);
 
 if (!Array.isArray(fromBundle)) {
   console.error('check-content-bundle: CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES is not an array');

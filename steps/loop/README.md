@@ -8,7 +8,7 @@ Repeats a sequence of steps either **N times** (count) or **once per item** in a
 |-------|-------------|
 | **Loop over list (row variable)** | Row variable name whose value is an **array**. When set, the loop runs once per element; **Repeat count** is ignored. Example: `urls` when the row has `urls: ["a", "b", "c"]`. |
 | **Repeat count** | Used when **Loop over list** is empty. Number of times to run the nested steps (min 1). |
-| **Item variable name** | Variable name for the current element in the list (default `item`). Use `{{item}}` in nested steps (e.g. in Run generator input map or Send to endpoint URL). |
+| **Item variable name** | Variable name for the current element in the list (default `item`). Use `{{item}}` in nested steps (e.g. in Send to endpoint URL or body template). |
 | **Index variable name** | Variable name for the current index (default `itemIndex`). Use `{{itemIndex}}` in nested steps. |
 | **Wait between iterations** | JSON: `{ "type": "time", "minMs": 500, "maxMs": 1500 }` for a random delay, or `{ "type": "element", "selectors": ["..."], "timeoutMs": 10000 }` to wait for an element. |
 | **Steps** | JSON array of **nested actions** (e.g. `runWorkflow` or other step types). Executed in order for each iteration. |

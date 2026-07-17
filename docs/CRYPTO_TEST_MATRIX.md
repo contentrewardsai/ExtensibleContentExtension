@@ -70,6 +70,7 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `meteoraCpammClaimReward` | Solana | CFS_METEORA_CPAMM_CLAIM_REWARD | L1 · L2 · L4 · L5 | yes | Devnet pools/APIs differ; full path often mainnet-canary (L5). |
 | `bscPancake` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | Fork: mainnet addresses in `bsc-evm.js`; testnet 97 needs address map. |
 | `pancakeFlash` | — | CFS_PANCAKE_FLASH | L1 · L5 | yes | — |
+| `cryptoSimulateSwap` | — | CFS_CRYPTO_TEST_SIMULATE | L1 · L5 | yes | — |
 | `bscTransferBnb` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
 | `bscTransferBep20` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
 | `bscAggregatorSwap` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | Fork: mainnet addresses in `bsc-evm.js`; testnet 97 needs address map. |
@@ -93,6 +94,17 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `asterFuturesWait` | Aster (HTTP) | CFS_ASTER_FUTURES | L1 · L2 · L5 | yes | Signed HTTP; no local chain. |
 | `asterFuturesTrade` | Aster (HTTP) | CFS_ASTER_FUTURES | L1 · L2 · L5 | yes | Signed HTTP; no local chain. |
 | `asterUserStreamWait` | Aster (HTTP) | CFS_ASTER_USER_STREAM_WAIT | L1 · L2 · L5 | yes | Signed HTTP; no local chain. |
+| `jupiterPriceV3` | — | CFS_JUPITER_PRICE_V3 | L1 · L5 | yes | — |
+| `jupiterTokenSearch` | — | CFS_JUPITER_TOKEN_SEARCH | L1 · L5 | yes | — |
+| `jupiterDCA` | — | CFS_JUPITER_DCA_CREATE | L1 · L5 | yes | — |
+| `jupiterLimitOrder` | — | CFS_JUPITER_LIMIT_ORDER | L1 · L5 | yes | — |
+| `jupiterEarn` | — | CFS_JUPITER_EARN | L1 · L5 | yes | — |
+| `jupiterFlashloan` | — | CFS_JUPITER_FLASHLOAN | L1 · L5 | yes | — |
+| `jupiterPredictionTrade` | — | CFS_JUPITER_PREDICTION_TRADE | L1 · L5 | yes | — |
+| `jupiterPredictionSearch` | — | CFS_JUPITER_PREDICTION_SEARCH | L1 · L5 | yes | — |
+| `pancakeV3RangeWatch` | — | CFS_BSC_V3_RANGE_CHECK | L1 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
+| `pancakeInfiBinRangeWatch` | BNB Chain (EVM) | CFS_BSC_INFI_BIN_RANGE_CHECK | L1 · L5 | yes | Read-only `getSlot0` activeId vs bin range; always-on via `infi-bin-range-watch.js`. |
+| `walletApprove` | — | CFS_WALLET_ENABLE_AUTO_APPROVE | L1 · L5 | yes | — |
 
 ## Regenerate
 

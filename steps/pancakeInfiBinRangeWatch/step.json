@@ -1,0 +1,124 @@
+{
+  "id": "pancakeInfiBinRangeWatch",
+  "label": "PancakeSwap Infinity bin range watch",
+  "category": "data",
+  "description": "Poll a PancakeSwap Infinity Liquidity Book pool's **active bin** and compare to your position's bin range. The step **completes** when **activeId** moves **outside** `[lowerBinId, upperBinId]`. Saves drift direction (`above` or `below`) for downstream **runIf** / **runWorkflow** rebalancing. Use with **alwaysOn.priceRangeWatch** for background monitoring.",
+  "defaultAction": {
+    "type": "pancakeInfiBinRangeWatch",
+    "runIf": "",
+    "infiPositionTokenId": "",
+    "poolId": "",
+    "infiLowerBinId": "",
+    "infiUpperBinId": "",
+    "tokenA": "",
+    "tokenB": "",
+    "infinityFee": "",
+    "binStep": "",
+    "pollIntervalMs": 30000,
+    "timeoutMs": 0,
+    "saveDriftDirection": "driftDirection",
+    "saveActiveBin": "activeBinId",
+    "savePositionRange": "positionRange"
+  },
+  "inputs": [
+    { "key": "infiPositionTokenId", "description": "Bin position NFT token ID from infiBinAddLiquidity." },
+    { "key": "poolId", "description": "bytes32 pool id (optional if derivable from NFT or pool key fields)." },
+    { "key": "infiLowerBinId", "description": "Lower bin id of staked range (optional if read from NPM single bin)." },
+    { "key": "infiUpperBinId", "description": "Upper bin id of staked range." },
+    { "key": "pollIntervalMs", "description": "Poll interval (default 30s, min 5s)." },
+    { "key": "timeoutMs", "description": "Max wait (0 = until out of range)." }
+  ],
+  "outputs": [
+    { "key": "saveDriftDirection", "description": "Row variable: above or below." },
+    { "key": "saveActiveBin", "description": "Row variable: active bin id at drift." },
+    { "key": "savePositionRange", "description": "Row variable: JSON snapshot of range state." }
+  ],
+  "formSchema": [
+    {
+      "key": "runIf",
+      "label": "Run only if (optional)",
+      "inputType": "text",
+      "placeholder": "{{var}} or variable name"
+    },
+    {
+      "key": "infiPositionTokenId",
+      "label": "Infinity bin position NFT id",
+      "inputType": "text",
+      "placeholder": "{{positionNftId}}"
+    },
+    {
+      "key": "poolId",
+      "label": "Pool id (bytes32)",
+      "inputType": "text",
+      "placeholder": "{{poolId}}"
+    },
+    {
+      "key": "infiLowerBinId",
+      "label": "Lower bin id",
+      "inputType": "text",
+      "placeholder": "{{lowerBinId}}"
+    },
+    {
+      "key": "infiUpperBinId",
+      "label": "Upper bin id",
+      "inputType": "text",
+      "placeholder": "{{upperBinId}}"
+    },
+    {
+      "key": "tokenA",
+      "label": "Token A (pool key fallback)",
+      "inputType": "text",
+      "placeholder": "{{tokenA}}"
+    },
+    {
+      "key": "tokenB",
+      "label": "Token B (pool key fallback)",
+      "inputType": "text",
+      "placeholder": "{{tokenB}}"
+    },
+    {
+      "key": "infinityFee",
+      "label": "Infinity fee (pool key fallback)",
+      "inputType": "text",
+      "placeholder": "{{infinityFee}}"
+    },
+    {
+      "key": "binStep",
+      "label": "Bin step (pool key fallback)",
+      "inputType": "text",
+      "placeholder": "{{binStep}}"
+    },
+    {
+      "key": "pollIntervalMs",
+      "label": "Poll interval (ms)",
+      "inputType": "number",
+      "placeholder": "30000",
+      "min": 5000
+    },
+    {
+      "key": "timeoutMs",
+      "label": "Timeout (ms, 0 = no limit)",
+      "inputType": "number",
+      "placeholder": "0",
+      "min": 0
+    },
+    {
+      "key": "saveDriftDirection",
+      "label": "Save drift direction to variable",
+      "inputType": "text",
+      "placeholder": "driftDirection"
+    },
+    {
+      "key": "saveActiveBin",
+      "label": "Save active bin to variable",
+      "inputType": "text",
+      "placeholder": "activeBinId"
+    },
+    {
+      "key": "savePositionRange",
+      "label": "Save position range JSON to variable",
+      "inputType": "text",
+      "placeholder": "positionRange"
+    }
+  ]
+}

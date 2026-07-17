@@ -131,7 +131,7 @@
     fundBtn?.addEventListener('click', function () {
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
         logEl.textContent =
-          'chrome.runtime not available — open test/unit-tests.html via the extension (side panel Unit tests, or Settings → Tests → Open unit tests page, or chrome-extension://…/test/unit-tests.html).';
+          'chrome.runtime not available — open test/unit-tests.html via the extension (Settings → Tests → Open unit tests page, or chrome-extension://…/test/unit-tests.html).';
         return;
       }
       logEl.textContent = 'Requesting test tokens…';
@@ -147,7 +147,7 @@
     replaceBtn?.addEventListener('click', function () {
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
         logEl.textContent =
-          'chrome.runtime not available — open test/unit-tests.html via the extension (side panel Unit tests, or Settings → Tests → Open unit tests page, or chrome-extension://…/test/unit-tests.html).';
+          'chrome.runtime not available — open test/unit-tests.html via the extension (Settings → Tests → Open unit tests page, or chrome-extension://…/test/unit-tests.html).';
         return;
       }
       var ok = window.confirm(
@@ -170,7 +170,7 @@
     btn.addEventListener('click', function () {
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
         logEl.textContent =
-          'chrome.runtime not available — open test/unit-tests.html via the extension (side panel Unit tests, or Settings → Tests → Open unit tests page, or chrome-extension://…/test/unit-tests.html).';
+          'chrome.runtime not available — open test/unit-tests.html via the extension (Settings → Tests → Open unit tests page, or chrome-extension://…/test/unit-tests.html).';
         return;
       }
       if (!sessionStorage.getItem(CONSENT_KEY)) {

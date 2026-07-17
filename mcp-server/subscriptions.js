@@ -10,6 +10,7 @@
  *  - walletBalance: poll Solana/BSC RPC for wallet balances
  *  - dlmmPosition: poll Meteora DLMM position range status
  *  - clmmPosition: poll Raydium CLMM position range status
+ *  - infiBinPosition: poll PancakeSwap Infinity bin LP range status (BSC)
  *  - alwaysOnStatus: poll always-on workflow status
  *  - watchActivity: poll Following watch buffer for new txs
  *  - asterPosition: poll Aster futures position status
@@ -19,7 +20,7 @@ import { CRYPTO_DISABLED_MSG } from './crypto-gate.js';
 
 /** Subscription types that require crypto to be enabled. */
 const CRYPTO_SUB_TYPES = new Set([
-  'tokenPrice', 'walletBalance', 'dlmmPosition', 'clmmPosition', 'asterPosition', 'watchActivity',
+  'tokenPrice', 'walletBalance', 'dlmmPosition', 'clmmPosition', 'infiBinPosition', 'asterPosition', 'watchActivity',
 ]);
 
 /** Active subscriptions. */
@@ -32,6 +33,7 @@ const DEFAULT_INTERVALS = {
   walletBalance: 30,
   dlmmPosition: 60,
   clmmPosition: 60,
+  infiBinPosition: 60,
   alwaysOnStatus: 5,
   watchActivity: 15,
   asterPosition: 30,
@@ -117,6 +119,22 @@ function buildPoller(ctx, type, params) {
         return res;
       };
 
+    case 'infiBinPosition':
+      return async () => {
+        const res = await ctx.sendMessage({
+          type: 'CFS_BSC_INFI_BIN_RANGE_CHECK',
+          infiPositionTokenId: params.infiPositionTokenId || params.positionTokenId || '',
+          poolId: params.poolId || '',
+          infiLowerBinId: params.infiLowerBinId || params.lowerBinId || '',
+          infiUpperBinId: params.infiUpperBinId || params.upperBinId || '',
+          tokenA: params.tokenA || '',
+          tokenB: params.tokenB || '',
+          infinityFee: params.infinityFee || '',
+          binStep: params.binStep || '',
+        });
+        return res;
+      };
+
     case 'alwaysOnStatus':
       return async () => {
         const wfId = params.workflowId || '';
@@ -188,7 +206,7 @@ export function registerSubscriptions(server, ctx) {
     'subscribe',
     'Subscribe to real-time data updates. Returns a subscription ID. Data is polled at the specified interval. Use list_subscriptions to see latest data.',
     {
-      type: z.enum(['tokenPrice', 'walletBalance', 'dlmmPosition', 'clmmPosition',
+      type: z.enum(['tokenPrice', 'walletBalance', 'dlmmPosition', 'clmmPosition', 'infiBinPosition',
                     'alwaysOnStatus', 'watchActivity', 'asterPosition'])
         .describe('Type of data to subscribe to'),
       params: z.record(z.string(), z.any())

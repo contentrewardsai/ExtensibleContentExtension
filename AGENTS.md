@@ -6,21 +6,29 @@ This is a Chrome Manifest V3 extension (vanilla JS, no build step). The extensio
 
 ### Running the extension
 
-Load unpacked from `/workspace` at `chrome://extensions/` (Developer Mode enabled). After editing files, click **Reload** on the extensions page or use the side panel's **Reload Extension** button to pick up changes. Side panel **Unit tests** opens **`test/unit-tests.html`**; **Settings** opens **`settings/settings.html`** (includes **Tests** section and **Open unit tests page**).
+Load unpacked from `/workspace` at `chrome://extensions/` (Developer Mode enabled). After editing files, click **Reload** on the extensions page or use the side panel's **Reload Extension** button to pick up changes. Side panel **Settings** opens **`settings/settings.html`** (includes **Tests** section with unit results, E2E checklist, and **Open unit tests page** for the crypto panel on **`test/unit-tests.html`**).
 
 ### Lint / validation checks
 
 - `node scripts/validate-step-definitions.cjs` — validates all `steps/*/step.json` files (exit 0 = all valid).
 - `npm run test:cfs-e2e-testids-wired` — **`data-testid`** on side panel / Settings / **`test/unit-tests.html`** match **`test/e2e/cfs-e2e-testids.mjs`** (also part of **`npm run test:crypto`** and Extension checks CI).
 - `npm run check:content-bundle` — checks that `manifest.json` `content_scripts[0].js` matches `shared/content-script-tab-bundle.js`.
+- `npm run check:dead-assets` — fails if removed dead files (pixi, tutorial-loader, etc.) reappear.
+- `npm run check:duplicates` — fails if duplicate helpers (`storageLocalGet`, `normalizeImportedWorkflows`) are reintroduced outside canonical modules.
+
+### Shared module conventions
+
+- **Background crypto/RPC:** `background/crypto-storage.js`, `background/solana-rpc-helpers.js`, `background/evm-helpers.js` — load via `importScripts` in `service-worker.js` before consumers.
+- **Cross-context utilities:** `shared/*.js` with `CFS_*` / `__CFS_*` globals (e.g. `shared/dom-utils.js`, `shared/discovery-input-normalize.js`).
+- **Extension API layer:** `extension/auth-fetch.js`, `extension/workflow-normalize.js` — load via HTML script tags before `api.js` / UI scripts.
 
 ### Testing
 
-- **Crypto test wallets (devnet / BSC Chapel):** **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** in the service worker creates or reuses labeled test wallets. **Run crypto tests** (ensure + crypto-only step tests) is on **`test/unit-tests.html`** — side panel **Unit tests**, **Settings → Tests → Open unit tests page**, or the extension URL. **Settings → Crypto test wallets** has the same ensure/fund/replace without running that subset. Playwright: **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`** with **`E2E_CRYPTO=1`** for crypto E2E; **`PW_UNIT_CRYPTO_ENSURE=1`** for **`unit-tests.spec.mjs`**. **`npm run test:unit`** loads **`file://`** HTML with no extension — it cannot call ensure. **`docs/TESTING.md`** (**Stable selectors**) lists **`data-testid`** hooks for E2E. See **`docs/CRYPTO_TESTING_QUICKREF.md`**.
+- **Crypto test wallets (devnet / BSC Chapel):** **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** in the service worker creates or reuses labeled test wallets. **Run crypto tests** (ensure + crypto-only step tests) is on **`test/unit-tests.html`** — open via **Settings → Tests → Open unit tests page**, or the extension URL. **Settings → Crypto test wallets** has the same ensure/fund/replace without running that subset. Playwright: **`E2E_CRYPTO_ENSURE_TEST_WALLETS=1`** with **`E2E_CRYPTO=1`** for crypto E2E; **`PW_UNIT_CRYPTO_ENSURE=1`** for **`unit-tests.spec.mjs`**. **`npm run test:unit`** loads **`file://`** HTML with no extension — it cannot call ensure. **`docs/TESTING.md`** (**Stable selectors**) lists **`data-testid`** hooks for E2E. See **`docs/CRYPTO_TESTING_QUICKREF.md`**.
 - `npm run test:unit` — headless Puppeteer run of **`test/unit-tests.html`** (full **`unit-tests.js`** + **`steps/*/step-tests.js`**); check the script summary for pass/fail counts.
 - `npm run test:recorder-integration` — recorder integration tests via Puppeteer (2 pass; 2 pre-existing flaky failures: `stable` and `enter` scenarios).
 - `npm run test:e2e` — Playwright E2E tests. Requires Playwright Chromium browser (`npx playwright install chromium`). Runs non-headless (Chrome extensions require `headless: false`), so an X display must be available (the Cloud VM has `:1`). Build step (`build:step-tests`) is chained automatically. Some pre-existing failures in playback/sidepanel-flow specs; two sidepanel batch tests time out (~60s each).
-- `npm run test:e2e:nav-smoke` — Faster subset: **`unit-tests.spec.mjs`** + side panel **Settings** / **Unit tests** navigation tests (still runs **`build:step-tests`**).
+- `npm run test:e2e:nav-smoke` — Faster subset: **`unit-tests.spec.mjs`** + side panel **Settings** navigation tests (still runs **`build:step-tests`**).
 - `npm run test:e2e:puppeteer` — Puppeteer-based E2E alternative. Has a pre-existing issue where the extension target is not found on launch (timing race).
 
 ### Caveats

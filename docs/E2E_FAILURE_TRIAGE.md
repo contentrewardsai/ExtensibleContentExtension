@@ -31,7 +31,7 @@ Analysis of the ~23 pre-existing E2E failures across Playwright and Puppeteer ru
 | `e2e-test-wait` | Wait step completes but status text ambiguous | **Flaky** | Already skipped in CI |
 | `paste valid workflow` | Project folder gate — paste button hidden | **Expected skip** | No fix needed |
 
-### Generator assertion (~2)
+### Video WASM (combine / trim) (~2)
 
 | Test | Failure mode | Classification |
 |---|---|---|
@@ -75,7 +75,6 @@ Analysis of the ~23 pre-existing E2E failures across Playwright and Puppeteer ru
 
 | Spec | Known issues |
 |---|---|
-| `generator.spec.mjs` | Assertion on generated step count can vary with config changes |
 | `slow-timeout.spec.mjs` | Designed with 60s timeout; may need longer for first run |
 | `content.spec.mjs` | Generally stable |
 | `api.spec.mjs` | Generally stable |

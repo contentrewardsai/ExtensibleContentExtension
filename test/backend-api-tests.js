@@ -74,7 +74,7 @@
     if (!panel) return;
 
     var html = '<h2 style="margin-top:0;">Backend API Tests</h2>';
-    html += '<p style="font-size:12px;color:#666;">Tests social-post proxy, ShotStack, and workflows/catalog endpoints against the live backend. ';
+    html += '<p style="font-size:12px;color:#666;">Tests workflows/catalog endpoints against the live backend. ';
     html += 'Token auto-loaded from extension auth. <strong>2xx</strong> = success, <strong>4xx</strong> = route alive (expected for test data), <strong>5xx</strong> = server error.</p>';
     html += '<div id="bkat-auth" style="padding:6px 0;font-size:12px;margin-bottom:8px;"></div>';
     html += '<div style="display:flex;gap:6px;margin-bottom:12px;">';

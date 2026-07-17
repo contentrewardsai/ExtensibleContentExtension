@@ -213,139 +213,19 @@
     return E;
   }
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          resolve(r || {});
-        });
-      } catch (e) {
-        resolve({});
-      }
-    });
-  }
-
-  function storageLocalSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageLocalRemove(keys) {
-    return new Promise(function (resolve) {
-      try {
-        chrome.storage.local.remove(keys, function () { resolve(); });
-      } catch (_) {
-        resolve();
-      }
-    });
-  }
-
-  function storageSessionGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (!chrome.storage.session) {
-          resolve({});
-          return;
-        }
-        chrome.storage.session.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageSessionSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (!chrome.storage.session) {
-          reject(new Error('chrome.storage.session not available'));
-          return;
-        }
-        chrome.storage.session.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageSessionRemove(keys) {
-    return new Promise(function (resolve) {
-      try {
-        if (!chrome.storage.session) {
-          resolve();
-          return;
-        }
-        chrome.storage.session.remove(keys, function () { resolve(); });
-      } catch (_) {
-        resolve();
-      }
-    });
-  }
-
-  function randomBytes(n) {
-    var a = new Uint8Array(n);
-    crypto.getRandomValues(a);
-    return a;
-  }
-
-  function bytesToB64(u8) {
-    var bin = '';
-    for (var i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-    return btoa(bin);
-  }
-
-  function b64ToBytes(s) {
-    var bin = atob(String(s).trim());
-    var u8 = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    return u8;
-  }
-
-  async function pbkdf2AesKey(password, salt) {
-    var enc = new TextEncoder();
-    var keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-    return crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
-  }
-
-  async function encryptSecretUtf8(plainUtf8, password) {
-    var salt = randomBytes(16);
-    var iv = randomBytes(12);
-    var key = await pbkdf2AesKey(password, salt);
-    var data = new TextEncoder().encode(String(plainUtf8));
-    var ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, data));
-    return { v: 1, salt: bytesToB64(salt), iv: bytesToB64(iv), ct: bytesToB64(ct) };
-  }
-
-  async function decryptSecretUtf8(wrapped, password) {
-    var obj = typeof wrapped === 'string' ? JSON.parse(wrapped) : wrapped;
-    if (!obj || obj.v !== 1 || !obj.salt || !obj.iv || !obj.ct) throw new Error('Invalid encrypted wallet blob');
-    var salt = b64ToBytes(obj.salt);
-    var iv = b64ToBytes(obj.iv);
-    var ct = b64ToBytes(obj.ct);
-    var key = await pbkdf2AesKey(password, salt);
-    var pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct);
-    return new TextDecoder().decode(pt);
-  }
+  var cs = globalThis.CFS_CRYPTO_STORAGE;
+  var storageLocalGet = cs.storageLocalGetLenient;
+  var storageLocalSet = cs.storageLocalSet;
+  var storageLocalRemove = cs.storageLocalRemoveLenient;
+  var storageSessionGet = cs.storageSessionGet;
+  var storageSessionSet = cs.storageSessionSet;
+  var storageSessionRemove = cs.storageSessionRemoveLenient;
+  var randomBytes = cs.randomBytes;
+  var bytesToB64 = cs.bytesToB64;
+  var b64ToBytes = cs.b64ToBytes;
+  var pbkdf2AesKey = cs.pbkdf2AesKey;
+  var encryptSecretUtf8 = cs.encryptSecretUtf8;
+  var decryptSecretUtf8 = cs.decryptSecretUtf8;
 
   function newBscWalletId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -577,9 +457,7 @@
     return getSecretStringForBscWallet(entry, map);
   }
 
-  function normalizeAddr(ethers, a) {
-    return ethers.getAddress(String(a).trim());
-  }
+  var normalizeAddr = globalThis.CFS_EVM_HELPERS.normalizeAddr;
 
   function parsePathStr(ethers, pathStr) {
     var parts = String(pathStr || '')
@@ -3478,13 +3356,6 @@
   };
 
 
-  /**
-   * CFS_BSC_V3_RANGE_CHECK — Read-only check: is V3 position still in range?
-   * 1. positions(tokenId) from NPM → tickLower, tickUpper, token0, token1, fee
-   * 2. factory.getPool(token0, token1, fee) → pool address
-   * 3. pool.slot0() → current tick
-   * 4. inRange = currentTick >= tickLower && currentTick <= tickUpper
-   */
   globalThis.__CFS_bsc_v3_range_check = async function (msg) {
     var ethers = getEthers();
     var provider = await getReadOnlyProvider();
@@ -3529,6 +3400,116 @@
       fee: String(fee),
       sqrtPriceX96: s0.sqrtPriceX96.toString(),
       liquidity: pos.liquidity.toString(),
+    };
+  };
+
+  /**
+   * CFS_BSC_INFI_BIN_RANGE_CHECK — Read-only: is Infinity bin LP still in range?
+   * 1. Resolve lower/upper bin ids from message or NPM position (single binId → both)
+   * 2. Resolve poolId from message or derive from poolKey (NPM or infiBinPoolId fields)
+   * 3. infiBinSlot0 → activeId
+   * 4. inRange = activeId >= lowerBinId && activeId <= upperBinId
+   */
+  globalThis.__CFS_bsc_infi_bin_range_check = async function (msg) {
+    var query = globalThis.__CFS_bsc_query;
+    if (typeof query !== 'function') return { ok: false, error: 'BSC query handler not loaded' };
+
+    var lowerBinId;
+    var upperBinId;
+    var poolId = msg.poolId != null ? String(msg.poolId).trim() : '';
+    var poolKeyOut = null;
+
+    var loRaw = msg.infiLowerBinId != null ? String(msg.infiLowerBinId).trim() : '';
+    var hiRaw = msg.infiUpperBinId != null ? String(msg.infiUpperBinId).trim() : '';
+    if (loRaw && hiRaw) {
+      lowerBinId = Number(loRaw);
+      upperBinId = Number(hiRaw);
+      if (!Number.isFinite(lowerBinId) || !Number.isFinite(upperBinId)) {
+        return { ok: false, error: 'infiLowerBinId and infiUpperBinId must be valid uint24 numbers' };
+      }
+      if (lowerBinId > upperBinId) {
+        var tmp = lowerBinId;
+        lowerBinId = upperBinId;
+        upperBinId = tmp;
+      }
+    } else {
+      var tidStr = msg.infiPositionTokenId != null ? String(msg.infiPositionTokenId).trim() : '';
+      if (!tidStr) {
+        return { ok: false, error: 'infiPositionTokenId or infiLowerBinId+infiUpperBinId required' };
+      }
+      var npmRes = await query({
+        operation: 'infiBinNpmPosition',
+        infiPositionTokenId: tidStr,
+        binPositionManagerAddress: msg.binPositionManagerAddress || undefined,
+      });
+      if (!npmRes || !npmRes.ok) {
+        return { ok: false, error: (npmRes && npmRes.error) || 'infiBinNpmPosition failed' };
+      }
+      var binIdN = Number(String(npmRes.result.binId || '').trim());
+      if (!Number.isFinite(binIdN)) return { ok: false, error: 'NPM position returned invalid binId' };
+      lowerBinId = binIdN;
+      upperBinId = binIdN;
+      poolKeyOut = npmRes.result.poolKey || null;
+    }
+
+    if (!poolId) {
+      if (poolKeyOut) {
+        try {
+          var Ipk = getInfinitySdk();
+          var decPk = Ipk.decodeBinPoolParameters(poolKeyOut.parameters);
+          var pkNorm = {
+            currency0: poolKeyOut.currency0,
+            currency1: poolKeyOut.currency1,
+            hooks: poolKeyOut.hooks,
+            poolManager: poolKeyOut.poolManager,
+            fee: Number(poolKeyOut.fee),
+            parameters: decPk,
+          };
+          poolId = Ipk.getPoolId(pkNorm);
+          poolKeyOut = pkNorm;
+        } catch (ePk) {
+          return { ok: false, error: 'Could not derive poolId from NPM poolKey: ' + (ePk && ePk.message ? ePk.message : String(ePk)) };
+        }
+      } else if (msg.tokenA && msg.tokenB && msg.infinityFee != null && msg.binStep != null) {
+        try {
+          var ethersPk = getEthers();
+          var providerPk = await getReadOnlyProvider();
+          var pinsPk = await getInfinityPinsForProvider(providerPk);
+          var builtPk = buildInfinityBinPoolKey(ethersPk, msg, pinsPk.binPoolManager);
+          poolId = builtPk.poolId;
+          poolKeyOut = builtPk.poolKey;
+        } catch (eB) {
+          return { ok: false, error: 'Could not derive poolId from pool key fields: ' + (eB && eB.message ? eB.message : String(eB)) };
+        }
+      } else {
+        return { ok: false, error: 'poolId required when bin range is not from NPM or pool key fields missing' };
+      }
+    }
+
+    var slotRes = await query({
+      operation: 'infiBinSlot0',
+      poolId: poolId,
+      binPoolManagerAddress: msg.binPoolManagerAddress || undefined,
+    });
+    if (!slotRes || !slotRes.ok) {
+      return { ok: false, error: (slotRes && slotRes.error) || 'infiBinSlot0 failed' };
+    }
+    var activeId = Number(String(slotRes.result.activeId || '').trim());
+    if (!Number.isFinite(activeId)) return { ok: false, error: 'infiBinSlot0 returned invalid activeId' };
+
+    var inRange = activeId >= lowerBinId && activeId <= upperBinId;
+    var direction = null;
+    if (!inRange) direction = activeId > upperBinId ? 'above' : 'below';
+
+    return {
+      ok: true,
+      activeId: activeId,
+      lowerBinId: lowerBinId,
+      upperBinId: upperBinId,
+      inRange: inRange,
+      poolId: poolId,
+      poolKey: poolKeyOut || undefined,
+      direction: direction,
     };
   };
 

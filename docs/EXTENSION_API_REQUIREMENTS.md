@@ -1,6 +1,8 @@
 # Extension API: Connected profiles and account limits
 
-The Chrome extension talks to the app origin (`ExtensionConfig.APP_ORIGIN`) with a Whop Bearer token. Relevant routes for **Connected** (Upload Post accounts):
+> **Extension client:** The Chrome extension still uses **`has-upgraded`** and **`social-profiles`** for Connected profile listing and caps. It **no longer** posts to Upload-Post, uses a local Upload Post API key overflow path, or calls ShotStack/social-post proxy routes. Content creation and posting live in the Whop app. Backend routes below may still serve other clients.
+
+The Chrome extension talks to the app origin (`ExtensionConfig.APP_ORIGIN`) with a Whop Bearer token. Relevant routes for **Connected** (Upload Post accounts on the backend):
 
 ## `GET /api/extension/has-upgraded`
 
@@ -17,40 +19,27 @@ If the route is not implemented (**404**), the extension treats limits conservat
 - **GET**: list connected profiles for the user.
 - **POST**: add or update a profile. Must return **403** when `max_accounts <= 0` or the user is already at the account limit (server is authoritative; the extension only pre-checks).
 
-## Backend-first, then local Upload Post key (overflow)
-
-When the user is **signed in** and saves a new Connected profile:
-
-1. If `num_accounts < max_accounts` and `max_accounts > 0`, the extension **POSTs** to `/api/extension/social-profiles` first (pre-check uses **num_accounts**, not merged UI list length).
-2. If POST returns **403** (at limit) or there is **no backend slot** (`num_accounts >= max_accounts` or `max_accounts === 0`), the extension may add via **overflow**: **Settings** Upload Post API key (`getLocalApiKey`), **POST** Upload Post `/uploadposts/users` (`createUserProfileWithKey`), then append a row to `connectedProfiles` in `chrome.storage` with `_source: 'local_key_overflow'`.
-3. If the backend returns **404** and the user has a local key, the same overflow path is used instead of capped local-only storage.
-
-Upload Post plan limits still apply on their API. Not signed in: Connected add remains “sign in required”; local-key-only listing is unchanged.
-
 ## Extension helpers (`extension/api.js`)
 
 - `hasUpgraded()` — merges the full JSON body with `ok` and normalized `pro`.
 - `canAddConnectedProfile` / `canAddBackendConnectedProfile` — same function: `num_accounts < max_accounts` (both from has-upgraded; **not** merged list length).
 - `addSocialProfileIfAllowed(num_accounts, max_accounts, body)` — backend POST pre-check.
 - `appendConnectedProfileIfUnderCap` — legacy 404 path without local key (storage length vs max).
-- `appendConnectedProfileOverflow` — append overflow row; dedupes by `_username` / `username` / `name`.
 
-## Upload Post (`shared/upload-post.js`)
-
-- `createUserProfileWithKey(apiKey, username)` — POST `/uploadposts/users` per OpenAPI.
-
-Load order for pages using `ExtensionApi`: `config.js` (or Whop auth config) then `api.js`.
+Load order for pages using `ExtensionApi`: `config.js` (or Whop auth config) → `auth-fetch.js` → `workflow-normalize.js` → `dom-utils.js` → `api.js`.
 
 ---
 
-## Social Post Proxy (`/api/extension/social-post/*`)
+## Removed features (historical)
 
-All social posting operations are proxied through the backend with the master Upload Post API key. The extension sends requests with the Whop Bearer token; the backend resolves the user and forwards to Upload Post. See **docs/BACKEND.md § Social Post Proxy** for the full 19-route table.
+The built-in **Upload Post** client (`shared/upload-post.js`) and **ShotStack** proxy integration were removed from the extension. Content creation and social posting now live in the Whop app. Backend routes may still exist for other clients; this extension no longer calls them.
 
-Key routes: `upload`, `status`, `scheduled`, `scheduled/:jobId` (DELETE), `history`, `profiles`, `profiles/generate-jwt`, `analytics`, `post-analytics`, `send-dm`, `reply-comment`, `instagram-comments`, `facebook-pages`, `linkedin-pages`, `pinterest-boards`, `storage`, `storage/files`, `storage/upload`, `storage/files/:fileId` (DELETE).
+### Backend-first, then local Upload Post key (overflow) — removed
 
-## ShotStack Proxy (`/api/extension/shotstack/*`)
+When the user was signed in and saved a new Connected profile, the extension could:
 
-ShotStack ingest and render storage proxied through the backend. See **docs/BACKEND.md § ShotStack** for the full 4-route table.
+1. **POST** to `/api/extension/social-profiles` when `num_accounts < max_accounts`.
+2. On **403** or no backend slot, add via **overflow**: Settings Upload Post API key, **POST** Upload Post `/uploadposts/users`, then append to `chrome.storage` with `_source: 'local_key_overflow'`.
+3. On backend **404** with a local key, use the same overflow path.
 
-Key routes: `ingest` (GET/POST), `ingest/:sourceId` (GET/DELETE), `store-render` (POST — downloads CDN render before 24h expiry and persists to Supabase `post-media` bucket).
+That overflow path and **`getLocalApiKey`** are no longer in the extension client.

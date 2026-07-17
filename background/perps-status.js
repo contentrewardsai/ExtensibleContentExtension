@@ -14,17 +14,7 @@
   var JUP_KEY_MAX = 2048;
   var MARKETS_JSON_MAX = 750000;
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          resolve(r || {});
-        });
-      } catch (_) {
-        resolve({});
-      }
-    });
-  }
+  var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGetLenient;
 
   globalThis.__CFS_perps_automation_status = function () {
     return {

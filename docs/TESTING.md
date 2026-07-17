@@ -23,7 +23,7 @@ Unit tests run directly in the extension—no npm, Node, or command line require
 ### How to run
 
 1. Load the extension (Load unpacked at `chrome://extensions`)
-2. Open the side panel. Either click **Settings** (next to Reload Extension) for the full settings page, or click **Unit tests** to open `test/unit-tests.html` in one step (same page Playwright uses for **`unit-tests.spec.mjs`**)
+2. Open the side panel and click **Settings** (next to Reload Extension). The **Tests** section runs the full unit suite on load and hosts the E2E checklist. For the **Run crypto tests** panel, click **Open unit tests page** (opens **`test/unit-tests.html`** — same page Playwright uses for **`unit-tests.spec.mjs`**).
 3. **From Settings:** scroll to **Tests** — the full unit suite runs automatically; the E2E checklist is below the results. **From `test/unit-tests.html`:** the suite also runs on load; the **Crypto step tests** panel is on that tab
 4. Optional — **Run crypto tests** (ensure devnet/Chapel wallets, then crypto/Pulse/watch `step-tests.js` only): use the **Crypto step tests** section on **`test/unit-tests.html`**, or from Settings click **Open unit tests page (Run crypto tests)**. That flow includes **Run crypto tests**, **Request test tokens again**, and **Replace crypto test wallets** (see *Crypto test wallets* above). The **Crypto test wallets** section on Settings offers ensure / fund / replace without running the crypto step subset
 
@@ -42,6 +42,11 @@ npm run test:infi-bin-path-json
 This loads `test/unit-tests.html` in headless Chromium (Puppeteer), runs the same suite, and exits non-zero on failures or on `file://` resource load errors (so missing fixtures surface). `test/unit-tests.html` includes **`shared/apify-run-query-validation.js`**, **`shared/apify-extract-run-id.js`**, and **`shared/infi-bin-path-json-shape.js`** before **`unit-tests.js`** so **`steps/*/step-tests.js`** (e.g. **apifyActorRun**) and **`test/unit-tests.js`** can assert the same helpers the service worker uses. `test/unit-tests.js` registers its functions via `window.CFS_unitTestsRegistered` (see `test/unit-test-runner.js`) so nested tests are included, not only `window.test*` from other scripts.
 
 After you add or reorder steps in **`steps/manifest.json`**, run **`npm run build:step-tests`** and commit the updated **`test/unit-tests.html`** and **`settings/settings.html`** (script injection blocks). On **push / pull_request** to `main` or `master`, **Extension checks** (`.github/workflows/extension-checks.yml`) runs that build and fails if those files drift from the manifest, then runs **`validate:steps`** (step.json contract and **handler.js** / **sidepanel.js** presence), **`test:solana`**, **`test:evm-bundle`**, **`test:infinity-bundle`** ( **`background/infinity-sdk.bundle.js`** sets **`CFS_INFINITY_SDK`** ), **`test:bsc-infinity-wired`** (Infinity strings in **`bsc-evm.js`**, **service-worker**, **steps**, manifest host permission), **`test:infi-bin-path-json`** (multi-hop **`infiBinPathJson`** via **`shared/infi-bin-path-json-shape.js`** + fixtures), **`test:bsc-watch-wired`** (asserts the service worker imports **`bsc-watch.js`** and wires the BSC watch alarm), **`test:bsc-following-venues-wired`** (BSC Following automation venue strings in **`bsc-watch.js`** / drift filter / docs links), **`test:remote-llm-wired`** (asserts **`remote-llm.js`** import and **`CALL_LLM` / `CALL_REMOTE_LLM_CHAT` / `CFS_LLM_TEST_PROVIDER`** wiring), **`check:content-bundle`**, **`test:unit`**, and **`test:apify`** (runs **`test:apify-dataset-parse`**, **`test:apify-run-query-validation`**, and **`test:apify-extract-run-id`** — **`shared/apify-dataset-response.js`**, **`shared/apify-run-query-validation.js`**, **`shared/apify-extract-run-id.js`**).
+
+Local / full-suite guards (also in **`npm run test:all`**):
+
+- **`npm run check:dead-assets`** — fails if removed dead files (pixi, tutorial-loader, **`uploads/testing/`**, etc.) reappear.
+- **`npm run check:duplicates`** — fails if duplicate helpers (`storageLocalGet`, `normalizeImportedWorkflows`) are reintroduced outside canonical modules.
 
 ### Recorder integration (headless)
 
@@ -78,7 +83,7 @@ Quick manual checks after code or manifest changes. Run with the extension loade
 
 **Programmatic API:** SET_IMPORTED_ROWS, RUN_WORKFLOW (with invalid workflowId returns `{ ok: false, error: '...' }`; with startIndex and autoStart: 'all', batch runs from that row to end).
 
-**Steps that call background/offscreen:** Extract data, LLM step, Run generator, Run generator (video), Generator UI (templates), Unified editor, Save to project folder, Walkthrough output, Bulk create, Book output (multi-page), Ad-generator style variants, TTS/audio export, Screen capture.
+**Steps that call background/offscreen:** Extract data, LLM step, Screen capture, Capture audio, Transcribe audio, Apify Actor/Task steps, crypto **`CFS_*`** handlers (Solana/BSC swaps, transfers, watch reads), Write JSON to project, Send to endpoint (via service worker fetch), Offscreen document (quality check / transcribe when used).
 
 **Extension & Dev:** Settings → Tests (unit results + checklist) and optional **Open unit tests page** for the crypto flow; Step validation (`node scripts/validate-step-definitions.cjs`).
 
@@ -110,7 +115,7 @@ For contributors who want automated E2E with broader coverage:
 npm run test:e2e
 ```
 
-Faster navigation + unit-tests page checks (side panel **Settings** / **Unit tests**, crypto panel smoke, full in-extension unit pass/fail): **`npm run test:e2e:nav-smoke`**.
+Faster navigation + unit-tests page checks (side panel **Settings**, crypto panel smoke, full in-extension unit pass/fail): **`npm run test:e2e:nav-smoke`**.
 
 For CI:
 
@@ -127,11 +132,11 @@ npm run test:e2e:ci
 - **Profile already in use / `SingletonLock`:** Another Chromium instance may hold `test/.e2e-user-data-*`. Close other Playwright runs or set **`PW_E2E_USER_DATA_SUFFIX=myname`** (letters, digits, `_`, `-` only) so this run uses a separate profile directory under **`test/`**.
 - **Nothing opens, terminal quiet for minutes:** The first `npx playwright install chromium` can download a large browser build; you should still see `[playwright e2e] Starting…` from global setup immediately when the test command runs.
 
-Alternatively, `npm run test:e2e:puppeteer` runs a Puppeteer-based suite (unit tests, API, playback); it does not include generator UI tests.
+Alternatively, `npm run test:e2e:puppeteer` runs a Puppeteer-based suite (unit tests, API, playback).
 
 All specs live under `test/e2e/*.spec.mjs` and use the shared fixture in `test/e2e/extension.fixture.mjs`.
 
-**Stable selectors (extension UI):** Canonical names live in **`test/e2e/cfs-e2e-testids.mjs`** (**`CFS_E2E_TESTID`**) — import there and in HTML. CI / **`npm run test:crypto`** runs **`npm run test:cfs-e2e-testids-wired`** so **`data-testid`** strings stay in sync with that module. **`cfs-sidepanel-settings`** and **`cfs-sidepanel-unit-tests`** each appear twice (logged-in / logged-out); use **`.filter({ visible: true })`**. Also: **`cfs-settings-open-unit-tests-page`**, **`cfs-settings-crypto-ensure`** / **`fund-only`** / **`replace`**, **`cfs-run-crypto-tests`** / **`cfs-crypto-fund-only`** / **`cfs-crypto-replace-wallets`** on **`test/unit-tests.html`**.
+**Stable selectors (extension UI):** Canonical names live in **`test/e2e/cfs-e2e-testids.mjs`** (**`CFS_E2E_TESTID`**) — import there and in HTML. CI / **`npm run test:crypto`** runs **`npm run test:cfs-e2e-testids-wired`** so **`data-testid`** strings stay in sync with that module. **`cfs-sidepanel-settings`** appears twice (logged-in / logged-out); use **`.filter({ visible: true })`**. Also: **`cfs-settings-open-unit-tests-page`**, **`cfs-settings-crypto-ensure`** / **`fund-only`** / **`replace`**, **`cfs-run-crypto-tests`** / **`cfs-crypto-fund-only`** / **`cfs-crypto-replace-wallets`** on **`test/unit-tests.html`**.
 
 ### Apify live E2E (opt-in)
 
@@ -150,9 +155,8 @@ Use a dedicated or low-privilege token; remove the variable afterward. **Manual 
 | `api.spec.mjs` | Step handler registration; RUN_WORKFLOW and SET_IMPORTED_ROWS edge cases |
 | `playback.spec.mjs` | Workflow playback from `e2e-step-config.json`; paste workflow |
 | `content.spec.mjs` | Recorder, player, auto-discovery, content-to-background data flow |
-| `sidepanel-flow.spec.mjs` | Sidepanel UI: create, record, batch, loop, failure, ensureSelect, download; **Settings** / **Unit tests** buttons open `settings.html` / `test/unit-tests.html` |
+| `sidepanel-flow.spec.mjs` | Sidepanel UI: create, record, batch, loop, failure, ensureSelect, download; **Settings** button opens `settings.html` (including **Tests** tab) |
 | `service-worker.spec.mjs` | Service worker message handlers and validation (includes **BSC** and **Solana** wallet import / encrypt / unlock / lock / rewrap), **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** invalid-payload guard (**`fundOnly`** + **`replaceExisting`**), **Apify** (`APIFY_RUN_CANCEL` from a content tab; optional live **`APIFY_TEST_TOKEN`** when **`APIFY_E2E_TOKEN`** is set) |
-| `generator.spec.mjs` | Generator UI: templates, layers, export, undo/redo |
 | `offscreen.spec.mjs` | Offscreen document queuing and mutex |
 
 ## Fixture Page

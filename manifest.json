@@ -88,6 +88,7 @@
         "steps/loader.js",
         "content/recorder.js",
         "content/player.js",
+        "shared/discovery-input-normalize.js",
         "content/auto-discovery.js"
       ],
       "run_at": "document_idle",

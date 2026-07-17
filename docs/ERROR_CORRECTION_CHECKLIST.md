@@ -36,7 +36,7 @@ Before shipping a change that touches playback or step execution:
 2. Do new or modified step handlers throw (and use ctx for resolution)?
 3. Does the sidepanel still scroll to the failing step when `actionIndex` is present and the error is a normal playback failure?
 4. Are any new async or optional checks (e.g. divergence hint) non-blocking and wrapped in try/catch so they never replace or swallow the normal failure response?
-5. **New step types or generator templates:** Do they avoid changing player response shape or sidepanel failure handling? (New steps should use `opts.ctx` and throw on failure; templates run in the offscreen runner and should not affect playback.)
+5. **New step types:** Do they avoid changing player response shape or sidepanel failure handling? (New steps should use `opts.ctx` and throw on failure.)
 
 ---
 

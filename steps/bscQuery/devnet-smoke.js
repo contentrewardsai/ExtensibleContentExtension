@@ -5,32 +5,13 @@
 (function (global) {
   'use strict';
 
-  function parsePrimaryAddress(raw) {
-    if (raw == null) return '';
-    var v2;
-    if (typeof raw === 'string') {
-      try { v2 = JSON.parse(raw); } catch (_) { return ''; }
-    } else {
-      v2 = raw;
-    }
-    if (!v2 || typeof v2 !== 'object') return '';
-    var pid = v2.primaryWalletId;
-    var wallets = Array.isArray(v2.wallets) ? v2.wallets : [];
-    for (var j = 0; j < wallets.length; j++) {
-      var w = wallets[j];
-      if (w && String(w.id) === String(pid) && w.address) return String(w.address).trim();
-    }
-    return '';
-  }
+  var u = global.__CFS_devnetSmokeUtils;
 
   global.__CFS_stepDevnetSmoke = global.__CFS_stepDevnetSmoke || {};
   global.__CFS_stepDevnetSmoke.bscQuery = {
     /** Reads rpcInfo + nativeBalance on Chapel. */
     run: function (onDone) {
-      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
-        onDone({ ok: false, error: 'chrome.storage not available' });
-        return;
-      }
+      if (!u.runIfNoChrome(onDone)) return;
       try {
         /* First: rpcInfo */
         chrome.runtime.sendMessage({
@@ -47,7 +28,7 @@
           }
           /* Then: nativeBalance for primary wallet */
           chrome.storage.local.get(['cfs_bsc_wallets_v2'], function (data) {
-            var addr = parsePrimaryAddress(data && data.cfs_bsc_wallets_v2);
+            var addr = u.parsePrimaryAddress(data && data.cfs_bsc_wallets_v2);
             if (!addr) {
               /* rpcInfo succeeded, that's enough for a read-only smoke */
               onDone({ ok: true, rpcInfo: infoR.result, note: 'rpcInfo ok; no wallet for balance read' });

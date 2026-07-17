@@ -30,7 +30,7 @@ Default **`percentChangeBase`:** `oldNew` — **left** is the base (e.g. entry),
 
 ## `runIf` on *other* steps (player)
 
-The content **player** evaluates each step’s **`runIf`** before running it (including steps inside **loop** bodies and **nested workflows**). Several steps that also read **`runIf` inside their handler** (e.g. **get post analytics**, **upload post**, **render Shotstack**) use the same **`CFS_runIfCondition`** helper so behavior matches the player when a step runs outside the main loop path.
+The content **player** evaluates each step’s **`runIf`** before running it (including steps inside **loop** bodies and **nested workflows**). Steps that also read **`runIf` inside their handler** use the same **`CFS_runIfCondition`** helper so behavior matches the player when a step runs outside the main loop path.
 
 ### Single value (legacy)
 

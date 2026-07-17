@@ -9,53 +9,19 @@
 (function () {
   'use strict';
 
-  var STORAGE_RPC = 'cfs_solana_rpc_url';
-  var STORAGE_CLUSTER = 'cfs_solana_cluster';
-
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function getLib() {
-    return globalThis.CFS_SOLANA_LIB;
-  }
-
-  function getRd() {
-    return globalThis.CFS_RAYDIUM_SDK;
-  }
-
-  function defaultRpcForCluster(cluster) {
-    return cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
-  }
-
-  function parseUintString(fieldName, raw) {
-    var t = String(raw || '').trim().replace(/,/g, '');
-    if (!/^\d+$/.test(t)) throw new Error(fieldName + ' must be a non-negative integer string');
-    return t;
-  }
-
-  async function rpcClusterFromStorage(msg) {
-    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER]);
-    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
-    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
-    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
-    return { cluster: cluster, rpcUrl: rpcUrl };
-  }
-
-  function explorerForSig(cluster, sig) {
-    return cluster === 'devnet'
-      ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
-      : 'https://solscan.io/tx/' + sig;
-  }
+  var rpc = globalThis.CFS_SOLANA_RPC;
+  var STORAGE_RPC = rpc.STORAGE_RPC;
+  var STORAGE_CLUSTER = rpc.STORAGE_CLUSTER;
+  var storageLocalGet = rpc.storageLocalGet;
+  var getLib = rpc.getLib;
+  var getRd = rpc.getRd;
+  var defaultRpcForCluster = rpc.defaultRpcForCluster;
+  var parseUintString = rpc.parseUintString;
+  var rpcClusterFromStorage = rpc.rpcClusterFromStorage;
+  var explorerForSig = rpc.explorerForSig;
+  var loadRaydium = rpc.loadRaydium;
+  var unwrapTxData = rpc.unwrapTxData;
+  var signSendSimulate = rpc.signSendSimulate;
 
   /** Convert integer string in smallest units to decimal string for Raydium computePairAmount. */
   function rawToUiDecimal(rawStr, decimals) {
@@ -79,23 +45,6 @@
       return 'This pool is not an OpenBook-linked Standard AMM (e.g. CPMM). Use a compatible pool or a different tool.';
     }
     return null;
-  }
-
-  async function loadRaydium(connection, keypair, cluster) {
-    var R = getRd();
-    var raydium = await R.Raydium.load({
-      connection: connection,
-      owner: keypair,
-      cluster: cluster === 'devnet' ? 'devnet' : 'mainnet-beta',
-      disableLoadToken: true,
-    });
-    return raydium;
-  }
-
-  async function unwrapTxData(maybePromise) {
-    var out = await maybePromise;
-    if (out && typeof out.then === 'function') out = await out;
-    return out;
   }
 
   globalThis.__CFS_raydium_add_liquidity = async function (msg) {

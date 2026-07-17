@@ -13,11 +13,10 @@
 (function (global) {
   'use strict';
 
-  const APP_ORIGIN = (typeof ExtensionConfig !== 'undefined' && ExtensionConfig?.APP_ORIGIN)
-    ? String(ExtensionConfig.APP_ORIGIN).replace(/\/$/, '')
-    : (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig?.APP_ORIGIN)
-      ? WhopAuthConfig.APP_ORIGIN.replace(/\/$/, '')
-      : 'https://www.extensiblecontent.com';
+  const auth = global.ExtensionAuthFetch;
+  const APP_ORIGIN = auth.APP_ORIGIN;
+  const getToken = auth.getToken;
+  const apiFetch = auth.apiFetch;
 
   /* ── Stable device ID ─────────────────────────────────────────── */
 
@@ -51,61 +50,6 @@
     } catch (_) {}
     const suffix = (deviceId || '').slice(-4) || '0000';
     return platform + ' \u00b7 ' + suffix;
-  }
-
-  /* ── Auth ──────────────────────────────────────────────────────── */
-
-  async function getToken() {
-    try {
-      const res = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => resolve(r || {}));
-      });
-      if (res.ok === false && res.error) {
-        return { token: null, error: res.error };
-      }
-      const token = res.access_token || res.token || null;
-      return { token };
-    } catch (e) {
-      return { token: null, error: e?.message || 'Failed to get token' };
-    }
-  }
-
-  async function apiFetch(path, opts = {}) {
-    const { requireAuth = true, ...fetchOpts } = opts;
-    const { token, error } = await getToken();
-    if (requireAuth && !token) {
-      const err = new Error(error || 'Not logged in');
-      err.code = 'NOT_LOGGED_IN';
-      throw err;
-    }
-    const url = `${APP_ORIGIN}${path.startsWith('/') ? path : '/' + path}`;
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(fetchOpts.headers || {}),
-    };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(url, { ...fetchOpts, headers });
-    if (res.status === 401) {
-      try {
-        chrome.runtime.sendMessage({ type: 'LOGOUT' }, () => {});
-      } catch (_) {}
-      const err = new Error('Session expired. Please log in again.');
-      err.code = 'UNAUTHORIZED';
-      err.status = 401;
-      throw err;
-    }
-    if (!res.ok) {
-      let msg = res.statusText || `HTTP ${res.status}`;
-      try {
-        const json = await res.json().catch(() => ({}));
-        msg = json.message || json.error || json.msg || msg;
-      } catch (_) {}
-      const err = new Error(msg);
-      err.status = res.status;
-      throw err;
-    }
-    if (res.status === 204) return null;
-    return res.json();
   }
 
   /* ── MCP-aware routing ────────────────────────────────────────── */
