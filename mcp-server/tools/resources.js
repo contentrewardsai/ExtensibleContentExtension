@@ -260,38 +260,6 @@ export function registerResources(server, ctx) {
     }
   );
 
-  /* ── Upload Post Activity ── */
-
-  server.resource(
-    'Upload Post History',
-    'extensible://upload-post/history',
-    async () => {
-      const res = await ctx.sendMessage({ type: 'GET_POST_HISTORY', limit: 50 });
-      return {
-        contents: [{
-          uri: 'extensible://upload-post/history',
-          mimeType: 'application/json',
-          text: JSON.stringify(res, null, 2),
-        }],
-      };
-    }
-  );
-
-  server.resource(
-    'Scheduled Posts',
-    'extensible://upload-post/scheduled',
-    async () => {
-      const res = await ctx.sendMessage({ type: 'GET_SCHEDULED_POSTS' });
-      return {
-        contents: [{
-          uri: 'extensible://upload-post/scheduled',
-          mimeType: 'application/json',
-          text: JSON.stringify(res, null, 2),
-        }],
-      };
-    }
-  );
-
   /* ── Wallets ── */
 
   server.resource(

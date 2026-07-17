@@ -33,16 +33,7 @@
     return fetch(url, merged).finally(function () { clearTimeout(id); });
   }
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) { reject(e); }
-    });
-  }
+  var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
 
   function hexPad32(v) {
     var hex = typeof v === 'bigint' ? v.toString(16) : BigInt(v).toString(16);

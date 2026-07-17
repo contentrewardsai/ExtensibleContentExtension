@@ -32,7 +32,7 @@ Sends an HTTP request to a configurable URL. The endpoint URL and request body c
 - **Headers**: `Authorization: Bearer {{accessToken}}` — token from the row.
 - **Row variable for body**: If the row has a column `payload` whose value is `{"id": "{{id}}"}` or raw JSON, that value is used as the body and `{{id}}` is replaced with the row’s `id`.
 
-Values can come from earlier steps in the same run (e.g. an “Extract data” or “Run generator” step that writes to a variable). **Video from timeline:** Run generator step and bulk create both support video templates (PixiJS timeline player → WebM). The generator runner loads Pixi so workflow runs can produce video output; a Send to endpoint step can receive video URLs from a previous Run generator step. **Body from row variable** can be a data URL (e.g. from **Screen capture** saveAsVariable) or a blob/HTTP URL; set Content-Type appropriately for binary uploads.
+Values can come from earlier steps in the same run (e.g. an **Extract data** step that writes to a variable, or **Screen capture** with saveAsVariable). **Body from row variable** can be a data URL (e.g. from Screen capture) or a blob/HTTP URL; set Content-Type appropriately for binary uploads.
 
 ## Authentication
 

@@ -9,51 +9,23 @@
 (function () {
   'use strict';
 
-  var STORAGE_RPC = 'cfs_solana_rpc_url';
-  var STORAGE_CLUSTER = 'cfs_solana_cluster';
+  var rpc = globalThis.CFS_SOLANA_RPC;
+  var STORAGE_RPC = rpc.STORAGE_RPC;
+  var STORAGE_CLUSTER = rpc.STORAGE_CLUSTER;
+  var storageLocalGet = rpc.storageLocalGet;
+  var getLib = rpc.getLib;
+  var defaultRpcForCluster = rpc.defaultRpcForCluster;
+  var rpcClusterFromStorage = rpc.rpcClusterFromStorage;
   var DEFAULT_QUOTE_MINT = 'So11111111111111111111111111111111111111112';
   var RAYDIUM_POOLS_BY_MINT = 'https://api-v3.raydium.io/pools/info/mint';
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function getLib() {
-    return globalThis.CFS_SOLANA_LIB;
-  }
-
-  function getPump() {
-    return globalThis.CFS_PUMP_FUN;
-  }
-
-  function raydiumResilientFetch(url, signal) {
-    var init = Object.assign({ method: 'GET' }, signal ? { signal: signal } : {});
+  async function raydiumResilientFetch(url, signal) {
+    var init = signal ? { signal: signal } : {};
     var tiered = globalThis.__CFS_fetchGetTiered;
     if (typeof tiered === 'function') return tiered(url, init);
     var fn = globalThis.__CFS_fetchWith429Backoff;
     if (typeof fn === 'function') return fn(url, init);
     return fetch(url, init);
-  }
-
-  function defaultRpcForCluster(cluster) {
-    return cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
-  }
-
-  async function rpcClusterFromStorage(msg) {
-    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER]);
-    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
-    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
-    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
-    return { cluster: cluster, rpcUrl: rpcUrl };
   }
 
   function bnToStr(x) {

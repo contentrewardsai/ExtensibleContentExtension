@@ -50,25 +50,9 @@
   };
 
   const HINT_ARRAY_FIELDS = ['groupSelectors', 'inputCandidates', 'outputCandidates'];
-  const HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
-
-  function isDiscoveryHintObject(obj) {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-    for (const k of HINT_ROOT_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
-    }
-    return false;
-  }
 
   function splitLegacyDiscoveryHintsRaw(raw) {
-    const domains = {};
-    const globalHints = {};
-    if (!raw || typeof raw !== 'object') return { domains, globalHints };
-    for (const [k, v] of Object.entries(raw)) {
-      if (HINT_ROOT_KEYS.has(k)) globalHints[k] = v;
-      else if (isDiscoveryHintObject(v)) domains[k] = v;
-    }
-    return { domains, globalHints };
+    return __CFS_discoveryInputNormalize.splitLegacyDiscoveryHintsRaw(raw);
   }
 
   function concatUniqueArrays() {
@@ -159,25 +143,7 @@
   }
 
   function normalizeDiscoveryInput(data) {
-    let discoveryDomains = data.discoveryDomains;
-    let discoveryGlobalHints = data.discoveryGlobalHints && typeof data.discoveryGlobalHints === 'object' ? data.discoveryGlobalHints : {};
-    if ((!discoveryDomains || Object.keys(discoveryDomains).length === 0) && data.discoveryHints && typeof data.discoveryHints === 'object') {
-      const spl = splitLegacyDiscoveryHintsRaw(data.discoveryHints);
-      if (Object.keys(spl.domains).length) {
-        discoveryDomains = {};
-        for (const d in spl.domains) {
-          if (Object.prototype.hasOwnProperty.call(spl.domains, d)) discoveryDomains[d] = [spl.domains[d]];
-        }
-      }
-      if (Object.keys(spl.globalHints).length && Object.keys(discoveryGlobalHints).length === 0) {
-        discoveryGlobalHints = spl.globalHints;
-      }
-    }
-    return {
-      discoveryDomains: discoveryDomains && typeof discoveryDomains === 'object' ? discoveryDomains : {},
-      discoveryGlobalHints: discoveryGlobalHints,
-      discoveryStepHints: data.discoveryStepHints,
-    };
+    return __CFS_discoveryInputNormalize.normalizeDiscoveryInput(data);
   }
 
   /** Workflow (domain) → step → global file → DEFAULT_HINTS; see docs/STEPS_AND_RUNTIMES.md */

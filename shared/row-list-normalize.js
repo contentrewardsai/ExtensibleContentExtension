@@ -36,7 +36,39 @@
     throw new Error(L + ': expected an array (got ' + typeof raw + ')');
   }
 
+  function isPlainObject(v) {
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+  }
+
+  function mergedEvalRow(parentRow, el) {
+    var base = parentRow && typeof parentRow === 'object' ? parentRow : {};
+    if (el !== null && typeof el === 'object' && !Array.isArray(el)) {
+      return Object.assign({}, base, el);
+    }
+    return Object.assign({}, base, { _item: el });
+  }
+
+  function sliceResult(arr, offset, limit) {
+    var hasO = offset != null && offset !== '';
+    var hasL = limit != null && limit !== '';
+    if (!hasO && !hasL) return arr.slice();
+    var o = hasO ? Number(offset) : 0;
+    if (!Number.isFinite(o) || o < 0) o = 0;
+    o = Math.floor(o);
+    if (hasL) {
+      var l = Number(limit);
+      if (!Number.isFinite(l) || l < 0) l = 0;
+      return arr.slice(o, o + Math.floor(l));
+    }
+    return arr.slice(o);
+  }
+
   if (typeof global !== 'undefined') {
-    global.CFS_rowListNormalize = { normalize: normalize };
+    global.CFS_rowListNormalize = {
+      normalize: normalize,
+      isPlainObject: isPlainObject,
+      mergedEvalRow: mergedEvalRow,
+      sliceResult: sliceResult,
+    };
   }
 })(typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : globalThis);

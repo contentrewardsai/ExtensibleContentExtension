@@ -18,69 +18,19 @@
 (function () {
   'use strict';
 
-  var STORAGE_RPC = 'cfs_solana_rpc_url';
-  var STORAGE_CLUSTER = 'cfs_solana_cluster';
-
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function getLib() {
-    return globalThis.CFS_SOLANA_LIB;
-  }
-
-  function getRd() {
-    return globalThis.CFS_RAYDIUM_SDK;
-  }
-
-  function defaultRpcForCluster(cluster) {
-    return cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
-  }
-
-  function parseUintString(fieldName, raw) {
-    var t = String(raw || '').trim().replace(/,/g, '');
-    if (!/^\d+$/.test(t)) throw new Error(fieldName + ' must be a non-negative integer string');
-    return t;
-  }
-
-  async function rpcClusterFromStorage(msg) {
-    var stored = await storageLocalGet([STORAGE_RPC, STORAGE_CLUSTER]);
-    var cluster = String((msg.cluster || stored[STORAGE_CLUSTER] || 'mainnet-beta')).trim();
-    var rpcUrl = String(msg.rpcUrl || stored[STORAGE_RPC] || '').trim();
-    if (!rpcUrl) rpcUrl = defaultRpcForCluster(cluster);
-    return { cluster: cluster, rpcUrl: rpcUrl };
-  }
-
-  function explorerForSig(cluster, sig) {
-    return cluster === 'devnet'
-      ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
-      : 'https://solscan.io/tx/' + sig;
-  }
-
-  async function loadRaydium(connection, keypair, cluster) {
-    var R = getRd();
-    return R.Raydium.load({
-      connection: connection,
-      owner: keypair,
-      cluster: cluster === 'devnet' ? 'devnet' : 'mainnet-beta',
-      disableLoadToken: true,
-    });
-  }
-
-  async function unwrapTxData(maybePromise) {
-    var out = await maybePromise;
-    if (out && typeof out.then === 'function') out = await out;
-    return out;
-  }
+  var rpc = globalThis.CFS_SOLANA_RPC;
+  var STORAGE_RPC = rpc.STORAGE_RPC;
+  var STORAGE_CLUSTER = rpc.STORAGE_CLUSTER;
+  var storageLocalGet = rpc.storageLocalGet;
+  var getLib = rpc.getLib;
+  var getRd = rpc.getRd;
+  var defaultRpcForCluster = rpc.defaultRpcForCluster;
+  var parseUintString = rpc.parseUintString;
+  var rpcClusterFromStorage = rpc.rpcClusterFromStorage;
+  var explorerForSig = rpc.explorerForSig;
+  var loadRaydium = rpc.loadRaydium;
+  var unwrapTxData = rpc.unwrapTxData;
+  var signSendSimulate = rpc.signSendSimulate;
 
   function currencyAmountToBn(ca, R) {
     if (!ca) return null;
@@ -132,28 +82,6 @@
       return { ok: false, error: 'CLMM tick cache missing for pool (RPC tick arrays)' };
     }
     return { ok: true, poolRes: poolRes, apiPool: apiPool, tickCache: tickCache };
-  }
-
-  async function signSendSimulate(connection, vtx, keypair, skipSimulation, skipPreflight, cluster) {
-    if (!vtx || typeof vtx.serialize !== 'function') {
-      return { ok: false, error: 'Raydium did not return a versioned transaction' };
-    }
-    vtx.sign([keypair]);
-    if (!skipSimulation) {
-      var sim = await connection.simulateTransaction(vtx, { sigVerify: false, commitment: 'confirmed' });
-      if (sim.value.err) {
-        return {
-          ok: false,
-          error: 'Simulation failed: ' + JSON.stringify(sim.value.err),
-          simulationLogs: sim.value.logs || [],
-        };
-      }
-    }
-    var sig = await connection.sendRawTransaction(vtx.serialize(), {
-      skipPreflight: skipPreflight,
-      maxRetries: 3,
-    });
-    return { ok: true, signature: sig, explorerUrl: explorerForSig(cluster, sig) };
   }
 
   globalThis.__CFS_raydium_clmm_swap_base_in = async function (msg) {

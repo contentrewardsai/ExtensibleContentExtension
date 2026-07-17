@@ -1,6 +1,7 @@
 /**
  * Solana automation: Jupiter swap, native SOL + SPL transfers, wallet import helpers.
  * Requires globalThis.CFS_SOLANA_LIB (from solana-lib.bundle.js via importScripts).
+ * Requires globalThis.CFS_CRYPTO_STORAGE and globalThis.CFS_SOLANA_RPC (crypto-storage.js, solana-rpc-helpers.js).
  *
  * Encrypted wallet: AES-GCM + PBKDF2 (100k iter). Plaintext secret lives in
  * chrome.storage.session while "unlocked" for automated runs.
@@ -49,44 +50,19 @@
   var MIN_WALLET_PASSWORD_LEN = 8;
   var EXPORT_DELAY_MS = 2000;
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageLocalSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageLocalRemove(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.remove(keys, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
+  var cs = globalThis.CFS_CRYPTO_STORAGE;
+  var storageLocalGet = cs.storageLocalGet;
+  var storageLocalSet = cs.storageLocalSet;
+  var storageLocalRemove = cs.storageLocalRemove;
+  var storageSessionGet = cs.storageSessionGet;
+  var storageSessionSet = cs.storageSessionSet;
+  var storageSessionRemove = cs.storageSessionRemove;
+  var randomBytes = cs.randomBytes;
+  var bytesToB64 = cs.bytesToB64;
+  var b64ToBytes = cs.b64ToBytes;
+  var pbkdf2AesKey = cs.pbkdf2AesKey;
+  var encryptSecretB58 = cs.encryptSecretB58;
+  var decryptSecretB58 = cs.decryptSecretB58;
 
   async function jupiterFetch(url, init, jupHeaders) {
     var headers = Object.assign({}, (init && init.headers) || {}, jupHeaders || {});
@@ -101,110 +77,8 @@
     return fetch(url, merged);
   }
 
-  function storageSessionGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (!chrome.storage.session) {
-          resolve({});
-          return;
-        }
-        chrome.storage.session.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageSessionSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (!chrome.storage.session) {
-          reject(new Error('chrome.storage.session not available'));
-          return;
-        }
-        chrome.storage.session.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageSessionRemove(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        if (!chrome.storage.session) {
-          resolve();
-          return;
-        }
-        chrome.storage.session.remove(keys, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
   function getLib() {
     return globalThis.CFS_SOLANA_LIB;
-  }
-
-  function randomBytes(n) {
-    var a = new Uint8Array(n);
-    crypto.getRandomValues(a);
-    return a;
-  }
-
-  function bytesToB64(u8) {
-    var bin = '';
-    for (var i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-    return btoa(bin);
-  }
-
-  function b64ToBytes(s) {
-    var bin = atob(String(s).trim());
-    var u8 = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    return u8;
-  }
-
-  async function pbkdf2AesKey(password, salt) {
-    var enc = new TextEncoder();
-    var keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-    return crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
-  }
-
-  async function encryptSecretB58(secretB58, password) {
-    var salt = randomBytes(16);
-    var iv = randomBytes(12);
-    var key = await pbkdf2AesKey(password, salt);
-    var data = new TextEncoder().encode(String(secretB58));
-    var ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, data));
-    return { v: 1, salt: bytesToB64(salt), iv: bytesToB64(iv), ct: bytesToB64(ct) };
-  }
-
-  async function decryptSecretB58(wrapped, password) {
-    var obj = typeof wrapped === 'string' ? JSON.parse(wrapped) : wrapped;
-    if (!obj || obj.v !== 1 || !obj.salt || !obj.iv || !obj.ct) throw new Error('Invalid encrypted wallet blob');
-    var salt = b64ToBytes(obj.salt);
-    var iv = b64ToBytes(obj.iv);
-    var ct = b64ToBytes(obj.ct);
-    var key = await pbkdf2AesKey(password, salt);
-    var pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct);
-    return new TextDecoder().decode(pt);
   }
 
   function keypairFromSecretB58(L, secretB58) {

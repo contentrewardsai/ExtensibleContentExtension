@@ -16,7 +16,7 @@ chrome.runtime.sendMessage(extensionId, {
 }, (response) => { /* response: { ok: true } */ });
 ```
 
-- **rows:** Array of row objects (any keys; used as row data for variable substitution and generator inputs).
+- **rows:** Array of row objects (any keys; used as row data for variable substitution in steps).
 - **workflowId:** Optional. If provided, the sidepanel selects this workflow when it applies the pending data.
 - **Response:** Callback receives `{ ok: true }` when the background has written to storage.
 
@@ -470,7 +470,7 @@ From a content script or another extension: use `chrome.runtime.id` (for the sam
 
 ## See also
 
-- **steps/README.md** (§ Step-specific documentation) – READMEs for Extract data, Loop, Run generator, Run workflow, Screen capture, and Send to endpoint. Use these when building workflows that feed rows into Run generator or Send to endpoint, or use Loop/Run workflow.
+- **steps/README.md** (§ Step-specific documentation) – READMEs for Extract data, Loop, Run workflow, Screen capture, Send to endpoint, and Apify steps. Use these when building workflows that feed rows into Send to endpoint, Loop, or Run workflow.
 - **steps/apifyActorRun/README.md** – Apify step fields and `APIFY_RUN` behavior when not calling the service worker directly.
 - **steps/bscQuery/README.md** – `CFS_BSC_QUERY` operations and result shapes when calling the service worker directly.
 - **docs/INTEGRATIONS.md** – Aster futures steps and **`CFS_ASTER_FUTURES`** overview.

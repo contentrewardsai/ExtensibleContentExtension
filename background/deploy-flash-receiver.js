@@ -21,16 +21,7 @@
   var DEFAULT_BSC_RPC = 'https://bsc-dataseed1.binance.org/';
   var CHAPEL_RPC = 'https://data-seed-prebsc-1-s1.binance.org:8545/';
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) { reject(e); }
-    });
-  }
+  var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
 
   globalThis.__CFS_deploy_flash_receiver = async function (msg) {
     var E = globalThis.CFS_ETHERS;

@@ -14,7 +14,6 @@ This doc explains the two selector resolution approaches in the extension and wh
 - **Use when:** You only have CSS strings and need a small, self-contained lookup
 
 **Use cases:**
-- **Tutorial loader** (`shared/tutorial-loader.js`) – Standalone script embedded on third-party pages; config has `step.selectors` as strings
 - **Exported walkthrough runner** – Inline script from `buildWalkthroughRunnerScript`; no access to full selector library
 - **Embedded walkthroughs** – Host page includes one script; config built by `selectorStrings(action)` from `shared/walkthrough-export.js` when exporting walkthrough
 

@@ -4,19 +4,12 @@
 (function() {
   'use strict';
 
-  function normalizeRowArray(raw, label) {
-    var n = typeof CFS_rowListNormalize !== 'undefined' && CFS_rowListNormalize.normalize;
-    if (!n) throw new Error('rowListDedupe: CFS_rowListNormalize.normalize unavailable');
-    return n(raw, label);
-  }
-
-  function isPlainObject(x) {
-    return x !== null && typeof x === 'object' && !Array.isArray(x);
-  }
+  var rln = typeof CFS_rowListNormalize !== 'undefined' ? CFS_rowListNormalize : null;
 
   window.__CFS_registerStepHandler('rowListDedupe', async function(action, opts) {
     var ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (rowListDedupe)');
+    if (!rln || !rln.normalize) throw new Error('rowListDedupe: CFS_rowListNormalize unavailable');
     var getRowValue = ctx.getRowValue;
     var row = ctx.currentRow;
     if (!row || typeof row !== 'object') return;
@@ -37,14 +30,14 @@
 
     var keepFirst = !!action.keepFirst;
 
-    var source = normalizeRowArray(getRowValue(row, srcName), 'rowListDedupe source');
+    var source = rln.normalize(getRowValue(row, srcName), 'rowListDedupe source');
     var out = [];
 
     if (keepFirst) {
       var seen = new Set();
       for (var i = 0; i < source.length; i++) {
         var el = source[i];
-        if (!isPlainObject(el)) {
+        if (!rln.isPlainObject(el)) {
           throw new Error('rowListDedupe: list elements must be plain objects');
         }
         var k = getByLoosePath(el, dedupeKey);
@@ -61,7 +54,7 @@
       var lastIdxByKey = new Map();
       for (var j = 0; j < source.length; j++) {
         var el2 = source[j];
-        if (!isPlainObject(el2)) {
+        if (!rln.isPlainObject(el2)) {
           throw new Error('rowListDedupe: list elements must be plain objects');
         }
         var k2 = getByLoosePath(el2, dedupeKey);

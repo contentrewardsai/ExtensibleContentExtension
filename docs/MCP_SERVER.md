@@ -91,6 +91,18 @@ npm run mcp:start -- --token YOUR_TOKEN --port 3100
 EC_MCP_TOKEN=your-token EC_MCP_PORT=3100 npm run mcp:start
 ```
 
+### Smoke test (CI / local)
+
+After building or installing dependencies, verify the server starts and serves `/health`:
+
+```bash
+cd mcp-server && bun install   # first time only
+bash build.sh darwin-arm64       # or your platform
+npm run test:mcp-smoke           # from repo root; uses binary if present, else node server.js
+```
+
+This does **not** require the Chrome extension relay (`relayConnected` may be `false`). Full tool calls still need the extension with **Enable MCP Server** and `mcp/mcp-relay.html` connected.
+
 ## Building Binaries
 
 Requires [Bun](https://bun.sh/) installed on the build machine. Bun cross-compiles all platforms from any host.

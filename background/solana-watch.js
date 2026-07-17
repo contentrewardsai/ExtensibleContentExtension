@@ -61,31 +61,9 @@
   var SOLANA_WATCH_INTER_ADDRESS_MIN_MS = 80;
   var SOLANA_WATCH_INTER_ADDRESS_JITTER_MS = 200;
 
-  function storageLocalGet(keys) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.get(keys, function (r) {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(r || {});
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function storageLocalSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
+  var cs = globalThis.CFS_CRYPTO_STORAGE;
+  var storageLocalGet = cs.storageLocalGet;
+  var storageLocalSet = cs.storageLocalSet;
 
   function defaultRpc(cluster) {
     var c = String(cluster || 'mainnet-beta').trim();

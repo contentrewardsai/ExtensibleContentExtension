@@ -39,6 +39,7 @@
     jupiterPriceV3:1,jupiterTokenSearch:1,jupiterDCA:1,jupiterLimitOrder:1,
     jupiterEarn:1,jupiterFlashloan:1,jupiterPredictionTrade:1,jupiterPredictionSearch:1,
     pancakeV3RangeWatch:1,
+    pancakeInfiBinRangeWatch:1,
     walletApprove:1,
   };
   /* Load on startup + listen for changes */
@@ -642,20 +643,11 @@
   }
 
   function normalizeScriptingError(err) {
-    const msg = (err && err.message) ? String(err.message) : String(err);
-    if (/cannot access contents|cannot be scripted|restricted|chrome:\/\/|edge:\/\//i.test(msg)) {
-      return 'This tab doesn\'t support the extension (e.g. chrome:// or extension page). Open your workflow\'s start URL in this tab.';
-    }
-    return msg;
+    return __CFS_playbackErrorNormalize.normalizeScriptingError(err);
   }
 
   function normalizePlaybackError(res) {
-    const raw = (res && res.error) ? String(res.error) : '';
-    const isConnection = /receiving end does not exist|could not establish connection|target closed|tab was closed|message port closed/i.test(raw);
-    if (isConnection) {
-      return { message: 'Extension couldn\'t run on this tab. Reload the page and try again, or open your workflow\'s start URL.', isConnection: true };
-    }
-    return { message: raw || 'unknown', isConnection: false };
+    return __CFS_playbackErrorNormalize.normalizePlaybackError(res);
   }
 
   function showConnectionErrorStatus(tabId) {
@@ -983,22 +975,7 @@
 
   /** Convert Supabase Workflow row to extension format: merge workflow JSON with top-level fields */
   function normalizeSupabaseWorkflow(row) {
-    const w = row?.workflow ?? row;
-    if (!w || (!w.analyzed?.actions && !w.actions)) return null;
-    const id = row.id ?? w.id;
-    const approvedRaw = row.approved ?? row.workflow_approved ?? w.approved ?? w.workflow_approved;
-    return {
-      ...w,
-      id: id || w.id,
-      name: row.name ?? w.name ?? 'Unnamed workflow',
-      version: typeof row.version === 'number' ? row.version : (w.version ?? 1),
-      initial_version: row.initial_version ?? w.initial_version ?? id,
-      published: !!row.published,
-      private: row.private !== undefined ? row.private : w.private,
-      archived: !!(row.archived ?? w.archived),
-      approved: approvedRaw === undefined ? undefined : !!approvedRaw,
-      _backendMeta: { dateChanged: row.updated_at, created_by: row.created_by },
-    };
+    return ExtensionWorkflowNormalize.normalizeSupabaseWorkflow(row);
   }
 
   /**
@@ -1849,8 +1826,29 @@
         requireBscScanKeyForBsc: document.getElementById('wfCondBscKey')?.checked === true,
       },
       projectId: (document.getElementById('wfAlwaysOnProjectId')?.value || '').trim(),
-      pollIntervalMs: parseInt(document.getElementById('wfAlwaysOnPollInterval')?.value, 10) || 0,
+      pollIntervalMs: parseInt(
+        document.getElementById('wfAlwaysOnPollInterval')?.value ||
+        document.getElementById('wfAlwaysOnPollIntervalPr')?.value,
+        10
+      ) || 0,
     };
+    if (document.getElementById('wfScopePriceRange')?.checked === true) {
+      const boundRaw = (document.getElementById('wfAlwaysOnBoundRowJson')?.value || '').trim();
+      const prwRaw = (document.getElementById('wfAlwaysOnPriceRangeJson')?.value || '').trim();
+      if (boundRaw) {
+        try { wf.alwaysOn.boundRow = JSON.parse(boundRaw); } catch (_) {}
+      } else if (wf.alwaysOn.boundRow) {
+        delete wf.alwaysOn.boundRow;
+      }
+      if (prwRaw) {
+        try { wf.alwaysOn.priceRangeWatch = JSON.parse(prwRaw); } catch (_) {}
+      } else if (wf.alwaysOn.priceRangeWatch) {
+        delete wf.alwaysOn.priceRangeWatch;
+      }
+    } else {
+      if (wf.alwaysOn.boundRow) delete wf.alwaysOn.boundRow;
+      if (wf.alwaysOn.priceRangeWatch) delete wf.alwaysOn.priceRangeWatch;
+    }
     const sc = wf.alwaysOn.scopes || {};
     if (sc.followingAutomationSolana || sc.followingAutomationBsc) {
       wf.followingAutomation = readWorkflowFollowingAutomationFromUI();
@@ -1879,6 +1877,8 @@
     const c = ao.conditions || {};
     const ct = wf.followingAutomation && typeof wf.followingAutomation === 'object' ? wf.followingAutomation : {};
     const cm = String(ct.sizeMode || 'proportional').toLowerCase();
+    const boundRowJson = ao.boundRow ? JSON.stringify(ao.boundRow, null, 2) : '';
+    const priceRangeJson = ao.priceRangeWatch ? JSON.stringify(ao.priceRangeWatch, null, 2) : '';
     panel.innerHTML = `
       <p style="margin:0 0 6px 0;">Opt-in per workflow. Manual run and Schedule are unchanged. When enabled, scopes control Pulse Following polling and Following automation in the service worker.</p>
       <label class="pd-checkbox-label" style="display:block;margin-bottom:6px;"><input type="checkbox" id="wfAlwaysOnEnabled" ${en ? 'checked' : ''}> Always on (background)</label>
@@ -1901,6 +1901,14 @@
         <span class="hint" style="display:block;margin-bottom:4px;">File watch settings</span>
         <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnProjectId" style="min-width:90px;">Project ID</label><input type="text" id="wfAlwaysOnProjectId" value="${escapeHtml(ao.projectId || '')}" placeholder="Use selected project" style="flex:1;min-width:0;"></div>
         <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnPollInterval" style="min-width:90px;">Poll ms</label><input type="number" id="wfAlwaysOnPollInterval" value="${ao.pollIntervalMs || ''}" placeholder="60000" min="1000" style="flex:1;max-width:120px;"></div>
+      </div>
+      <div id="wfAlwaysOnPriceRangeBind" style="margin-left:8px;margin-bottom:6px;display:${sc.priceRangeWatch ? 'block' : 'none'};">
+        <span class="hint" style="display:block;margin-bottom:4px;">Infinity bin range watch (background). See <code>docs/BSC_INFI_LP_WORKFLOWS.md</code>.</span>
+        <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnPollIntervalPr" style="min-width:90px;">Poll ms</label><input type="number" id="wfAlwaysOnPollIntervalPr" value="${ao.pollIntervalMs || ''}" placeholder="60000" min="1000" style="flex:1;max-width:120px;"></div>
+        <label for="wfAlwaysOnBoundRowJson" class="hint" style="display:block;margin-top:6px;">boundRow (JSON)</label>
+        <textarea id="wfAlwaysOnBoundRowJson" rows="4" style="width:100%;font-family:ui-monospace,monospace;font-size:11px;" placeholder='{"positionNftId":"…","poolId":"…","lowerBinId":"…","upperBinId":"…","exitPolicy":"restake"}'>${escapeHtml(boundRowJson)}</textarea>
+        <label for="wfAlwaysOnPriceRangeJson" class="hint" style="display:block;margin-top:6px;">priceRangeWatch (JSON)</label>
+        <textarea id="wfAlwaysOnPriceRangeJson" rows="8" style="width:100%;font-family:ui-monospace,monospace;font-size:11px;" placeholder='{"infiPositionTokenId":"{{positionNftId}}","playbackStartUrl":"https://example.com","onOutOfRange":[{"runIf":"{{exitPolicy}} === restake","workflowId":"wf-bsc-infi-restake"}]}'>${escapeHtml(priceRangeJson)}</textarea>
       </div>
       <div id="wfAlwaysOnCondCrypto" style="margin-left:8px;margin-bottom:8px;display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
         <span class="hint" style="display:block;margin-bottom:4px;">Conditions (optional)</span>
@@ -1953,6 +1961,10 @@
           const box = document.getElementById('wfAlwaysOnProjectBind');
           if (box) box.style.display = document.getElementById('wfScopeFileWatch')?.checked ? 'block' : 'none';
         }
+        if (id === 'wfScopePriceRange') {
+          const box = document.getElementById('wfAlwaysOnPriceRangeBind');
+          if (box) box.style.display = document.getElementById('wfScopePriceRange')?.checked ? 'block' : 'none';
+        }
         void saveWorkflowAlwaysOnFromUI();
       });
     });
@@ -1977,8 +1989,11 @@
       });
     });
     // File watch project bind fields
-    ['wfAlwaysOnProjectId', 'wfAlwaysOnPollInterval'].forEach((id) => {
+    ['wfAlwaysOnProjectId', 'wfAlwaysOnPollInterval', 'wfAlwaysOnPollIntervalPr'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', () => void saveWorkflowAlwaysOnFromUI());
+      document.getElementById(id)?.addEventListener('blur', () => void saveWorkflowAlwaysOnFromUI());
+    });
+    ['wfAlwaysOnBoundRowJson', 'wfAlwaysOnPriceRangeJson'].forEach((id) => {
       document.getElementById(id)?.addEventListener('blur', () => void saveWorkflowAlwaysOnFromUI());
     });
   }
@@ -2009,20 +2024,11 @@
   }
 
   function escapeHtml(s) {
-    if (s == null) return '';
-    const div = document.createElement('div');
-    div.textContent = s;
-    return div.innerHTML;
+    return CFS_domUtils.escapeHtml(s);
   }
 
   function escapeAttr(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    return CFS_domUtils.escapeAttr(s);
   }
 
   /** Canonical form: QC config lives on the first qualityCheck step. Returns that step or null. */
@@ -3262,40 +3268,11 @@
   }
 
   function toProfileIdStr(val) {
-    if (val == null) return '';
-    if (typeof val === 'string') {
-      const s = val.trim();
-      return s === '[object Object]' ? '' : s;
-    }
-    if (typeof val === 'object') {
-      for (const key of ['id', 'ID', 'value', 'uuid', 'guid', '_id', '_serialized']) {
-        const sub = val[key];
-        if (typeof sub === 'string') return sub.trim();
-        if (typeof sub === 'object' && sub != null) {
-          const inner = toProfileIdStr(sub);
-          if (inner && inner !== '[object Object]') return inner;
-        }
-      }
-      return '';
-    }
-    return String(val).trim();
+    return FollowingSyncCore.toProfileIdStr(val);
   }
 
   function normalizeProfile(row) {
-    const serverRaw = row.server_updated_at != null ? String(row.server_updated_at).trim() : '';
-    const server_updated_at = serverRaw || undefined;
-    const out = {
-      id: toProfileIdStr(row.id ?? row.ID),
-      name: String(row.name ?? '').trim(),
-      user: String(row.user ?? '').trim(),
-      birthday: String(row.birthday ?? '').trim(),
-      deleted: row.deleted === true || row.deleted === 'true',
-    };
-    if (server_updated_at) out.server_updated_at = server_updated_at;
-    if (typeof row.local_edited_at === 'number' && !Number.isNaN(row.local_edited_at)) {
-      out.local_edited_at = row.local_edited_at;
-    }
-    return out;
+    return FollowingSyncCore.normalizeProfile(row);
   }
 
   function touchFollowingProfileEdited(profileId) {
@@ -3336,38 +3313,11 @@
   }
 
   function toAccountIdStr(val) {
-    if (val == null) return '';
-    if (typeof val === 'string') {
-      const s = val.trim();
-      return s === '[object Object]' ? '' : s;
-    }
-    if (typeof val === 'object') {
-      for (const key of ['id', 'ID', 'value', 'uuid', 'guid', '_id', '_serialized']) {
-        const sub = val[key];
-        if (typeof sub === 'string') return sub.trim();
-        if (typeof sub === 'object' && sub != null) {
-          const inner = toAccountIdStr(sub);
-          if (inner && inner !== '[object Object]') return inner;
-        }
-      }
-      const str = String(val).trim();
-      if (str === '[object Object]') return '';
-      return str;
-    }
-    return String(val).trim();
+    return FollowingSyncCore.toAccountIdStr(val);
   }
 
   function normalizeAccount(row) {
-    const profileVal = row.profile;
-    const profileId = profileVal && typeof profileVal === 'object' ? String(profileVal.id ?? profileVal.ID ?? '').trim() : String(profileVal ?? '').trim();
-    return {
-      id: toAccountIdStr(row.id ?? row.ID),
-      handle: String(row.handle ?? '').trim(),
-      platform: String(row.platform ?? '').trim(),
-      url: String(row.url ?? '').trim(),
-      profile: profileId,
-      deleted: row.deleted === true || row.deleted === 'true',
-    };
+    return FollowingSyncCore.normalizeAccount(row);
   }
 
   /**
@@ -4876,14 +4826,7 @@
   }
 
   function mergePersonalInfoIntoWorkflowFromPrev(incomingWf, prevWf) {
-    const sync = typeof window !== 'undefined' && window.CFS_personalInfoSync;
-    if (!sync || !incomingWf) return incomingWf;
-    const prevPi = prevWf && Array.isArray(prevWf.personalInfo) ? prevWf.personalInfo : [];
-    const remotePi = Array.isArray(incomingWf.personalInfo) ? incomingWf.personalInfo : [];
-    if (prevPi.length) {
-      incomingWf.personalInfo = sync.mergePersonalInfoFromFetch(remotePi, prevPi);
-    }
-    return incomingWf;
+    return ExtensionWorkflowNormalize.mergePersonalInfoIntoWorkflowFromPrev(incomingWf, prevWf);
   }
 
   async function syncWorkflowToBackend(wfId, options = {}) {
@@ -8594,16 +8537,6 @@
     }
   });
 
-  function normalizeImportedWorkflows(data) {
-    if (data?.workflows && typeof data.workflows === 'object') return data.workflows;
-    if (data?.id && (data.actions || data.analyzed?.actions)) return { [data.id]: data };
-    if (data?.actions || data?.analyzed?.actions) {
-      const id = data.id || ('pasted_' + Date.now());
-      return { [id]: { ...data, id } };
-    }
-    return {};
-  }
-
   /** Returns error message if workflow has legacy format; null if canonical. */
   function getLegacyWorkflowError(wf) {
     if (!wf) return null;
@@ -8625,7 +8558,7 @@
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const imported = normalizeImportedWorkflows(data);
+      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
       const legacyErr = Object.entries(imported).map(([id, wf]) => getLegacyWorkflowError(wf)).find(Boolean);
       if (legacyErr) {
         setStatus('Import rejected (legacy format): ' + legacyErr, 'error');
@@ -8662,7 +8595,7 @@
         return;
       }
       const data = JSON.parse(text);
-      const imported = normalizeImportedWorkflows(data);
+      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
       const validIds = [];
       for (const [id, wf] of Object.entries(imported)) {
         if (wf && (wf.analyzed?.actions || wf.actions)) {
@@ -8693,7 +8626,7 @@
       const res = await fetch(url.trim());
       if (!res.ok) throw new Error(res.statusText || 'Fetch failed');
       const data = await res.json();
-      const imported = normalizeImportedWorkflows(data);
+      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
       const legacyErr = Object.entries(imported).map(([id, wf]) => getLegacyWorkflowError(wf)).find(Boolean);
       if (legacyErr) {
         setStatus('Import rejected (legacy format): ' + legacyErr, 'error');

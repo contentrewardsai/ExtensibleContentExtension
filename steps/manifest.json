@@ -115,6 +115,7 @@
     "meteoraCpammClaimReward",
     "bscPancake",
     "pancakeV3RangeWatch",
+    "pancakeInfiBinRangeWatch",
     "bscTransferBnb",
     "bscTransferBep20",
     "bscAggregatorSwap",

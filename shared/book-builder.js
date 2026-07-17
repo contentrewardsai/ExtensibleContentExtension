@@ -1,6 +1,6 @@
 /**
  * Shared book builder: workflow → Markdown or HTML (print/DOC-ready).
- * Used by template-engine when workflow-based book templates are added.
+ * Used by unit tests; available for future workflow-based book export.
  */
 (function (global) {
   'use strict';
@@ -41,6 +41,8 @@
   }
 
   function escapeHtml(s) {
+    var du = global.CFS_domUtils;
+    if (du && du.escapeHtml) return du.escapeHtml(s);
     if (s == null) return '';
     var t = String(s);
     return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

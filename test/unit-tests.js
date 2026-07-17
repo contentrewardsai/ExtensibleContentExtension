@@ -5004,42 +5004,19 @@
   // ── Auto-discovery pure function tests ─────────────────────────────
 
   function testDiscoveryIsHintObject() {
-    var HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
-    function isDiscoveryHintObject(obj) {
-      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-      for (var k of HINT_ROOT_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
-      }
-      return false;
-    }
-    assertTrue(isDiscoveryHintObject({ groupSelectors: ['div'] }), 'has groupSelectors');
-    assertTrue(isDiscoveryHintObject({ preferMediaInGroup: true }), 'has preferMediaInGroup');
-    assertFalse(isDiscoveryHintObject(null), 'null');
-    assertFalse(isDiscoveryHintObject([]), 'array');
-    assertFalse(isDiscoveryHintObject({ someOtherKey: 1 }), 'no hint keys');
+    var dn = global.__CFS_discoveryInputNormalize;
+    if (!dn) throw new Error('__CFS_discoveryInputNormalize missing');
+    assertTrue(dn.isDiscoveryHintObject({ groupSelectors: ['div'] }), 'has groupSelectors');
+    assertTrue(dn.isDiscoveryHintObject({ preferMediaInGroup: true }), 'has preferMediaInGroup');
+    assertFalse(dn.isDiscoveryHintObject(null), 'null');
+    assertFalse(dn.isDiscoveryHintObject([]), 'array');
+    assertFalse(dn.isDiscoveryHintObject({ someOtherKey: 1 }), 'no hint keys');
   }
 
   function testDiscoverySplitLegacyHints() {
-    var HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
-    function isDiscoveryHintObject(obj) {
-      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-      for (var k of HINT_ROOT_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
-      }
-      return false;
-    }
-    function splitLegacyDiscoveryHintsRaw(raw) {
-      var domains = {};
-      var globalHints = {};
-      if (!raw || typeof raw !== 'object') return { domains: domains, globalHints: globalHints };
-      for (var k in raw) {
-        if (!raw.hasOwnProperty(k)) continue;
-        if (HINT_ROOT_KEYS.has(k)) globalHints[k] = raw[k];
-        else if (isDiscoveryHintObject(raw[k])) domains[k] = raw[k];
-      }
-      return { domains: domains, globalHints: globalHints };
-    }
-    var r = splitLegacyDiscoveryHintsRaw({
+    var dn = global.__CFS_discoveryInputNormalize;
+    if (!dn) throw new Error('__CFS_discoveryInputNormalize missing');
+    var r = dn.splitLegacyDiscoveryHintsRaw({
       groupSelectors: ['article'],
       'example.com': { inputCandidates: ['textarea'] },
     });
@@ -5047,7 +5024,7 @@
     assertTrue(r.domains['example.com'] !== undefined, 'domain extracted');
     assertDeepEqual(r.domains['example.com'], { inputCandidates: ['textarea'] });
 
-    var empty = splitLegacyDiscoveryHintsRaw(null);
+    var empty = dn.splitLegacyDiscoveryHintsRaw(null);
     assertDeepEqual(empty.domains, {}, 'null → empty domains');
     assertDeepEqual(empty.globalHints, {}, 'null → empty globalHints');
   }
@@ -5137,46 +5114,9 @@
   }
 
   function testDiscoveryNormalizeInput() {
-    var HINT_ROOT_KEYS = new Set(['groupSelectors', 'inputCandidates', 'outputCandidates', 'preferMediaInGroup']);
-    function isDiscoveryHintObject(obj) {
-      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-      for (var k of HINT_ROOT_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(obj, k)) return true;
-      }
-      return false;
-    }
-    function splitLegacyDiscoveryHintsRaw(raw) {
-      var domains = {};
-      var globalHints = {};
-      if (!raw || typeof raw !== 'object') return { domains: domains, globalHints: globalHints };
-      for (var k in raw) {
-        if (!raw.hasOwnProperty(k)) continue;
-        if (HINT_ROOT_KEYS.has(k)) globalHints[k] = raw[k];
-        else if (isDiscoveryHintObject(raw[k])) domains[k] = raw[k];
-      }
-      return { domains: domains, globalHints: globalHints };
-    }
-    function normalizeDiscoveryInput(data) {
-      var discoveryDomains = data.discoveryDomains;
-      var discoveryGlobalHints = data.discoveryGlobalHints && typeof data.discoveryGlobalHints === 'object' ? data.discoveryGlobalHints : {};
-      if ((!discoveryDomains || Object.keys(discoveryDomains).length === 0) && data.discoveryHints && typeof data.discoveryHints === 'object') {
-        var spl = splitLegacyDiscoveryHintsRaw(data.discoveryHints);
-        if (Object.keys(spl.domains).length) {
-          discoveryDomains = {};
-          for (var d in spl.domains) {
-            if (Object.prototype.hasOwnProperty.call(spl.domains, d)) discoveryDomains[d] = [spl.domains[d]];
-          }
-        }
-        if (Object.keys(spl.globalHints).length && Object.keys(discoveryGlobalHints).length === 0) {
-          discoveryGlobalHints = spl.globalHints;
-        }
-      }
-      return {
-        discoveryDomains: discoveryDomains && typeof discoveryDomains === 'object' ? discoveryDomains : {},
-        discoveryGlobalHints: discoveryGlobalHints,
-        discoveryStepHints: data.discoveryStepHints,
-      };
-    }
+    var dn = global.__CFS_discoveryInputNormalize;
+    if (!dn) throw new Error('__CFS_discoveryInputNormalize missing');
+    var normalizeDiscoveryInput = dn.normalizeDiscoveryInput;
     // Modern format
     var result = normalizeDiscoveryInput({
       discoveryDomains: { 'example.com': [{ groupSelectors: ['div'] }] },
@@ -5358,37 +5298,26 @@
   }
 
   function testSidepanelNormalizeScriptingError() {
-    function normalizeScriptingError(err) {
-      var msg = (err && err.message) ? String(err.message) : String(err);
-      if (/cannot access contents|cannot be scripted|restricted|chrome:\/\/|edge:\/\//i.test(msg)) {
-        return "This tab doesn't support the extension (e.g. chrome:// or extension page). Open your workflow's start URL in this tab.";
-      }
-      return msg;
-    }
-    var restricted = normalizeScriptingError(new Error('Cannot access contents of this page'));
+    var pe = global.__CFS_playbackErrorNormalize;
+    if (!pe) throw new Error('__CFS_playbackErrorNormalize missing');
+    var restricted = pe.normalizeScriptingError(new Error('Cannot access contents of this page'));
     assertTrue(restricted.indexOf("doesn't support") >= 0, 'restricted → user-friendly');
-    var chromeErr = normalizeScriptingError(new Error('chrome://extensions'));
+    var chromeErr = pe.normalizeScriptingError(new Error('chrome://extensions'));
     assertTrue(chromeErr.indexOf("doesn't support") >= 0, 'chrome:// → user-friendly');
-    var normal = normalizeScriptingError(new Error('Something else broke'));
+    var normal = pe.normalizeScriptingError(new Error('Something else broke'));
     assertEqual(normal, 'Something else broke', 'pass-through normal');
   }
 
   function testSidepanelNormalizePlaybackError() {
-    function normalizePlaybackError(res) {
-      var raw = (res && res.error) ? String(res.error) : '';
-      var isConnection = /receiving end does not exist|could not establish connection|target closed|tab was closed|message port closed/i.test(raw);
-      if (isConnection) {
-        return { message: "Extension couldn't run on this tab. Reload the page and try again, or open your workflow's start URL.", isConnection: true };
-      }
-      return { message: raw || 'unknown', isConnection: false };
-    }
-    var conn = normalizePlaybackError({ error: 'Receiving end does not exist' });
+    var pe = global.__CFS_playbackErrorNormalize;
+    if (!pe) throw new Error('__CFS_playbackErrorNormalize missing');
+    var conn = pe.normalizePlaybackError({ error: 'Receiving end does not exist' });
     assertTrue(conn.isConnection, 'isConnection=true');
     assertTrue(conn.message.indexOf('Reload') >= 0, 'user-friendly message');
-    var other = normalizePlaybackError({ error: 'Element not found' });
+    var other = pe.normalizePlaybackError({ error: 'Element not found' });
     assertFalse(other.isConnection, 'isConnection=false');
     assertEqual(other.message, 'Element not found');
-    var empty = normalizePlaybackError({});
+    var empty = pe.normalizePlaybackError({});
     assertEqual(empty.message, 'unknown');
   }
 

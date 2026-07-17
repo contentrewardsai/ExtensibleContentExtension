@@ -72,7 +72,7 @@ This document defines the **consistent contract** all step plugins follow so tha
 
 Other optional fields (see docs/STEP_PLUGINS.md): `inputs`, `outputs`, `variables`, `wait`, `success`, `failure`, `conditions`, `loops`.
 
-For step-specific configuration and behavior (e.g. Extract data, Loop, Run generator, Run workflow, Capture audio, Screen capture, Send to endpoint), see **steps/README.md** (§ Step-specific documentation).
+For step-specific configuration and behavior (e.g. Extract data, Loop, Run workflow, Capture audio, Screen capture, Send to endpoint), see **steps/README.md** (§ Step-specific documentation).
 
 ## 4. Sidepanel (sidepanel.js) contract
 

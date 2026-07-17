@@ -17,6 +17,9 @@ importScripts('pump-sdk.bundle.js');
 importScripts('raydium-sdk.bundle.js');
 importScripts('meteora-dlmm.bundle.js');
 importScripts('meteora-cpamm.bundle.js');
+importScripts('crypto-storage.js');
+importScripts('solana-rpc-helpers.js');
+importScripts('evm-helpers.js');
 importScripts('solana-swap.js');
 importScripts('../shared/cfs-always-on-automation.js');
 importScripts('../shared/workflow-edit-history.js');
@@ -45,6 +48,7 @@ importScripts('meteora-dlmm.js');
 importScripts('meteora-cpamm.js');
 importScripts('bsc-watch.js');
 importScripts('file-watch.js');
+importScripts('infi-bin-range-watch.js');
 importScripts('aster-futures.js');
 importScripts('remote-llm.js');
 
@@ -1342,7 +1346,7 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
   const analyzed = wf?.analyzed;
   const actions = analyzed?.actions;
   if (!actions?.length) return mkHistoryEntry(entry, 'failed', 'Workflow not found or no steps');
-  let startUrl = (wf.urlPattern?.origin || '').trim();
+  let startUrl = (entry.overrideStartUrl && String(entry.overrideStartUrl).trim()) || (wf.urlPattern?.origin || '').trim();
   if (!startUrl && wf.runs?.[0]?.url) {
     try { startUrl = new URL(wf.runs[0].url).origin; } catch (_) {}
   }
@@ -1358,13 +1362,14 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
   const tabsOpened = [];
   const windowsOpened = [];
   try {
-    const tab = await chrome.tabs.create({ url: startUrl });
+    const tab = await chrome.tabs.create({ url: startUrl, active: entry.activeTab !== true });
     if (!tab?.id) return mkHistoryEntry(entry, 'failed', 'Could not create tab');
     tabsOpened.push(tab.id);
     await waitForTabComplete(tab.id);
     await ensureContentScriptInTab(tab.id);
     let tabId = tab.id;
-    let startIdx;
+    let startIdx = entry.startStepIndex != null ? Number(entry.startStepIndex) : undefined;
+    if (startIdx != null && (!Number.isFinite(startIdx) || startIdx < 0)) startIdx = 0;
     let res;
     for (;;) {
       const msg = { type: 'PLAYER_START', workflow: resolved, row: entry.row || {} };
@@ -1425,6 +1430,8 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
     }
   }
 }
+
+globalThis.__CFS_executeBackgroundWorkflow = executeScheduledWorkflowEntry;
 
 async function runScheduledRuns() {
   const { workflows = {}, scheduledWorkflowRuns = [], workflowRunHistory = [] } = await chrome.storage.local.get(['workflows', 'scheduledWorkflowRuns', 'workflowRunHistory']);
@@ -1501,6 +1508,9 @@ chrome.runtime.onInstalled.addListener(() => {
   try {
     if (typeof globalThis.__CFS_fileWatch_setupAlarm === 'function') globalThis.__CFS_fileWatch_setupAlarm();
   } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_infiBinRangeWatch_setupAlarm === 'function') globalThis.__CFS_infiBinRangeWatch_setupAlarm();
+  } catch (_) {}
   /* Auto-restore crypto test snapshot if the browser was interrupted during tests */
   try {
     if (typeof globalThis.__CFS_cryptoTest_autoRestoreOnStartup === 'function') {
@@ -1521,6 +1531,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   } else if (alarm.name === 'cfs_file_watch_poll') {
     const tick = globalThis.__CFS_fileWatch_tick;
     if (typeof tick === 'function') tick().catch(() => {});
+  } else if (alarm.name === 'cfs_infi_bin_range_poll') {
+    const tick = globalThis.__CFS_infiBinRangeWatch_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
   }
 });
 
@@ -1534,6 +1547,9 @@ chrome.runtime.onStartup.addListener(() => {
   } catch (_) {}
   try {
     if (typeof globalThis.__CFS_fileWatch_setupAlarm === 'function') globalThis.__CFS_fileWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_infiBinRangeWatch_setupAlarm === 'function') globalThis.__CFS_infiBinRangeWatch_setupAlarm();
   } catch (_) {}
   /* Auto-restore crypto test snapshot if the browser was interrupted during tests */
   try {
@@ -2533,6 +2549,20 @@ function validateMessagePayload(type, msg) {
         return { valid: false, error: 'forceApprove must be boolean' };
       }
       break;
+    case 'CFS_BSC_TRANSFER_BNB': {
+      const toBnb =
+        (msg.toAddress != null && String(msg.toAddress).trim()) ||
+        (msg.to != null && String(msg.to).trim());
+      if (!toBnb) return { valid: false, error: 'toAddress required' };
+      const weiBnb =
+        msg.amountWei != null
+          ? String(msg.amountWei).trim()
+          : msg.ethWei != null
+            ? String(msg.ethWei).trim()
+            : '';
+      if (!weiBnb) return { valid: false, error: 'amountWei required' };
+      break;
+    }
     case 'CFS_BSC_QUERY': {
       const qop = msg.operation != null ? String(msg.operation).trim() : '';
       if (!qop) return { valid: false, error: 'operation required' };
@@ -2730,6 +2760,25 @@ function validateMessagePayload(type, msg) {
         return { valid: false, error: 'v3PositionTokenId required' };
       }
       break;
+    case 'CFS_BSC_INFI_BIN_RANGE_CHECK': {
+      var hasPos = msg.infiPositionTokenId != null && String(msg.infiPositionTokenId).trim() !== '';
+      var hasRange =
+        msg.infiLowerBinId != null && String(msg.infiLowerBinId).trim() !== '' &&
+        msg.infiUpperBinId != null && String(msg.infiUpperBinId).trim() !== '';
+      var hasPool = msg.poolId != null && String(msg.poolId).trim() !== '';
+      var hasPoolKey =
+        msg.tokenA != null && String(msg.tokenA).trim() !== '' &&
+        msg.tokenB != null && String(msg.tokenB).trim() !== '' &&
+        msg.infinityFee != null && String(msg.infinityFee).trim() !== '' &&
+        msg.binStep != null && String(msg.binStep).trim() !== '';
+      if (!hasPos && !hasRange) {
+        return { valid: false, error: 'infiPositionTokenId or infiLowerBinId+infiUpperBinId required' };
+      }
+      if (!hasPool && !hasPos && !hasPoolKey) {
+        return { valid: false, error: 'poolId or infiPositionTokenId or pool key fields (tokenA, tokenB, infinityFee, binStep) required' };
+      }
+      break;
+    }
     case 'CFS_ASTER_FUTURES': {
       const ac = msg.asterCategory != null ? String(msg.asterCategory).trim() : '';
       const ao = msg.operation != null ? String(msg.operation).trim() : '';
@@ -2992,6 +3041,11 @@ function validateMessagePayload(type, msg) {
       break;
     case 'CFS_FILE_WATCH_REFRESH_NOW':
     case 'CFS_FILE_WATCH_GET_STATUS':
+      break;
+    case 'CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW':
+    case 'CFS_INFI_BIN_RANGE_WATCH_GET_STATUS':
+      break;
+    case 'CFS_INFI_BIN_RANGE_WATCH_STOP':
       break;
     case 'CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW':
       break;
@@ -3411,6 +3465,57 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const data = await chrome.storage.local.get(['cfsFileWatchLastPoll']);
         sendResponse({ ok: true, lastPoll: data.cfsFileWatchLastPoll || null });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_infiBinRangeWatch_tick;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Infinity bin range watch not loaded' });
+          return;
+        }
+        await fn();
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_INFI_BIN_RANGE_WATCH_GET_STATUS') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_infiBinRangeWatch_getStatus;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Infinity bin range watch not loaded' });
+          return;
+        }
+        const out = await fn();
+        sendResponse(out || { ok: false });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_INFI_BIN_RANGE_WATCH_STOP') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_infiBinRangeWatch_handleStop;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'Infinity bin range watch not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: true });
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
       }
@@ -4947,6 +5052,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (type === 'CFS_BSC_TRANSFER_BNB') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_executePoolOp;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC pool handler not loaded' });
+          return;
+        }
+        const toAddress = String(msg.toAddress || msg.to || '').trim();
+        const amountWei =
+          msg.amountWei != null
+            ? String(msg.amountWei).trim()
+            : msg.ethWei != null
+              ? String(msg.ethWei).trim()
+              : '';
+        const out = await fn({
+          ...msg,
+          operation: 'transferNative',
+          to: toAddress,
+          ethWei: amountWei,
+        });
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (type === 'CFS_BSC_POOL_EXECUTE') {
     (async () => {
       try {
@@ -5010,6 +5144,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(out || { ok: false, error: 'No response' });
       } catch (e) {
         sendResponse({ ok: false, error: 'BSC V3 range check failed: ' + (e && e.message ? e.message : String(e)) });
+      }
+    })();
+    return true;
+  }
+
+  if (type === 'CFS_BSC_INFI_BIN_RANGE_CHECK') {
+    (async () => {
+      try {
+        const fn = globalThis.__CFS_bsc_infi_bin_range_check;
+        if (typeof fn !== 'function') {
+          sendResponse({ ok: false, error: 'BSC Infinity bin range check handler not loaded' });
+          return;
+        }
+        const out = await fn(msg);
+        sendResponse(out || { ok: false, error: 'No response' });
+      } catch (e) {
+        sendResponse({ ok: false, error: 'BSC Infinity bin range check failed: ' + (e && e.message ? e.message : String(e)) });
       }
     })();
     return true;

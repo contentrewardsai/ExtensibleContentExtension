@@ -1,6 +1,8 @@
 # Workflow sections, step comments, selector robustness, and output formats
 
-This document describes how **workflow steps and selectors**, **step comments** (text/image/video/audio/URLs), and **generator templates** fit together — and how we support robust fallback selectors, multiple output formats (video tutorial, image series, book, tutorial export, walkthrough embed), and workflow Q&A.
+This document describes how **workflow steps and selectors**, **step comments** (text/image/video/audio/URLs), and **output formats** fit together — and how we support robust fallback selectors, walkthrough/book export concepts, and workflow Q&A.
+
+> **Note:** Built-in **generator templates** (ShotStack, Pixi, `generator/templates/`) were removed. Sections below that reference generator paths are **historical**; surviving code includes `shared/walkthrough-export.js` and `shared/book-builder.js` (unit tests).
 
 ---
 
@@ -32,9 +34,9 @@ Workflow steps should support **comments** that authors use to describe the step
 }
 ```
 
-Or a flatter shape: `stepDescription`, `stepImageUrls`, `stepVideoUrl`, `stepAudioUrl`, `stepResourceUrls`. The exact keys can match what generator templates and tutorial export expect.
+Or a flatter shape: `stepDescription`, `stepImageUrls`, `stepVideoUrl`, `stepAudioUrl`, `stepResourceUrls`. The exact keys can match what tutorial export and walkthrough helpers expect.
 
-**Use:** Generator templates (video tutorial, book, image series, tutorial export, walkthrough embed) read these comments and use them as copy, narration, or tooltips for each step.
+**Use:** Step comments feed narration blocks in the sidepanel, workflow sync, and export helpers (`shared/walkthrough-export.js`, `shared/book-builder.js` in unit tests). Generator templates that consumed comments were removed.
 
 ---
 
@@ -58,9 +60,11 @@ Workflow steps use **selectors** to find elements (click, type, etc.). The exten
 
 ---
 
-## 3. Generator templates under `generator/templates/`
+## 3. Generator templates (removed)
 
-Generator templates (see **generator/templates/README.md** and **schemas/extension-schema.json**) produce outputs (image, video, text, audio, book) from inputs. The following are **template types** or **output formats** that consume **workflow + step comments**.
+> **Removed:** The built-in generator (`generator/templates/`, ShotStack rendering, template-engine) was removed from this extension. Content creation moved to the Whop app. The sections below are retained as historical reference for workflow output concepts; walkthrough export (`shared/walkthrough-export.js`) and book-builder unit tests remain for future workflow-based outputs.
+
+Generator templates (formerly under **generator/templates/**) produced outputs (image, video, text, audio, book) from inputs. The following were **template types** or **output formats** that consume **workflow + step comments**.
 
 ### 3.1 Video tutorial output format
 
@@ -121,20 +125,22 @@ This section is a **product vision**; implementation can start with "question + 
 
 | Area | What we add | Where it lives |
 |------|-------------|----------------|
-| **Step comments** | text, images, video, audio, URLs per step | Workflow JSON (step object); used by generator templates and tutorial export. |
-| **Selector robustness** | Multiple selector strategies; stability scoring; test on live page; fallback chain | shared/selectors.js, analyzer, player. |
-| **Video tutorial** | Template + step text/outline; step outline from workflow | generator/templates/, template-engine. |
-| **Post image series** | Template (text + page image + logo + brand) → one image per step | generator/templates/ (e.g. ad-apple-notes, ad-facebook). |
-| **Book format** | Page format + step text + screenshot placeholders → HTML | generator/templates/, shared/book-builder.js. |
-| **Tutorial export** | JS code + tooltips + step-by-step walkthrough from workflow | shared/walkthrough-export.js, template-engine. |
-| **Walkthrough embed** | Embeddable interactive walkthrough; optional quizzing | generator/templates/, shared/walkthrough-export.js. |
+| **Step comments** | text, images, video, audio, URLs per step | Workflow JSON (`analyzed.actions[].comment`); sidepanel editor; `shared/step-comment.js`. |
+| **Selector robustness** | Multiple selector strategies; stability scoring; test on live page; fallback chain | `shared/selectors.js`, analyzer, player. |
+| **Walkthrough / book export (helpers)** | JS walkthrough embed; book HTML from step text + screenshot placeholders | `shared/walkthrough-export.js`, `shared/book-builder.js` (unit tests; no generator UI). |
 | **Workflow Q&A** | Ask question; submit workflows as answers; credits (partial – local storage; backend sync pending) | Backend + sidepanel/UI; docs/BACKEND.md (§ Workflow Q&A and credits API). |
+
+### Historical (removed generator)
+
+| Output (removed) | Former lookup |
+|------------------|---------------|
+| Video tutorial, post image series, generator book/walkthrough templates | `generator/templates/`, template-engine, ShotStack |
 
 ---
 
 ## 6. References
 
 - **Workflows and steps:** WORKFLOW_SPEC.md, STEPS_AND_RUNTIMES.md.
-- **Generator templates:** generator/templates/README.md, generator/templates/schemas/extension-schema.json.
+- **Export helpers:** shared/walkthrough-export.js, shared/book-builder.js.
 - **Selectors:** shared/selectors.js.
 - **Error correction (don’t break):** ERROR_CORRECTION_CHECKLIST.md — checklist for player, step handlers, and sidepanel so scroll-to-step on failure keeps working.

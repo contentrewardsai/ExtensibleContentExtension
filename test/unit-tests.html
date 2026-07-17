@@ -21,7 +21,7 @@
   <div id="unitTestResults"></div>
   <div id="cryptoTestPanel" style="margin-top:20px;padding:12px;border:1px solid #8c8;border-radius:6px;background:#f8fff8;">
     <h2 style="margin-top:0;">Crypto step tests</h2>
-    <p class="hint" style="margin-top:0;">Creates or reuses labeled <strong>Crypto test (devnet/Chapel)</strong> wallets, sets Solana to <strong>devnet</strong> and BSC to <strong>Chapel (97)</strong>, then requests test tokens (Solana airdrop; BSC best-effort). Open via side panel <strong>Unit tests</strong>, <strong>Settings → Tests → Open unit tests page</strong>, or this extension URL.</p>
+    <p class="hint" style="margin-top:0;">Creates or reuses labeled <strong>Crypto test (devnet/Chapel)</strong> wallets, sets Solana to <strong>devnet</strong> and BSC to <strong>Chapel (97)</strong>, then requests test tokens (Solana airdrop; BSC best-effort). Open via **Settings → Tests → Open unit tests page**, or this extension URL.</p>
     <p id="cryptoTestBanner" style="display:none;color:#060;font-size:13px;font-weight:600;"></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <button type="button" id="runCryptoTestsBtn" class="btn" data-testid="cfs-run-crypto-tests">Run crypto tests</button>
@@ -41,6 +41,9 @@
 
   <script src="chrome-shim.js"></script>
   <script src="../extension/config.js"></script>
+  <script src="../extension/auth-fetch.js"></script>
+  <script src="../extension/workflow-normalize.js"></script>
+  <script src="../shared/dom-utils.js"></script>
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
   <script src="../shared/step-validator.js"></script>
@@ -53,6 +56,8 @@
   <script src="../shared/discovery-selector-filters.js"></script>
   <script src="../shared/discovery-from-analyze.js"></script>
   <script src="../shared/cross-workflow-selectors.js"></script>
+  <script src="../shared/discovery-input-normalize.js"></script>
+  <script src="../shared/playback-error-normalize.js"></script>
   <script src="../shared/book-builder.js"></script>
   <script src="../shared/walkthrough-export.js"></script>
   <script src="../shared/run-variation.js"></script>
@@ -216,6 +221,7 @@
   <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
   <script src="../steps/bscPancake/handler.js"></script>
   <script src="../steps/pancakeV3RangeWatch/handler.js"></script>
+  <script src="../steps/pancakeInfiBinRangeWatch/handler.js"></script>
   <script src="../steps/bscTransferBnb/handler.js"></script>
   <script src="../steps/bscTransferBep20/handler.js"></script>
   <script src="../steps/bscAggregatorSwap/handler.js"></script>
@@ -371,6 +377,7 @@
   <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
   <script src="../steps/bscPancake/step-tests.js"></script>
   <script src="../steps/pancakeV3RangeWatch/step-tests.js"></script>
+  <script src="../steps/pancakeInfiBinRangeWatch/step-tests.js"></script>
   <script src="../steps/bscTransferBnb/step-tests.js"></script>
   <script src="../steps/bscTransferBep20/step-tests.js"></script>
   <script src="../steps/bscAggregatorSwap/step-tests.js"></script>

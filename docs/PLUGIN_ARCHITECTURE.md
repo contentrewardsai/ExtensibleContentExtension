@@ -1,6 +1,8 @@
 # Plugin architecture and extensibility
 
-This doc describes the manifest + registry pattern for adding new plugin types, how to extend the extension using the project folder, and the built-in APIs (step execution context `ctx`, sidepanel registration, generator input registry).
+This doc describes the manifest + registry pattern for adding new step plugins, how to extend the extension using the project folder, and the built-in APIs (step execution context `ctx`, sidepanel registration).
+
+> **Note:** The built-in **generator** (`generator/inputs/`, `generator/outputs/`, `generator/templates/`) was removed. Only **steps** and **workflows** are extensible via the project folder today.
 
 ---
 
@@ -9,23 +11,22 @@ This doc describes the manifest + registry pattern for adding new plugin types, 
 Once you **set the project folder** (the extension’s unpacked root), the app can write into it using the File System Access API. That allows:
 
 - **Workflows** – `workflows/{id}/workflow.json` and manifest.
-- **Generator templates** – `generator/templates/{id}/` (extension.json + template.json); use Reload Extension to discover.
 - **Steps** – `steps/{id}/` (step.json, handler.js, sidepanel.js); **steps/manifest.json** is updated automatically; extension manifest does not list step handlers.
 
 **How it works:** (1) Pick the project folder once; it is stored and reused. (2) The extension is loaded **unpacked** from that folder, so `chrome.runtime.getURL('')` points at it. (3) New files written there are part of the extension and load after reload.
 
-Set the project folder in the side panel (Library → Set project folder), then click **Reload Extension** to discover new steps, templates, and workflows.
+Set the project folder in the side panel (Library → Set project folder), then click **Reload Extension** to discover new steps and workflows.
 
 ---
 
 ## Pattern overview
 
-| Phase | Steps | Generator Inputs | Generator Outputs |
-|-------|-------|------------------|-------------------|
-| **Manifest** | `steps/manifest.json` → `steps` array | `generator/inputs/manifest.json` → `scripts` array | `generator/outputs/manifest.json` → `scripts` array |
-| **Loader** | `steps/loader.js` fetches manifest, background injects handlers | `generator/load-from-manifest.js` loads scripts | Same as inputs |
-| **Registration** | `window.__CFS_registerStepHandler(id, handler, meta)` | `window.__CFS_genInputs.register(type, createFn)` | `window.__CFS_genOutputs.register(type, showFn, exportFn)` |
-| **Registry** | `steps/registry.js` → `__CFS_stepHandlers` | `generator/inputs/registry.js` → `__CFS_genInputs` | `generator/outputs/registry.js` → `__CFS_genOutputs` |
+| Phase | Steps |
+|-------|-------|
+| **Manifest** | `steps/manifest.json` → `steps` array |
+| **Loader** | `steps/loader.js` fetches manifest, background injects handlers |
+| **Registration** | `window.__CFS_registerStepHandler(id, handler, meta)` |
+| **Registry** | `steps/registry.js` → `__CFS_stepHandlers` |
 
 ---
 
@@ -38,21 +39,6 @@ Set the project folder in the side panel (Library → Set project folder), then 
 3. Reload the extension. The loader fetches the manifest and the background injects `steps/<id>/handler.js` into tabs. Handlers register via `__CFS_registerStepHandler`.
 
 See **docs/STEP_PLUGINS.md** and **steps/CONTRACT.md**.
-
-### Generator input/output plugins
-
-1. Create a script under `generator/inputs/` or `generator/outputs/` (e.g. `generator/inputs/my-type.js`).
-2. Add the script path to the `scripts` array in `generator/inputs/manifest.json` or `generator/outputs/manifest.json`. Paths are **relative to generator/** (e.g. `"inputs/my-type.js"` for `generator/inputs/my-type.js`).
-3. In the script, call `__CFS_genInputs.register('myType', createFn)` or `__CFS_genOutputs.register('myType', showFn, exportFn)`.
-
-The main generator loads inputs then outputs from manifests before initializing. No `index.html` edit needed.
-
-### Templates
-
-1. Create `generator/templates/<id>/` with `template.json` (ShotStack format) and `extension.json` (inputSchema, outputType, etc.).
-2. Add `"<id>"` to the template list in `generator/templates/manifest.json`.
-
-See **docs/GENERATOR_ARCHITECTURE.md**.
 
 ### Workflows
 
@@ -80,7 +66,6 @@ See **docs/GENERATOR_ARCHITECTURE.md**.
 ## Load order dependencies
 
 - **Steps** (main tab bundle): `selectors.js` → `recording-value.js` → `selector-parity.js` → `manifest-loader.js` → `template-resolver.js` → `registry.js` → `loader.js` (content scripts). Loader asks background to inject handler scripts. Canonical ordered list: **shared/content-script-tab-bundle.js** (must match `manifest.json` `content_scripts[0].js`; run `npm run check:content-bundle`).
-- **Generator**: `load-from-manifest.js` runs on `index.html` load; fetches inputs manifest → loads registry → loads input scripts → same for outputs → then template-engine, scene, etc.
 
 ---
 
@@ -92,9 +77,8 @@ See **docs/GENERATOR_ARCHITECTURE.md**.
 |-------|----------------|---------------|---------------|
 | **Workflows** | Add/edit/version workflows; store in extension or project folder. | Yes – workflow JSON shape, `workflows/{id}/`, versioned files. | N/A (data only). |
 | **Steps** | New step types = new folder under `steps/{id}/`; register handler + sidepanel. | Yes – handler signature, `opts.ctx`, sidepanel `__CFS_registerStepSidepanel(spec)`. | **Execution:** `ctx` with ~20 helpers (resolveElement, sleep, getRowValue, performClick, …). **UI:** `getStepTypes()`, `getDefaultActionForType()`, `__CFS_buildStepItemShell()`, helpers. |
-| **Generator templates** | New template = folder under `generator/templates/{id}/` (extension.json + template.json). | Yes – extension.json schema; template-engine loads and generates. | **Inputs:** sidebar from extension.inputSchema; **Runtime:** template-engine. |
 
-So: **steps** and **generator templates** are the extensible layers. They **are** extensible in a WordPress/app-platform sense: you add a folder + manifest entry, implement a small contract, and the core loads and calls you. The **built-in functions** are the "platform API" you can rely on.
+**Steps** are the primary extensible layer: add a folder + manifest entry, implement a small contract, and the core loads and calls you.
 
 ### Steps: execution context (ctx)
 
@@ -147,7 +131,3 @@ window.__CFS_registerStepSidepanel(id, spec);
 **`spec`** fields: `label`, `defaultAction`, `getSummary(action, i)`, `renderBody(action, i, wfId, totalCount, helpers)`, `saveStep(item, action, idx)`, and optional `getVariableKey`, `getVariableHint`, `getExtraVariableKeys`, `mergeInto`, `getSimilarityScore`, `handlesOwnWait`, `shortcutLabel`, `shortcutDefaultAction`.
 
 The **core** provides: `getStepTypes()`, `getDefaultActionForType(stepType)`, `getStepSummary(action, i)`, `__CFS_buildStepItemShell(...)`.
-
-### Generator templates: contract
-
-Generator templates live under **generator/templates/{id}/** (extension.json + template.json). **Contract:** extension.json (id, name, outputType, inputSchema, etc.) + optional template.json (ShotStack timeline). **Built-in:** Sidebar from extension.inputSchema via `__CFS_genInputs.create(...)`. Template engine: loadTemplateList(), loadTemplate(id, options), generate().

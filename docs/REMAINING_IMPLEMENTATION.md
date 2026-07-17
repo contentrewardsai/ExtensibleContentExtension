@@ -17,10 +17,8 @@ The following are implemented and in use:
 - Step conditions (runIf) and loops (listVariable, count)
 - Loop-over-list in row (itemVariable, indexVariable)
 - Walkthrough backend progress reporting (reportUrl)
-- Book export with per-step screenshot placeholders in HTML/Markdown output
-- Bulk video / Run generator video (Pixi timeline)
-- Generator handler migration (all templates unified)
-- Book export, workflow-step-images, combine-videos, video tutorial, tutorial export, walkthrough embed
+- Book export with per-step screenshot placeholders in HTML/Markdown output (unit tests via `shared/book-builder.js`)
+- Walkthrough export helpers (`shared/walkthrough-export.js`) for unit tests and future workflow outputs
 
 ---
 
