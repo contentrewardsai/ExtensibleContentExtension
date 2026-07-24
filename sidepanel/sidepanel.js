@@ -1359,7 +1359,7 @@
     const ids = Object.keys(workflows || {});
     const filteredIds = ids.filter(id => workflowMatchesCurrentTab(workflows[id]) && !isTestWorkflow(workflows[id]));
     const newWfOption = '<option value="__new__">+ New workflow...</option>';
-    const opts = filteredIds.map(id => `<option value="${id}">${escapeHtml((workflows[id]?.name || id))}</option>`).join('');
+    const opts = filteredIds.map(id => `<option value="${escapeAttr(id)}">${escapeHtml((workflows[id]?.name || id))}</option>`).join('');
     if (workflowSelect) {
       const prevPlanSel = workflowSelect.value;
       workflowSelect.innerHTML = newWfOption + (opts || '');
@@ -1419,7 +1419,7 @@
 
   function renderProcessSelects() {
     const ids = Object.keys(workflows || {});
-    const opts = ids.map(id => `<option value="${id}">${escapeHtml(workflows[id].name || id)}</option>`).join('');
+    const opts = ids.map(id => `<option value="${escapeAttr(id)}">${escapeHtml(workflows[id].name || id)}</option>`).join('');
     const empty = '<option value="">None</option>';
     ['processStartWorkflow', 'processLoopWorkflow', 'processQualityWorkflow', 'processEndWorkflow'].forEach(id => {
       const el = document.getElementById(id);
@@ -8537,15 +8537,28 @@
     }
   });
 
-  /** Returns error message if workflow has legacy format; null if canonical. */
-  function getLegacyWorkflowError(wf) {
-    if (!wf) return null;
-    if ('startUrl' in wf && wf.startUrl != null) return 'Workflow uses legacy startUrl. Use urlPattern: { origin, pathPattern } instead.';
-    if (wf.qualityCheck && !(wf.analyzed?.actions || []).some((a) => a.type === 'qualityCheck')) return 'Workflow uses legacy top-level qualityCheck. QC config must live on a qualityCheck step in analyzed.actions.';
-    const qc = wf.qualityCheck;
-    if (qc && ('inputSource' in qc || 'inputVariable' in qc || 'inputSelectors' in qc)) return 'Workflow uses legacy QC inputs (inputSource/inputVariable/inputSelectors). Use inputs[] format instead.';
-    if ('preprocessor' in wf || 'preprocessorConfig' in wf) return 'Workflow contains deprecated preprocessor fields.';
-    return null;
+  async function applyImportedWorkflowPayload(data, successMsg, emptyMsg) {
+    const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
+    const merged = ExtensionWorkflowNormalize.mergeImportedWorkflowsInto(workflows, imported, {
+      defaultName: 'Imported workflow',
+      rejectLegacy: true,
+    });
+    if (merged.legacyError) {
+      setStatus('Import rejected (legacy format): ' + merged.legacyError, 'error');
+      return;
+    }
+    if (merged.count > 0) {
+      workflows = merged.store;
+      await chrome.storage.local.set({ workflows });
+      loadWorkflows();
+      if (playbackWorkflow) playbackWorkflow.value = merged.validIds[0];
+      setStatus(successMsg, 'success');
+      for (const id of merged.validIds) {
+        syncWorkflowToBackend(id).catch(() => {});
+      }
+    } else {
+      setStatus(emptyMsg, 'error');
+    }
   }
 
   document.getElementById('importWorkflowPreset')?.addEventListener('click', () => {
@@ -8558,30 +8571,11 @@
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
-      const legacyErr = Object.entries(imported).map(([id, wf]) => getLegacyWorkflowError(wf)).find(Boolean);
-      if (legacyErr) {
-        setStatus('Import rejected (legacy format): ' + legacyErr, 'error');
-        return;
-      }
-      const validIds = [];
-      for (const [id, wf] of Object.entries(imported)) {
-        if (wf && (wf.analyzed?.actions || wf.actions)) {
-          workflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Imported workflow' };
-          validIds.push(id);
-        }
-      }
-      if (validIds.length > 0) {
-        await chrome.storage.local.set({ workflows });
-        loadWorkflows();
-        if (playbackWorkflow) playbackWorkflow.value = validIds[0];
-        setStatus('Workflow imported.', 'success');
-        for (const id of validIds) {
-          syncWorkflowToBackend(id).catch(() => {});
-        }
-      } else {
-        setStatus('No valid workflow found. Expected { "workflows": { "wf_xxx": {...} } } or a single workflow with "actions". Use canonical form (urlPattern, qualityCheck step).', 'error');
-      }
+      await applyImportedWorkflowPayload(
+        data,
+        'Workflow imported.',
+        'No valid workflow found. Expected { "workflows": { "wf_xxx": {...} } } or a single workflow with "actions". Use canonical form (urlPattern, qualityCheck step).'
+      );
     } catch (err) {
       setStatus('Import failed: ' + (err?.message || 'invalid JSON'), 'error');
     }
@@ -8595,25 +8589,11 @@
         return;
       }
       const data = JSON.parse(text);
-      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
-      const validIds = [];
-      for (const [id, wf] of Object.entries(imported)) {
-        if (wf && (wf.analyzed?.actions || wf.actions)) {
-          workflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Imported workflow' };
-          validIds.push(id);
-        }
-      }
-      if (validIds.length > 0) {
-        await chrome.storage.local.set({ workflows });
-        loadWorkflows();
-        if (playbackWorkflow) playbackWorkflow.value = validIds[0];
-        setStatus('Workflow pasted. Select it from the dropdown to use.', 'success');
-        for (const id of validIds) {
-          syncWorkflowToBackend(id).catch(() => {});
-        }
-      } else {
-        setStatus('Clipboard does not contain a valid workflow (need "actions" or "workflows").', 'error');
-      }
+      await applyImportedWorkflowPayload(
+        data,
+        'Workflow pasted. Select it from the dropdown to use.',
+        'Clipboard does not contain a valid workflow (need "actions" or "workflows").'
+      );
     } catch (err) {
       setStatus('Paste failed: ' + (err?.message || 'invalid JSON'), 'error');
     }
@@ -8626,30 +8606,7 @@
       const res = await fetch(url.trim());
       if (!res.ok) throw new Error(res.statusText || 'Fetch failed');
       const data = await res.json();
-      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
-      const legacyErr = Object.entries(imported).map(([id, wf]) => getLegacyWorkflowError(wf)).find(Boolean);
-      if (legacyErr) {
-        setStatus('Import rejected (legacy format): ' + legacyErr, 'error');
-        return;
-      }
-      const validIds = [];
-      for (const [id, wf] of Object.entries(imported)) {
-        if (wf && (wf.analyzed?.actions || wf.actions)) {
-          workflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Imported workflow' };
-          validIds.push(id);
-        }
-      }
-      if (validIds.length > 0) {
-        await chrome.storage.local.set({ workflows });
-        loadWorkflows();
-        if (playbackWorkflow) playbackWorkflow.value = validIds[0];
-        setStatus('Workflow imported from URL.', 'success');
-        for (const id of validIds) {
-          syncWorkflowToBackend(id).catch(() => {});
-        }
-      } else {
-        setStatus('No valid workflow in response.', 'error');
-      }
+      await applyImportedWorkflowPayload(data, 'Workflow imported from URL.', 'No valid workflow in response.');
     } catch (err) {
       setStatus('Import from URL failed: ' + (err?.message || 'unknown'), 'error');
     }
@@ -9455,20 +9412,44 @@
     });
   }
 
+  async function waitForStepHandlersReady(tabId, timeoutMs) {
+    const deadline = Date.now() + (timeoutMs != null ? timeoutMs : 8000);
+    while (Date.now() < deadline) {
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => !!(window.__CFS_stepHandlersReady || window.__CFS_stepHandlersInjectFailed),
+        });
+        if (results && results[0] && results[0].result) return;
+      } catch (_) {}
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
   async function ensureContentScriptLoaded(tabId) {
+    const bundleFiles =
+      typeof CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES !== 'undefined' && Array.isArray(CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES)
+        ? CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES
+        : null;
     try {
       await chrome.tabs.sendMessage(tabId, { type: 'RECORDER_STATUS' });
+      await waitForStepHandlersReady(tabId, 2500);
       return;
     } catch (_) {}
     try {
       await new Promise((r) => setTimeout(r, 400));
       await chrome.tabs.sendMessage(tabId, { type: 'RECORDER_STATUS' });
+      await waitForStepHandlersReady(tabId, 2500);
       return;
     } catch (_) {}
+    if (!bundleFiles || !bundleFiles.length) {
+      throw new Error('Content script bundle list unavailable');
+    }
     await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      files: ['shared/selectors.js', 'shared/recording-value.js', 'shared/selector-parity.js', 'content/recorder.js', 'content/player.js', 'content/auto-discovery.js'],
+      target: { tabId },
+      files: bundleFiles,
     });
+    await waitForStepHandlersReady(tabId, 8000);
   }
 
   async function applyPlanMediaToRunData(runData, wfId, tabUrl, mediaRes) {

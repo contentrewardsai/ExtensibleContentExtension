@@ -58,10 +58,9 @@ Loads `test/recorder-stop-typing.html` in Puppeteer with a minimal `chrome.runti
 
 ### What is tested
 
-- `shared/` – step-validator, step-comment, template-resolver, selectors, analyzer, book-builder, walkthrough-export
+- `shared/` – step-validator, step-comment, template-resolver, selectors, analyzer, walkthrough-export
 - `steps/{id}/step-tests.js` – per-step unit tests. Run `npm run build:step-tests` to inject script tags for all steps with tests into `test/unit-tests.html` (replaces the `<!-- STEP_TESTS_START -->` … `<!-- STEP_TESTS_END -->` section). See **steps/TESTING.md**.
 - `shared/step-comment.js` – comment parts and summary
-- `shared/book-builder.js` – step caption and body
 - `shared/walkthrough-export.js` – selector strings and config building
 - `shared/analyzer.js` – normalStepType, mergeSelectors, mergeFallbackTexts, analyzeRuns
 - `shared/selectors.js` – decodeSelectorValue, scoreSelectorString, generateSelectors, actionSimilarity

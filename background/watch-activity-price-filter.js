@@ -14,88 +14,16 @@
   var WATCH_QUICKNODE_HTTP = 'cfs_quicknode_solana_http_url';
 
   var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
+  var solRpc = globalThis.CFS_SOLANA_RPC || {};
 
-  function defaultRpc(cluster) {
-    var c = String(cluster || 'mainnet-beta').trim();
-    if (c === 'devnet') return 'https://api.devnet.solana.com';
-    return 'https://api.mainnet-beta.solana.com';
-  }
-
-  /** Same order as solana-watch.js resolveWatchRpcUrl (watch override → QuickNode → Helius → signing RPC / default). */
   function resolveWatchRpcUrl(stored) {
-    var w = String(stored[WATCH_RPC_OVERRIDE] || '').trim();
-    if (w) return w;
-    var qn = String(stored[WATCH_QUICKNODE_HTTP] || '').trim();
-    if (qn) return qn;
-    var cluster = String(stored[STORAGE_CLUSTER] || 'mainnet-beta').trim();
-    var hk = String(stored[WATCH_HELIUS_KEY] || '').trim();
-    if (hk) {
-      if (cluster === 'devnet') return 'https://devnet.helius-rpc.com/?api-key=' + encodeURIComponent(hk);
-      return 'https://mainnet.helius-rpc.com/?api-key=' + encodeURIComponent(hk);
-    }
-    return String(stored[STORAGE_RPC] || '').trim() || defaultRpc(stored[STORAGE_CLUSTER]);
-  }
-
-  function sleepRpc(ms) {
-    return new Promise(function (r) {
-      setTimeout(r, ms);
-    });
-  }
-
-  function rpcAttempt(rpcUrl, method, params) {
-    var body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: method, params: params });
-    var init = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body,
-    };
-    var resilient = globalThis.__CFS_fetchWith429Backoff;
-    var p = typeof resilient === 'function' ? resilient(rpcUrl, init) : fetch(rpcUrl, init);
-    return p
-      .then(function (r) {
-        if (!r.ok) {
-          var e = new Error('RPC HTTP ' + r.status);
-          e._cfsHttpStatus = r.status;
-          var parseRa = globalThis.__CFS_parseRetryAfterMs;
-          e._cfsRetryAfterMs =
-            typeof parseRa === 'function' && r.status === 429 ? parseRa(r) : 0;
-          throw e;
-        }
-        return r.json();
-      })
-      .then(function (j) {
-        if (j.error) throw new Error(j.error.message || String(j.error));
-        return j.result;
-      });
-  }
-
-  function shouldRetryRpc(err) {
-    var st = err && err._cfsHttpStatus;
-    if (typeof st === 'number' && st >= 500 && st <= 599) return true;
-    if (typeof st === 'number' && st === 429) return true;
-    var msg = err && err.message ? String(err.message) : String(err);
-    if (/HTTP 5\d\d/.test(msg) || /HTTP 429/.test(msg)) return true;
-    if (/Failed to fetch|NetworkError|network|Load failed|timed out/i.test(msg)) return true;
-    return false;
+    if (typeof solRpc.resolveWatchRpcUrl === 'function') return solRpc.resolveWatchRpcUrl(stored);
+    throw new Error('CFS_SOLANA_RPC.resolveWatchRpcUrl unavailable');
   }
 
   function rpcCall(rpcUrl, method, params) {
-    var maxAttempts = 12;
-    var delay = 500;
-    function attempt(n) {
-      return rpcAttempt(rpcUrl, method, params).catch(function (err) {
-        if (!shouldRetryRpc(err)) throw err;
-        if (n >= maxAttempts) throw err;
-        var ra = err && err._cfsRetryAfterMs ? err._cfsRetryAfterMs : 0;
-        var jittered = delay + Math.random() * delay;
-        var wait = Math.min(Math.max(ra, jittered), 60000);
-        return sleepRpc(wait).then(function () {
-          delay = Math.min(delay * 2, 60000);
-          return attempt(n + 1);
-        });
-      });
-    }
-    return attempt(0);
+    if (typeof solRpc.rpcCall === 'function') return solRpc.rpcCall(rpcUrl, method, params, { log429Obs: false });
+    throw new Error('CFS_SOLANA_RPC.rpcCall unavailable');
   }
 
   function fetchJupiterQuote(inputMint, outputMint, amountRaw, slippageBps, jupHeaders) {

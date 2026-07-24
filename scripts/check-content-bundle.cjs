@@ -38,5 +38,12 @@ if (!same(fromManifest, fromBundle)) {
   process.exit(1);
 }
 
+// Bundle must be file-list only (no concatenated content-script bodies for SW import).
+const afterArray = bundleSrc.slice(arrayMatch.index + arrayMatch[0].length);
+if (/\/\*\s*---\s*[\w./-]+\s*---\s*\*\//.test(afterArray) || /function\s+generateSelectors\s*\(/.test(afterArray)) {
+  console.error('check-content-bundle: content-script-tab-bundle.js must export the file list only (no concatenated sources)');
+  process.exit(1);
+}
+
 console.log('check-content-bundle: OK (', fromBundle.length, 'files)');
 process.exit(0);

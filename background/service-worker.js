@@ -4,6 +4,9 @@
  * via chrome.alarms; Whop auth, and MV3 sidepanel bridging.
  */
 importScripts('../shared/content-script-tab-bundle.js');
+importScripts('../shared/storage-secret-keys.js');
+importScripts('message-registry.js');
+importScripts('message-handlers-privileged.js');
 importScripts('../shared/apify-dataset-response.js');
 importScripts('../shared/apify-run-query-validation.js');
 importScripts('../shared/apify-extract-run-id.js');
@@ -63,6 +66,111 @@ const _CFS_DEFAULT_WALLET_ALLOWLIST = [
   'orca.so',
   'marinade.finance',
 ];
+
+/** True when the message sender is an extension page (side panel, settings, MCP relay, etc.). */
+function cfsIsExtensionPageSender(sender) {
+  const url = (sender && sender.url) || '';
+  return typeof url === 'string' && url.startsWith('chrome-extension://');
+}
+
+/** Origin string from chrome.runtime sender (never trust client-supplied _pageOrigin). */
+function cfsSenderOrigin(sender) {
+  if (!sender) return '';
+  if (sender.origin && typeof sender.origin === 'string') return sender.origin;
+  const url = sender.url || '';
+  if (!url) return '';
+  try {
+    return new URL(url).origin;
+  } catch (_) {
+    return '';
+  }
+}
+
+function cfsHostnameFromOrigin(origin) {
+  if (!origin) return '';
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch (_) {
+    return String(origin).toLowerCase();
+  }
+}
+
+async function cfsGetWalletAllowlistHostnames() {
+  try {
+    const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
+    const list = data.cfs_wallet_injection_allowlist;
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((d) => String(d).trim().toLowerCase()).filter(Boolean);
+    }
+  } catch (_) {}
+  return _CFS_DEFAULT_WALLET_ALLOWLIST.slice();
+}
+
+/** Allow wallet ops from extension pages, or from content scripts on allowlisted origins. */
+async function cfsAuthorizeWalletSender(sender) {
+  if (cfsIsExtensionPageSender(sender)) {
+    return { ok: true, origin: cfsSenderOrigin(sender) || 'chrome-extension://' };
+  }
+  const origin = cfsSenderOrigin(sender);
+  if (!origin || origin === 'null') {
+    return { ok: false, error: 'Wallet request missing sender origin', needsApproval: true };
+  }
+  const host = cfsHostnameFromOrigin(origin);
+  const allow = await cfsGetWalletAllowlistHostnames();
+  const matched = allow.some((d) => host === d || host.endsWith('.' + d));
+  if (!matched) {
+    return { ok: false, error: 'Origin not on wallet allowlist', needsApproval: true, origin };
+  }
+  return { ok: true, origin };
+}
+
+/**
+ * Reject non-http(s) and private/link-local URLs for privileged fetch proxies.
+ * Loopback (localhost / 127.0.0.1 / ::1) is allowed for local tooling and E2E fixtures.
+ * @returns {{ ok: true, url: URL } | { ok: false, error: string }}
+ */
+function cfsValidatePublicHttpUrl(urlStr) {
+  let u;
+  try {
+    u = new URL(String(urlStr || '').trim());
+  } catch (_) {
+    return { ok: false, error: 'Invalid URL' };
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    return { ok: false, error: 'Only http(s) URLs are allowed' };
+  }
+  const host = (u.hostname || '').toLowerCase();
+  if (!host) return { ok: false, error: 'Invalid URL host' };
+  // Explicit loopback allow (local MCP/tools + Playwright fixture server on 127.0.0.1).
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+    return { ok: true, url: u };
+  }
+  if (host.endsWith('.local')) {
+    return { ok: false, error: 'Local network hostnames are not allowed' };
+  }
+  // IPv4 private / link-local / CGNAT (exclude 127.x — handled above)
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+    if (a.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      return { ok: false, error: 'Invalid IP address' };
+    }
+    if (a[0] === 10) return { ok: false, error: 'Private network URLs are not allowed' };
+    if (a[0] === 0) return { ok: false, error: 'Invalid IP address' };
+    if (a[0] === 169 && a[1] === 254) return { ok: false, error: 'Link-local URLs are not allowed' };
+    if (a[0] === 192 && a[1] === 168) return { ok: false, error: 'Private network URLs are not allowed' };
+    if (a[0] === 172 && a[1] >= 16 && a[1] <= 31) return { ok: false, error: 'Private network URLs are not allowed' };
+    if (a[0] === 100 && a[1] >= 64 && a[1] <= 127) return { ok: false, error: 'Private network URLs are not allowed' };
+  }
+  // Rough IPv6 ULA / link-local block (::1 allowed above)
+  if (host.includes(':')) {
+    const h = host.replace(/^\[|\]$/g, '');
+    if (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) {
+      return { ok: false, error: 'Private network URLs are not allowed' };
+    }
+  }
+  return { ok: true, url: u };
+}
 
 async function _cfsRegisterWalletProxyScripts(allowlist) {
   const domains = Array.isArray(allowlist) && allowlist.length > 0 ? allowlist : _CFS_DEFAULT_WALLET_ALLOWLIST;
@@ -367,12 +475,28 @@ async function scheduleAlarmForNextRun() {
   if (hasRecurring) chrome.alarms.create(RECURRING_ALARM_NAME, { periodInMinutes: 1 });
 }
 
+async function waitForStepHandlersReadyInTab(tabId, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs != null ? timeoutMs : 8000);
+  while (Date.now() < deadline) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => !!(window.__CFS_stepHandlersReady || window.__CFS_stepHandlersInjectFailed),
+      });
+      if (results && results[0] && results[0].result) return true;
+    } catch (_) {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
 async function ensureContentScriptInTab(tabId) {
   const delays = [0, 200, 400, 600];
   for (const delay of delays) {
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     try {
       await chrome.tabs.sendMessage(tabId, { type: 'PLAYER_STATUS' });
+      await waitForStepHandlersReadyInTab(tabId, 2500);
       return;
     } catch (_) {}
   }
@@ -380,6 +504,7 @@ async function ensureContentScriptInTab(tabId) {
     target: { tabId },
     files: CONTENT_SCRIPT_TAB_BUNDLE_FILES,
   });
+  await waitForStepHandlersReadyInTab(tabId, 8000);
 }
 
 function mkHistoryEntry(entry, status, error, startedAt) {
@@ -1733,16 +1858,17 @@ async function cfsWhopVerifyLoginNonce(code) {
     const s = await chrome.storage.session.get(CFS_WHOP_LOGIN_NONCE_KEY);
     stored = String(s?.[CFS_WHOP_LOGIN_NONCE_KEY] || '').trim();
   } catch (_) {
-    return { ok: true };
+    // Fail closed when session storage is unavailable during an active login.
+    return { ok: false, error: 'Login verification failed: could not read login nonce. Start login again from the side panel.' };
   }
-  if (!stored) return { ok: true };
+  if (!stored) {
+    // No nonce means login was not started from this extension (or already consumed).
+    return { ok: false, error: 'Login verification failed: missing login nonce. Start login again from the side panel.' };
+  }
   const provided = code == null ? '' : String(code).trim();
-  // Reject only on a genuine mismatch (a code was echoed but is wrong). If the login page did not
-  // echo any code (e.g. not yet updated to carry the nonce), stay lenient so login still works.
-  if (provided && provided !== stored) {
+  if (!provided || provided !== stored) {
     return { ok: false, error: 'Login verification failed: code mismatch. Start login again from the side panel.' };
   }
-  // One-time use: consume the nonce whether or not it was echoed for this attempt.
   try {
     await chrome.storage.session.remove(CFS_WHOP_LOGIN_NONCE_KEY);
   } catch (_) {}
@@ -3186,6 +3312,19 @@ function validateMessagePayload(type, msg) {
   return { valid: true };
 }
 
+if (typeof __CFS_installPrivilegedMessageHandlers === 'function') {
+  __CFS_installPrivilegedMessageHandlers({
+    isExtensionPageSender: cfsIsExtensionPageSender,
+    isTrustedAuthPageUrl: cfsWhopIsTrustedAuthPageUrl,
+    applyStoreTokens: cfsWhopApplyStoreTokens,
+    cryptoToggleFeatures: _cfsCryptoToggleFeatures,
+    defaultWalletAllowlist: _CFS_DEFAULT_WALLET_ALLOWLIST,
+    registerWalletProxyScripts: _cfsRegisterWalletProxyScripts,
+    whopAppOrigin: WHOP_APP_ORIGIN,
+    filterStorageKeys: typeof cfsFilterStorageKeys === 'function' ? cfsFilterStorageKeys : null,
+  });
+}
+
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object' || msg.type !== 'STORE_TOKENS') return false;
   if (!cfsWhopIsTrustedAuthPageUrl(sender.url || '')) {
@@ -3223,10 +3362,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
-  if (type === 'CFS_CRYPTO_WEB3_TOGGLE') {
-    _cfsCryptoToggleFeatures(!!msg.enabled).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
-    return true;
-  }
   /** Replies from extension pages → dynamic waiters; do not treat as API requests. */
   if (type === 'GET_FOLLOWING_DATA_RESULT' || type === 'MUTATE_FOLLOWING_RESULT') {
     return false;
@@ -3238,6 +3373,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
     return true;
   }
+
+  if (typeof __CFS_dispatchRegisteredMessage === 'function') {
+    const regRet = __CFS_dispatchRegisteredMessage(type, msg, sender, sendResponse);
+    if (regRet !== null && regRet !== undefined) return regRet;
+  }
+
   if (type === 'CFS_SOLANA_EXECUTE_SWAP') {
     (async () => {
       try {
@@ -4303,6 +4444,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_CONNECT') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const chain = String(msg.chain || 'solana').trim().toLowerCase();
         if (chain === 'solana') {
           const fn = globalThis.__CFS_solana_loadKeypairFromStorage;
@@ -4343,6 +4489,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_SIGN_TX') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const chain = String(msg.chain || 'solana').trim().toLowerCase();
         if (chain !== 'solana') {
           sendResponse({ ok: false, error: 'CFS_WALLET_SIGN_TX currently supports solana only; use CFS_WALLET_SIGN_AND_SEND_TX for EVM' });
@@ -4365,8 +4516,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           tx.sign(kp);
           signed = Array.from(tx.serialize());
         }
-        /* Log to wallet activity */
-        console.log('[CFS Wallet] Signed transaction for', msg._pageOrigin || 'unknown origin');
+        console.log('[CFS Wallet] Signed transaction for', auth.origin || 'extension');
         sendResponse({ ok: true, signedBytes: signed });
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
@@ -4378,6 +4528,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_SIGN_AND_SEND_TX') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const chain = String(msg.chain || 'solana').trim().toLowerCase();
         if (chain !== 'solana') {
           sendResponse({ ok: false, error: 'EVM signAndSend not yet implemented' });
@@ -4413,7 +4568,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const explorerUrl = cluster === 'devnet'
           ? 'https://solscan.io/tx/' + sig + '?cluster=devnet'
           : 'https://solscan.io/tx/' + sig;
-        console.log('[CFS Wallet] signAndSend tx:', sig, 'from', msg._pageOrigin || 'unknown');
+        console.log('[CFS Wallet] signAndSend tx:', sig, 'from', auth.origin || 'extension');
         sendResponse({ ok: true, signature: sig, explorerUrl: explorerUrl });
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
@@ -4425,6 +4580,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_SIGN_MESSAGE') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const chain = String(msg.chain || 'solana').trim().toLowerCase();
         if (chain !== 'solana') {
           sendResponse({ ok: false, error: 'Only Solana signMessage supported currently' });
@@ -4451,6 +4611,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_EVM_SEND_TX') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const fn = globalThis.__CFS_bsc_loadWalletRecord;
         if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'BSC wallet not loaded' }); return; }
         const rec = await fn();
@@ -4485,7 +4650,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         const connectedWallet = wallet.connect ? wallet.connect(provider) : wallet;
         const txResponse = await connectedWallet.sendTransaction(tx);
-        console.log('[CFS Wallet] EVM tx sent:', txResponse.hash, 'from', msg._pageOrigin || 'unknown');
+        console.log('[CFS Wallet] EVM tx sent:', txResponse.hash, 'from', auth.origin || 'extension');
         sendResponse({ ok: true, txHash: txResponse.hash });
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
@@ -4497,6 +4662,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_EVM_SIGN_MESSAGE') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const fn = globalThis.__CFS_bsc_loadWalletRecord;
         if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'BSC wallet not loaded' }); return; }
         const rec = await fn();
@@ -4521,6 +4691,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'CFS_WALLET_EVM_SIGN_TYPED_DATA') {
     (async () => {
       try {
+        const auth = await cfsAuthorizeWalletSender(sender);
+        if (!auth.ok) {
+          sendResponse({ ok: false, error: auth.error || 'Unauthorized', needsApproval: !!auth.needsApproval, origin: auth.origin || '' });
+          return;
+        }
         const fn = globalThis.__CFS_bsc_loadWalletRecord;
         if (typeof fn !== 'function') { sendResponse({ ok: false, error: 'BSC wallet not loaded' }); return; }
         const rec = await fn();
@@ -4548,30 +4723,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
         const list = data.cfs_wallet_injection_allowlist;
         sendResponse({ ok: true, allowlist: Array.isArray(list) ? list : _CFS_DEFAULT_WALLET_ALLOWLIST.slice() });
-      } catch (e) {
-        sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
-      }
-    })();
-    return true;
-  }
-
-  if (type === 'CFS_WALLET_SET_ALLOWLIST') {
-    (async () => {
-      try {
-        const raw = Array.isArray(msg.allowlist) ? msg.allowlist.map(d => String(d).trim().toLowerCase()).filter(Boolean) : [];
-        /* Empty list or '__disabled__' sentinel → remove stored key so GET falls back to defaults */
-        if (raw.length === 0 || (raw.length === 1 && raw[0] === '__disabled__')) {
-          await chrome.storage.local.remove('cfs_wallet_injection_allowlist');
-          if (raw.length === 1 && raw[0] === '__disabled__') {
-            /* Unregister scripts when disabled */
-            try { await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] }); } catch (_) {}
-          }
-          sendResponse({ ok: true, allowlist: _CFS_DEFAULT_WALLET_ALLOWLIST.slice() });
-        } else {
-          await chrome.storage.local.set({ cfs_wallet_injection_allowlist: raw });
-          await _cfsRegisterWalletProxyScripts(raw);
-          sendResponse({ ok: true, allowlist: raw });
-        }
       } catch (e) {
         sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
       }
@@ -5412,72 +5563,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (type === 'STORE_TOKENS') {
-    cfsWhopApplyStoreTokens(msg)
-      .then(() => sendResponse({ ok: true }))
-      .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }));
-    return true;
-  }
-
-  if (type === 'GET_TOKEN') {
-    (async () => {
-      try {
-        const data = await chrome.storage.local.get(['whop_auth']);
-        const auth = data.whop_auth;
-        if (!auth || !auth.access_token) {
-          sendResponse({ ok: true, access_token: null, user: null });
-          return;
-        }
-        const now = Date.now();
-        const elapsed = (now - (auth.obtained_at || 0)) / 1000;
-        const buffer = 60;
-        if (elapsed >= (auth.expires_in || 3600) - buffer && auth.refresh_token) {
-          const res = await fetch(`${WHOP_APP_ORIGIN}/api/extension/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh_token: auth.refresh_token }),
-          });
-          const json = await res.json().catch(() => ({}));
-          const newTokens = json.tokens ?? json;
-          const newAccess = newTokens.access_token ?? json.access_token;
-          const newRefresh = newTokens.refresh_token ?? json.refresh_token ?? auth.refresh_token;
-          const newExpires = newTokens.expires_in ?? json.expires_in ?? 3600;
-          if (newAccess) {
-            const updated = {
-              ...auth,
-              access_token: newAccess,
-              refresh_token: newRefresh,
-              expires_in: newExpires,
-              obtained_at: Date.now(),
-            };
-            await chrome.storage.local.set({ whop_auth: updated });
-            sendResponse({ ok: true, access_token: newAccess, user: auth.user });
-          } else {
-            sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
-          }
-        } else {
-          sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
-        }
-      } catch (e) {
-        try {
-          const data = await chrome.storage.local.get(['whop_auth']);
-          const auth = data.whop_auth;
-          if (auth && auth.access_token) {
-            sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
-            return;
-          }
-        } catch (_) {}
-        sendResponse({ ok: false, error: e?.message || 'Failed to get token' });
-      }
-    })();
-    return true;
-  }
-
-  if (type === 'LOGOUT') {
-    chrome.storage.local.remove('whop_auth').then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e?.message }));
-    return true;
-  }
-
   if (type === 'GET_TAB_INFO') {
     (async () => {
       try {
@@ -5620,14 +5705,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: 'No tab context for injection' });
       return true;
     }
+    const allowedFiles = Array.isArray(files)
+      ? files.filter((f) => typeof f === 'string' && /^steps\/[A-Za-z0-9_-]+\/handler\.js$/.test(f))
+      : [];
+    if (Array.isArray(files) && files.length > 0 && allowedFiles.length !== files.length) {
+      sendResponse({ ok: false, error: 'INJECT_STEP_HANDLERS files must be steps/<id>/handler.js' });
+      return true;
+    }
     loadProjectStepHandlersFromStorage(() => {
       const injectExtension = (done) => {
-        if (!files || files.length === 0) return done();
+        if (!allowedFiles || allowedFiles.length === 0) return done();
         const CHUNK = 18;
         let offset = 0;
         const injectNextChunk = () => {
-          if (offset >= files.length) return done();
-          const chunk = files.slice(offset, offset + CHUNK);
+          if (offset >= allowedFiles.length) return done();
+          const chunk = allowedFiles.slice(offset, offset + CHUNK);
           offset += CHUNK;
           chrome.scripting.executeScript({ target: { tabId }, files: chunk }, () => {
             if (chrome.runtime.lastError) {
@@ -5991,6 +6083,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: 'Missing URL' });
       return true;
     }
+    const urlCheck = cfsValidatePublicHttpUrl(url);
+    if (!urlCheck.ok) {
+      sendResponse({ ok: false, error: urlCheck.error || 'URL not allowed' });
+      return true;
+    }
     (async () => {
       try {
         const opts = { method: (method || 'POST').toUpperCase(), mode: 'cors' };
@@ -6001,7 +6098,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           opts.signal = ac.signal;
           const t = setTimeout(() => ac.abort(), timeoutMs);
           try {
-            const res = await fetch(url, opts);
+            const res = await fetch(urlCheck.url.href, opts);
             clearTimeout(t);
             if (!waitForBody) {
               const hdrsEarly = responseHeadersObject(res);
@@ -6035,7 +6132,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
           }
         } else {
-          const res = await fetch(url, opts);
+          const res = await fetch(urlCheck.url.href, opts);
           if (!waitForBody) {
             const hdrsEarly = responseHeadersObject(res);
             if (!res.ok) {
@@ -6279,6 +6376,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!url || typeof url !== 'string') {
       sendResponse({ ok: false, error: 'No URL provided' });
       return true;
+    }
+    const isDataOrBlob = url.startsWith('data:') || url.startsWith('blob:');
+    if (isDataOrBlob) {
+      if (!cfsIsExtensionPageSender(sender)) {
+        sendResponse({ ok: false, error: 'data:/blob: downloads only allowed from extension pages' });
+        return true;
+      }
+    } else {
+      const urlCheck = cfsValidatePublicHttpUrl(url);
+      if (!urlCheck.ok) {
+        sendResponse({ ok: false, error: urlCheck.error || 'URL not allowed' });
+        return true;
+      }
     }
     chrome.downloads.download({
       url,
@@ -6626,6 +6736,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const { url, filename: preferredFilename } = msg || {};
     if (!url || typeof url !== 'string') {
       sendResponse({ ok: false, error: 'No URL provided' });
+      return true;
+    }
+    const fetchUrlCheck = cfsValidatePublicHttpUrl(url);
+    if (!fetchUrlCheck.ok) {
+      sendResponse({ ok: false, error: fetchUrlCheck.error || 'URL not allowed' });
       return true;
     }
     let responded = false;
@@ -7028,19 +7143,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
     })();
-    return true;
-  }
-
-  // MCP relay: read chrome.storage.local keys for the MCP server.
-  if (type === 'STORAGE_READ') {
-    const keys = Array.isArray(msg.keys) ? msg.keys : (msg.keys ? [msg.keys] : []);
-    if (keys.length === 0 || keys.length > 100) {
-      sendResponse({ ok: false, error: 'STORAGE_READ requires 1-100 keys' });
-      return true;
-    }
-    chrome.storage.local.get(keys, (data) => {
-      sendResponse({ ok: true, data: data || {} });
-    });
     return true;
   }
 

@@ -26,9 +26,10 @@ Older builds used **`cfs_bsc_wallet_v1`**, then flat **`cfs_bsc_wallet_*`** keys
 
 ## Password behavior
 
-- **Import with “Encrypt on import”**: only the encrypted blob is kept; session is cleared until **Unlock**.
-- **Encrypt existing plaintext**: **Encrypt existing plaintext wallet** in Settings; requires a password (min 8 characters).
-- **BSC workflow signing** (`CFS_BSC_POOL_EXECUTE`, etc.) needs an effective secret: either plaintext on disk or a successful **Unlock** for an encrypted wallet.
+- **Default (plaintext):** Settings leaves **Encrypt on import** unchecked so automation can **sign silently** without a password prompt (including after service-worker sleep). Prefer this for unattended always-on flows.
+- **Import with “Encrypt on import”** (optional): only the encrypted blob is kept; session is cleared until **Unlock**. Silent signing resumes only while the session unlock map is populated.
+- **Encrypt existing plaintext**: **Encrypt existing plaintext wallet** in Settings; requires a password (min 8 characters). Must match any existing vault password when other wallets are already encrypted.
+- **BSC workflow signing** (`CFS_BSC_POOL_EXECUTE`, etc.) needs an effective secret: either plaintext on disk or a successful **Unlock** for an encrypted wallet — no per-transaction user confirm.
 - **Read-only queries** (`CFS_BSC_QUERY` / step **`bscQuery`**) use **`cfs_bsc_global_settings`** (RPC + chain ID). They do not read the private key and do not require unlock.
 
 ## Export

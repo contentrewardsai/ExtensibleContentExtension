@@ -31,6 +31,8 @@
   var BSC_MAINNET_RPC = 'https://bsc-dataseed1.binance.org/';
 
   function fetchWithTimeout(url, init, ms) {
+    var fn = globalThis.__CFS_fetchWithTimeout;
+    if (typeof fn === 'function') return fn(url, init, ms);
     var ctrl = new AbortController();
     var id = setTimeout(function () {
       try { ctrl.abort(); } catch (_) {}

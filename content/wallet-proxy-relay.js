@@ -26,6 +26,36 @@
     evmSignTypedData: 'CFS_WALLET_EVM_SIGN_TYPED_DATA',
   };
 
+  function showNeedsApprovalBanner(origin) {
+    try {
+      var existing = document.getElementById('cfs-wallet-approval-banner');
+      if (existing) existing.remove();
+      var bar = document.createElement('div');
+      bar.id = 'cfs-wallet-approval-banner';
+      bar.setAttribute('role', 'status');
+      bar.style.cssText =
+        'position:fixed;z-index:2147483647;left:0;right:0;top:0;padding:10px 14px;' +
+        'background:#1c1917;color:#fafaf9;font:13px/1.4 system-ui,sans-serif;' +
+        'border-bottom:2px solid #f59e0b;display:flex;gap:12px;align-items:center;';
+      var text = document.createElement('span');
+      text.textContent =
+        'CFS Wallet: this site (' +
+        (origin || location.origin) +
+        ') is not on the wallet allowlist. Add it in extension Settings → Wallet allowlist, then reload.';
+      var dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.textContent = 'Dismiss';
+      dismiss.style.cssText =
+        'margin-left:auto;background:#44403c;color:#fafaf9;border:0;border-radius:4px;padding:6px 10px;cursor:pointer;';
+      dismiss.addEventListener('click', function () {
+        bar.remove();
+      });
+      bar.appendChild(text);
+      bar.appendChild(dismiss);
+      (document.documentElement || document.body).appendChild(bar);
+    } catch (_) {}
+  }
+
   window.addEventListener('cfs-wallet-request', function (e) {
     if (!e.detail || !e.detail._cfsReqId || !e.detail._cfsType) return;
     const reqId = e.detail._cfsReqId;
@@ -37,15 +67,14 @@
       return;
     }
 
-    /* Build service worker message — strip internal fields, keep payload */
+    /* Build service worker message — strip internal fields, keep payload.
+       Do not send forged origins; the service worker uses sender.url/origin. */
     const payload = Object.assign({}, e.detail);
     delete payload._cfsReqId;
     delete payload._cfsType;
+    delete payload._pageOrigin;
+    delete payload._pageUrl;
     payload.type = swType;
-
-    /* Include page URL for security logging */
-    payload._pageOrigin = window.location.origin;
-    payload._pageUrl = window.location.href;
 
     try {
       chrome.runtime.sendMessage(payload, function (response) {
@@ -58,7 +87,10 @@
           return;
         }
         if (!response.ok) {
-          dispatchResponse(reqId, { error: response.error || 'Sign request denied' });
+          if (response.needsApproval) {
+            showNeedsApprovalBanner(response.origin || location.origin);
+          }
+          dispatchResponse(reqId, { error: response.error || 'Sign request denied', needsApproval: !!response.needsApproval });
           return;
         }
         /* Forward the full response */
@@ -75,21 +107,11 @@
   }
 
   /* ── Auto-approve mode relay ── */
-  /* The service worker can push auto-approve state to the page proxy */
   chrome.runtime.onMessage.addListener(function (msg) {
     if (msg && msg.type === 'CFS_WALLET_SET_AUTO_APPROVE') {
       window.dispatchEvent(new CustomEvent('cfs-wallet-set-auto-approve', {
         detail: { enabled: !!msg.enabled },
       }));
     }
-  });
-
-  /* ── Connect prompt for unknown domains ── */
-  /* If the page tries to connect and the domain isn't in the allowlist,
-     the service worker responds with { ok: false, needsApproval: true }.
-     We show a banner and let the user decide. */
-  window.addEventListener('cfs-wallet-request', function (e) {
-    /* This second listener only handles the approval UI — the first listener
-       handles the actual relay. We check the response asynchronously. */
   });
 })();

@@ -25,6 +25,8 @@
   var CHAPEL_RPC = 'https://data-seed-prebsc-1-s1.binance.org:8545/';
 
   function fetchWithTimeout(url, init, ms) {
+    var fn = globalThis.__CFS_fetchWithTimeout;
+    if (typeof fn === 'function') return fn(url, init, ms);
     var ctrl = new AbortController();
     var id = setTimeout(function () {
       try { ctrl.abort(); } catch (_) {}

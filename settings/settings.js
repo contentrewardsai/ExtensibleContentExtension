@@ -1116,7 +1116,7 @@
       if (r.encrypted) {
         parts.push(r.unlocked ? 'Unlocked for this session — automated swaps can run.' : 'Locked — click Unlock before running Solana workflow steps.');
       } else {
-        parts.push('No disk encryption password — key is stored as plaintext in extension local storage.');
+        parts.push('Plaintext on disk (required for unattended always-on signing). Optional Encrypt needs Unlock after each browser restart for silent signing to resume.');
       }
       parts.push('Keep an offline backup.');
       statusLine.textContent = parts.join(' ');
@@ -1757,7 +1757,7 @@
       if (r.encrypted) {
         parts.push(r.unlocked ? 'Unlocked for this session — BSC workflow steps can sign.' : 'Locked — click Unlock before running BSC steps.');
       } else {
-        parts.push('No disk encryption — secret is stored as plaintext in extension local storage.');
+        parts.push('Plaintext on disk (required for unattended always-on signing). Optional Encrypt needs Unlock after each browser restart for silent signing to resume.');
       }
       if (!r.backupConfirmed) parts.push('Backup flag missing — re-import with acknowledgment.');
       parts.push('Funds are at risk if this profile is compromised.');
@@ -2143,6 +2143,26 @@
       }
     });
 
+    async function applySettingsImportedWorkflows(data, successMsg, emptyMsg) {
+      const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
+      const merged = ExtensionWorkflowNormalize.mergeImportedWorkflowsInto(settingsWorkflows, imported, {
+        defaultName: 'Imported',
+        rejectLegacy: true,
+      });
+      if (merged.legacyError) {
+        setWfStatus('Import rejected (legacy format): ' + merged.legacyError, 'error');
+        return;
+      }
+      if (merged.count > 0) {
+        settingsWorkflows = merged.store;
+        await chrome.storage.local.set({ workflows: settingsWorkflows });
+        renderSettingsWorkflowList();
+        setWfStatus(successMsg.replace('%n', String(merged.count)), 'success');
+      } else {
+        setWfStatus(emptyMsg, 'error');
+      }
+    }
+
     document.getElementById('settingsImportFromUrl')?.addEventListener('click', async function () {
       const url = prompt('Enter URL of workflow JSON:');
       if (!url?.trim()) return;
@@ -2150,21 +2170,11 @@
         const res = await fetch(url.trim());
         if (!res.ok) throw new Error(res.statusText || 'Fetch failed');
         const data = await res.json();
-        const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
-        let count = 0;
-        for (const [id, wf] of Object.entries(imported)) {
-          if (wf && (wf.analyzed?.actions || wf.actions)) {
-            settingsWorkflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Imported' };
-            count++;
-          }
-        }
-        if (count > 0) {
-          await chrome.storage.local.set({ workflows: settingsWorkflows });
-          renderSettingsWorkflowList();
-          setWfStatus('Imported ' + count + ' workflow(s) from URL.', 'success');
-        } else {
-          setWfStatus('No valid workflow in response.', 'error');
-        }
+        await applySettingsImportedWorkflows(
+          data,
+          'Imported %n workflow(s) from URL.',
+          'No valid workflow in response.'
+        );
       } catch (err) {
         setWfStatus('Import failed: ' + (err?.message || 'unknown'), 'error');
       }
@@ -2180,21 +2190,7 @@
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
-        let count = 0;
-        for (const [id, wf] of Object.entries(imported)) {
-          if (wf && (wf.analyzed?.actions || wf.actions)) {
-            settingsWorkflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Imported' };
-            count++;
-          }
-        }
-        if (count > 0) {
-          await chrome.storage.local.set({ workflows: settingsWorkflows });
-          renderSettingsWorkflowList();
-          setWfStatus('Imported ' + count + ' workflow(s).', 'success');
-        } else {
-          setWfStatus('No valid workflow found in file.', 'error');
-        }
+        await applySettingsImportedWorkflows(data, 'Imported %n workflow(s).', 'No valid workflow found in file.');
       } catch (err) {
         setWfStatus('Import failed: ' + (err?.message || 'invalid JSON'), 'error');
       }
@@ -2206,21 +2202,7 @@
         const text = await navigator.clipboard.readText();
         if (!text?.trim()) { setWfStatus('Clipboard is empty.', 'error'); return; }
         const data = JSON.parse(text);
-        const imported = ExtensionWorkflowNormalize.normalizeImportedWorkflows(data);
-        let count = 0;
-        for (const [id, wf] of Object.entries(imported)) {
-          if (wf && (wf.analyzed?.actions || wf.actions)) {
-            settingsWorkflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Imported' };
-            count++;
-          }
-        }
-        if (count > 0) {
-          await chrome.storage.local.set({ workflows: settingsWorkflows });
-          renderSettingsWorkflowList();
-          setWfStatus('Pasted ' + count + ' workflow(s).', 'success');
-        } else {
-          setWfStatus('Clipboard does not contain a valid workflow.', 'error');
-        }
+        await applySettingsImportedWorkflows(data, 'Pasted %n workflow(s).', 'Clipboard does not contain a valid workflow.');
       } catch (err) {
         setWfStatus('Paste failed: ' + (err?.message || 'invalid JSON'), 'error');
       }

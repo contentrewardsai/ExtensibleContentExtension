@@ -19,6 +19,7 @@ const forbiddenPaths = [
   'lib/fabric-textbaseline-patch.js',
   'shared/tutorial-loader.js',
   'shared/download-mcp-server.js',
+  'shared/book-builder.js',
   'test/serve.py',
   'test/fixtures/sample-page.html',
   'scripts/update-remaining-doc.cjs',

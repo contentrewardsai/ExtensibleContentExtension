@@ -11,6 +11,7 @@
   var STORAGE_JUP_KEY = 'cfs_solana_jupiter_api_key';
 
   var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
+  var solRpc = globalThis.CFS_SOLANA_RPC || {};
 
   function sleep(ms) {
     return new Promise(function (res) {
@@ -18,51 +19,11 @@
     });
   }
 
-  function extractUsdPriceFromJson(json, mint) {
-    if (!json || typeof json !== 'object') return null;
-    var data = json.data;
-    if (data && typeof data === 'object') {
-      var row = data[mint];
-      if (row && typeof row === 'object') {
-        if (typeof row.price === 'number' && row.price > 0) return row.price;
-        if (typeof row.usdPrice === 'number' && row.usdPrice > 0) return row.usdPrice;
-      }
-    }
-    var row2 = json[mint];
-    if (row2 && typeof row2 === 'object') {
-      if (typeof row2.usdPrice === 'number' && row2.usdPrice > 0) return row2.usdPrice;
-      if (typeof row2.price === 'number' && row2.price > 0) return row2.price;
-    }
-    return null;
-  }
-
   function fetchJupiterMintPriceUsd(mint, jupHeaders) {
-    var urls = [
-      'https://price.jup.ag/v6/price?ids=' + encodeURIComponent(mint),
-      'https://quote-api.jup.ag/v6/price?ids=' + encodeURIComponent(mint),
-      'https://lite-api.jup.ag/price/v2?ids=' + encodeURIComponent(mint),
-    ];
-    var idx = 0;
-    function next() {
-      if (idx >= urls.length) return Promise.resolve(null);
-      var u = urls[idx++];
-      var tiered = globalThis.__CFS_fetchGetTiered;
-      var fetchFn = typeof tiered === 'function' ? tiered : fetch;
-      return fetchFn(u, { method: 'GET', headers: jupHeaders || {} })
-        .then(function (r) {
-          if (!r.ok) return next();
-          return r.json();
-        })
-        .then(function (j) {
-          var p = extractUsdPriceFromJson(j, mint);
-          if (p != null) return p;
-          return next();
-        })
-        .catch(function () {
-          return next();
-        });
+    if (typeof solRpc.fetchJupiterMintPriceUsd === 'function') {
+      return solRpc.fetchJupiterMintPriceUsd(mint, jupHeaders);
     }
-    return next();
+    return Promise.resolve(null);
   }
 
   async function jupHeadersFromStorage() {

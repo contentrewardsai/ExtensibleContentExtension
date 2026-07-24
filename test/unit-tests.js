@@ -61,21 +61,6 @@
     assertDeepEqual(p({ text: 'a', mediaOrder: ['text', 'images'] }), [{ type: 'text', content: 'a' }]);
   }
 
-  /** Book builder */
-  function testBookBuilderGetStepCaption() {
-    var g = global.__CFS_bookBuilder && global.__CFS_bookBuilder.getStepCaption;
-    if (!g) throw new Error('__CFS_bookBuilder not loaded');
-    assertEqual(g({ comment: { text: 'Foo' } }, 0), 'Foo');
-    assertEqual(g({ stepLabel: 'Bar' }, 1), 'Bar');
-    assertEqual(g({ type: 'click' }, 2), 'click 3');
-  }
-
-  function testBookBuilderGetStepBody() {
-    var g = global.__CFS_bookBuilder.getStepBody;
-    assertEqual(g({ comment: { text: 'Body text' } }), 'Body text');
-    assertEqual(g({ type: 'click' }), '');
-  }
-
   /** Walkthrough export */
   function testWalkthroughSelectorStrings() {
     var sel = global.CFS_walkthroughExport && global.CFS_walkthroughExport.selectorStrings;
@@ -2457,193 +2442,6 @@
     assertEqual(actions[0].selectors[0].value, '.b', 'stable selector moved first');
   }
 
-  /* =========================================================================
-   * book-builder.js — comprehensive coverage
-   * ========================================================================= */
-
-  function testBookBuilderTrimPresets() {
-    var bb = global.__CFS_bookBuilder;
-    if (!bb) throw new Error('__CFS_bookBuilder not loaded');
-    assertTrue(bb.TRIM_PRESETS !== undefined);
-    assertTrue(Object.keys(bb.TRIM_PRESETS).length >= 8);
-    assertEqual(bb.TRIM_PRESETS['6x9'].w, 6);
-    assertEqual(bb.TRIM_PRESETS['6x9'].h, 9);
-    assertEqual(bb.TRIM_PRESETS['custom'].w, null);
-  }
-
-  function testBookBuilderGetOptionsDefault() {
-    var bb = global.__CFS_bookBuilder;
-    var opts = bb.getOptions({});
-    assertEqual(opts.trimWidthIn, 6);
-    assertEqual(opts.trimHeightIn, 9);
-    assertEqual(opts.screenshotPosition, 'above');
-    assertTrue(opts.keepStepTogether);
-    assertTrue(opts.footerPageNumbers);
-    assertEqual(opts.fontSizePt, 11);
-  }
-
-  function testBookBuilderGetOptionsCustom() {
-    var bb = global.__CFS_bookBuilder;
-    var opts = bb.getOptions({ trimSizePreset: 'custom', trimWidthIn: 7.5, trimHeightIn: 10, marginInsideIn: 1, fontSizePt: 14, screenshotPosition: 'left', keepStepTogether: false, footerPageNumbers: false });
-    assertEqual(opts.trimWidthIn, 7.5);
-    assertEqual(opts.trimHeightIn, 10);
-    assertEqual(opts.marginInside, 1);
-    assertEqual(opts.fontSizePt, 14);
-    assertEqual(opts.screenshotPosition, 'left');
-    assertFalse(opts.keepStepTogether);
-    assertFalse(opts.footerPageNumbers);
-  }
-
-  function testBookBuilderGetOptionsPreset() {
-    var bb = global.__CFS_bookBuilder;
-    var opts = bb.getOptions({ trimSizePreset: '8.5x11' });
-    assertEqual(opts.trimWidthIn, 8.5);
-    assertEqual(opts.trimHeightIn, 11);
-    assertEqual(opts.maxPages, 590);
-  }
-
-  function testBookBuilderGetOptionsClamping() {
-    var bb = global.__CFS_bookBuilder;
-    var opts = bb.getOptions({ marginInsideIn: 999, fontSizePt: 0.5 });
-    assertEqual(opts.marginInside, 2, 'clamped to max 2');
-    assertEqual(opts.fontSizePt, 8, 'clamped to min 8');
-  }
-
-  function testBookBuilderBuildMarkdown() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'My Guide' };
-    var actions = [
-      { type: 'click', comment: { text: 'Click the button' } },
-      { type: 'type', stepLabel: 'Enter email' }
-    ];
-    var md = bb.buildMarkdown(wf, actions);
-    assertTrue(md.indexOf('# My Guide') >= 0, 'title present');
-    assertTrue(md.indexOf('Step 1: Click the button') >= 0, 'step 1');
-    assertTrue(md.indexOf('Step 2: Enter email') >= 0, 'step 2');
-    assertTrue(md.indexOf('Click the button') >= 0, 'body text');
-  }
-
-  function testBookBuilderBuildMarkdownNoComment() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'Test' };
-    var actions = [{ type: 'click' }];
-    var md = bb.buildMarkdown(wf, actions);
-    assertTrue(md.indexOf('Step 1') >= 0);
-  }
-
-  function testBookBuilderBuildHtml() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'Test WF' };
-    var actions = [{ type: 'click', comment: { text: 'Do the thing' } }];
-    var html = bb.buildHtml(wf, actions);
-    assertTrue(html.indexOf('<!DOCTYPE html>') === 0, 'starts with DOCTYPE');
-    assertTrue(html.indexOf('<h1>Test WF</h1>') >= 0, 'title');
-    assertTrue(html.indexOf('Step 1') >= 0, 'step number');
-    assertTrue(html.indexOf('Do the thing') >= 0, 'body text');
-    assertTrue(html.indexOf('book-step') >= 0, 'step class');
-  }
-
-  function testBookBuilderBuildHtmlEscaping() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'Test <script>alert(1)</script>' };
-    var actions = [];
-    var html = bb.buildHtml(wf, actions);
-    assertTrue(html.indexOf('<script>alert(1)</script>') < 0, 'no unescaped script');
-    assertTrue(html.indexOf('&lt;script&gt;') >= 0, 'script tag escaped');
-  }
-
-  function testBookBuilderBuildHtmlForDoc() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'Doc' };
-    var html = bb.buildHtml(wf, [{ type: 'click' }], null, false, true);
-    assertTrue(html.indexOf('urn:schemas-microsoft-com:office:word') >= 0, 'Word namespace');
-    assertTrue(html.indexOf('ProgId') >= 0, 'Word ProgId');
-  }
-
-  function testBookBuilderBuildHtmlPositions() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'T' };
-    var actions = [{ type: 'click' }];
-    var htmlLeft = bb.buildHtml(wf, actions, bb.getOptions({ screenshotPosition: 'left' }));
-    assertTrue(htmlLeft.indexOf('flex-direction:row') >= 0, 'left = row layout');
-    var htmlBelow = bb.buildHtml(wf, actions, bb.getOptions({ screenshotPosition: 'below' }));
-    assertTrue(htmlBelow.indexOf('flex-direction:column') >= 0, 'below = column layout');
-  }
-
-  function testBookBuilderBuildHtmlHeaderFooter() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = { name: 'T' };
-    var html = bb.buildHtml(wf, [], bb.getOptions({ headerText: 'My Header', footerText: 'My Footer' }));
-    assertTrue(html.indexOf('My Header') >= 0, 'header present');
-    assertTrue(html.indexOf('My Footer') >= 0, 'footer present');
-    assertTrue(html.indexOf('book-pagenum') >= 0, 'page number counter');
-  }
-
-  function testBookBuilderGenerateBookExportMarkdown() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = JSON.stringify({ name: 'Test', analyzed: { actions: [{ type: 'click', comment: { text: 'Click it' } }] } });
-    return bb.generateBookExport({ workflowJson: wf, outputFormat: 'markdown' }).then(function(result) {
-      assertEqual(result.type, 'text');
-      assertTrue(result.data.indexOf('# Test') >= 0);
-      assertTrue(result.data.indexOf('Click it') >= 0);
-    });
-  }
-
-  function testBookBuilderGenerateBookExportHtml() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = JSON.stringify({ name: 'Test', analyzed: { actions: [{ type: 'click' }] } });
-    return bb.generateBookExport({ workflowJson: wf, outputFormat: 'html' }).then(function(result) {
-      assertEqual(result.type, 'text');
-      assertTrue(result.data.indexOf('<!DOCTYPE html>') >= 0);
-    });
-  }
-
-  function testBookBuilderGenerateBookExportPdf() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = JSON.stringify({ name: 'Test', actions: [{ type: 'click' }] });
-    return bb.generateBookExport({ workflowJson: wf, outputFormat: 'pdf' }).then(function(result) {
-      assertEqual(result.type, 'text');
-      assertTrue(result.data.indexOf('Print this file') >= 0 || result.data.indexOf('<!DOCTYPE') >= 0, 'pdf comment or html');
-    });
-  }
-
-  function testBookBuilderGenerateBookExportDoc() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = JSON.stringify({ name: 'Test', analyzed: { actions: [{ type: 'click' }] } });
-    return bb.generateBookExport({ workflowJson: wf, outputFormat: 'doc' }).then(function(result) {
-      assertEqual(result.type, 'text');
-      assertTrue(result.data.indexOf('Save with .doc') >= 0 || result.data.indexOf('urn:schemas-microsoft-com') >= 0);
-    });
-  }
-
-  function testBookBuilderGenerateBookExportStepText() {
-    var bb = global.__CFS_bookBuilder;
-    return bb.generateBookExport({ stepText: 'Custom text here' }).then(function(result) {
-      assertEqual(result.data, 'Custom text here');
-    });
-  }
-
-  function testBookBuilderGenerateBookExportEmpty() {
-    var bb = global.__CFS_bookBuilder;
-    return bb.generateBookExport({}).then(function(result) {
-      assertEqual(result.data, '');
-    });
-  }
-
-  function testBookBuilderGenerateBookExportNoActions() {
-    var bb = global.__CFS_bookBuilder;
-    var wf = JSON.stringify({ name: 'Empty WF', analyzed: { actions: [] } });
-    return bb.generateBookExport({ workflowJson: wf }).then(function(result) {
-      assertTrue(result.data.indexOf('No steps') >= 0);
-    });
-  }
-
-  function testBookBuilderGenerateBookExportInvalidJson() {
-    var bb = global.__CFS_bookBuilder;
-    return bb.generateBookExport({ workflowJson: 'not json{{' }).then(function(result) {
-      assertTrue(result.data.indexOf('Error') >= 0);
-    });
-  }
 
   /* =========================================================================
    * walkthrough-export.js — additional coverage
@@ -3987,8 +3785,6 @@
     testPersonalInfoSyncUnpublishedKeepsPhrase,
     testPersonalInfoSyncMergeFromFetch,
     testPersonalInfoApplyToTypedValuePhraseAndRegex,
-    testBookBuilderGetStepCaption,
-    testBookBuilderGetStepBody,
     testWalkthroughSelectorStrings,
     testWalkthroughBuildConfig,
     testAnalyzerNormalStepType,
@@ -4120,26 +3916,6 @@
     testAlignRunsBySimilarity,
     testFindBestInsertPosition,
     testApplyVariationToActions,
-    testBookBuilderTrimPresets,
-    testBookBuilderGetOptionsDefault,
-    testBookBuilderGetOptionsCustom,
-    testBookBuilderGetOptionsPreset,
-    testBookBuilderGetOptionsClamping,
-    testBookBuilderBuildMarkdown,
-    testBookBuilderBuildMarkdownNoComment,
-    testBookBuilderBuildHtml,
-    testBookBuilderBuildHtmlEscaping,
-    testBookBuilderBuildHtmlForDoc,
-    testBookBuilderBuildHtmlPositions,
-    testBookBuilderBuildHtmlHeaderFooter,
-    testBookBuilderGenerateBookExportMarkdown,
-    testBookBuilderGenerateBookExportHtml,
-    testBookBuilderGenerateBookExportPdf,
-    testBookBuilderGenerateBookExportDoc,
-    testBookBuilderGenerateBookExportStepText,
-    testBookBuilderGenerateBookExportEmpty,
-    testBookBuilderGenerateBookExportNoActions,
-    testBookBuilderGenerateBookExportInvalidJson,
     testWalkthroughBuildRunnerScript,
     testWalkthroughBuildRunnerScriptWithConfig,
     testWalkthroughBuildRunnerScriptCustomVar,

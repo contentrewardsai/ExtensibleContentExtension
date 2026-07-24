@@ -30,6 +30,8 @@
   var FAUCET_FETCH_MS = 15000;
 
   function fetchWithTimeout(url, init, ms) {
+    var fn = globalThis.__CFS_fetchWithTimeout;
+    if (typeof fn === 'function') return fn(url, init, ms);
     var ctrl = new AbortController();
     var id = setTimeout(function () {
       try {
@@ -43,19 +45,7 @@
   }
 
   var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
-
-  function storageLocalSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
+  var storageLocalSet = globalThis.CFS_CRYPTO_STORAGE.storageLocalSet;
 
   function storageLocalRemove(keys) {
     return new Promise(function (resolve, reject) {
