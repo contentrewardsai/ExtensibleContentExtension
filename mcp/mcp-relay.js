@@ -51,27 +51,62 @@
     var payload = data.payload;
 
     if (reqType === 'STORAGE_READ') {
-      /* Direct chrome.storage.local.get */
+      /* Direct chrome.storage.local.get — secret keys denied */
       var keys = Array.isArray(payload.keys) ? payload.keys : [payload.keys];
-      chrome.storage.local.get(keys, function (result) {
-        sendWs({ id: id, response: { ok: true, data: result } });
+      var filtered =
+        typeof cfsFilterStorageKeys === 'function'
+          ? cfsFilterStorageKeys(keys)
+          : { allowed: keys, denied: [] };
+      if (!filtered.allowed.length) {
+        sendWs({
+          id: id,
+          response: { ok: false, error: 'All requested keys are restricted', denied: filtered.denied || [] },
+        });
+        return;
+      }
+      chrome.storage.local.get(filtered.allowed, function (result) {
+        sendWs({
+          id: id,
+          response: {
+            ok: true,
+            data: result,
+            denied: filtered.denied && filtered.denied.length ? filtered.denied : undefined,
+          },
+        });
       });
       return;
     }
 
     if (reqType === 'STORAGE_WRITE') {
-      /* Direct chrome.storage.local.set */
+      /* Direct chrome.storage.local.set — secret keys denied */
       var writeData = {};
       if (payload.key != null && payload.value !== undefined) {
         writeData[payload.key] = payload.value;
       } else if (payload.data && typeof payload.data === 'object') {
         writeData = payload.data;
       }
-      chrome.storage.local.set(writeData, function () {
+      var stripped =
+        typeof cfsStripSecretKeysFromObject === 'function'
+          ? cfsStripSecretKeysFromObject(writeData)
+          : { data: writeData, denied: [] };
+      if (!Object.keys(stripped.data).length) {
+        sendWs({
+          id: id,
+          response: { ok: false, error: 'All write keys are restricted', denied: stripped.denied || [] },
+        });
+        return;
+      }
+      chrome.storage.local.set(stripped.data, function () {
         if (chrome.runtime.lastError) {
           sendWs({ id: id, response: { ok: false, error: chrome.runtime.lastError.message } });
         } else {
-          sendWs({ id: id, response: { ok: true } });
+          sendWs({
+            id: id,
+            response: {
+              ok: true,
+              denied: stripped.denied && stripped.denied.length ? stripped.denied : undefined,
+            },
+          });
         }
       });
       return;

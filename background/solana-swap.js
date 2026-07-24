@@ -108,6 +108,8 @@
   }
 
   function defaultRpcForCluster(cluster) {
+    var rpc = globalThis.CFS_SOLANA_RPC;
+    if (rpc && typeof rpc.defaultRpcForCluster === 'function') return rpc.defaultRpcForCluster(cluster);
     return cluster === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com';
   }
 
@@ -2551,6 +2553,15 @@
           var v2r = await loadV2Raw();
           if (!v2r || !v2r.wallets) {
             sendResponse({ ok: false, error: 'No wallet' });
+            return;
+          }
+          try {
+            await assertVaultPasswordMatchesExisting(L, v2r, pwR);
+          } catch (vaultErr) {
+            sendResponse({
+              ok: false,
+              error: (vaultErr && vaultErr.message) || 'Password does not match existing encrypted wallets',
+            });
             return;
           }
           var changedR = false;

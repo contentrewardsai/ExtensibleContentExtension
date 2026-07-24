@@ -2,7 +2,7 @@
 
 This document describes how **workflow steps and selectors**, **step comments** (text/image/video/audio/URLs), and **output formats** fit together — and how we support robust fallback selectors, walkthrough/book export concepts, and workflow Q&A.
 
-> **Note:** Built-in **generator templates** (ShotStack, Pixi, `generator/templates/`) were removed. Sections below that reference generator paths are **historical**; surviving code includes `shared/walkthrough-export.js` and `shared/book-builder.js` (unit tests).
+> **Note:** Built-in **generator templates** (ShotStack, Pixi, `generator/templates/`) were removed. Sections below that reference generator paths are **historical**; surviving export helper is `shared/walkthrough-export.js`.
 
 ---
 
@@ -36,7 +36,7 @@ Workflow steps should support **comments** that authors use to describe the step
 
 Or a flatter shape: `stepDescription`, `stepImageUrls`, `stepVideoUrl`, `stepAudioUrl`, `stepResourceUrls`. The exact keys can match what tutorial export and walkthrough helpers expect.
 
-**Use:** Step comments feed narration blocks in the sidepanel, workflow sync, and export helpers (`shared/walkthrough-export.js`, `shared/book-builder.js` in unit tests). Generator templates that consumed comments were removed.
+**Use:** Step comments feed narration blocks in the sidepanel, workflow sync, and export helpers (`shared/walkthrough-export.js`). Generator templates that consumed comments were removed.
 
 ---
 
@@ -62,7 +62,7 @@ Workflow steps use **selectors** to find elements (click, type, etc.). The exten
 
 ## 3. Generator templates (removed)
 
-> **Removed:** The built-in generator (`generator/templates/`, ShotStack rendering, template-engine) was removed from this extension. Content creation moved to the Whop app. The sections below are retained as historical reference for workflow output concepts; walkthrough export (`shared/walkthrough-export.js`) and book-builder unit tests remain for future workflow-based outputs.
+> **Removed:** The built-in generator (`generator/templates/`, ShotStack rendering, template-engine) was removed from this extension. Content creation moved to the Whop app. The sections below are retained as historical reference for workflow output concepts; walkthrough export (`shared/walkthrough-export.js`) remains.
 
 Generator templates (formerly under **generator/templates/**) produced outputs (image, video, text, audio, book) from inputs. The following were **template types** or **output formats** that consume **workflow + step comments**.
 
@@ -85,7 +85,7 @@ Generator templates (formerly under **generator/templates/**) produced outputs (
 
 ### 3.3 Book format
 
-- **Template:** Book output in the generator (shared/book-builder.js); no dedicated template folder.
+- **Template:** Book/generator output removed; no dedicated template folder.
 - **Concept:** User defines **trim size** (presets or custom width/height), **margins** (inside/gutter, outside, top, bottom — with guidance for min values and gutter by page count), **layout** (screenshot above/below/left/right of text; keep step together on same page), **typography** (font family, size, color), and **headers/footers** (optional text, page numbers). For each step: step title + body text + image placeholder (for a manual or generated screenshot).
 - **Output:** Markdown, HTML, **PDF** (print-ready HTML — use browser Print → Save as PDF), or **DOC** (Word-compatible HTML — save file with .doc extension). Generated HTML uses `@page` size and margins for print; min/max page counts per trim size are shown in the template/editor and in output comments.
 - **Step images in books:** Book HTML uses placeholder regions for per-step screenshots (layout only). The runner does not rasterize live page DOM into book images.
@@ -127,7 +127,7 @@ This section is a **product vision**; implementation can start with "question + 
 |------|-------------|----------------|
 | **Step comments** | text, images, video, audio, URLs per step | Workflow JSON (`analyzed.actions[].comment`); sidepanel editor; `shared/step-comment.js`. |
 | **Selector robustness** | Multiple selector strategies; stability scoring; test on live page; fallback chain | `shared/selectors.js`, analyzer, player. |
-| **Walkthrough / book export (helpers)** | JS walkthrough embed; book HTML from step text + screenshot placeholders | `shared/walkthrough-export.js`, `shared/book-builder.js` (unit tests; no generator UI). |
+| **Walkthrough export (helper)** | JS walkthrough embed from step text | `shared/walkthrough-export.js` (no generator UI). |
 | **Workflow Q&A** | Ask question; submit workflows as answers; credits (partial – local storage; backend sync pending) | Backend + sidepanel/UI; docs/BACKEND.md (§ Workflow Q&A and credits API). |
 
 ### Historical (removed generator)
@@ -141,6 +141,6 @@ This section is a **product vision**; implementation can start with "question + 
 ## 6. References
 
 - **Workflows and steps:** WORKFLOW_SPEC.md, STEPS_AND_RUNTIMES.md.
-- **Export helpers:** shared/walkthrough-export.js, shared/book-builder.js.
+- **Export helpers:** shared/walkthrough-export.js.
 - **Selectors:** shared/selectors.js.
 - **Error correction (don’t break):** ERROR_CORRECTION_CHECKLIST.md — checklist for player, step handlers, and sidepanel so scroll-to-step on failure keeps working.

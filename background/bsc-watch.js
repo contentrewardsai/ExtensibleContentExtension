@@ -109,19 +109,7 @@
   ];
 
   var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
-
-  function storageLocalSet(obj) {
-    return new Promise(function (resolve, reject) {
-      try {
-        chrome.storage.local.set(obj, function () {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve();
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
+  var storageLocalSet = globalThis.CFS_CRYPTO_STORAGE.storageLocalSet;
 
   function bscscanApiBase(network) {
     return network === 'chapel' ? 'https://api-testnet.bscscan.com/api' : 'https://api.bscscan.com/api';

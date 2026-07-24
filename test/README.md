@@ -4,7 +4,7 @@
 
 From the side panel (next to Reload Extension), click **Settings** → scroll to **Tests** → **Open unit tests page (Run crypto tests)** to open `test/unit-tests.html`. You can also use `chrome-extension://[id]/test/unit-tests.html`. The Settings **Tests** section runs the full unit suite on load and hosts the E2E checklist; the dedicated page adds the **Run crypto tests** panel.
 
-Unit tests cover: step-validator, step-comment, book-builder, walkthrough-export, analyzer, selectors, template-resolver.
+Unit tests cover: step-validator, step-comment, walkthrough-export, analyzer, selectors, template-resolver.
 
 ## Fixture Page
 

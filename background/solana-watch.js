@@ -64,8 +64,10 @@
   var cs = globalThis.CFS_CRYPTO_STORAGE;
   var storageLocalGet = cs.storageLocalGet;
   var storageLocalSet = cs.storageLocalSet;
+  var solRpc = globalThis.CFS_SOLANA_RPC || {};
 
   function defaultRpc(cluster) {
+    if (typeof solRpc.defaultRpcForCluster === 'function') return solRpc.defaultRpcForCluster(cluster);
     var c = String(cluster || 'mainnet-beta').trim();
     if (c === 'devnet') return 'https://api.devnet.solana.com';
     return 'https://api.mainnet-beta.solana.com';
@@ -79,6 +81,7 @@
 
   /** HTTPS RPC for watch + getTransaction (not necessarily the automation signing RPC). */
   function resolveWatchRpcUrl(stored) {
+    if (typeof solRpc.resolveWatchRpcUrl === 'function') return solRpc.resolveWatchRpcUrl(stored);
     var w = String(stored[WATCH_RPC_OVERRIDE] || '').trim();
     if (w) return w;
     var qn = String(stored[WATCH_QUICKNODE_HTTP] || '').trim();
@@ -106,6 +109,7 @@
   }
 
   function shouldRetryRpc(err) {
+    if (typeof solRpc.shouldRetryRpc === 'function') return solRpc.shouldRetryRpc(err);
     var st = err && err._cfsHttpStatus;
     if (typeof st === 'number' && st >= 500 && st <= 599) return true;
     if (typeof st === 'number' && st === 429) return true;
@@ -116,6 +120,7 @@
   }
 
   function sleepRpc(ms) {
+    if (typeof solRpc.sleepRpc === 'function') return solRpc.sleepRpc(ms);
     return new Promise(function (r) {
       setTimeout(r, ms);
     });
@@ -139,6 +144,7 @@
   }
 
   function rpcAttempt(rpcUrl, method, params) {
+    if (typeof solRpc.rpcAttempt === 'function') return solRpc.rpcAttempt(rpcUrl, method, params);
     var body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: method, params: params });
     var init = {
       method: 'POST',
@@ -150,25 +156,8 @@
     return p
       .then(function (r) {
         if (!r.ok) {
-          if (r.status === 429) {
-            try {
-              var obs = globalThis.__CFS_cryptoObsWarn;
-              if (typeof obs === 'function') {
-                var rpcHost = 'solana-rpc';
-                try {
-                  rpcHost = new URL(rpcUrl).hostname;
-                } catch (_) {}
-                obs('solana_rpc', 'HTTP 429 from Solana JSON-RPC (will retry if configured)', {
-                  host: rpcHost,
-                });
-              }
-            } catch (_) {}
-          }
           var e = new Error('RPC HTTP ' + r.status);
           e._cfsHttpStatus = r.status;
-          var parseRa = globalThis.__CFS_parseRetryAfterMs;
-          e._cfsRetryAfterMs =
-            typeof parseRa === 'function' && r.status === 429 ? parseRa(r) : 0;
           throw e;
         }
         return r.json();
@@ -181,6 +170,7 @@
 
   /** Multiple attempts on 5xx/429/network with Retry-After + exponential backoff (JSON-RPC body errors are not retried). */
   function rpcCall(rpcUrl, method, params) {
+    if (typeof solRpc.rpcCall === 'function') return solRpc.rpcCall(rpcUrl, method, params);
     var maxAttempts = 12;
     var delay = 500;
     function attempt(n) {
@@ -808,20 +798,7 @@
   }
 
   function extractUsdPriceFromJson(json, mint) {
-    if (!json || typeof json !== 'object') return null;
-    var data = json.data;
-    if (data && typeof data === 'object') {
-      var row = data[mint];
-      if (row && typeof row === 'object') {
-        if (typeof row.price === 'number' && row.price > 0) return row.price;
-        if (typeof row.usdPrice === 'number' && row.usdPrice > 0) return row.usdPrice;
-      }
-    }
-    var row2 = json[mint];
-    if (row2 && typeof row2 === 'object') {
-      if (typeof row2.usdPrice === 'number' && row2.usdPrice > 0) return row2.usdPrice;
-      if (typeof row2.price === 'number' && row2.price > 0) return row2.price;
-    }
+    if (typeof solRpc.extractUsdPriceFromJson === 'function') return solRpc.extractUsdPriceFromJson(json, mint);
     return null;
   }
 
@@ -829,36 +806,15 @@
   function fetchJupiterMintPriceUsd(mint, jupHeaders) {
     var cached = jupPriceCacheGet(mint);
     if (cached != null) return Promise.resolve(cached);
-    var urls = [
-      'https://price.jup.ag/v6/price?ids=' + encodeURIComponent(mint),
-      'https://quote-api.jup.ag/v6/price?ids=' + encodeURIComponent(mint),
-      'https://lite-api.jup.ag/price/v2?ids=' + encodeURIComponent(mint),
-    ];
-    var idx = 0;
-    function next() {
-      if (idx >= urls.length) return Promise.resolve(null);
-      var u = urls[idx++];
-      var tiered = globalThis.__CFS_fetchGetTiered;
-      var fetchFn = typeof tiered === 'function' ? tiered : fetch;
-      var p = fetchFn(u, { method: 'GET', headers: jupHeaders || {} });
-      return p
-        .then(function (r) {
-          if (!r.ok) return next();
-          return r.json();
-        })
-        .then(function (j) {
-          var p = extractUsdPriceFromJson(j, mint);
-          if (p != null) {
-            jupPriceCacheSet(mint, p);
-            return p;
-          }
-          return next();
-        })
-        .catch(function () {
-          return next();
-        });
-    }
-    return next();
+    var fetchFn =
+      typeof solRpc.fetchJupiterMintPriceUsd === 'function'
+        ? solRpc.fetchJupiterMintPriceUsd
+        : null;
+    if (!fetchFn) return Promise.resolve(null);
+    return fetchFn(mint, jupHeaders).then(function (p) {
+      if (p != null) jupPriceCacheSet(mint, p);
+      return p;
+    });
   }
 
   function computeFollowingAutomationAmountRaw(entry, classification, side, quoteMint, baseMint, rpcUrl, jupHeaders) {

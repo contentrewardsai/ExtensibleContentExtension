@@ -71,9 +71,10 @@ Configure these from **Settings → Solana automation** (extension settings page
 
 If **RPC URL** is empty, steps use the public defaults (**`api.mainnet-beta.solana.com`** or **`api.devnet.solana.com`**, also listed under **`host_permissions`** in **`manifest.json`**). For **Helius, QuickNode, Alchemy, localhost tunneled to HTTPS**, or any other JSON-RPC URL, paste it into **RPC URL** in Settings. The manifest includes **`<all_urls>`**, so the service worker can call that endpoint without adding a new permission entry for each provider.
 
-### Password encryption
+### Password encryption vs silent always-on signing
 
-- **Encrypt on import** or **Encrypt existing plaintext** wallets store per-wallet **`encJson`** blobs; **one vault password** decrypts every encrypted wallet on **Unlock** (session map). Automated workflow runs need **Unlock** when the **Primary** wallet is encrypted.
+- **Default (plaintext on disk):** Settings leaves **Encrypt on import** unchecked. Workflows, Pulse Following, and crypto steps **sign silently** with no password prompt and no per-transaction confirm — including after service-worker sleep. Tradeoff: the key is in extension local storage (generic `STORAGE_READ` / MCP storage bridges deny secret keys).
+- **Optional Encrypt:** **Encrypt on import** or **Encrypt existing plaintext** stores per-wallet **`encJson`**; **one vault password** decrypts every encrypted wallet on **Unlock** (session map). Signing stays silent **while unlocked**; after browser/session restart you must **Unlock** again before unattended automation resumes. Not suitable as the sole mode for always-on Pulse without that Unlock step.
 - **Forgotten password:** re-import from an offline backup of the private key or mnemonic.
 
 ## CI / automated tests

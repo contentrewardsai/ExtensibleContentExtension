@@ -29,7 +29,7 @@ Load unpacked from `/workspace` at `chrome://extensions/` (Developer Mode enable
 - `npm run test:recorder-integration` — recorder integration tests via Puppeteer (2 pass; 2 pre-existing flaky failures: `stable` and `enter` scenarios).
 - `npm run test:e2e` — Playwright E2E tests. Requires Playwright Chromium browser (`npx playwright install chromium`). Runs non-headless (Chrome extensions require `headless: false`), so an X display must be available (the Cloud VM has `:1`). Build step (`build:step-tests`) is chained automatically. Some pre-existing failures in playback/sidepanel-flow specs; two sidepanel batch tests time out (~60s each).
 - `npm run test:e2e:nav-smoke` — Faster subset: **`unit-tests.spec.mjs`** + side panel **Settings** navigation tests (still runs **`build:step-tests`**).
-- `npm run test:e2e:puppeteer` — Puppeteer-based E2E alternative. Has a pre-existing issue where the extension target is not found on launch (timing race).
+- `npm run test:e2e:puppeteer` — Puppeteer-based E2E alternative. Extension-target timing race was fixed with a retry loop in `scripts/run-e2e-puppeteer.mjs` (see `docs/E2E_FAILURE_TRIAGE.md`).
 
 ### Caveats
 

@@ -3124,6 +3124,16 @@
             sendResponse({ ok: false, error: 'No wallet' });
             return;
           }
+          try {
+            var ethersR = getEthers();
+            await assertBscVaultPasswordMatches(ethersR, v2r, pwR);
+          } catch (vaultErrB) {
+            sendResponse({
+              ok: false,
+              error: (vaultErrB && vaultErrB.message) || 'Password does not match existing encrypted wallets',
+            });
+            return;
+          }
           var changedR = false;
           var kr;
           for (kr = 0; kr < v2r.wallets.length; kr++) {

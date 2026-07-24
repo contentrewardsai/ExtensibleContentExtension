@@ -136,8 +136,28 @@
     return fetch(url, init);
   }
 
+  /**
+   * Fetch with an AbortController timeout (ms).
+   * @param {string} url
+   * @param {RequestInit} [init]
+   * @param {number} [ms]
+   */
+  function fetchWithTimeout(url, init, ms) {
+    var ctrl = new AbortController();
+    var id = setTimeout(function () {
+      try {
+        ctrl.abort();
+      } catch (_) {}
+    }, ms != null ? ms : 15000);
+    var merged = Object.assign({}, init || {}, { signal: ctrl.signal });
+    return fetch(url, merged).finally(function () {
+      clearTimeout(id);
+    });
+  }
+
   global.__CFS_parseRetryAfterMs = parseRetryAfterMs;
   global.__CFS_fetchWith429Backoff = fetchWith429Backoff;
   global.__CFS_fetchGetResilient = fetchGetResilient;
   global.__CFS_fetchGetTiered = fetchGetTiered;
+  global.__CFS_fetchWithTimeout = fetchWithTimeout;
 })(typeof self !== 'undefined' ? self : globalThis);
