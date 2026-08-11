@@ -1,20 +1,24 @@
 # Jupiter Flashloan (Borrow → Swap → Repay)
 
-Execute a **zero-fee flashloan** via Jupiter Lend. Borrows an asset, executes a Jupiter swap (arbitrage or collateral swap), then repays — all atomically in one transaction. If repayment fails, the entire transaction reverts. Uses the `@jup-ag/lend/flashloan` SDK pattern. Requires Solana automation wallet.
+Execute a **zero-fee flashloan** via Jupiter Lend. Borrows an asset, runs Jupiter swap leg(s) from **GET `/swap/v2/build`** (structured instructions, with versioned-tx decompile fallback), then repays — atomically. If repayment fails, the entire transaction reverts.
+
+The default step path is **borrow A → swap A→B → swap B→A → repay A**. The return leg uses the outbound quote’s `outAmount` (`useFullBalance` resolution). **saveProfitVariable** receives `profitEstimate` = expected return amount − borrow amount (quote-based, not on-chain realized PnL).
+
+Requires Solana automation wallet. Lend PDA seeds / discriminators are best-effort; treat mainnet runs as canary until you verify against current Jupiter Lend IDL.
 
 ## Configuration
 
 | Field | Description |
 |-------|-------------|
 | **borrowMint** | SPL mint to borrow. |
-| **borrowAmountRaw** | Amount to borrow (raw, smallest units). |
-| **swapInputMint** / **swapOutputMint** | Swap leg mints. |
-| **slippageBps** | Slippage tolerance for the swap. |
+| **borrowAmount** | Amount to borrow (raw). |
+| **swapOutputMint** | Intermediate mint for the round-trip. |
+| **slippageBps** | Slippage for swap legs. |
 | **cluster** / **rpcUrl** | Network. |
 
 ## Row variables
 
-**saveSignatureVariable**, **saveExplorerUrlVariable**, **saveProfitVariable** — from successful flashloan execution.
+**saveSignatureVariable**, **saveExplorerUrlVariable**, **saveProfitVariable** (`profitEstimate`).
 
 ## Background
 
@@ -23,4 +27,4 @@ Execute a **zero-fee flashloan** via Jupiter Lend. Borrows an asset, executes a 
 
 ## Testing
 
-**steps/jupiterFlashloan/step-tests.js** — payload shape, borrow/repay invariants. `npm run build:step-tests && npm run test:unit`
+**steps/jupiterFlashloan/step-tests.js** — payload shape. `npm run build:step-tests && npm run test:unit`

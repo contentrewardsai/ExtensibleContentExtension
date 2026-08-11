@@ -1,4 +1,3 @@
-"use strict";
 (() => {
   var __defProp = Object.defineProperty;
   var __pow = function(a,b){if(typeof a==="bigint"&&typeof b==="bigint"){if(b<0n)throw new RangeError("bigint exponent negative");var r=1n,x=a,e=b;while(e>0n){if(e&1n)r*=x;x*=x;e>>=1n;}return r;}return Math.pow(a,b);};

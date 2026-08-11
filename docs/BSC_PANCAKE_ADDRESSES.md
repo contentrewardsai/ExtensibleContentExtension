@@ -10,9 +10,12 @@ These **on-chain constants** are compiled into `background/bsc-evm.js`. Verify a
 | PancakeSwap V3 QuoterV2 | `0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997` |
 | PancakeSwap V3 SwapRouter (`bscPancake` execute) | `0x1b81D678ffb9C0263b24A97847620C99d213eB14` |
 | PancakeSwap V3 NonfungiblePositionManager | `0x46A15B0b27311cedF172AB29E4f4766fbE7F4364` |
+| PancakeSwap V3 TickLens (`v3LiquidityDepth`) | `0x9a489505a00cE272eAa5e07Dba6491314CaE3796` |
 | WBNB | `0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c` |
 | MasterChef v1 (legacy `enterStaking` / `leaveStaking`) | `0x73feaa1eE314F8c655E354234017bE2193C9E24E` |
 | MasterChef v2 (`deposit` / `withdraw` / harvest) | `0xa5f8C5Dbd5F286960b9d90548680aE5ebFf07652` |
+
+MasterChef **v2** `poolInfo` does not return `lpToken` — the extension resolves it via the `lpToken(pid)` mapping (`farmPoolInfo` / farm deposit `max`/`balance`).
 | **PancakeSwap Infinity** Vault | `0x238a358808379702088667322f80aC48bAd5e6c4` |
 | Infinity BinPoolManager | `0xC697d2898e0D09264376196696c51D7aBbbAA4a9` |
 | Infinity BinPositionManager | `0x3D311D6283Dd8aB90bb0031835C8e606349e2850` |

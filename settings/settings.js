@@ -5,6 +5,9 @@
   const APIFY_TOKEN_MAX_LEN = 2048;
   const CFS_ASTER_FUTURES_API_KEY = 'cfsAsterFuturesApiKey';
   const CFS_ASTER_FUTURES_API_SECRET = 'cfsAsterFuturesApiSecret';
+  const CFS_ASTER_V3_USER = 'cfsAsterV3User';
+  const CFS_ASTER_V3_SIGNER = 'cfsAsterV3Signer';
+  const CFS_ASTER_V3_SIGNER_KEY = 'cfsAsterV3SignerPrivateKey';
   const CFS_ASTER_FUTURES_TRADING_ENABLED = 'cfsAsterFuturesTradingEnabled';
   const CFS_ASTER_FUTURES_MAX_NOTIONAL = 'cfsAsterFuturesMaxNotionalUsd';
   const CFS_ASTER_SPOT_TRADING_ENABLED = 'cfsAsterSpotTradingEnabled';
@@ -138,12 +141,18 @@
   async function loadAsterFuturesSettings() {
     const keyIn = document.getElementById('asterFuturesApiKeyInput');
     const secIn = document.getElementById('asterFuturesApiSecretInput');
+    const v3User = document.getElementById('asterV3UserInput');
+    const v3Signer = document.getElementById('asterV3SignerInput');
+    const v3Key = document.getElementById('asterV3SignerKeyInput');
     const tradeCb = document.getElementById('asterFuturesTradingEnabled');
     const spotTradeCb = document.getElementById('asterSpotTradingEnabled');
     const maxIn = document.getElementById('asterFuturesMaxNotionalInput');
     const data = await chrome.storage.local.get([
       CFS_ASTER_FUTURES_API_KEY,
       CFS_ASTER_FUTURES_API_SECRET,
+      CFS_ASTER_V3_USER,
+      CFS_ASTER_V3_SIGNER,
+      CFS_ASTER_V3_SIGNER_KEY,
       CFS_ASTER_FUTURES_TRADING_ENABLED,
       CFS_ASTER_SPOT_TRADING_ENABLED,
       CFS_ASTER_FUTURES_MAX_NOTIONAL,
@@ -154,11 +163,49 @@
     if (secIn && data[CFS_ASTER_FUTURES_API_SECRET] && typeof data[CFS_ASTER_FUTURES_API_SECRET] === 'string') {
       secIn.value = data[CFS_ASTER_FUTURES_API_SECRET].trim().slice(0, ASTER_FUTURES_KEY_MAX_LEN);
     }
+    if (v3User && data[CFS_ASTER_V3_USER] && typeof data[CFS_ASTER_V3_USER] === 'string') {
+      v3User.value = data[CFS_ASTER_V3_USER].trim().slice(0, ASTER_FUTURES_KEY_MAX_LEN);
+    }
+    if (v3Signer && data[CFS_ASTER_V3_SIGNER] && typeof data[CFS_ASTER_V3_SIGNER] === 'string') {
+      v3Signer.value = data[CFS_ASTER_V3_SIGNER].trim().slice(0, ASTER_FUTURES_KEY_MAX_LEN);
+    }
+    if (v3Key && data[CFS_ASTER_V3_SIGNER_KEY] && typeof data[CFS_ASTER_V3_SIGNER_KEY] === 'string') {
+      v3Key.value = data[CFS_ASTER_V3_SIGNER_KEY].trim().slice(0, ASTER_FUTURES_KEY_MAX_LEN);
+    }
     if (tradeCb) tradeCb.checked = data[CFS_ASTER_FUTURES_TRADING_ENABLED] === true;
     if (spotTradeCb) spotTradeCb.checked = data[CFS_ASTER_SPOT_TRADING_ENABLED] === true;
     if (maxIn && data[CFS_ASTER_FUTURES_MAX_NOTIONAL] != null && data[CFS_ASTER_FUTURES_MAX_NOTIONAL] !== '') {
       maxIn.value = String(data[CFS_ASTER_FUTURES_MAX_NOTIONAL]);
     }
+  }
+
+  async function saveAsterV3Keys() {
+    const userIn = document.getElementById('asterV3UserInput');
+    const signerIn = document.getElementById('asterV3SignerInput');
+    const keyIn = document.getElementById('asterV3SignerKeyInput');
+    const statusEl = document.getElementById('asterFuturesKeysStatus');
+    if (!userIn || !signerIn || !keyIn) return;
+    let user = String(userIn.value || '').trim();
+    let signer = String(signerIn.value || '').trim();
+    let pk = String(keyIn.value || '').trim();
+    if (user.length > ASTER_FUTURES_KEY_MAX_LEN || signer.length > ASTER_FUTURES_KEY_MAX_LEN || pk.length > ASTER_FUTURES_KEY_MAX_LEN) {
+      setStatus(statusEl, 'V3 field too long (max ' + ASTER_FUTURES_KEY_MAX_LEN + ').', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    const any = !!(user || signer || pk);
+    if (any && !(user && signer && pk)) {
+      setStatus(statusEl, 'V3 needs main wallet, signer, and private key together (or clear all three).', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    await chrome.storage.local.set({
+      [CFS_ASTER_V3_USER]: user,
+      [CFS_ASTER_V3_SIGNER]: signer,
+      [CFS_ASTER_V3_SIGNER_KEY]: pk,
+    });
+    setStatus(statusEl, any ? 'Aster V3 credentials saved.' : 'Aster V3 credentials cleared.', any ? 'success' : '');
+    setTimeout(() => setStatus(statusEl, '', ''), 3000);
   }
 
   async function saveAsterFuturesKeys() {
@@ -177,7 +224,7 @@
       [CFS_ASTER_FUTURES_API_KEY]: k,
       [CFS_ASTER_FUTURES_API_SECRET]: s,
     });
-    setStatus(statusEl, k || s ? 'Aster keys saved.' : 'Aster keys cleared.', k || s ? 'success' : '');
+    setStatus(statusEl, k || s ? 'Aster V1 keys saved.' : 'Aster V1 keys cleared.', k || s ? 'success' : '');
     setTimeout(() => setStatus(statusEl, '', ''), 3000);
   }
 
@@ -208,32 +255,23 @@
   }
 
   function setupAsterFuturesToggles() {
-    const b1 = document.getElementById('toggleAsterFuturesKeyVisibility');
-    const i1 = document.getElementById('asterFuturesApiKeyInput');
-    if (b1 && i1) {
-      b1.addEventListener('click', () => {
-        if (i1.type === 'password') {
-          i1.type = 'text';
-          b1.textContent = 'Hide';
+    function wireToggle(btnId, inputId) {
+      const b = document.getElementById(btnId);
+      const i = document.getElementById(inputId);
+      if (!b || !i) return;
+      b.addEventListener('click', () => {
+        if (i.type === 'password') {
+          i.type = 'text';
+          b.textContent = 'Hide';
         } else {
-          i1.type = 'password';
-          b1.textContent = 'Show';
+          i.type = 'password';
+          b.textContent = 'Show';
         }
       });
     }
-    const b2 = document.getElementById('toggleAsterFuturesSecretVisibility');
-    const i2 = document.getElementById('asterFuturesApiSecretInput');
-    if (b2 && i2) {
-      b2.addEventListener('click', () => {
-        if (i2.type === 'password') {
-          i2.type = 'text';
-          b2.textContent = 'Hide';
-        } else {
-          i2.type = 'password';
-          b2.textContent = 'Show';
-        }
-      });
-    }
+    wireToggle('toggleAsterFuturesKeyVisibility', 'asterFuturesApiKeyInput');
+    wireToggle('toggleAsterFuturesSecretVisibility', 'asterFuturesApiSecretInput');
+    wireToggle('toggleAsterV3KeyVisibility', 'asterV3SignerKeyInput');
   }
 
   async function testApifyToken() {
@@ -1681,9 +1719,14 @@
     }
 
     function requireBackupAck() {
-      const ok = document.getElementById('bscBackupAck')?.checked === true;
+      const ack = document.getElementById('bscBackupAck');
+      const ok = ack?.checked === true;
       if (!ok) {
-        bscSetMsg('Check the backup acknowledgment before importing or saving a generated wallet.', 'error');
+        bscSetMsg('Check “I have backed up…” under Import or generate (scroll up if needed), then try again.', 'error');
+        try {
+          ack?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          ack?.focus();
+        } catch (_) {}
         return false;
       }
       return true;
@@ -1735,14 +1778,7 @@
           rpcSeedEl.value = DEFAULT_BSC_MAINNET_RPC_URL;
         }
         statusLine.textContent = 'No automation wallet configured. Import a key or generate a mnemonic.';
-        const scanHint0 = document.getElementById('bscBscscanKeyHint');
-        if (scanHint0) {
-          scanHint0.textContent = r.bscscanApiKeySet
-            ? 'BscScan API key is saved (for Pulse Following watch).'
-            : 'No BscScan API key saved.';
-        }
-        const scanInput0 = document.getElementById('bscBscscanApiKey');
-        if (scanInput0) scanInput0.value = '';
+        await refreshBscIndexerStatus();
         return;
       }
       if (r.corrupt) {
@@ -1766,15 +1802,99 @@
       const chainEl = document.getElementById('bscChainId');
       if (rpcEl && r.rpcUrl != null) rpcEl.value = r.rpcUrl;
       if (chainEl && r.chainId != null) chainEl.value = String(r.chainId);
-      const scanHint = document.getElementById('bscBscscanKeyHint');
-      if (scanHint) {
-        scanHint.textContent = r.bscscanApiKeySet
-          ? 'BscScan API key is saved (value not shown). Paste a new key and save to replace, or clear the field and save to remove.'
-          : 'No BscScan API key saved — Pulse BSC watch stays idle until you add one.';
-      }
-      const scanInput = document.getElementById('bscBscscanApiKey');
-      if (scanInput) scanInput.value = '';
       renderBscWalletList(r);
+      await refreshBscIndexerStatus();
+    }
+
+    async function refreshBscIndexerStatus() {
+      const IDX = typeof CFS_BSC_INDEXER !== 'undefined' ? CFS_BSC_INDEXER : null;
+      try {
+        const keys = [
+          'cfs_bsc_quicknode_rpc_url',
+          'cfs_bscscan_api_key',
+          'cfs_ankr_api_key',
+          'cfs_covalent_api_key',
+          'cfs_bsc_indexer_preference',
+          'cfs_bsc_quicknode_aggressive_poll',
+          'cfs_bsc_rpc_url',
+          'cfsPulseBscWatchBundle',
+        ];
+        const stored = await chrome.storage.local.get(keys);
+        const setHint = (id, set, emptyMsg, setMsg) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = set ? setMsg : emptyMsg;
+        };
+        const qnSet = !!(
+          (typeof stored.cfs_bsc_quicknode_rpc_url === 'string' && stored.cfs_bsc_quicknode_rpc_url.trim()) ||
+          (IDX && IDX.isQuickNodeUrl && IDX.isQuickNodeUrl(stored.cfs_bsc_rpc_url))
+        );
+        setHint(
+          'bscQuickNodeHint',
+          qnSet,
+          'No QuickNode endpoint saved. Paste an HTTPS BSC endpoint and save.',
+          'QuickNode endpoint is saved (value not shown). Paste a new URL and save to replace, or Clear. If dedicated field empty, a QuickNode URL in RPC above is used automatically.',
+        );
+        setHint(
+          'bscBscscanKeyHint',
+          !!(typeof stored.cfs_bscscan_api_key === 'string' && stored.cfs_bscscan_api_key.trim()),
+          'Optional if QuickNode/Ankr/Covalent is set. Free Etherscan keys often lack BSC Multichain coverage.',
+          'Etherscan key is saved (value not shown). Paste a new key and save to replace, or Clear.',
+        );
+        setHint(
+          'bscAnkrKeyHint',
+          !!(typeof stored.cfs_ankr_api_key === 'string' && stored.cfs_ankr_api_key.trim()),
+          'Optional. Ankr Advanced Query API (mainnet).',
+          'Ankr key is saved (value not shown). Paste a new key and save to replace, or Clear.',
+        );
+        setHint(
+          'bscCovalentKeyHint',
+          !!(typeof stored.cfs_covalent_api_key === 'string' && stored.cfs_covalent_api_key.trim()),
+          'Optional. Covalent GoldRush (mainnet).',
+          'Covalent key is saved (value not shown). Paste a new key and save to replace, or Clear.',
+        );
+        const prefEl = document.getElementById('bscIndexerPreference');
+        if (prefEl) {
+          const p = String(stored.cfs_bsc_indexer_preference || 'auto').toLowerCase();
+          prefEl.value = ['auto', 'quicknode', 'etherscan', 'ankr', 'covalent'].indexOf(p) >= 0 ? p : 'auto';
+        }
+        const aggEl = document.getElementById('bscQuickNodeAggressivePoll');
+        if (aggEl) aggEl.checked = stored.cfs_bsc_quicknode_aggressive_poll === true;
+        ['bscQuickNodeRpcUrl', 'bscBscscanApiKey', 'bscAnkrApiKey', 'bscCovalentApiKey'].forEach((id) => {
+          const inp = document.getElementById(id);
+          if (inp) inp.value = '';
+        });
+        const statusEl = document.getElementById('bscIndexerStatusLine');
+        if (statusEl && IDX && typeof IDX.statusPayload === 'function') {
+          const n =
+            stored.cfsPulseBscWatchBundle && Array.isArray(stored.cfsPulseBscWatchBundle.entries)
+              ? stored.cfsPulseBscWatchBundle.entries.filter((e) => e && String(e.address || '').trim()).length
+              : 0;
+          const st = IDX.statusPayload(stored, n);
+          const parts = [];
+          if (st.hint) parts.push(st.hint);
+          else if (st.resolved) {
+            parts.push('Active preference resolves to: ' + st.resolved.label + '.');
+            if (st.minPollMinutes != null) parts.push('Min poll interval: ' + st.minPollMinutes + ' min.');
+            if (st.estimatedCredits != null) {
+              parts.push(
+                '~' +
+                  st.estimatedCredits.toLocaleString() +
+                  ' QuickNode credits/mo for ' +
+                  n +
+                  ' watched wallet(s) every ' +
+                  st.minPollMinutes +
+                  ' min (free ≈ 10M).',
+              );
+            }
+          } else parts.push('No indexer credential configured.');
+          if (st.freeTierNote && st.resolved && st.resolved.id === 'quicknode') parts.push(st.freeTierNote);
+          statusEl.textContent = parts.join(' ');
+        } else if (statusEl) {
+          statusEl.textContent = '';
+        }
+      } catch (_) {
+        /* ignore */
+      }
     }
 
     document.getElementById('bscWalletList')?.addEventListener('click', async function (ev) {
@@ -1811,6 +1931,10 @@
       e.preventDefault();
       chrome.tabs.create({ url: chrome.runtime.getURL('docs/BSC_AUTOMATION.md') });
     });
+    document.getElementById('bscV3LpDocLink')?.addEventListener('click', function (e) {
+      e.preventDefault();
+      chrome.tabs.create({ url: chrome.runtime.getURL('docs/BSC_V3_LP_WORKFLOWS.md') });
+    });
 
     document.getElementById('bscTogglePk')?.addEventListener('click', function () {
       const el = document.getElementById('bscPrivateKey');
@@ -1826,17 +1950,83 @@
         const rpcIn = document.getElementById('bscRpcUrl');
         if (rpcIn) rpcIn.value = rpcUrl;
       }
-      const bscscanRaw = document.getElementById('bscBscscanApiKey')?.value;
       const payload = { rpcUrl, chainId };
-      if (bscscanRaw !== undefined && bscscanRaw !== null) {
-        payload.bscscanApiKey = String(bscscanRaw).trim();
-      }
       const r = await sendBsc('CFS_BSC_WALLET_SAVE_SETTINGS', payload);
+      bscSetMsg(r.ok ? 'RPC and chain settings saved.' : (r.error || 'Save failed'), r.ok ? 'success' : 'error');
+      await refreshBscStatus();
+    });
+
+    document.getElementById('bscUseMainnetBtn')?.addEventListener('click', async function () {
+      const rpcIn = document.getElementById('bscRpcUrl');
+      const chainIn = document.getElementById('bscChainId');
+      if (rpcIn) rpcIn.value = DEFAULT_BSC_MAINNET_RPC_URL;
+      if (chainIn) chainIn.value = '56';
+      const r = await sendBsc('CFS_BSC_WALLET_SAVE_SETTINGS', {
+        rpcUrl: DEFAULT_BSC_MAINNET_RPC_URL,
+        chainId: 56,
+      });
       bscSetMsg(
-        r.ok ? 'RPC, chain, and BscScan settings saved.' : (r.error || 'Save failed'),
-        r.ok ? 'success' : 'error',
+        r.ok
+          ? 'Switched to BSC mainnet (chain 56 + bsc-dataseed). Reload Activity → Refresh V3 watch.'
+          : (r.error || 'Save failed'),
+        r.ok ? 'success' : 'error'
       );
       await refreshBscStatus();
+    });
+
+    document.getElementById('bscSaveIndexerBtn')?.addEventListener('click', async function () {
+      const patch = {
+        cfs_bsc_indexer_preference: document.getElementById('bscIndexerPreference')?.value || 'auto',
+        cfs_bsc_quicknode_aggressive_poll: document.getElementById('bscQuickNodeAggressivePoll')?.checked === true,
+      };
+      // Secret inputs stay blank after load — only overwrite storage when the user pastes a new value.
+      const qnRaw = String(document.getElementById('bscQuickNodeRpcUrl')?.value || '').trim();
+      if (qnRaw) {
+        const IDX = typeof CFS_BSC_INDEXER !== 'undefined' ? CFS_BSC_INDEXER : null;
+        patch.cfs_bsc_quicknode_rpc_url =
+          IDX && typeof IDX.normalizeQuickNodeHttpUrl === 'function'
+            ? IDX.normalizeQuickNodeHttpUrl(qnRaw) || qnRaw
+            : qnRaw;
+      }
+      const ethRaw = String(document.getElementById('bscBscscanApiKey')?.value || '').trim();
+      if (ethRaw) patch.cfs_bscscan_api_key = ethRaw;
+      const ankrRaw = String(document.getElementById('bscAnkrApiKey')?.value || '').trim();
+      if (ankrRaw) patch.cfs_ankr_api_key = ankrRaw;
+      const covRaw = String(document.getElementById('bscCovalentApiKey')?.value || '').trim();
+      if (covRaw) patch.cfs_covalent_api_key = covRaw;
+      try {
+        await chrome.storage.local.set(patch);
+        bscSetMsg('BSC Following indexer settings saved.', 'success');
+        await refreshBscIndexerStatus();
+        // Refresh applies alarm pacing (QuickNode min interval) then runs one poll.
+        try {
+          await chrome.runtime.sendMessage({ type: 'CFS_BSC_WATCH_REFRESH_NOW' });
+        } catch (_) {}
+      } catch (e) {
+        bscSetMsg(e && e.message ? e.message : 'Save failed', 'error');
+      }
+    });
+
+    async function clearBscIndexerSecret(storageKey) {
+      try {
+        await chrome.storage.local.remove([storageKey]);
+        bscSetMsg('Cleared ' + storageKey + '.', 'success');
+        await refreshBscIndexerStatus();
+      } catch (e) {
+        bscSetMsg(e && e.message ? e.message : 'Clear failed', 'error');
+      }
+    }
+    document.getElementById('bscClearQuickNodeBtn')?.addEventListener('click', function () {
+      clearBscIndexerSecret('cfs_bsc_quicknode_rpc_url');
+    });
+    document.getElementById('bscClearEtherscanBtn')?.addEventListener('click', function () {
+      clearBscIndexerSecret('cfs_bscscan_api_key');
+    });
+    document.getElementById('bscClearAnkrBtn')?.addEventListener('click', function () {
+      clearBscIndexerSecret('cfs_ankr_api_key');
+    });
+    document.getElementById('bscClearCovalentBtn')?.addEventListener('click', function () {
+      clearBscIndexerSecret('cfs_covalent_api_key');
     });
 
     document.getElementById('bscUnlockBtn')?.addEventListener('click', async function () {
@@ -1888,12 +2078,26 @@
       }, ex));
       if (r.ok) {
         document.getElementById('bscPrivateKey').value = '';
-        bscSetMsg('Imported. Address saved in status line.', 'success');
+        bscSetMsg(formatBscImportResult(r, 'Imported private key'), 'success');
       } else {
         bscSetMsg(r.error || 'Import failed', 'error');
       }
       await refreshBscStatus();
     });
+
+    function formatBscImportResult(r, verb) {
+      const addr = r && r.address ? String(r.address) : '';
+      if (!addr) return verb + '.';
+      if (r.isPrimary) return verb + ' as Primary: ' + addr;
+      return (
+        verb +
+        ' as ' +
+        addr +
+        ' (not Primary — status still shows ' +
+        (r.primaryAddress || 'the previous Primary') +
+        '. Check “Make new wallet Primary” or click Set Primary on this row.)'
+      );
+    }
 
     document.getElementById('bscImportMnemonicBtn')?.addEventListener('click', async function () {
       if (!requireBackupAck()) return;
@@ -1921,7 +2125,7 @@
       }, exMn));
       if (r.ok) {
         document.getElementById('bscMnemonic').value = '';
-        bscSetMsg('Imported from mnemonic.', 'success');
+        bscSetMsg(formatBscImportResult(r, 'Imported mnemonic'), 'success');
       } else {
         bscSetMsg(r.error || 'Import failed', 'error');
       }
@@ -1929,14 +2133,30 @@
     });
 
     document.getElementById('bscGenerateMnemonicBtn')?.addEventListener('click', async function () {
-      if (!requireBackupAck()) return;
+      /* Generate only reveals a phrase — backup ack is required on Save, not here. */
       const r = await sendBsc('CFS_BSC_WALLET_GENERATE_MNEMONIC');
       const reveal = document.getElementById('bscMnemonicReveal');
       const ta = document.getElementById('bscMnemonicRevealText');
+      const addrEl = document.getElementById('bscMnemonicRevealAddress');
+      const setPrimaryEl = document.getElementById('bscSetAsPrimary');
       if (r.ok && r.mnemonic) {
         if (ta) ta.value = r.mnemonic;
-        if (reveal) reveal.style.display = '';
-        bscSetMsg('Write down the phrase. Then click “Save generated wallet”. Address: ' + (r.address || ''), 'success');
+        if (addrEl) {
+          addrEl.textContent =
+            'This phrase → account 0 address: ' + (r.address || '') + ' (Save will set this as Primary)';
+        }
+        if (setPrimaryEl) setPrimaryEl.checked = true;
+        if (reveal) {
+          reveal.style.display = '';
+          try {
+            reveal.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          } catch (_) {}
+        }
+        bscSetMsg(
+          'Mnemonic shown below. Write it down, check “I have backed up…”, then “Save generated wallet”. Same phrase always derives: ' +
+            (r.address || ''),
+          'success'
+        );
       } else {
         bscSetMsg(r.error || 'Generate failed', 'error');
       }
@@ -1949,6 +2169,9 @@
         bscSetMsg('Generate a mnemonic first.', 'error');
         return;
       }
+      const expectedAddr = (document.getElementById('bscMnemonicRevealAddress')?.textContent || '').match(
+        /0x[a-fA-F0-9]{40}/
+      );
       const rpcUrl = resolveBscRpcUrlForWallet();
       if (!rpcUrl) {
         bscSetMsg('Set RPC URL first (required for non-mainnet chain IDs).', 'error');
@@ -1960,18 +2183,101 @@
         bscSetMsg('Encrypt on import requires a password of at least 8 characters.', 'error');
         return;
       }
+      /* Always Primary for Save generated — otherwise status keeps showing the old wallet. */
       const r = await sendBsc('CFS_BSC_WALLET_IMPORT', Object.assign({
         mnemonic: phrase,
         rpcUrl,
         chainId,
         backupConfirmed: true,
+        setAsPrimary: true,
       }, exGen));
       if (r.ok) {
-        bscSetMsg('Wallet saved in this browser.', 'success');
+        if (expectedAddr && r.address && expectedAddr[0].toLowerCase() !== String(r.address).toLowerCase()) {
+          bscSetMsg(
+            'Saved Primary ' +
+              r.address +
+              ' but it does not match the address shown after Generate (' +
+              expectedAddr[0] +
+              '). Did the phrase get edited?',
+            'error'
+          );
+        } else {
+          bscSetMsg(formatBscImportResult(r, 'Saved generated wallet'), 'success');
+        }
       } else {
         bscSetMsg(r.error || 'Save failed', 'error');
       }
       await refreshBscStatus();
+    });
+
+    function bscV3BindSetMsg(text, kind) {
+      const el = document.getElementById('bscV3BindMsg');
+      if (!el) return;
+      el.style.display = text ? '' : 'none';
+      el.textContent = text || '';
+      el.className = 'status-msg' + (kind === 'error' ? ' error' : kind === 'success' ? ' success' : '');
+    }
+
+    document.getElementById('bscV3BindMonitorBtn')?.addEventListener('click', async function () {
+      const tokenId = document.getElementById('bscV3BindTokenId')?.value?.trim() || '';
+      if (!tokenId) {
+        bscV3BindSetMsg('Enter the V3 position NFT id.', 'error');
+        return;
+      }
+      const USDT = '0x55d398326f99059fF775485246999027B3197955';
+      const BTCB = '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c';
+      const POOL = '0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4';
+      bscV3BindSetMsg('Binding…', '');
+      let r = await sendBsc('CFS_ALWAYS_ON_MERGE_BOUND_ROW', {
+        workflowId: 'wf-bsc-v3-monitor',
+        mode: 'upsertPosition',
+        kind: 'v3',
+        enablePriceRangeWatch: true,
+        pollIntervalMs: 30000,
+        fields: {
+          v3PositionTokenId: tokenId,
+          v3Pool: POOL,
+          token0: USDT,
+          token1: BTCB,
+          tokenA: USDT,
+          tokenB: BTCB,
+          v3Fee: '500',
+          rangePercent: '0.5',
+          rangePercentBelow: '5',
+          rangePercentAbove: '15',
+          exitBelowPolicy: 'sell_stable',
+          exitAbovePolicy: 'restake',
+          stableToken: USDT,
+          fundMode: 'stable',
+          enabled: 'true',
+        },
+      });
+      if (!r.ok && /not found/i.test(String(r.error || ''))) {
+        bscV3BindSetMsg(
+          'Workflow wf-bsc-v3-monitor not in Library yet. Open the side panel → Reload Extension (project folder = extension root), then try again.',
+          'error'
+        );
+        return;
+      }
+      if (!r.ok) {
+        bscV3BindSetMsg(r.error || 'Bind failed', 'error');
+        return;
+      }
+      const refresh = await sendBsc('CFS_V3_RANGE_WATCH_REFRESH_NOW');
+      bscV3BindSetMsg(
+        'Bound NFT #' +
+          tokenId +
+          ' to BSC V3 LP monitor. below→sell_stable / above→restake.' +
+          (refresh && refresh.ok === false ? ' Refresh warning: ' + (refresh.error || 'failed') : ' Watch refreshed.'),
+        'success'
+      );
+    });
+
+    document.getElementById('bscV3RefreshWatchBtn')?.addEventListener('click', async function () {
+      bscV3BindSetMsg('Refreshing…', '');
+      const r = await sendBsc('CFS_V3_RANGE_WATCH_REFRESH_NOW');
+      if (r && r.ok) bscV3BindSetMsg('V3 watch refresh requested.', 'success');
+      else bscV3BindSetMsg((r && r.error) || 'Refresh failed', 'error');
     });
 
     document.getElementById('bscClearBtn')?.addEventListener('click', async function () {
@@ -2071,20 +2377,30 @@
       });
     });
 
-    /* Save injection settings */
+    /* Save injection settings — SW registers/unregisters and broadcasts auto-approve */
     document.getElementById('walletInjectionSaveSettingsBtn')?.addEventListener('click', () => {
       const enabled = document.getElementById('walletInjectionEnabled')?.checked !== false;
       const autoApprove = document.getElementById('walletInjectionAutoApprove')?.checked === true;
-      chrome.storage.local.set({
-        cfs_wallet_injection_enabled: enabled,
-        cfs_wallet_injection_auto_approve: autoApprove,
-      }, () => {
-        setStatus(settingsStatusEl, 'Injection settings saved.', 'success');
-        /* If disabled, unregister content scripts */
-        if (!enabled) {
-          chrome.runtime.sendMessage({ type: 'CFS_WALLET_SET_ALLOWLIST', allowlist: ['__disabled__'] }, () => {});
+      chrome.runtime.sendMessage(
+        { type: 'CFS_WALLET_SET_INJECTION_SETTINGS', enabled: enabled, autoApprove: autoApprove },
+        (r) => {
+          if (chrome.runtime.lastError) {
+            setStatus(settingsStatusEl, chrome.runtime.lastError.message, 'error');
+            return;
+          }
+          if (r?.ok) {
+            setStatus(
+              settingsStatusEl,
+              enabled
+                ? 'Injection enabled' + (autoApprove ? ' (auto-approve on).' : ' (confirm before sign).')
+                : 'Injection disabled; wallet proxy unregistered.',
+              'success'
+            );
+          } else {
+            setStatus(settingsStatusEl, r?.error || 'Failed to save.', 'error');
+          }
         }
-      });
+      );
     });
   }
 
@@ -2351,11 +2667,25 @@
   }
 
   let cfsMcpStatusTimer = null;
+  /** Last /health succeeded — dependents skip fetch spam while offline. */
+  let cfsMcpServerOnline = false;
+  let cfsMcpPollIntervalMs = 0;
+  const CFS_MCP_POLL_MS_ONLINE = 10000;
+  const CFS_MCP_POLL_MS_OFFLINE = 60000;
+
+  function cfsMcpSchedulePoll(intervalMs) {
+    if (cfsMcpPollIntervalMs === intervalMs && cfsMcpStatusTimer) return;
+    cfsMcpPollIntervalMs = intervalMs;
+    if (cfsMcpStatusTimer) clearInterval(cfsMcpStatusTimer);
+    cfsMcpStatusTimer = setInterval(cfsMcpCheckHealth, intervalMs);
+  }
 
   function cfsMcpPollStatus() {
     if (cfsMcpStatusTimer) clearInterval(cfsMcpStatusTimer);
+    cfsMcpStatusTimer = null;
+    cfsMcpPollIntervalMs = 0;
     cfsMcpCheckHealth();
-    cfsMcpStatusTimer = setInterval(cfsMcpCheckHealth, 10000);
+    cfsMcpSchedulePoll(CFS_MCP_POLL_MS_ONLINE);
   }
 
   async function cfsMcpCheckHealth() {
@@ -2369,6 +2699,8 @@
       const port = data[CFS_MCP_PORT] || 3100;
       const resp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(3000) });
       if (resp.ok) {
+        cfsMcpServerOnline = true;
+        cfsMcpSchedulePoll(CFS_MCP_POLL_MS_ONLINE);
         const json = await resp.json();
         dot.style.background = json.relayConnected ? 'var(--success)' : '#f59e0b';
         text.textContent = json.relayConnected
@@ -2396,10 +2728,14 @@
           }
         }
       } else {
+        cfsMcpServerOnline = false;
+        cfsMcpSchedulePoll(CFS_MCP_POLL_MS_OFFLINE);
         dot.style.background = 'var(--error)';
         text.textContent = 'Server returned status ' + resp.status;
       }
     } catch (_) {
+      cfsMcpServerOnline = false;
+      cfsMcpSchedulePoll(CFS_MCP_POLL_MS_OFFLINE);
       dot.style.background = 'var(--error)';
       text.textContent = 'Stopped';
       if (startBtn) startBtn.disabled = false;
@@ -2492,7 +2828,7 @@
       }
     });
 
-    /* Start MCP server */
+    /* Start MCP server via native messaging (Chrome launches Start*MCPServer). */
     document.getElementById('cfsMcpStartBtn')?.addEventListener('click', async () => {
       const statusEl = document.getElementById('cfsMcpStartStopStatus');
       const startBtn = document.getElementById('cfsMcpStartBtn');
@@ -2513,12 +2849,39 @@
         }
       } catch (_) {}
 
-      /* Not running — show brief message, then auto-clear */
-      setStatus(statusEl, 'Server not detected. Use 📂 Find StartMCPServer below to locate and run it.', '');
+      setStatus(statusEl, 'Starting via native messaging…', '');
+      try {
+        const result = await chrome.runtime.sendMessage({ type: 'CFS_MCP_START' });
+        if (result && result.ok) {
+          setStatus(statusEl, '✓ MCP server started on port ' + (result.port || 3100) + '.', 'success');
+          setTimeout(() => setStatus(statusEl, '', ''), 4000);
+          setTimeout(cfsMcpCheckHealth, 800);
+          if (startBtn) startBtn.disabled = false;
+          return;
+        }
+        const err = (result && result.error) || 'Failed to start MCP server';
+        /* First-run: host not registered until binary is launched once from Finder */
+        const needsManual =
+          /native host|not found|Specified native messaging host|did not respond|double-click|Native Messaging/i.test(err);
+        setStatus(
+          statusEl,
+          needsManual
+            ? 'Could not auto-start yet. Click 📂 Find MCP Server binary → open mcp-server/dist/ → double-click StartMacMCPServer once (macOS: right-click → Open). Then click ▶ Start again.'
+            : err,
+          'error',
+        );
+        setTimeout(() => setStatus(statusEl, '', ''), 12000);
+      } catch (e) {
+        setStatus(
+          statusEl,
+          (e && e.message) ||
+            'Could not start. Use 📂 Find MCP Server binary and double-click StartMacMCPServer once, then retry ▶ Start.',
+          'error',
+        );
+        setTimeout(() => setStatus(statusEl, '', ''), 12000);
+      }
       if (startBtn) startBtn.disabled = false;
-      setTimeout(() => setStatus(statusEl, '', ''), 6000);
-      /* Keep polling so status updates automatically once server starts */
-      setTimeout(cfsMcpCheckHealth, 3000);
+      setTimeout(cfsMcpCheckHealth, 2000);
     });
 
     /* Stop MCP server */
@@ -2605,14 +2968,14 @@
       setTimeout(cfsMcpRefreshSubs, 500);
     });
 
-    /* Auto-refresh subscriptions when health check runs */
+    /* Auto-refresh subscriptions when health check runs (skip while server offline) */
     var _origHealthCheck = cfsMcpCheckHealth;
     cfsMcpCheckHealth = async function() {
       await _origHealthCheck();
-      cfsMcpRefreshSubs();
+      if (cfsMcpServerOnline) cfsMcpRefreshSubs();
     };
-    /* Initial load */
-    cfsMcpRefreshSubs();
+    /* Initial load only if already online; otherwise wait for a successful health poll */
+    if (cfsMcpServerOnline) cfsMcpRefreshSubs();
 
     /* ── Tunnel UI ── */
     const TUNNEL_KEYS = ['cfsMcpTunnelProvider', 'cfsMcpNgrokAuthtoken', 'cfsMcpTunnelDomain'];
@@ -2767,11 +3130,11 @@
       try { await navigator.clipboard.writeText(JSON.stringify(tunnelBuildRemoteConfig(), null, 2)); } catch (_) {}
     });
 
-    /* Poll tunnel status from /health endpoint */
+    /* Poll tunnel status from /health only while server is online (avoid duplicate refused spam) */
     var _origHealth2 = cfsMcpCheckHealth;
     cfsMcpCheckHealth = async function() {
       await _origHealth2();
-      /* Also check tunnel from health */
+      if (!cfsMcpServerOnline) return;
       try {
         var port = (document.getElementById('cfsMcpPortInput')?.value || '3100').trim();
         var resp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(3000) });
@@ -2976,14 +3339,13 @@
     /* Refresh */
     document.getElementById('cfsMcpExtRefreshBtn')?.addEventListener('click', cfsMcpExtRefreshList);
 
-    /* Auto-refresh external endpoints with health poll */
+    /* Auto-refresh external endpoints with health poll (skip while offline) */
     var _origHealth3 = cfsMcpCheckHealth;
     cfsMcpCheckHealth = async function() {
       await _origHealth3();
-      cfsMcpExtRefreshList();
+      if (cfsMcpServerOnline) cfsMcpExtRefreshList();
     };
-    /* Initial load */
-    cfsMcpExtRefreshList();
+    if (cfsMcpServerOnline) cfsMcpExtRefreshList();
   }
 
   // --- Crypto & Web3 Master Toggle ---
@@ -3007,6 +3369,9 @@
       'cfsPulseSolanaWatchBundle',
       'cfsPulseBscWatchBundle',
       'cfs_bscscan_api_key',
+      'cfs_bsc_quicknode_rpc_url',
+      'cfs_ankr_api_key',
+      'cfs_covalent_api_key',
     ]);
 
     let enabled = data[CFS_CRYPTO_WEB3_ENABLED_KEY] === true;
@@ -3018,7 +3383,10 @@
         (Array.isArray(data.cfs_bsc_wallets) && data.cfs_bsc_wallets.length > 0) ||
         (data.cfsPulseSolanaWatchBundle && Array.isArray(data.cfsPulseSolanaWatchBundle.entries) && data.cfsPulseSolanaWatchBundle.entries.length > 0) ||
         (data.cfsPulseBscWatchBundle && Array.isArray(data.cfsPulseBscWatchBundle.entries) && data.cfsPulseBscWatchBundle.entries.length > 0) ||
-        (typeof data.cfs_bscscan_api_key === 'string' && data.cfs_bscscan_api_key.trim().length > 0);
+        (typeof data.cfs_bscscan_api_key === 'string' && data.cfs_bscscan_api_key.trim().length > 0) ||
+        (typeof data.cfs_bsc_quicknode_rpc_url === 'string' && data.cfs_bsc_quicknode_rpc_url.trim().length > 0) ||
+        (typeof data.cfs_ankr_api_key === 'string' && data.cfs_ankr_api_key.trim().length > 0) ||
+        (typeof data.cfs_covalent_api_key === 'string' && data.cfs_covalent_api_key.trim().length > 0);
       if (hasConfig) {
         enabled = true;
         await chrome.storage.local.set({ [CFS_CRYPTO_WEB3_ENABLED_KEY]: true });
@@ -3068,8 +3436,10 @@
     setupWorkflowSection();
     await loadSettingsWorkflows();
 
+    setupApifyToggleVisibility();
     document.getElementById('saveApifyTokenBtn')?.addEventListener('click', saveApifyToken);
     document.getElementById('testApifyTokenBtn')?.addEventListener('click', testApifyToken);
+    document.getElementById('saveAsterV3KeysBtn')?.addEventListener('click', saveAsterV3Keys);
     document.getElementById('saveAsterFuturesKeysBtn')?.addEventListener('click', saveAsterFuturesKeys);
     document.getElementById('saveAsterFuturesRiskBtn')?.addEventListener('click', saveAsterFuturesRisk);
     document.getElementById('settingsOpenUnitTestsPageBtn')?.addEventListener('click', () => {

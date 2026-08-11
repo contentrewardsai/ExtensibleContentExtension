@@ -237,6 +237,17 @@ chrome.runtime.sendMessage(extensionId, {
 
 Other operations include **`nativeBalance`**, **`erc20Balance`**, **`transactionReceipt`**, V2/V3 quotes and pool reads, Infinity **`infiBinSlot0`** / **`infiBinGetBin`** / **`infiBinQuoteExactInputSingle`** / **`infiBinQuoteExactInput`** / **`infiBinQuoteExactOutput`** (multi-hop path JSON), MasterChef farm views, etc. See **`steps/bscQuery/README.md`** and **`docs/BSC_AUTOMATION.md`**. Pinned contract addresses: **`docs/BSC_PANCAKE_ADDRESSES.md`**.
 
+**V3 concentrated LP helpers** (see **`docs/BSC_V3_LP_WORKFLOWS.md`**):
+
+| Operation | Purpose |
+|-----------|---------|
+| **`v3RangeFromPercent`** | `v3Pool` + `rangePercent` (default `1`) → `minPrice` / `maxPrice` / ticks |
+| **`v3RestakeRange`** | Next ±% window after drift (`driftDirection` optional) |
+| **`v3LpAmountsFromBnb`** | BNB budget (`bnbBudgetWei` / `max`) → `amount0Desired` / `amount1Desired` + `bnbFor0Wei` / `bnbFor1Wei` |
+| **`v3PoolState`** / **`v3NpmPosition`** / **`v3LiquidityDepth`** | Pool / NFT / TickLens depth |
+
+Workflow steps: **`bscV3LpWizard`**, **`bscV3AutoApprove`**, **`bscV3RebalanceOnce`**, **`pancakeV3RangeWatch`**, **`bindAlwaysOnBoundRow`**.
+
 ## CFS_BSC_POOL_EXECUTE
 
 **Signed** BSC transactions (transfers, PancakeSwap V2/V3, **PancakeSwap Infinity** Liquidity Book, MasterChef, etc.). The service worker forwards to **`globalThis.__CFS_bsc_executePoolOp`** in **`background/bsc-evm.js`** (ethers from **`evm-lib.bundle.js`**; Infinity encoding from **`infinity-sdk.bundle.js`** loaded before **`bsc-evm.js`**). Requires a configured automation wallet; **password-encrypted** wallets must be **unlocked** in Settings.
@@ -329,6 +340,33 @@ See **`docs/SOLANA_AUTOMATION.md`** (Pulse / workflow gate).
 
 ---
 
+## Pancake V3 range watch + always-on boundRow
+
+**Dual-mode `alwaysOn.scopes.priceRangeWatch`:** Infinity bin jobs (`background/infi-bin-range-watch.js`) vs V3 NFT jobs (`background/v3-range-watch.js`, default poll **30s** via alarm `when` reschedule). V3 configs set **`priceRangeWatch.mode`: `"v3"`** and **`v3PositionTokenId`**.
+
+| Message | Role |
+|---------|------|
+| **`CFS_BSC_V3_RANGE_CHECK`** | One-shot: NFT tick range vs pool `slot0` → `{ inRange, driftDirection, … }` |
+| **`CFS_V3_RANGE_WATCH_GET_STATUS`** | Last poll / jobs / stop flags |
+| **`CFS_V3_RANGE_WATCH_REFRESH_NOW`** | Run one background poll now |
+| **`CFS_V3_RANGE_WATCH_STOP`** | Stop global or per-`workflowId` |
+| **`CFS_ALWAYS_ON_MERGE_BOUND_ROW`** | Upsert/remove/replace in `alwaysOn.boundRows[]` (mirrors primary `boundRow`); modes `upsertPosition` / `removePosition` / `replaceTokenId` / `mergeLegacy` |
+| **`CFS_V3_RECONCILE_POSITIONS`** | Discover NPM NFTs for automation wallet vs `boundRows` (drop closed / report untracked) |
+
+```js
+chrome.runtime.sendMessage({
+  type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+  workflowId: 'wf-bsc-v3-monitor',
+  fields: { v3PositionTokenId: '12345', v3Pool: '0x46Cf…', exitBelowPolicy: 'sell_stable', exitAbovePolicy: 'restake' },
+  enablePriceRangeWatch: true,
+  pollIntervalMs: 30000,
+}, (r) => { /* { ok: true, boundRow, alwaysOn } */ });
+```
+
+MCP: **`bsc_v3_range_watch_status`**, **`bsc_v3_range_watch_refresh`**, **`set_always_on_bound_row`**. Workflow step: **`bindAlwaysOnBoundRow`**.
+
+---
+
 ## CFS_PERPS_AUTOMATION_STATUS
 
 Read-only: returns Raydium/Jupiter perp **execution** status (`not_implemented`), doc path, and notes. No token required.
@@ -339,10 +377,11 @@ chrome.runtime.sendMessage({ type: 'CFS_PERPS_AUTOMATION_STATUS' }, (r) => { /* 
 
 ## CFS_JUPITER_PERPS_MARKETS
 
-Read-only: **`GET https://api.jup.ag/perps/v1/markets`** with **`x-api-key`** from **Settings → Solana → Jupiter API key**, or optional **`jupiterApiKey`** on the message (≤ 2048 characters). Returns **`{ ok: true, marketsJson, status }`** or **`{ ok: false, error }`**. Does not sign transactions. Endpoint may change; see **docs/PERPS_SPIKES.md**.
+Read-only: **`GET https://perps-api.jup.ag/v1/market-stats?mint=…`** with **`x-api-key`** from **Settings → Solana → Jupiter API key**, or optional **`jupiterApiKey`** on the message (≤ 2048 characters). Optional **`mint`** / **`mints`** (default SOL/ETH/BTC). Returns **`{ ok: true, marketsJson, status }`** (`marketsJson` = stringified `{ markets: [{ mint, stats }] }`) or **`{ ok: false, error }`**. Does not sign transactions. Endpoint may change; see **docs/PERPS_SPIKES.md**.
 
 ```js
 chrome.runtime.sendMessage({ type: 'CFS_JUPITER_PERPS_MARKETS', jupiterApiKey: '…' }, (r) => { /* … */ });
+chrome.runtime.sendMessage({ type: 'CFS_JUPITER_PERPS_MARKETS', mint: 'So11111111111111111111111111111111111111112' }, (r) => { /* … */ });
 ```
 
 ---

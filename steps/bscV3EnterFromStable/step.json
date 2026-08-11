@@ -1,0 +1,89 @@
+{
+  "id": "bscV3EnterFromStable",
+  "label": "BSC V3 enter from stable",
+  "category": "data",
+  "description": "Mint a PancakeSwap V3 position funded from a stablecoin (e.g. USDT): resolve asymmetric or ±% range, size amount0/amount1 via v3LpAmountsFromStable, exactOutputSingle swap(s) of stable→non-stable legs, approve, mint. Saves v3PositionTokenId and range/policy vars for bindAlwaysOnBoundRow.",
+  "defaultAction": {
+    "type": "bscV3EnterFromStable",
+    "runIf": "",
+    "tokenA": "0x0A43fC31a73013089DF59194872Ecae4cAe14444",
+    "tokenB": "0x55d398326f99059fF775485246999027B3197955",
+    "v3Fee": "2500",
+    "v3Pool": "0xEe04B2A82BAb9EfEFCD626F5D66F51Cc2B6FA12A",
+    "rangePercent": "",
+    "rangePercentBelow": "5",
+    "rangePercentAbove": "15",
+    "minPrice": "",
+    "maxPrice": "",
+    "stableToken": "0x55d398326f99059fF775485246999027B3197955",
+    "stableBudgetWei": "max",
+    "stableReserveWei": "0",
+    "exitBelowPolicy": "sell_stable",
+    "exitAbovePolicy": "restake",
+    "slippageBps": "100",
+    "gasLimit": "",
+    "ensureApprovals": true,
+    "swapRouterV3Address": "",
+    "positionManagerAddress": "",
+    "saveV3PositionTokenIdVariable": "v3PositionTokenId",
+    "saveTickLower": "tickLower",
+    "saveTickUpper": "tickUpper",
+    "saveMinPrice": "minPrice",
+    "saveMaxPrice": "maxPrice",
+    "saveToken0": "token0",
+    "saveToken1": "token1",
+    "saveV3Fee": "v3Fee",
+    "saveV3Pool": "v3Pool",
+    "saveRangePercentBelow": "rangePercentBelow",
+    "saveRangePercentAbove": "rangePercentAbove",
+    "saveStableToken": "stableToken",
+    "saveExitBelowPolicy": "exitBelowPolicy",
+    "saveExitAbovePolicy": "exitAbovePolicy",
+    "saveAmount0Desired": "amount0Desired",
+    "saveAmount1Desired": "amount1Desired"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "tokenA", "label": "tokenA (0x…)", "inputType": "text" },
+    { "key": "tokenB", "label": "tokenB (0x…)", "inputType": "text" },
+    { "key": "v3Fee", "label": "v3Fee (uint24 tier)", "inputType": "text", "placeholder": "2500" },
+    {
+      "key": "v3Pool",
+      "label": "V3 pool address",
+      "inputType": "poolSearch",
+      "poolSearchMessage": "CFS_BSC_POOL_SEARCH",
+      "poolSearchDeps": ["tokenA", "tokenB"],
+      "placeholder": "Leave empty to resolve via factory"
+    },
+    { "key": "rangePercentBelow", "label": "Range % below mid (e.g. 5)", "inputType": "text", "placeholder": "5" },
+    { "key": "rangePercentAbove", "label": "Range % above mid (e.g. 15)", "inputType": "text", "placeholder": "15" },
+    { "key": "rangePercent", "label": "Symmetric ±% (used when below/above empty)", "inputType": "text" },
+    { "key": "minPrice", "label": "minPrice override (token1 per token0)", "inputType": "text" },
+    { "key": "maxPrice", "label": "maxPrice override (token1 per token0)", "inputType": "text" },
+    { "key": "stableToken", "label": "Stablecoin funding + exit target", "inputType": "text", "placeholder": "USDT" },
+    { "key": "stableBudgetWei", "label": "Stable budget wei (max or uint256)", "inputType": "text", "placeholder": "max" },
+    { "key": "stableReserveWei", "label": "Stable dust reserve wei", "inputType": "text", "placeholder": "0" },
+    {
+      "key": "exitBelowPolicy",
+      "label": "Exit below range",
+      "inputType": "select",
+      "options": [
+        { "value": "sell_stable", "label": "sell_stable — swap to stable" },
+        { "value": "restake", "label": "restake — rebalance into new range" }
+      ]
+    },
+    {
+      "key": "exitAbovePolicy",
+      "label": "Exit above range",
+      "inputType": "select",
+      "options": [
+        { "value": "restake", "label": "restake — rebalance into new range" },
+        { "value": "sell_stable", "label": "sell_stable — swap to stable" }
+      ]
+    },
+    { "key": "slippageBps", "label": "Slippage bps (swap inMax + mint mins)", "inputType": "text", "placeholder": "100" },
+    { "key": "gasLimit", "label": "gasLimit (optional)", "inputType": "text" },
+    { "key": "ensureApprovals", "label": "Ensure approvals (router + NPM)", "inputType": "checkbox" },
+    { "key": "saveV3PositionTokenIdVariable", "label": "Save new position NFT id to variable", "inputType": "text" }
+  ]
+}

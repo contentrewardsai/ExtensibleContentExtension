@@ -51,6 +51,9 @@
       v3Path: trimResolved(row, getRowValue, action, action.v3Path),
       tickLower: trimResolved(row, getRowValue, action, action.tickLower),
       tickUpper: trimResolved(row, getRowValue, action, action.tickUpper),
+      minPrice: trimResolved(row, getRowValue, action, action.minPrice),
+      maxPrice: trimResolved(row, getRowValue, action, action.maxPrice),
+      priceDenomination: trimResolved(row, getRowValue, action, action.priceDenomination),
       v3PositionTokenId: trimResolved(row, getRowValue, action, action.v3PositionTokenId),
       v3Amount0Desired: trimResolved(row, getRowValue, action, action.v3Amount0Desired),
       v3Amount1Desired: trimResolved(row, getRowValue, action, action.v3Amount1Desired),
@@ -109,6 +112,11 @@
       infiSwapCurrencyIn: trimResolved(row, getRowValue, action, action.infiSwapCurrencyIn),
       infiBinPathJson: trimResolved(row, getRowValue, action, action.infiBinPathJson),
       infiSwapZeroForOne: action.infiSwapZeroForOne,
+      gasReloadBelowWei: trimResolved(row, getRowValue, action, action.gasReloadBelowWei),
+      gasReloadTargetWei: trimResolved(row, getRowValue, action, action.gasReloadTargetWei),
+      gasReloadStableToken: trimResolved(row, getRowValue, action, action.gasReloadStableToken || action.stableToken),
+      stableReserveWei: trimResolved(row, getRowValue, action, action.stableReserveWei),
+      gasReloadEnabled: trimResolved(row, getRowValue, action, action.gasReloadEnabled),
     };
 
     var response = await sendMessage(msg);

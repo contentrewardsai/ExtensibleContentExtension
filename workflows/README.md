@@ -6,7 +6,7 @@ Workflows are loaded from **local plugin folders**, from a **backend** (when sig
 
 Each plugin folder can use a **single file** `workflow.json` that merges plugin metadata, discovery hints, and workflow definitions:
 
-- **workflows/manifest.json** – List of plugin ids, e.g. `["veo3"]`. The loader tries `workflows/{id}/workflow.json` first.
+- **workflows/manifest.json** – List of plugin ids, e.g. `["e2e-test"]`. The loader tries `workflows/{id}/workflow.json` first.
 - **workflows/{id}/workflow.json** – Single file per plugin (or index for versioned format):
   - **Combined:** `id`, `name`, `version`, `description`, `discovery` (optional), `workflows` – `{ "wfId": { ...workflow object... } }`
   - **Versioned (Save to folder):** `id`, `name`, `versionFiles` – `["workflow-{id}-1.json", "workflow-{id}-2.json", ...]`. The loader fetches each listed file; each file is one workflow version. Highest version number = latest. Other files in the folder (e.g. `workflow-{id}-1.json`) are not overwritten when adding a new version.
@@ -39,7 +39,10 @@ The folder name is the first workflow id (initial_version), e.g. `workflows/wf_1
 
 The workflow JSON supports all current features: steps, qualityCheck step (including comparisonMethod), discovery.domains, generationSettings, etc. (`dataImportMessage` may appear on older exports and is ignored by the UI.)
 
-## Veo 3
+## Shipped plugins
 
-- **workflows/veo3/workflow.json** – Single-file plugin (id, name, discovery, workflows).
-- **workflows/veo3/assets/** – Optional assets (e.g. logo). Logo is optional and not required for the plugin to work.
+Listed in **`workflows/manifest.json`** and auto-loaded into Library on side panel open (Reload Extension after pull):
+
+- **workflows/e2e-test/** – E2E fixture workflows (hidden from normal pickers; names contain “e2e”).
+- **workflows/bsc-v3-lp/** – PancakeSwap V3 concentrated LP (enter / monitor / exit-stable / restake). See `docs/BSC_V3_LP_WORKFLOWS.md`.
+- **workflows/bsc-infi-lp/** – PancakeSwap Infinity bin LP examples. See `docs/BSC_INFI_LP_WORKFLOWS.md`.

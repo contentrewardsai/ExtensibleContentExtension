@@ -87,7 +87,6 @@
   let workflows = {};
   /** Expose for step sidepanels (e.g. runWorkflow) that need the list of workflow IDs. */
   window.__CFS_getWorkflowIds = function() { return Object.keys(workflows || {}); };
-  let processes = {};
   let currentWorkflowId = null;
   let importedRows = [];
   let currentRowIndex = 0;
@@ -104,10 +103,8 @@
   }
   let stepHighlightInterval = null;
   let generationHistory = [];
-  /** When Run All Rows or Process is in progress: { total, current, workflowId, workflowName }. Cleared when batch/process ends. */
+  /** When Run All Rows is in progress: { total, current, workflowId, workflowName }. Cleared when batch ends. */
   let batchRunInfo = null;
-  /** When true, Process run loop should break (Stop clicked). Reset at start/end of process run. */
-  let processRunStopRequested = false;
   /** When user clicked "Select on page" for a step: { wfId, stepIndex, field }. Cleared when PICK_ELEMENT_RESULT is received. */
   let pendingPickForStep = null;
   /** When user clicked "Select on page" for personal info: true. Cleared when PICK_ELEMENT_RESULT is received. */
@@ -807,11 +804,8 @@
 
   async function loadWorkflows() {
     try {
-      const data = await chrome.storage.local.get(['workflows', 'processes', 'workflowPresetUrl']);
+      const data = await chrome.storage.local.get(['workflows', 'workflowPresetUrl']);
       workflows = data?.workflows || {};
-      processes = data?.processes || {};
-      const projectProcesses = await loadProcessesFromProjectFolder();
-      if (projectProcesses) processes = { ...processes, ...projectProcesses };
       await migrateLegacyDiscoveryStorage();
       await ensureBundledDiscoveryGlobalHints();
       try {
@@ -828,12 +822,55 @@
         }
       } catch (_) {}
       const presetUrl = data?.workflowPresetUrl;
+        /**
+         * Preset reload must not wipe runtime alwaysOn.boundRow / boundRows (minted NFTs).
+         * Non-empty keys from the previously stored workflow win over empty/missing preset values.
+         */
+        const mergeAlwaysOnBoundRowPreserve = (existingWf, incomingWf) => {
+          const out = { ...incomingWf };
+          const prevAo = existingWf && existingWf.alwaysOn;
+          if (!prevAo || typeof prevAo !== 'object') return out;
+          if (!out.alwaysOn || typeof out.alwaysOn !== 'object') out.alwaysOn = {};
+          const prevRows = Array.isArray(prevAo.boundRows) ? prevAo.boundRows : null;
+          if (prevRows && prevRows.length) {
+            const incomingRows = Array.isArray(out.alwaysOn.boundRows) ? out.alwaysOn.boundRows : [];
+            out.alwaysOn.boundRows = incomingRows.length ? incomingRows : prevRows.map((r) => ({ ...r }));
+          }
+          const prev = prevAo.boundRow;
+          if (prev && typeof prev === 'object' && !Array.isArray(prev)) {
+            const next = (out.alwaysOn.boundRow && typeof out.alwaysOn.boundRow === 'object' && !Array.isArray(out.alwaysOn.boundRow))
+              ? { ...out.alwaysOn.boundRow }
+              : {};
+            Object.keys(prev).forEach((k) => {
+              const pv = prev[k];
+              if (pv == null || String(pv).trim() === '') return;
+              const nv = next[k];
+              if (nv == null || String(nv).trim() === '') next[k] = pv;
+            });
+            out.alwaysOn.boundRow = next;
+          }
+          ['gasReloadEnabled', 'gasReloadBelowWei', 'gasReloadTargetWei', 'gasReloadStableToken',
+            'stableReserveWei', 'reconcileAutoTrackNew'].forEach((gk) => {
+            if (prevAo[gk] !== undefined && (out.alwaysOn[gk] === undefined || out.alwaysOn[gk] === '' || out.alwaysOn[gk] === false)) {
+              if (prevAo[gk] !== '' && prevAo[gk] !== false) out.alwaysOn[gk] = prevAo[gk];
+            }
+            if (prevAo[gk] === true) out.alwaysOn[gk] = true;
+            if (typeof prevAo[gk] === 'string' && prevAo[gk].trim() && (!out.alwaysOn[gk] || String(out.alwaysOn[gk]).trim() === '')) {
+              out.alwaysOn[gk] = prevAo[gk];
+            }
+          });
+          return out;
+        };
+        const assignWorkflowFromPreset = (id, wf, nameFallback) => {
+          const incoming = { ...wf, id: wf.id || id, name: wf.name || nameFallback || 'Text to Video' };
+          workflows[id] = mergeAlwaysOnBoundRowPreserve(workflows[id], incoming);
+        };
         const mergePreset = (config) => {
         const wfs = config?.workflows || {};
         let loaded = false;
         for (const [id, wf] of Object.entries(wfs)) {
           if (wf && (wf.analyzed?.actions || wf.actions)) {
-            workflows[id] = { ...wf, id: wf.id || id, name: wf.name || 'Text to Video' };
+            assignWorkflowFromPreset(id, wf, 'Text to Video');
             loaded = true;
           }
         }
@@ -861,7 +898,7 @@
                   const wf = await vRes.json();
                   const wfId = wf.id || id;
                   if (wf && (wf.analyzed?.actions || wf.actions)) {
-                    workflows[wfId] = { ...wf, id: wf.id || wfId, name: wf.name || config.name || id };
+                    assignWorkflowFromPreset(wfId, wf, config.name || id);
                     return true;
                   }
                 } catch (_) {}
@@ -872,7 +909,7 @@
               // Direct workflow (no versionFiles, actions on config itself)
               if (!versionFiles.length && config && (config.analyzed?.actions || config.actions)) {
                 const wfId = config.id || id;
-                workflows[wfId] = { ...config, id: config.id || wfId, name: config.name || id };
+                assignWorkflowFromPreset(wfId, config, id);
                 return { config, id, loaded: true };
               }
               if (mergePreset(config)) return { config, id, loaded: true };
@@ -920,14 +957,17 @@
                     const wf = JSON.parse(vText);
                     const wfId = wf.id || id;
                     if (wf && (wf.analyzed?.actions || wf.actions)) {
-                      workflows[wfId] = { ...wf, id: wf.id || wfId, name: wf.name || (config && config.name) || id };
+                      assignWorkflowFromPreset(wfId, wf, (config && config.name) || id);
                     }
                   } catch (_) {}
                 }
               }
               if (!versionFiles.length && config && (config.analyzed?.actions || config.actions)) {
                 const wfId = config.id || id;
-                workflows[wfId] = { ...config, id: config.id || wfId, name: config.name || id };
+                assignWorkflowFromPreset(wfId, config, id);
+              } else if (!versionFiles.length && config) {
+                /* Combined plugin: workflows/{id}/workflow.json with nested config.workflows */
+                mergePreset(config);
               }
             }
             await chrome.storage.local.set({ workflows });
@@ -957,8 +997,6 @@
       await applyRemovedStepsMigrationAndPersistIfNeeded();
       renderWorkflowList();
       renderWorkflowSelects();
-      renderProcessSelects();
-      renderProcessList();
       if (typeof updateProjectFolderStatus === 'function') updateProjectFolderStatus();
       
       if (typeof updateWorkflowLastRunStatus === 'function') updateWorkflowLastRunStatus();
@@ -967,7 +1005,6 @@
       }
     } catch (err) {
       workflows = {};
-      processes = {};
       setStatus('Failed to load workflows: ' + (err?.message || 'unknown'), 'error');
       if (workflowList) workflowList.innerHTML = '';
     }
@@ -1052,8 +1089,6 @@
           await chrome.storage.local.set({ workflows });
           renderWorkflowList();
           renderWorkflowSelects();
-          renderProcessSelects();
-          renderProcessList();
         }
         if (window.reportSidebarInstanceToBackend) window.reportSidebarInstanceToBackend();
       }
@@ -1158,6 +1193,8 @@
   }
 
   function workflowMatchesCurrentTab(wf) {
+    /* Always-on monitors (V3 LP, file watch, etc.) must stay selectable even when the active tab is not PancakeSwap. */
+    if (wf?.alwaysOn?.enabled === true) return true;
     if (!currentTabUrl) return true;
     const origin = wf?.urlPattern?.origin;
     if (!origin) return true;
@@ -1395,8 +1432,6 @@
     renderQualityGroupContainer();
     renderQualityStrategy();
     renderGenerationSettings();
-    renderProcessSelects();
-    renderProcessList();
     const wfId = workflowSelect?.value;
     const realWfId = wfId && wfId !== '__new__' ? wfId : '';
     renderRunsList(realWfId);
@@ -1415,65 +1450,6 @@
     const row = document.getElementById('newWorkflowRow');
     if (!row) return;
     row.style.display = (workflowSelect?.value === '__new__') ? '' : 'none';
-  }
-
-  function renderProcessSelects() {
-    const ids = Object.keys(workflows || {});
-    const opts = ids.map(id => `<option value="${escapeAttr(id)}">${escapeHtml(workflows[id].name || id)}</option>`).join('');
-    const empty = '<option value="">None</option>';
-    ['processStartWorkflow', 'processLoopWorkflow', 'processQualityWorkflow', 'processEndWorkflow'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.innerHTML = (id === 'processLoopWorkflow' ? opts : empty + opts) || empty;
-    });
-    updateRunProcessButtonState?.();
-  }
-
-  function updateRunProcessButtonState() {
-    const loopEl = document.getElementById('processLoopWorkflow');
-    const btn = document.getElementById('runProcess');
-    const hasRows = importedRows.length > 0;
-    if (btn) btn.disabled = !(loopEl?.value?.trim()) || !hasRows;
-  }
-
-  function renderProcessList() {
-    const list = document.getElementById('processList');
-    if (!list) return;
-    list.innerHTML = Object.entries(processes).map(([id, p]) => `
-      <div class="process-item">
-        <span>${escapeHtml(p.name || id)}</span>
-        <small>${escapeHtml(workflows[p.loopWorkflowId]?.name || p.loopWorkflowId || '?')}</small>
-        <button class="btn btn-outline" data-load-process="${id}" style="padding:4px 8px;font-size:11px">Load</button>
-        <button class="btn btn-outline" data-delete-process="${id}" style="padding:4px 8px;font-size:11px">Delete</button>
-      </div>
-    `).join('');
-    list.querySelectorAll('[data-load-process]').forEach(btn => {
-      btn.addEventListener('click', () => loadProcess(btn.dataset.loadProcess));
-    });
-    list.querySelectorAll('[data-delete-process]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        delete processes[btn.dataset.deleteProcess];
-        await saveProcessesToProjectFolder();
-        renderProcessList();
-      });
-    });
-  }
-
-  function loadProcess(procId) {
-    const p = processes[procId];
-    if (!p) return;
-    playbackWorkflow.value = p.loopWorkflowId || '';
-    document.getElementById('processStartWorkflow').value = p.startWorkflowId || '';
-    document.getElementById('processLoopWorkflow').value = p.loopWorkflowId || '';
-    document.getElementById('processQualityWorkflow').value = p.qualityWorkflowId || '';
-    document.getElementById('processEndWorkflow').value = p.endWorkflowId || '';
-    document.getElementById('processName').value = p.name || '';
-    renderWorkflowFormFields();
-    renderQualityInputsList();
-    renderQualityOutputsList();
-    renderQualityGroupContainer();
-    renderQualityStrategy();
-    updateRunProcessButtonState?.();
-    setStatus('Process loaded.', 'success');
   }
 
   const DEFAULT_GENERATION_SETTINGS = {
@@ -1913,7 +1889,7 @@
       <div id="wfAlwaysOnCondCrypto" style="margin-left:8px;margin-bottom:8px;display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
         <span class="hint" style="display:block;margin-bottom:4px;">Conditions (optional)</span>
         <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondNonEmpty" ${c.requireNonEmptyFollowingBundle ? 'checked' : ''}> Require non-empty Following bundle for selected chains</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondBscKey" ${c.requireBscScanKeyForBsc ? 'checked' : ''}> Require BscScan API key for BSC</label>
+        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondBscKey" ${c.requireBscScanKeyForBsc ? 'checked' : ''}> Require a BSC indexer (QuickNode, Etherscan, Ankr, or Covalent)</label>
       </div>
       <div id="wfFollowingAutomationBox" style="margin-left:8px;padding-top:6px;border-top:1px solid var(--border);display:${_cfsCryptoWeb3Enabled && (sc.followingAutomationSolana || sc.followingAutomationBsc) ? 'block' : 'none'};">
         <span class="hint" style="display:block;margin-bottom:4px;">Automation policy (requires <code>selectFollowingAccount</code> step matching a Pulse wallet)</span>
@@ -2143,10 +2119,6 @@
   let connectedProfilesCache = null;
   let connectedProfilesCacheTime = 0;
   let followingLastFetchTime = 0;
-  function invalidatePulseConnectedCache() {
-    connectedProfilesCache = null;
-    connectedProfilesCacheTime = 0;
-  }
   function invalidatePulseFollowingCache() {
     followingLastFetchTime = 0;
   }
@@ -2321,13 +2293,6 @@
     return /^0x[a-fA-F0-9]{40}$/.test(String(s || '').trim());
   }
 
-  function parseOptionalPositiveNumber(s) {
-    const t = String(s || '').trim();
-    if (!t) return null;
-    const n = parseFloat(t);
-    return Number.isFinite(n) ? n : null;
-  }
-
   function followingCachesSnapshot() {
     return {
       profiles: followingProfilesCache,
@@ -2435,6 +2400,10 @@
   /** Keys that indicate the user configured Solana/BSC crypto (hide Crypto Activity when none are set). */
   const PULSE_WATCH_VISIBILITY_STORAGE_KEYS = [
     'cfs_bscscan_api_key',
+    'cfs_bsc_quicknode_rpc_url',
+    'cfs_ankr_api_key',
+    'cfs_covalent_api_key',
+    'cfs_bsc_rpc_url',
     'cfs_solana_watch_helius_api_key',
     'cfs_solana_watch_rpc_url',
     'cfs_solana_watch_ws_url',
@@ -2469,8 +2438,15 @@
     const meta = stored.cfs_bsc_wallet_meta;
     const bscMeta = meta && typeof meta === 'object' && !Array.isArray(meta) && Object.keys(meta).length > 0;
     const bscV2 = stored.cfs_bsc_wallets_v2 && String(stored.cfs_bsc_wallets_v2).trim();
+    const idx =
+      typeof CFS_BSC_INDEXER !== 'undefined' && CFS_BSC_INDEXER && typeof CFS_BSC_INDEXER.hasAnyIndexerCredential === 'function'
+        ? CFS_BSC_INDEXER.hasAnyIndexerCredential(stored)
+        : strOk('cfs_bscscan_api_key') ||
+          strOk('cfs_bsc_quicknode_rpc_url') ||
+          strOk('cfs_ankr_api_key') ||
+          strOk('cfs_covalent_api_key');
     const bsc =
-      strOk('cfs_bscscan_api_key') ||
+      idx ||
       bscMeta ||
       !!bscV2 ||
       strOk('cfs_bsc_global_settings') ||
@@ -2710,7 +2686,8 @@
       const nSol = sol && Array.isArray(sol.entries) ? sol.entries.length : 0;
       const manySol = nSol > 12 ? ' · Many Solana addresses—RPC may rate-limit.' : '';
       const nBsc = bsc && Array.isArray(bsc.entries) ? bsc.entries.length : 0;
-      const manyBsc = nBsc > 8 ? ' · Many BSC watches—BscScan free tier may rate-limit.' : '';
+      const manyBsc =
+        nBsc > 8 ? ' · Many BSC watches—indexer free tiers may rate-limit or burn credits.' : '';
       el.hidden = false;
       el.textContent = [solPart, bscPart].filter(Boolean).join(' · ') + manySol + manyBsc;
     } catch (_) {
@@ -2725,7 +2702,21 @@
       return ` — failed: ${String(p.error).slice(0, 100)}`;
     }
     if (p.reason === 'no_watches') return ' · idle (empty bundle)';
-    if (p.reason === 'no_bscscan_key') return ' · idle (no BscScan API key)';
+    if (p.reason === 'no_bscscan_key' || p.reason === 'no_bsc_indexer_key') {
+      return ' · idle (no BSC indexer — add QuickNode / Etherscan / Ankr / Covalent in Settings)';
+    }
+    if (p.reason === 'etherscan_plan_no_bsc') {
+      return ' · idle (Etherscan key lacks BSC Multichain coverage — use QuickNode or upgrade plan)';
+    }
+    if (p.reason === 'quicknode_token_api_missing') {
+      return ' · idle (QuickNode history method unavailable)';
+    }
+    if (/429|rate limit|15\/second/i.test(String(p.error || ''))) {
+      return ' · idle (QuickNode rate limit — will retry)';
+    }
+    if (p.reason === 'indexer_error') {
+      return p.error ? ` · idle (indexer error: ${String(p.error).slice(0, 80)})` : ' · idle (indexer error)';
+    }
     if (p.reason === 'no_workflows') return ' · idle (no workflows in Library)';
     if (p.reason === 'no_always_on_workflow') return ' · idle (enable Always on + scopes in Library)';
     if (p.reason === 'no_crypto_workflow_steps') {
@@ -2734,7 +2725,8 @@
     if (p.reason === 'watch_paused') return ' · idle (watch paused)';
     if (p.reason === 'polled' && p.watchedCount != null) {
       const n = Number(p.watchedCount);
-      return ` · checked ${n} address${n === 1 ? '' : 'es'}`;
+      const idx = p.indexer ? ` via ${p.indexer}` : '';
+      return ` · checked ${n} address${n === 1 ? '' : 'es'}${idx}`;
     }
     return '';
   }
@@ -2764,7 +2756,16 @@
       }
       if (bscOk) {
         const t = new Date(bsc.ts).toLocaleString();
-        parts.push(`BSC ${t}${pulseWatchPollDetail(bsc)}`);
+        let bscLine = `BSC ${t}${pulseWatchPollDetail(bsc)}`;
+        if (
+          bsc.indexer === 'quicknode' &&
+          Number(bsc.watchedCount) >= 8 &&
+          typeof CFS_BSC_INDEXER !== 'undefined' &&
+          CFS_BSC_INDEXER
+        ) {
+          bscLine += ' · QuickNode free credits: prefer ≥2 min polls with many wallets';
+        }
+        parts.push(bscLine);
       }
       if (fwOk) {
         const t = new Date(fw.ts).toLocaleString();
@@ -2867,6 +2868,1078 @@
   }
   document.getElementById('defiPositionsRefreshBtn')?.addEventListener('click', () => refreshDefiPositionsPanel(true));
 
+  const AO_STABLE_TOKENS = [
+    { label: 'USDT', addr: '0x55d398326f99059fF775485246999027B3197955' },
+    { label: 'USDC', addr: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d' },
+    { label: 'BUSD', addr: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56' },
+    { label: 'DAI', addr: '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3' },
+    { label: 'FDUSD', addr: '0xc5f0f7b66764F6ec8C8Dff7BA683102081A36387' },
+  ];
+  let _alwaysOnMonitorsRenderedIds = '';
+  let _alwaysOnMonitorsDelegated = false;
+
+  function listAlwaysOnMonitorEntries() {
+    const out = [];
+    const wfSource = typeof workflows === 'object' && workflows ? workflows : {};
+    Object.keys(wfSource).forEach((id) => {
+      const wf = wfSource[id];
+      if (!wf?.alwaysOn?.enabled) return;
+      const sc = wf.alwaysOn.scopes || {};
+      const hasScope =
+        sc.followingSolanaWatch ||
+        sc.followingBscWatch ||
+        sc.followingAutomationSolana ||
+        sc.followingAutomationBsc ||
+        sc.fileWatch ||
+        sc.priceRangeWatch ||
+        sc.custom;
+      if (!hasScope) return;
+      out.push({ id, wf, sc });
+    });
+    return out;
+  }
+
+  function alwaysOnMonitorsHasFocus() {
+    const list = document.getElementById('alwaysOnMonitorsList');
+    const ae = document.activeElement;
+    return !!(list && ae && list.contains(ae));
+  }
+
+  function alwaysOnScopeLabels(sc) {
+    const scopes = [];
+    if (sc.followingSolanaWatch) scopes.push('SOL watch');
+    if (sc.followingBscWatch) scopes.push('BSC watch');
+    if (sc.followingAutomationSolana) scopes.push('SOL auto');
+    if (sc.followingAutomationBsc) scopes.push('BSC auto');
+    if (sc.fileWatch) scopes.push('File watch');
+    if (sc.priceRangeWatch) scopes.push('Price range');
+    if (sc.custom) scopes.push('Custom');
+    return scopes;
+  }
+
+  function alwaysOnStableSelectHtml(selected) {
+    const sel = String(selected || '').trim().toLowerCase();
+    let html = '';
+    let matched = false;
+    AO_STABLE_TOKENS.forEach((t) => {
+      const isSel = t.addr.toLowerCase() === sel;
+      if (isSel) matched = true;
+      html +=
+        '<option value="' +
+        escapeAttr(t.addr) +
+        '"' +
+        (isSel ? ' selected' : '') +
+        '>' +
+        escapeHtml(t.label) +
+        '</option>';
+    });
+    if (sel && !matched) {
+      html =
+        '<option value="' +
+        escapeAttr(selected) +
+        '" selected>' +
+        escapeHtml(selected) +
+        '</option>' +
+        html;
+    }
+    return html;
+  }
+
+  function alwaysOnPolicySelectHtml(selected) {
+    const v = String(selected || 'sell_stable').trim();
+    const opts = [
+      ['sell_stable', 'sell_stable (exit to stable)'],
+      ['restake', 'restake (rebalance)'],
+    ];
+    return opts
+      .map(
+        ([val, label]) =>
+          '<option value="' +
+          escapeAttr(val) +
+          '"' +
+          (v === val ? ' selected' : '') +
+          '>' +
+          escapeHtml(label) +
+          '</option>',
+      )
+      .join('');
+  }
+
+  function alwaysOnBoundRowsList(ao) {
+    const api = typeof CFS_ALWAYS_ON_BOUND_POSITIONS !== 'undefined' ? CFS_ALWAYS_ON_BOUND_POSITIONS : null;
+    if (api && typeof api.normalizeBoundPositions === 'function') {
+      const kind = ao && ao.priceRangeWatch && /infi|infinity/i.test(String(ao.priceRangeWatch.mode || ''))
+        ? 'infi'
+        : 'v3';
+      return api.normalizeBoundPositions(ao, kind);
+    }
+    if (Array.isArray(ao && ao.boundRows) && ao.boundRows.length) return ao.boundRows.slice();
+    if (ao && ao.boundRow && typeof ao.boundRow === 'object') return [ao.boundRow];
+    return [];
+  }
+
+  function buildAlwaysOnMonitorCardHtml(entry) {
+    const { id, wf, sc } = entry;
+    const ao = wf.alwaysOn || {};
+    const rows = alwaysOnBoundRowsList(ao);
+    const br = rows[0] || (ao.boundRow && typeof ao.boundRow === 'object' ? ao.boundRow : {});
+    const scopes = alwaysOnScopeLabels(sc);
+    const pollMs = ao.pollIntervalMs || (sc.priceRangeWatch ? 30000 : 60000);
+    const enabled = ao.enabled === true;
+    let body = '';
+    if (sc.priceRangeWatch) {
+      body +=
+        '<div class="always-on-monitor-positions" data-testid="cfs-ao-bound-rows">' +
+        '<p class="hint" style="margin:0 0 6px;">Positions (' +
+        rows.length +
+        ') — restake fundMode on each card</p>';
+      rows.forEach((row, idx) => {
+        const tid = String(row.v3PositionTokenId || row.infiPositionTokenId || row.positionNftId || '').trim();
+        const paused = row.enabled === false || row.enabled === 'false';
+        const fund = String(row.fundMode || 'stable').toLowerCase();
+        body +=
+          '<div class="always-on-position-card" data-ao-pos-idx="' +
+          idx +
+          '" data-ao-token-id="' +
+          escapeAttr(tid) +
+          '">' +
+          '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">' +
+          '<strong>#' +
+          escapeHtml(tid || '?') +
+          '</strong>' +
+          '<label class="hint"><input type="checkbox" data-ao-pos-field="enabled"' +
+          (paused ? '' : ' checked') +
+          '> Watch</label></div>' +
+          '<span class="hint">fundMode: ' +
+          escapeHtml(fund === 'bnb' ? 'uses BNB' : 'uses USDT/stable') +
+          ' · −' +
+          escapeHtml(String(row.rangePercentBelow || row.rangePercent || '')) +
+          '% / +' +
+          escapeHtml(String(row.rangePercentAbove || row.rangePercent || '')) +
+          '%</span>' +
+          '<div class="always-on-monitor-fields" style="margin-top:4px;">' +
+          '<label>Below</label><select data-ao-pos-field="exitBelowPolicy">' +
+          alwaysOnPolicySelectHtml(row.exitBelowPolicy || 'sell_stable') +
+          '</select>' +
+          '<label>Above</label><select data-ao-pos-field="exitAbovePolicy">' +
+          alwaysOnPolicySelectHtml(row.exitAbovePolicy || 'restake') +
+          '</select>' +
+          '<label>fundMode</label><select data-ao-pos-field="fundMode">' +
+          '<option value="stable"' +
+          (fund !== 'bnb' ? ' selected' : '') +
+          '>stable</option><option value="bnb"' +
+          (fund === 'bnb' ? ' selected' : '') +
+          '>bnb</option></select>' +
+          '</div>' +
+          '<button type="button" class="btn btn-outline btn-small" data-ao-action="remove-position" data-ao-token-id="' +
+          escapeAttr(tid) +
+          '">Remove</button>' +
+          '</div>';
+      });
+      body += '</div>';
+      body +=
+        '<div class="always-on-monitor-fields" style="margin-top:8px;">' +
+        '<label>Primary NFT (edit/add)</label><input type="text" data-ao-field="v3PositionTokenId" data-testid="cfs-ao-primary-token-id" value="' +
+        escapeAttr(String(br.v3PositionTokenId || br.infiPositionTokenId || br.positionNftId || '')) +
+        '" placeholder="7013364" autocomplete="off">' +
+        '<label>Below %</label><input type="text" data-ao-field="rangePercentBelow" value="' +
+        escapeAttr(String(br.rangePercentBelow != null ? br.rangePercentBelow : '')) +
+        '" placeholder="5">' +
+        '<label>Above %</label><input type="text" data-ao-field="rangePercentAbove" value="' +
+        escapeAttr(String(br.rangePercentAbove != null ? br.rangePercentAbove : '')) +
+        '" placeholder="15">' +
+        '<label>Stable</label><select data-ao-field="stableToken">' +
+        alwaysOnStableSelectHtml(br.stableToken || AO_STABLE_TOKENS[0].addr) +
+        '</select>' +
+        '<label>V3 pool</label><input type="text" data-ao-field="v3Pool" value="' +
+        escapeAttr(String(br.v3Pool || '')) +
+        '" autocomplete="off">' +
+        '<label>Poll ms</label><input type="number" data-ao-field="pollIntervalMs" min="1000" value="' +
+        escapeAttr(String(pollMs)) +
+        '">' +
+        '<label>Near-edge % (optional)</label><input type="text" data-ao-field="nearEdgePercent" data-testid="cfs-ao-near-edge-percent" value="' +
+        escapeAttr(
+          String(
+            ao.nearEdgePercent != null && String(ao.nearEdgePercent).trim() !== ''
+              ? ao.nearEdgePercent
+              : br.nearEdgePercent != null
+                ? br.nearEdgePercent
+                : '',
+          ),
+        ) +
+        '" placeholder="off — e.g. 2" autocomplete="off" title="While still in range, fire below/above policy when within this % of an edge (Pancake min/max labels)">' +
+        '</div>';
+      body +=
+        '<p class="hint" style="margin:0 0 8px;">Near-edge: blank = only hard out-of-range (Inactive). Set e.g. <code>2</code> to run exit/restake policies before price fully breaks the range (avoids sitting 100% in one token).</p>';
+      const gasOn = ao.gasReloadEnabled === true || ao.gasReloadEnabled === 'true';
+      const autoTrack = ao.reconcileAutoTrackNew === true || ao.reconcileAutoTrackNew === 'true';
+      body +=
+        '<label class="pd-checkbox-label" style="display:block;margin:8px 0;" data-testid="cfs-ao-auto-track">' +
+        '<input type="checkbox" data-ao-field="reconcileAutoTrackNew"' +
+        (autoTrack ? ' checked' : '') +
+        '> Auto-track new on-chain NFTs (reconcileAutoTrackNew)</label>' +
+        '<p class="hint" style="margin:0 0 8px;">When on, Reconcile / watch adds untracked V3 NFTs to boundRows using primary policies. Off = banner + manual Add only.</p>';
+      body +=
+        '<details data-testid="cfs-ao-gas-topup"><summary>BNB gas top-up from stable</summary>' +
+        '<div class="always-on-monitor-fields">' +
+        '<label class="pd-checkbox-label"><input type="checkbox" data-ao-field="gasReloadEnabled"' +
+        (gasOn ? ' checked' : '') +
+        '> Enable (sell stable when BNB &lt; below → target)</label>' +
+        '<label>Below wei</label><input type="text" data-ao-field="gasReloadBelowWei" value="' +
+        escapeAttr(String(ao.gasReloadBelowWei || '')) +
+        '" placeholder="1000000000000000">' +
+        '<label>Target wei</label><input type="text" data-ao-field="gasReloadTargetWei" value="' +
+        escapeAttr(String(ao.gasReloadTargetWei || '')) +
+        '" placeholder="10000000000000000">' +
+        '<label>Stable reserve wei</label><input type="text" data-ao-field="stableReserveWei" value="' +
+        escapeAttr(String(ao.stableReserveWei || '')) +
+        '" placeholder="0">' +
+        '</div></details>';
+      body +=
+        '<p class="hint" data-testid="cfs-ao-watchdog-hint" data-ao-watchdog-hint>MCP watchdog: …</p>';
+      body +=
+        '<div id="ao-reconcile-banner-' +
+        escapeAttr(id) +
+        '" class="always-on-reconcile-banner" data-testid="cfs-ao-reconcile-banner" hidden></div>';
+      body +=
+        '<details><summary>Advanced JSON</summary>' +
+        '<label class="hint">boundRows</label><textarea data-ao-field="boundRowsJson" rows="5">' +
+        escapeHtml(JSON.stringify(rows, null, 2)) +
+        '</textarea>' +
+        '<label class="hint">boundRow (primary mirror)</label><textarea data-ao-field="boundRowJson" rows="3">' +
+        escapeHtml(JSON.stringify(br, null, 2)) +
+        '</textarea>' +
+        '<label class="hint">priceRangeWatch</label><textarea data-ao-field="priceRangeWatchJson" rows="5">' +
+        escapeHtml(ao.priceRangeWatch ? JSON.stringify(ao.priceRangeWatch, null, 2) : '') +
+        '</textarea></details>';
+    } else if (sc.fileWatch) {
+      body +=
+        '<div class="always-on-monitor-fields">' +
+        '<label>Project ID</label><input type="text" data-ao-field="projectId" value="' +
+        escapeAttr(String(ao.projectId || '')) +
+        '" placeholder="selected project">' +
+        '<label>Poll ms</label><input type="number" data-ao-field="pollIntervalMs" min="1000" value="' +
+        escapeAttr(String(pollMs)) +
+        '">' +
+        '</div>';
+    } else {
+      body +=
+        '<div class="always-on-monitor-fields">' +
+        '<label>Poll ms</label><input type="number" data-ao-field="pollIntervalMs" min="1000" value="' +
+        escapeAttr(String(pollMs)) +
+        '">' +
+        '</div>';
+    }
+    const mainnetBtn = sc.priceRangeWatch
+      ? '<button type="button" class="btn btn-outline btn-small" data-ao-action="use-mainnet" data-ao-mainnet-btn hidden title="Set Settings BSC chainId 56 + mainnet RPC">Use BSC mainnet</button>'
+      : '';
+    const reconcileBtn = sc.priceRangeWatch
+      ? '<button type="button" class="btn btn-outline btn-small" data-ao-action="reconcile" data-testid="cfs-ao-reconcile">Reconcile NFTs</button>'
+      : '';
+    const actions =
+      '<div class="always-on-monitor-actions">' +
+      '<button type="button" class="btn btn-primary btn-small" data-ao-action="save">Save rules</button>' +
+      '<button type="button" class="btn btn-outline btn-small" data-ao-action="refresh">Refresh now</button>' +
+      reconcileBtn +
+      mainnetBtn +
+      '<button type="button" class="btn btn-outline btn-small" data-ao-action="open-library">Open in Library</button>' +
+      '</div>' +
+      '<p class="always-on-monitor-msg" data-ao-msg hidden></p>';
+
+    return (
+      '<div class="always-on-monitor-card" data-ao-wf="' +
+      escapeAttr(id) +
+      '">' +
+      '<div class="always-on-monitor-card-head">' +
+      '<div><p class="always-on-monitor-card-title">' +
+      escapeHtml(wf.name || id) +
+      '</p><p class="always-on-monitor-scopes">' +
+      escapeHtml(scopes.join(' · ') || 'no scopes') +
+      '</p></div>' +
+      '<label class="pd-checkbox-label" style="min-width:auto;font-weight:600;white-space:nowrap;">' +
+      '<input type="checkbox" data-ao-field="enabled"' +
+      (enabled ? ' checked' : '') +
+      '> Enabled</label></div>' +
+      '<p class="always-on-monitor-status" data-ao-status>Last ran: …</p>' +
+      body +
+      actions +
+      '</div>'
+    );
+  }
+
+  async function loadAlwaysOnPollSnapshots() {
+    const keys = [
+      'cfsV3RangeWatchLastPoll',
+      'cfsFileWatchLastPoll',
+      PULSE_SOLANA_LAST_POLL_KEY,
+      PULSE_BSC_LAST_POLL_KEY,
+      'cfs_bsc_global_settings',
+    ];
+    let stored = {};
+    try {
+      stored = await chrome.storage.local.get(keys);
+    } catch (_) {}
+    let v3 = stored.cfsV3RangeWatchLastPoll || null;
+    try {
+      const st = await cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_GET_STATUS' });
+      const fromSw = (st && st.lastPoll) || (st && st.result && st.result.lastPoll) || null;
+      if (fromSw) v3 = fromSw;
+    } catch (_) {}
+    let bscChainId = null;
+    let bscRpcHost = '';
+    try {
+      const stBsc = await cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WALLET_STATUS' });
+      if (stBsc && stBsc.ok && stBsc.chainId != null) bscChainId = Number(stBsc.chainId);
+      if (stBsc && stBsc.ok && stBsc.rpcUrl) {
+        try {
+          bscRpcHost = new URL(String(stBsc.rpcUrl).trim()).hostname;
+        } catch (_) {
+          bscRpcHost = String(stBsc.rpcUrl).trim().slice(0, 48);
+        }
+      }
+    } catch (_) {}
+    if (bscChainId == null || !bscRpcHost) {
+      try {
+        let glob = stored.cfs_bsc_global_settings;
+        if (typeof glob === 'string' && glob.trim()) glob = JSON.parse(glob);
+        if (glob && typeof glob === 'object') {
+          if (bscChainId == null && glob.chainId != null) bscChainId = Number(glob.chainId);
+          if (!bscRpcHost && glob.rpcUrl) {
+            try {
+              bscRpcHost = new URL(String(glob.rpcUrl).trim()).hostname;
+            } catch (_) {
+              bscRpcHost = String(glob.rpcUrl).trim().slice(0, 48);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (!Number.isFinite(bscChainId)) bscChainId = null;
+    return {
+      v3,
+      file: stored.cfsFileWatchLastPoll || null,
+      sol: stored[PULSE_SOLANA_LAST_POLL_KEY] || null,
+      bsc: stored[PULSE_BSC_LAST_POLL_KEY] || null,
+      bscChainId,
+      bscRpcHost: bscRpcHost || '',
+    };
+  }
+
+  function formatAlwaysOnStatusForCard(entry, snaps) {
+    const { id, sc } = entry;
+    const chainSuffix =
+      snaps.bscChainId != null && Number.isFinite(Number(snaps.bscChainId))
+        ? ' · chain ' +
+          Number(snaps.bscChainId) +
+          (snaps.bscRpcHost ? ' · RPC ' + snaps.bscRpcHost : '')
+        : snaps.bscRpcHost
+          ? ' · RPC ' + snaps.bscRpcHost
+          : '';
+    if (sc.priceRangeWatch) {
+      const last = snaps.v3;
+      if (!last || typeof last !== 'object') {
+        return { text: 'Last ran: waiting for first V3 poll…' + chainSuffix, cls: '' };
+      }
+      const t = last.ts != null ? new Date(last.ts).toLocaleString() : '—';
+      if (last.idle && last.reason === 'no_v3_positions') {
+        return { text: 'Last ran: ' + t + ' — idle (no positions)' + chainSuffix, cls: '' };
+      }
+      const results = Array.isArray(last.results) ? last.results : [];
+      const hit =
+        results.find((r) => r && (r.workflowId === id || (r.job && r.job.workflowId === id))) ||
+        results[0];
+      if (!hit) return { text: 'Last ran: ' + t + chainSuffix, cls: '' };
+      if (hit.ok === false || hit.error) {
+        return {
+          text: 'Last ran: ' + t + ' — error: ' + String(hit.error || 'failed') + chainSuffix,
+          cls: 'is-error',
+        };
+      }
+      const posResults = Array.isArray(hit.results) ? hit.results : null;
+      if (posResults) {
+        const oor = posResults.filter((p) => p && p.inRange === false && !p.closed).length;
+        const okN = posResults.filter((p) => p && p.inRange === true && !p.nearEdge).length;
+        const nearN = posResults.filter((p) => p && p.nearEdge).length;
+        const parts = [];
+        if (okN) parts.push(okN + ' in range');
+        if (nearN) parts.push(nearN + ' near edge');
+        if (oor) parts.push(oor + ' Inactive (OUT)');
+        const sample = posResults.find((p) => p && p.check) || posResults[0];
+        const chk = (sample && sample.check) || {};
+        let comp = '';
+        if (chk.composition0 != null && Number.isFinite(Number(chk.composition0))) {
+          const c0 = Math.round(Number(chk.composition0) * 100);
+          const c1 = Math.round((1 - Number(chk.composition0)) * 100);
+          comp = ' · ~' + c0 + '% token0 / ' + c1 + '% token1';
+        } else if (oor && sample && sample.driftDirection === 'below') {
+          comp = ' · ~100% token0 (Inactive below)';
+        } else if (oor && sample && sample.driftDirection === 'above') {
+          comp = ' · ~100% token1 (Inactive above)';
+        }
+        return {
+          text:
+            'Last ran: ' +
+            t +
+            ' — ' +
+            (parts.length ? parts.join(', ') : posResults.length + ' pos') +
+            comp +
+            ' · ' +
+            posResults.length +
+            ' pos' +
+            chainSuffix,
+          cls: oor || nearN ? 'is-error' : 'is-ok',
+        };
+      }
+      const chk = hit.check || {};
+      const inRange = hit.inRange != null ? hit.inRange : chk.inRange;
+      const inactive = hit.inactive === true || chk.inactive === true || inRange === false;
+      const tick = chk.currentTick != null ? chk.currentTick : '';
+      const checkChain =
+        chk.chainId != null && Number.isFinite(Number(chk.chainId))
+          ? ' · chain ' + Number(chk.chainId)
+          : chainSuffix;
+      let statusBit = '';
+      if (hit.nearEdge) statusBit = ' — near edge';
+      else if (inactive) statusBit = ' — Inactive (OUT of range)';
+      else if (inRange === true) statusBit = ' — in range';
+      let comp = '';
+      if (chk.composition0 != null && Number.isFinite(Number(chk.composition0))) {
+        const c0 = Math.round(Number(chk.composition0) * 100);
+        const c1 = Math.round((Number(chk.composition1 != null ? chk.composition1 : 1 - chk.composition0)) * 100);
+        comp = ' · ~' + c0 + '% token0 / ' + c1 + '% token1';
+      }
+      return {
+        text:
+          'Last ran: ' +
+          t +
+          statusBit +
+          comp +
+          (tick !== '' ? ' · tick ' + tick : '') +
+          checkChain,
+        cls: inactive || hit.nearEdge ? 'is-error' : 'is-ok',
+      };
+    }
+    if (sc.fileWatch) {
+      const last = snaps.file;
+      if (!last || typeof last !== 'object') return { text: 'Last ran: waiting for file-watch poll…', cls: '' };
+      const t = last.ts != null ? new Date(last.ts).toLocaleString() : '—';
+      if (last.ok === false || last.error) {
+        return { text: 'Last ran: ' + t + ' — error: ' + String(last.error || 'failed'), cls: 'is-error' };
+      }
+      if (last.idle) {
+        return { text: 'Last ran: ' + t + ' — idle' + (last.reason ? ' (' + last.reason + ')' : ''), cls: '' };
+      }
+      return {
+        text: 'Last ran: ' + t + (last.projectCount != null ? ' · ' + last.projectCount + ' project(s)' : ''),
+        cls: 'is-ok',
+      };
+    }
+    const parts = [];
+    if (sc.followingSolanaWatch || sc.followingAutomationSolana) {
+      const sol = snaps.sol;
+      if (sol && sol.ts != null) {
+        parts.push('Solana ' + new Date(sol.ts).toLocaleString() + pulseWatchPollDetail(sol));
+      }
+    }
+    if (sc.followingBscWatch || sc.followingAutomationBsc) {
+      const bsc = snaps.bsc;
+      if (bsc && bsc.ts != null) {
+        parts.push('BSC ' + new Date(bsc.ts).toLocaleString() + pulseWatchPollDetail(bsc));
+      }
+    }
+    if (!parts.length) return { text: 'Last ran: waiting for Following poll…', cls: '' };
+    return { text: 'Last ran: ' + parts.join(' · '), cls: 'is-ok' };
+  }
+
+  async function updateAlwaysOnMonitorStatus() {
+    const list = document.getElementById('alwaysOnMonitorsList');
+    if (!list) return;
+    const entries = listAlwaysOnMonitorEntries();
+    const byId = {};
+    entries.forEach((e) => {
+      byId[e.id] = e;
+    });
+    const snaps = await loadAlwaysOnPollSnapshots();
+    list.querySelectorAll('.always-on-monitor-card[data-ao-wf]').forEach((card) => {
+      const wid = card.getAttribute('data-ao-wf') || '';
+      const entry = byId[wid];
+      const statusEl = card.querySelector('[data-ao-status]');
+      if (!statusEl) return;
+      if (!entry) {
+        statusEl.textContent = 'Workflow no longer always-on (reload monitors).';
+        statusEl.className = 'always-on-monitor-status';
+        return;
+      }
+      const st = formatAlwaysOnStatusForCard(entry, snaps);
+      statusEl.textContent = st.text;
+      statusEl.className = 'always-on-monitor-status' + (st.cls ? ' ' + st.cls : '');
+      const mainnetBtn = card.querySelector('[data-ao-mainnet-btn]');
+      if (mainnetBtn) {
+        const host = String(snaps.bscRpcHost || '').toLowerCase();
+        const chain = snaps.bscChainId != null ? Number(snaps.bscChainId) : null;
+        const needsMainnet =
+          chain === 97 ||
+          /prebsc|chapel|data-seed-prebsc|testnet/i.test(host) ||
+          (st.cls === 'is-error' && /chain 97|Chapel|testnet|mainnet RPC/i.test(st.text));
+        mainnetBtn.hidden = !needsMainnet;
+      }
+    });
+  }
+
+  function setAlwaysOnMonitorMsg(card, text, kind) {
+    const msg = card && card.querySelector('[data-ao-msg]');
+    if (!msg) return;
+    msg.hidden = !text;
+    msg.textContent = text || '';
+    msg.className = 'always-on-monitor-msg' + (kind === 'error' ? ' is-error' : kind === 'success' ? ' is-success' : '');
+  }
+
+  async function saveAlwaysOnMonitorCard(card) {
+    const wid = card.getAttribute('data-ao-wf') || '';
+    const wf = workflows[wid];
+    if (!wf) {
+      setAlwaysOnMonitorMsg(card, 'Workflow not found in Library.', 'error');
+      return;
+    }
+    if (!wf.alwaysOn || typeof wf.alwaysOn !== 'object') wf.alwaysOn = { enabled: true, scopes: {}, conditions: {} };
+    const ao = wf.alwaysOn;
+    if (!ao.scopes || typeof ao.scopes !== 'object') ao.scopes = {};
+    const enabledEl = card.querySelector('[data-ao-field="enabled"]');
+    ao.enabled = enabledEl ? enabledEl.checked === true : true;
+    const pollEl = card.querySelector('[data-ao-field="pollIntervalMs"]');
+    if (pollEl) {
+      const n = parseInt(pollEl.value, 10);
+      if (Number.isFinite(n) && n >= 1000) ao.pollIntervalMs = n;
+    }
+    const projEl = card.querySelector('[data-ao-field="projectId"]');
+    if (projEl) ao.projectId = String(projEl.value || '').trim();
+
+    const sc = ao.scopes;
+    if (sc.priceRangeWatch) {
+      let br =
+        ao.boundRow && typeof ao.boundRow === 'object' && !Array.isArray(ao.boundRow) ? { ...ao.boundRow } : {};
+      const boundRowsJsonEl = card.querySelector('[data-ao-field="boundRowsJson"]');
+      if (boundRowsJsonEl && String(boundRowsJsonEl.value || '').trim()) {
+        try {
+          const parsed = JSON.parse(boundRowsJsonEl.value);
+          if (Array.isArray(parsed)) ao.boundRows = parsed;
+        } catch (_) {
+          setAlwaysOnMonitorMsg(card, 'boundRows JSON is invalid.', 'error');
+          return;
+        }
+      }
+      const boundJsonEl = card.querySelector('[data-ao-field="boundRowJson"]');
+      if (boundJsonEl && String(boundJsonEl.value || '').trim()) {
+        try {
+          const parsed = JSON.parse(boundJsonEl.value);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) br = parsed;
+        } catch (_) {
+          setAlwaysOnMonitorMsg(card, 'boundRow JSON is invalid.', 'error');
+          return;
+        }
+      }
+      ['v3PositionTokenId', 'exitBelowPolicy', 'exitAbovePolicy', 'rangePercent', 'rangePercentBelow', 'rangePercentAbove', 'stableToken', 'v3Pool', 'nearEdgePercent'].forEach(
+        (k) => {
+          const el = card.querySelector('[data-ao-field="' + k + '"]');
+          if (el) br[k] = String(el.value || '').trim();
+        },
+      );
+      const nearEdgeEl = card.querySelector('[data-ao-field="nearEdgePercent"]');
+      if (nearEdgeEl) ao.nearEdgePercent = String(nearEdgeEl.value || '').trim();
+      // Per-position pause / policy edits
+      card.querySelectorAll('.always-on-position-card[data-ao-token-id]').forEach((posCard) => {
+        const tid = posCard.getAttribute('data-ao-token-id') || '';
+        if (!tid || !Array.isArray(ao.boundRows)) return;
+        const row = ao.boundRows.find(
+          (r) =>
+            String(r.v3PositionTokenId || r.positionNftId || r.infiPositionTokenId || '').trim() === tid,
+        );
+        if (!row) return;
+        const en = posCard.querySelector('[data-ao-pos-field="enabled"]');
+        if (en) row.enabled = en.checked === true;
+        ['exitBelowPolicy', 'exitAbovePolicy', 'fundMode'].forEach((k) => {
+          const el = posCard.querySelector('[data-ao-pos-field="' + k + '"]');
+          if (el) row[k] = String(el.value || '').trim();
+        });
+      });
+      ao.boundRow = br;
+      const gasEn = card.querySelector('[data-ao-field="gasReloadEnabled"]');
+      ao.gasReloadEnabled = gasEn ? gasEn.checked === true : false;
+      const autoTrackEl = card.querySelector('[data-ao-field="reconcileAutoTrackNew"]');
+      ao.reconcileAutoTrackNew = autoTrackEl ? autoTrackEl.checked === true : false;
+      ['gasReloadBelowWei', 'gasReloadTargetWei', 'stableReserveWei'].forEach((k) => {
+        const el = card.querySelector('[data-ao-field="' + k + '"]');
+        if (el) ao[k] = String(el.value || '').trim();
+      });
+      const prwEl = card.querySelector('[data-ao-field="priceRangeWatchJson"]');
+      if (prwEl && String(prwEl.value || '').trim()) {
+        try {
+          const prw = JSON.parse(prwEl.value);
+          if (prw && typeof prw === 'object' && !Array.isArray(prw)) ao.priceRangeWatch = prw;
+        } catch (_) {
+          setAlwaysOnMonitorMsg(card, 'priceRangeWatch JSON is invalid.', 'error');
+          return;
+        }
+      }
+      try {
+        await chrome.storage.local.set({ workflows });
+      } catch (e) {
+        setAlwaysOnMonitorMsg(card, e?.message || 'Failed to save workflows', 'error');
+        return;
+      }
+      const merge = await cfsSendServiceWorkerMessage({
+        type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+        workflowId: wid,
+        mode: br.v3PositionTokenId || br.positionNftId ? 'upsertPosition' : 'mergeLegacy',
+        kind: /infi|infinity/i.test(String((ao.priceRangeWatch && ao.priceRangeWatch.mode) || ''))
+          ? 'infi'
+          : 'v3',
+        enablePriceRangeWatch: true,
+        pollIntervalMs: ao.pollIntervalMs || 30000,
+        fields: br,
+        gasReloadEnabled: ao.gasReloadEnabled,
+        gasReloadBelowWei: ao.gasReloadBelowWei,
+        gasReloadTargetWei: ao.gasReloadTargetWei,
+        stableReserveWei: ao.stableReserveWei,
+        reconcileAutoTrackNew: ao.reconcileAutoTrackNew,
+        nearEdgePercent: ao.nearEdgePercent,
+      });
+      if (!merge || merge.ok === false) {
+        setAlwaysOnMonitorMsg(card, (merge && merge.error) || 'Merge boundRow failed', 'error');
+        return;
+      }
+      if (merge.boundRow && typeof merge.boundRow === 'object') {
+        ao.boundRow = merge.boundRow;
+        workflows[wid].alwaysOn.boundRow = merge.boundRow;
+      }
+      if (Array.isArray(merge.boundRows)) {
+        ao.boundRows = merge.boundRows;
+        workflows[wid].alwaysOn.boundRows = merge.boundRows;
+      }
+      setAlwaysOnMonitorMsg(card, 'Rules saved. Watch will use them on the next poll.', 'success');
+      await cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' });
+      try {
+        await renderAlwaysOnMonitorsPanel({ force: true, skipReconcile: true });
+        await updateAlwaysOnWatchdogHints();
+        await renderAlwaysOnLpActivityList();
+      } catch (_) {}
+    } else {
+      try {
+        await chrome.storage.local.set({ workflows });
+      } catch (e) {
+        setAlwaysOnMonitorMsg(card, e?.message || 'Failed to save', 'error');
+        return;
+      }
+      setAlwaysOnMonitorMsg(card, 'Saved.', 'success');
+    }
+    if (typeof renderWorkflowAlwaysOnPanel === 'function' && playbackWorkflow?.value === wid) {
+      try {
+        renderWorkflowAlwaysOnPanel();
+      } catch (_) {}
+    }
+    await updateAlwaysOnMonitorStatus();
+  }
+
+  async function refreshAlwaysOnMonitorCard(card) {
+    const wid = card.getAttribute('data-ao-wf') || '';
+    const wf = workflows[wid];
+    const sc = (wf && wf.alwaysOn && wf.alwaysOn.scopes) || {};
+    setAlwaysOnMonitorMsg(card, 'Refreshing…', '');
+    const jobs = [];
+    if (sc.priceRangeWatch) {
+      jobs.push(cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' }));
+      jobs.push(cfsSendServiceWorkerMessage({ type: 'CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW' }).catch(() => null));
+    }
+    if (sc.fileWatch) jobs.push(cfsSendServiceWorkerMessage({ type: 'CFS_FILE_WATCH_REFRESH_NOW' }));
+    if (sc.followingSolanaWatch || sc.followingAutomationSolana) {
+      jobs.push(cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_REFRESH_NOW', skipJitter: true }));
+    }
+    if (sc.followingBscWatch || sc.followingAutomationBsc) {
+      jobs.push(cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_REFRESH_NOW' }));
+    }
+    if (!jobs.length) {
+      setAlwaysOnMonitorMsg(card, 'No refresh action for this scope.', 'error');
+      return;
+    }
+    await Promise.all(jobs);
+    await updateAlwaysOnMonitorStatus();
+    setAlwaysOnMonitorMsg(card, 'Refresh requested.', 'success');
+  }
+
+  async function reconcileAlwaysOnMonitorCard(card, opts) {
+    const quiet = !!(opts && opts.quiet);
+    const wid = card.getAttribute('data-ao-wf') || '';
+    if (!quiet) setAlwaysOnMonitorMsg(card, 'Reconciling on-chain NFTs…', '');
+    const res = await cfsSendServiceWorkerMessage({
+      type: 'CFS_V3_RECONCILE_POSITIONS',
+      workflowId: wid || 'wf-bsc-v3-monitor',
+    });
+    if (!res || res.ok === false) {
+      if (!quiet) setAlwaysOnMonitorMsg(card, (res && res.error) || 'Reconcile failed', 'error');
+      return res;
+    }
+    const banner = card.querySelector('[data-testid="cfs-ao-reconcile-banner"]') ||
+      card.querySelector('.always-on-reconcile-banner');
+    const untracked = Array.isArray(res.untracked) ? res.untracked : [];
+    if (banner) {
+      if (untracked.length) {
+        banner.hidden = false;
+        banner.innerHTML =
+          '<strong>' +
+          untracked.length +
+          ' position(s) not watched</strong> ' +
+          untracked
+            .map(
+              (tid) =>
+                '<button type="button" class="btn btn-outline btn-small" data-ao-action="track-untracked" data-ao-token-id="' +
+                escapeAttr(String(tid)) +
+                '">Add #' +
+                escapeHtml(String(tid)) +
+                '</button>',
+            )
+            .join(' ');
+      } else {
+        banner.hidden = true;
+        banner.textContent = '';
+      }
+    }
+    if (!quiet) {
+      setAlwaysOnMonitorMsg(
+        card,
+        'Reconcile: ' +
+          (res.closedCount || 0) +
+          ' closed removed, ' +
+          untracked.length +
+          ' untracked.',
+        'success',
+      );
+    }
+    if ((res.closedCount || 0) > 0) {
+      try {
+        const stored = await chrome.storage.local.get(['workflows']);
+        if (stored.workflows) Object.assign(workflows, stored.workflows);
+        await renderAlwaysOnMonitorsPanel({ force: true, skipReconcile: true });
+      } catch (_) {}
+    }
+    await renderAlwaysOnLpActivityList();
+    return res;
+  }
+
+  async function removeAlwaysOnMonitorPosition(card, tokenId) {
+    const wid = card.getAttribute('data-ao-wf') || '';
+    const tid = String(tokenId || '').trim();
+    if (!tid) return;
+    const res = await cfsSendServiceWorkerMessage({
+      type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+      workflowId: wid,
+      mode: 'removePosition',
+      kind: 'v3',
+      tokenId: tid,
+      fields: { v3PositionTokenId: tid },
+    });
+    if (!res || res.ok === false) {
+      setAlwaysOnMonitorMsg(card, (res && res.error) || 'Remove failed', 'error');
+      return;
+    }
+    setAlwaysOnMonitorMsg(card, 'Removed #' + tid, 'success');
+    try {
+      const stored = await chrome.storage.local.get(['workflows']);
+      if (stored.workflows) Object.assign(workflows, stored.workflows);
+      await renderAlwaysOnMonitorsPanel({ force: true, skipReconcile: true });
+    } catch (_) {}
+  }
+
+  async function trackUntrackedAlwaysOnPosition(card, tokenId) {
+    const wid = card.getAttribute('data-ao-wf') || '';
+    const tid = String(tokenId || '').trim();
+    if (!tid) return;
+    const wf = workflows[wid];
+    const primary = alwaysOnBoundRowsList((wf && wf.alwaysOn) || {})[0] || {};
+    const res = await cfsSendServiceWorkerMessage({
+      type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+      workflowId: wid,
+      mode: 'upsertPosition',
+      kind: 'v3',
+      enablePriceRangeWatch: true,
+      fields: {
+        v3PositionTokenId: tid,
+        exitBelowPolicy: primary.exitBelowPolicy || 'sell_stable',
+        exitAbovePolicy: primary.exitAbovePolicy || 'restake',
+        stableToken: primary.stableToken || AO_STABLE_TOKENS[0].addr,
+        rangePercentBelow: primary.rangePercentBelow || '5',
+        rangePercentAbove: primary.rangePercentAbove || '15',
+        fundMode: primary.fundMode || 'stable',
+        enabled: 'true',
+      },
+    });
+    if (!res || res.ok === false) {
+      setAlwaysOnMonitorMsg(card, (res && res.error) || 'Add failed', 'error');
+      return;
+    }
+    setAlwaysOnMonitorMsg(card, 'Tracking #' + tid, 'success');
+    try {
+      const stored = await chrome.storage.local.get(['workflows']);
+      if (stored.workflows) Object.assign(workflows, stored.workflows);
+      await renderAlwaysOnMonitorsPanel({ force: true, skipReconcile: true });
+    } catch (_) {}
+  }
+
+  async function switchAlwaysOnMonitorToBscMainnet(card) {
+    const MAINNET_RPC = 'https://bsc-dataseed.binance.org';
+    setAlwaysOnMonitorMsg(card, 'Switching BSC settings to mainnet (56)…', '');
+    const r = await cfsSendServiceWorkerMessage({
+      type: 'CFS_BSC_WALLET_SAVE_SETTINGS',
+      rpcUrl: MAINNET_RPC,
+      chainId: 56,
+    });
+    if (!r || r.ok === false) {
+      setAlwaysOnMonitorMsg(card, (r && r.error) || 'Failed to save mainnet RPC/chain', 'error');
+      return;
+    }
+    await cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' });
+    await updateAlwaysOnMonitorStatus();
+    setAlwaysOnMonitorMsg(
+      card,
+      'BSC set to chain 56 + ' + MAINNET_RPC + '. Refreshing V3 watch…',
+      'success',
+    );
+  }
+
+  function openAlwaysOnMonitorInLibrary(wid) {
+    if (!wid || !workflows[wid]) return;
+    try {
+      document.querySelector('.header-tab[data-tab="library"]')?.click();
+    } catch (_) {}
+    if (playbackWorkflow) {
+      playbackWorkflow.value = wid;
+      playbackWorkflow.dispatchEvent(new Event('change'));
+    }
+    if (workflowSelect) {
+      workflowSelect.value = wid;
+      workflowSelect.dispatchEvent(new Event('change'));
+    }
+    try {
+      document.getElementById('workflowAlwaysOnDetails')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (_) {}
+  }
+
+  function ensureAlwaysOnMonitorsDelegation() {
+    if (_alwaysOnMonitorsDelegated) return;
+    const list = document.getElementById('alwaysOnMonitorsList');
+    if (!list) return;
+    _alwaysOnMonitorsDelegated = true;
+    list.addEventListener('click', (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      const btn = t.closest('[data-ao-action]');
+      if (!btn) return;
+      const card = btn.closest('.always-on-monitor-card');
+      if (!card) return;
+      const action = btn.getAttribute('data-ao-action');
+      const wid = card.getAttribute('data-ao-wf') || '';
+      if (action === 'save') void saveAlwaysOnMonitorCard(card);
+      else if (action === 'refresh') void refreshAlwaysOnMonitorCard(card);
+      else if (action === 'use-mainnet') void switchAlwaysOnMonitorToBscMainnet(card);
+      else if (action === 'open-library') openAlwaysOnMonitorInLibrary(wid);
+      else if (action === 'reconcile') void reconcileAlwaysOnMonitorCard(card);
+      else if (action === 'remove-position') {
+        const tid = btn.getAttribute('data-ao-token-id') || '';
+        void removeAlwaysOnMonitorPosition(card, tid);
+      } else if (action === 'track-untracked') {
+        const tid = btn.getAttribute('data-ao-token-id') || '';
+        void trackUntrackedAlwaysOnPosition(card, tid);
+      }
+    });
+    list.addEventListener('change', (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      if (t.getAttribute('data-ao-field') !== 'enabled') return;
+      const card = t.closest('.always-on-monitor-card');
+      if (!card) return;
+      void saveAlwaysOnMonitorCard(card);
+    });
+  }
+
+  function formatAlwaysOnLpActivityLine(entry) {
+    if (!entry || typeof entry !== 'object') return '';
+    const t = entry.ts != null ? new Date(entry.ts).toLocaleString() : '';
+    const kind = String(entry.kind || 'event');
+    if (kind === 'gas_topup') {
+      return (
+        t +
+        ' — gas top-up ' +
+        String(entry.balanceBeforeWei || '?') +
+        '→' +
+        String(entry.balanceAfterWei || '?') +
+        (entry.txHash ? ' · ' + String(entry.txHash).slice(0, 12) + '…' : '')
+      );
+    }
+    if (kind === 'removed_burned_nft') {
+      return t + ' — removed burned NFT #' + String(entry.tokenId || '?');
+    }
+    if (kind === 'oor_trigger' || kind === 'near_edge_trigger') {
+      return (
+        t +
+        ' — ' +
+        (kind === 'near_edge_trigger' ? 'near-edge' : 'Inactive/OOR') +
+        ' #' +
+        String(entry.tokenId || '?') +
+        (entry.driftDirection ? ' ' + entry.driftDirection : '') +
+        (entry.childWorkflowId ? ' → ' + entry.childWorkflowId : '') +
+        (entry.status ? ' (' + entry.status + ')' : '')
+      );
+    }
+    if (kind === 'watchdog_wake') {
+      return t + ' — watchdog wake' + (entry.reason ? ' (' + entry.reason + ')' : '');
+    }
+    if (kind === 'watchdog_reconcile') {
+      return (
+        t +
+        ' — watchdog reconcile: ' +
+        (entry.closedCount || 0) +
+        ' closed, ' +
+        (entry.untrackedCount || 0) +
+        ' untracked'
+      );
+    }
+    return t + ' — ' + kind;
+  }
+
+  async function renderAlwaysOnLpActivityList() {
+    const el = document.getElementById('alwaysOnLpActivityList');
+    if (!el) return;
+    let list = [];
+    try {
+      const stored = await chrome.storage.local.get(['cfsAlwaysOnActivityLog']);
+      list = Array.isArray(stored.cfsAlwaysOnActivityLog) ? stored.cfsAlwaysOnActivityLog : [];
+    } catch (_) {}
+    if (!list.length) {
+      el.innerHTML = '<p class="hint" style="margin:0;">No LP watch events yet (OOR / near-edge triggers, gas top-up, burned NFT drop, watchdog wake).</p>';
+      return;
+    }
+    el.innerHTML = list
+      .slice(0, 12)
+      .map((e) => '<p class="always-on-lp-activity-line">' + escapeHtml(formatAlwaysOnLpActivityLine(e)) + '</p>')
+      .join('');
+  }
+
+  async function updateAlwaysOnWatchdogHints() {
+    let st = null;
+    try {
+      const stored = await chrome.storage.local.get(['cfsMcpWatchdogStatus']);
+      st = stored.cfsMcpWatchdogStatus || null;
+    } catch (_) {}
+    const list = document.getElementById('alwaysOnMonitorsList');
+    if (!list) return;
+    list.querySelectorAll('[data-ao-watchdog-hint]').forEach((el) => {
+      if (!st || typeof st !== 'object') {
+        el.textContent =
+          'MCP watchdog: no status yet (enable with monitor_watchdog_configure / watchdog.enabled in ec-mcp-config.json)';
+        return;
+      }
+      const enabled = st.enabled === true;
+      const connected = st.connected === true;
+      const alert = st.lastAlert;
+      let alertTxt = 'no alerts';
+      if (alert && typeof alert === 'object') {
+        const when = alert.at != null ? new Date(alert.at).toLocaleString() : '';
+        alertTxt = String(alert.kind || 'alert') + (when ? ' @ ' + when : '');
+      }
+      el.textContent =
+        'MCP watchdog: ' +
+        (enabled ? 'enabled' : 'disabled') +
+        (connected ? ' · relay up' : ' · relay down / unknown') +
+        ' · last alert: ' +
+        alertTxt;
+    });
+  }
+
+  let _alwaysOnAutoReconcileAt = 0;
+  let _alwaysOnWakePollAt = 0;
+  const ALWAYS_ON_WAKE_POLL_MS = 12000;
+
+  async function maybeAutoReconcileAlwaysOnCards(entries) {
+    const now = Date.now();
+    if (now - _alwaysOnAutoReconcileAt < 60000) return;
+    const priceCards = (entries || []).filter((e) => e.sc && e.sc.priceRangeWatch);
+    if (!priceCards.length) return;
+    _alwaysOnAutoReconcileAt = now;
+    for (const entry of priceCards) {
+      const safeId = String(entry.id || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const card = document.querySelector('.always-on-monitor-card[data-ao-wf="' + safeId + '"]');
+      if (!card) continue;
+      try {
+        await reconcileAlwaysOnMonitorCard(card, { quiet: true });
+      } catch (_) {}
+    }
+  }
+
+  /**
+   * When the side panel becomes visible again, force a V3/Infi range tick so a still-OOR
+   * (Inactive) position can exit/restake without waiting for the next ~30s alarm.
+   */
+  async function maybeWakeAlwaysOnRangePolls(entries) {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    if (now - _alwaysOnWakePollAt < ALWAYS_ON_WAKE_POLL_MS) return;
+    const list = entries || listAlwaysOnMonitorEntries();
+    const priceCards = (list || []).filter((e) => e.sc && e.sc.priceRangeWatch);
+    if (!priceCards.length) return;
+    _alwaysOnWakePollAt = now;
+    try {
+      await Promise.all([
+        cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' }),
+        cfsSendServiceWorkerMessage({ type: 'CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW' }).catch(() => null),
+      ]);
+    } catch (_) {}
+    try {
+      await updateAlwaysOnMonitorStatus();
+      await renderAlwaysOnLpActivityList();
+    } catch (_) {}
+  }
+
+  async function renderAlwaysOnMonitorsPanel(opts) {
+    const force = !!(opts && opts.force);
+    const skipReconcile = !!(opts && opts.skipReconcile);
+    const skipWakePoll = !!(opts && opts.skipWakePoll);
+    const list = document.getElementById('alwaysOnMonitorsList');
+    if (!list) return;
+    ensureAlwaysOnMonitorsDelegation();
+    const entries = listAlwaysOnMonitorEntries();
+    const idsKey = entries.map((e) => e.id).sort().join('|');
+    if (!force && idsKey === _alwaysOnMonitorsRenderedIds && list.querySelector('.always-on-monitor-card')) {
+      await updateAlwaysOnMonitorStatus();
+      await updateAlwaysOnWatchdogHints();
+      await renderAlwaysOnLpActivityList();
+      if (!skipWakePoll) void maybeWakeAlwaysOnRangePolls(entries);
+      return;
+    }
+    if (!force && alwaysOnMonitorsHasFocus() && list.querySelector('.always-on-monitor-card')) {
+      await updateAlwaysOnMonitorStatus();
+      await updateAlwaysOnWatchdogHints();
+      await renderAlwaysOnLpActivityList();
+      if (!skipWakePoll) void maybeWakeAlwaysOnRangePolls(entries);
+      return;
+    }
+    _alwaysOnMonitorsRenderedIds = idsKey;
+    if (!entries.length) {
+      list.innerHTML =
+        '<p class="always-on-monitors-empty">No always-on monitors yet. Enable Always on + a scope on a Library workflow (e.g. BSC V3 LP monitor).</p>';
+      await renderAlwaysOnLpActivityList();
+      return;
+    }
+    list.innerHTML = entries.map(buildAlwaysOnMonitorCardHtml).join('');
+    await updateAlwaysOnMonitorStatus();
+    await updateAlwaysOnWatchdogHints();
+    await renderAlwaysOnLpActivityList();
+    if (!skipWakePoll) {
+      void maybeWakeAlwaysOnRangePolls(entries);
+    }
+    if (!skipReconcile) {
+      void maybeAutoReconcileAlwaysOnCards(entries);
+    }
+  }
+
   async function refreshPulseWatchActivityPanel() {
     const el = document.getElementById('pulseWatchActivityList');
     if (!el) return;
@@ -2878,43 +3951,10 @@
     await updatePulseWatchStatusBanner();
     await updatePulseWatchLastPollLine();
     await updatePulseWatchBundleLine();
-
-    // Build always-on workflow summary banner
-    let alwaysOnHtml = '';
-    try {
-      const aoWorkflows = [];
-      const wfSource = (typeof workflows === 'object' && workflows) ? workflows : {};
-      for (const [id, wf] of Object.entries(wfSource)) {
-        if (!wf?.alwaysOn?.enabled) continue;
-        const sc = wf.alwaysOn.scopes || {};
-        const scopes = [];
-        if (sc.followingSolanaWatch) scopes.push('SOL watch');
-        if (sc.followingBscWatch) scopes.push('BSC watch');
-        if (sc.followingAutomationSolana) scopes.push('SOL auto');
-        if (sc.followingAutomationBsc) scopes.push('BSC auto');
-        if (sc.fileWatch) scopes.push('📁 File watch');
-        if (sc.priceRangeWatch) scopes.push('📊 Price range');
-        if (sc.custom) scopes.push('⚙ Custom');
-        if (scopes.length === 0) continue;
-        const projId = wf.alwaysOn.projectId;
-        const projLabel = projId ? ` · Project: ${escapeHtml(projId)}` : '';
-        const pollLabel = wf.alwaysOn.pollIntervalMs ? ` · Poll: ${Math.round(wf.alwaysOn.pollIntervalMs / 1000)}s` : '';
-        aoWorkflows.push(`<div class="pulse-watch-activity-row" style="background:var(--bg-secondary,#f5f5fa);border-radius:6px;padding:6px 10px;margin-bottom:6px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-            <strong style="font-size:12px;">${escapeHtml(wf.name || id)}</strong>
-            <span style="font-size:10px;color:var(--success-color,#34a853);">● Active</span>
-          </div>
-          <div style="font-size:11px;color:var(--gen-muted,#888);">${scopes.join(' · ')}${projLabel}${pollLabel}</div>
-        </div>`);
-      }
-      if (aoWorkflows.length > 0) {
-        alwaysOnHtml = '<div style="margin-bottom:8px;">' + aoWorkflows.join('') + '</div>';
-      }
-    } catch (_) {}
+    await renderAlwaysOnMonitorsPanel();
 
     if (!_cfsCryptoWeb3Enabled) {
-      /* Crypto disabled — skip Solana/BSC activity, show only always-on file watch summaries */
-      el.innerHTML = alwaysOnHtml || '';
+      el.innerHTML = '<p class="hint">Crypto off — Following event feed hidden. Always-on monitors (e.g. file watch) are above.</p>';
       return;
     }
     try {
@@ -2932,51 +3972,47 @@
         bscRows = bscRes && bscRes.ok ? bscRes.activity || [] : [];
       } catch (_) {}
       const rows = [...solRows, ...bscRows].sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30);
-      if (!rows.length && !alwaysOnHtml) {
-        el.innerHTML = '<p class="hint">No events yet.</p>';
+      if (!rows.length) {
+        el.innerHTML = '<p class="hint">No Following events yet. Monitors above keep running in the background.</p>';
         return;
       }
-      let eventsHtml = '';
-      if (rows.length) {
-        eventsHtml = rows
-          .map((row) => {
-            const t = new Date(row.ts || 0).toLocaleString();
-            const addr = row.address || '';
-            const addrShort = addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
-            const isBsc = row.chain === 'bsc';
-            const chainLabel = isBsc ? 'BSC' : 'Solana';
-            let idShort = '';
-            let idHtml = '';
-            let faPart = '';
-            if (isBsc) {
-              const h = String(row.txHash || '').trim();
-              idShort = h.length > 10 ? `${h.slice(0, 8)}…` : h;
-              const bscHref = pulseBscscanTxHref(h, row.bscNetwork);
-              idHtml = bscHref
-                ? `<a href="${bscHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on BscScan">${escapeHtml(idShort)}</a>`
-                : escapeHtml(idShort);
-              faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, 'mainnet-beta', row.bscNetwork);
-            } else {
-              const sig = row.signature || '';
-              idShort = sig.length > 10 ? `${sig.slice(0, 8)}…` : sig;
-              const cluster = String(row.solanaCluster || clusterFallback || 'mainnet-beta').trim() || 'mainnet-beta';
-              const txHref = pulseSolscanTxHref(sig, cluster);
-              idHtml = txHref
-                ? `<a href="${txHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on Solscan">${escapeHtml(idShort)}</a>`
-                : escapeHtml(idShort);
-              faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, cluster);
-            }
-            const idTitle = isBsc ? String(row.txHash || '') : String(row.signature || '');
-            return `<div class="pulse-watch-activity-row">
+      el.innerHTML = rows
+        .map((row) => {
+          const t = new Date(row.ts || 0).toLocaleString();
+          const addr = row.address || '';
+          const addrShort = addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
+          const isBsc = row.chain === 'bsc';
+          const chainLabel = isBsc ? 'BSC' : 'Solana';
+          let idShort = '';
+          let idHtml = '';
+          let faPart = '';
+          if (isBsc) {
+            const h = String(row.txHash || '').trim();
+            idShort = h.length > 10 ? `${h.slice(0, 8)}…` : h;
+            const bscHref = pulseBscscanTxHref(h, row.bscNetwork);
+            idHtml = bscHref
+              ? `<a href="${bscHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on BscScan">${escapeHtml(idShort)}</a>`
+              : escapeHtml(idShort);
+            faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, 'mainnet-beta', row.bscNetwork);
+          } else {
+            const sig = row.signature || '';
+            idShort = sig.length > 10 ? `${sig.slice(0, 8)}…` : sig;
+            const cluster = String(row.solanaCluster || clusterFallback || 'mainnet-beta').trim() || 'mainnet-beta';
+            const txHref = pulseSolscanTxHref(sig, cluster);
+            idHtml = txHref
+              ? `<a href="${txHref}" target="_blank" rel="noopener noreferrer" class="pulse-watch-tx-link" title="View transaction on Solscan">${escapeHtml(idShort)}</a>`
+              : escapeHtml(idShort);
+            faPart = pulseFollowingAutomationResultSummaryHtml(row.followingAutomationResult, cluster);
+          }
+          const idTitle = isBsc ? String(row.txHash || '') : String(row.signature || '');
+          return `<div class="pulse-watch-activity-row">
               <div class="pulse-watch-activity-line1"><span class="pulse-watch-activity-meta">${escapeHtml(t)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(chainLabel)}</span> <span class="pulse-watch-activity-kind">${escapeHtml(row.kind || '')}</span>${pulseBscWatchVenueHtml(row)} — ${escapeHtml(row.summary || '')}</div>
               <div class="pulse-watch-activity-line2"><span title="${escapeHtml(addr)}">${escapeHtml(addrShort)}</span> · <span title="${escapeHtml(idTitle)}">${idHtml}</span>${faPart}</div>
             </div>`;
-          })
-          .join('');
-      }
-      el.innerHTML = alwaysOnHtml + eventsHtml + (!rows.length && alwaysOnHtml ? '<p class="hint">No crypto events yet. File watch is active above.</p>' : '');
+        })
+        .join('');
     } catch (e) {
-      el.innerHTML = alwaysOnHtml + `<p class="hint">${escapeHtml(e?.message || 'Failed to load activity.')}</p>`;
+      el.innerHTML = `<p class="hint">${escapeHtml(e?.message || 'Failed to load activity.')}</p>`;
     }
   }
 
@@ -4364,13 +5400,6 @@
     return '+' + cc + ' ' + groups.join(' ');
   }
   /** Normalize to E.164-style storage: + and digits only. 10 digits -> +1xxxxxxxxx. */
-  function normalizePhoneForStorage(digitsOrRaw) {
-    const digits = getPhoneDigits(digitsOrRaw);
-    if (!digits.length) return '';
-    if (digits.length === 10 && digits[0] !== '1') return '+1' + digits;
-    if (digits.length === 11 && digits[0] === '1') return '+' + digits;
-    return '+' + digits;
-  }
   /** Format national number only by country code. US/Canada (1): (XXX) XXX-XXXX; others: groups with spaces. */
   function formatPhoneNationalByCountryCode(digits, countryCode) {
     if (!digits.length) return '';
@@ -4415,19 +5444,6 @@
     return '+' + code + national;
   }
   /** Apply live formatting to phone input; returns formatted string and suggested cursor position. */
-  function formatPhoneInputLive(value) {
-    const digits = getPhoneDigits(value);
-    const formatted = formatPhoneForDisplay(digits);
-    const len = digits.length;
-    let pos = 0;
-    let count = 0;
-    for (let i = 0; i < formatted.length && count < len; i++) {
-      pos = i + 1;
-      if (/\d/.test(formatted[i])) count++;
-    }
-    return { formatted, cursorPosition: pos };
-  }
-
   const BIRTHDAY_MONTH_ABBREV = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   /** Parse stored birthday: "MMM D, YYYY" or "MMM D" or "YYYY-MM-DD" or "MM-DD" -> { month, day, year }. */
   function parseBirthday(s) {
@@ -4653,8 +5669,11 @@
     const [tickSol, tickBsc] = await Promise.all([
       cfsSendServiceWorkerMessage({ type: 'CFS_SOLANA_WATCH_REFRESH_NOW', skipJitter: true }),
       cfsSendServiceWorkerMessage({ type: 'CFS_BSC_WATCH_REFRESH_NOW' }),
+      cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' }),
+      cfsSendServiceWorkerMessage({ type: 'CFS_FILE_WATCH_REFRESH_NOW' }),
     ]);
     await refreshPulseWatchActivityPanel();
+    await updateAlwaysOnMonitorStatus();
     const paused = tickSol?.watch_paused || tickBsc?.watch_paused;
     const errSol = tickSol?.ok === false ? tickSol?.error : null;
     const errBsc = tickBsc?.ok === false ? tickBsc?.error : null;
@@ -4663,7 +5682,14 @@
     else if (errSol) setFollowingStatus(`Solana poll failed: ${errSol}`, 'error');
     else if (errBsc) setFollowingStatus(`BSC poll failed: ${errBsc}`, 'error');
     else if (tickSol?.idle && tickBsc?.idle) {
-      const bscReason = tickBsc?.reason === 'no_bscscan_key' ? ' (BSC: add BscScan key in Settings)' : '';
+      const bscReason =
+        tickBsc?.reason === 'no_bscscan_key' || tickBsc?.reason === 'no_bsc_indexer_key'
+          ? ' (BSC: add QuickNode, Etherscan, Ankr, or Covalent in Settings → BSC)'
+          : tickBsc?.reason === 'etherscan_plan_no_bsc'
+            ? ' (BSC: Etherscan plan needs BSC coverage, or use QuickNode)'
+            : tickBsc?.reason === 'quicknode_token_api_missing'
+              ? ' (BSC: enable Token & NFT API on your QuickNode endpoint)'
+              : '';
       const noWf = tickSol?.reason === 'no_workflows' || tickBsc?.reason === 'no_workflows';
       const noAo = tickSol?.reason === 'no_always_on_workflow' || tickBsc?.reason === 'no_always_on_workflow';
       const noCrypto =
@@ -5180,66 +6206,7 @@
   }
 
   /** Read file as Uint8Array (for binary-safe copy). Returns null if missing. */
-  async function readFileBytesFromProjectFolder(projectRoot, relativePath) {
-    if (!projectRoot || typeof relativePath !== 'string') return null;
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'read' });
-      if (perm !== 'granted') return null;
-      const parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
-      if (parts.length === 0) return null;
-      let dir = projectRoot;
-      for (let i = 0; i < parts.length - 1; i++) {
-        dir = await dir.getDirectoryHandle(parts[i], { create: false });
-      }
-      const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: false });
-      const file = await fileHandle.getFile();
-      const buf = await file.arrayBuffer();
-      return new Uint8Array(buf);
-    } catch (_) {
-      return null;
-    }
-  }
-
   /** Write bytes to path (creates parent dirs). */
-  async function writeFileBytesToProjectFolder(projectRoot, relativePath, bytes) {
-    if (!projectRoot || typeof relativePath !== 'string' || !bytes) return false;
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return false;
-      const parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
-      if (parts.length === 0) return false;
-      let dir = projectRoot;
-      for (let i = 0; i < parts.length - 1; i++) {
-        dir = await dir.getDirectoryHandle(parts[i], { create: true });
-      }
-      const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
-      const w = await fh.createWritable();
-      await w.write(bytes);
-      await w.close();
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  async function projectPathFileExists(projectRoot, relativePath) {
-    if (!projectRoot || typeof relativePath !== 'string') return false;
-    try {
-      const perm = await projectRoot.requestPermission({ mode: 'read' });
-      if (perm !== 'granted') return false;
-      const parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
-      if (parts.length === 0) return false;
-      let dir = projectRoot;
-      for (let i = 0; i < parts.length - 1; i++) {
-        dir = await dir.getDirectoryHandle(parts[i], { create: false });
-      }
-      await dir.getFileHandle(parts[parts.length - 1], { create: false });
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
   /**
    * Find literal paths uploads/{sourceProjectId}/... in serialized JSON.
    * @returns {string[]} full relative paths from project root
@@ -8322,16 +9289,6 @@
   }
 
 
-  function refreshUploadsListWithPath(segments) {
-    uploadsPathSegments = segments || [];
-    if (uploadsPathSegments.length && uploadsPathSegments[0]) {
-      try {
-        chrome.storage.local.set({ selectedProjectId: uploadsPathSegments[0] });
-      } catch (_) {}
-    }
-    refreshUploadsList();
-  }
-
   document.getElementById('uploadsParentBtn')?.addEventListener('click', function() {
     if (uploadsPathSegments.length > 0) {
       uploadsPathSegments = uploadsPathSegments.length > 1 ? uploadsPathSegments.slice(0, -1) : [];
@@ -10471,59 +11428,6 @@
     renderQualityStrategy();
   }
 
-  function renderQualityResults(qcRes, pass) {
-    const section = document.getElementById('qualityResultsSection');
-    const resultsList = document.getElementById('qualityResultsList');
-    const transcriptsList = document.getElementById('qualityTranscriptsList');
-    const resultsSection = document.getElementById('resultsSection');
-    if (!section || !resultsList || !transcriptsList) return;
-    if (!qcRes) {
-      section.style.display = 'none';
-      return;
-    }
-    section.style.display = 'block';
-    if (resultsSection) resultsSection.style.display = 'block';
-    const allResults = qcRes.allResults || (qcRes.similarity != null ? [{ ...qcRes }] : []);
-    resultsList.innerHTML = allResults.map((r, i) => {
-      const p = r.pass !== false;
-      const sim = r.similarity != null ? (typeof r.similarity === 'number' ? r.similarity.toFixed(3) : r.similarity) : '';
-      const textPreview = (r.text || '').slice(0, 80) + ((r.text || '').length > 80 ? '…' : '');
-      return `
-        <div class="quality-result-item ${p ? 'pass' : 'fail'}">
-          <span>Output ${i + 1}: ${p ? 'PASS' : 'FAIL'}</span>
-          ${sim ? `<span class="result-meta">Similarity: ${sim}</span>` : ''}
-          ${textPreview ? `<div class="result-meta">${escapeHtml(textPreview)}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-    const transcripts = allResults
-      .map((r, i) => ({ label: `Output ${i + 1}`, text: r.transcript || r.text || '' }))
-      .filter((t) => t.text.trim());
-    transcriptsList.innerHTML = transcripts.length
-      ? transcripts.map((t) => `
-          <div class="quality-transcript-item">
-            <div class="transcript-label">${escapeHtml(t.label)}</div>
-            <div class="transcript-text">${escapeHtml(t.text)}</div>
-          </div>
-        `).join('')
-      : '<div class="quality-transcript-item"><div class="transcript-text" style="color:#6e6e73">No transcripts from this run.</div></div>';
-    let videoDetailsEl = section.querySelector('#qualityVideoDetails');
-    if (!videoDetailsEl) {
-      videoDetailsEl = document.createElement('div');
-      videoDetailsEl.id = 'qualityVideoDetails';
-      videoDetailsEl.className = 'quality-video-details';
-      section.appendChild(videoDetailsEl);
-    }
-    const vd = qcRes?.videoDetails || [];
-    videoDetailsEl.innerHTML = vd.length ? `<div class="quality-video-details-header" style="margin-top:12px;padding-top:10px;border-top:1px solid #e5e5e7;font-size:12px;font-weight:600;color:#1d1d1f">Videos</div><div class="quality-video-details-list" style="font-size:11px;color:#6e6e73;margin-top:4px">${vd.map((v) => {
-      const res = v.width && v.height ? `${v.width}×${v.height}` : '—';
-      const dur = v.duration > 0 ? ` ${v.duration.toFixed(1)}s` : '';
-      return `#${v.index}: ${res}${dur}`;
-    }).join(' · ')}</div>` : '';
-    videoDetailsEl.style.display = vd.length ? 'block' : 'none';
-    section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
   function showTranscriptInPreview(transcript) {
     const container = document.getElementById('qualityTranscriptPreview');
     const textEl = document.getElementById('qualityTranscriptText');
@@ -10544,13 +11448,6 @@
     const resultsSection = document.getElementById('resultsSection');
     if (section) section.style.display = 'none';
     if (resultsSection) resultsSection.style.display = 'none';
-  }
-
-  function addToGenerationHistory(entry, tabId) {
-    if (tabId != null) entry.tabId = tabId;
-    generationHistory.push(entry);
-    renderInlineResultsForCurrentRow();
-    renderGenerationHistory();
   }
 
   function renderInlineResultsForCurrentRow() {
@@ -11617,11 +12514,25 @@
           const data = result?.[0]?.result;
           if (!data) { setStatus('Re-generate failed: no result.', ''); return; }
           if (data.error) { setStatus(data.error, ''); return; }
-          if (data.primary) setSelectorsToTextarea(item, 'primary', data.primary);
-          if (data.fallbacks) setSelectorsToTextarea(item, 'fallback', data.fallbacks);
-          const saveBtn = item.querySelector('[data-save-step]');
-          if (saveBtn) saveBtn.click();
-          setStatus('Selectors re-generated: ' + (data.primary?.length || 0) + ' primary, ' + (data.fallbacks?.length || 0) + ' fallback.', 'success');
+          const wfId = playbackWorkflow?.value;
+          if (!wfId) {
+            setStatus('Select a workflow first.', '');
+            return;
+          }
+          showSuggestSelectorsCta(
+            wfId,
+            stepIdx,
+            data.primary || [],
+            data.fallbacks || [],
+            'Step ' +
+              (stepIdx + 1) +
+              ': re-generated ' +
+              ((data.primary && data.primary.length) || 0) +
+              ' primary / ' +
+              ((data.fallbacks && data.fallbacks.length) || 0) +
+              ' fallback. Replace current selectors or merge as fallbacks?'
+          );
+          setStatus('Selectors ready — choose Replace or Merge below.', 'success');
         } catch (err) {
           setStatus('Re-generate failed: ' + (err?.message || err), '');
         }
@@ -12242,11 +13153,20 @@
           if (Array.isArray(opts) && opts.length) {
             html += '<select' + attrs + '>';
             if (field.placeholder) html += '<option value="">' + escapeHtml(field.placeholder) + '</option>';
+            const norm = (s) => (s && /^0x[0-9a-fA-F]{40}$/.test(s) ? s.toLowerCase() : s);
+            const strNorm = norm(strVal);
+            let matched = false;
             for (let o = 0; o < opts.length; o++) {
               const opt = opts[o];
               const v = (opt.value !== undefined ? opt.value : opt).toString();
               const l = (opt.label !== undefined ? opt.label : v);
-              html += '<option value="' + escapeHtml(v) + '"' + (strVal === v ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
+              const isSel = strVal === v || (strNorm && strNorm === norm(v));
+              if (isSel) matched = true;
+              html += '<option value="' + escapeHtml(v) + '"' + (isSel ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
+            }
+            /* Preserve custom / template values not in the preset list */
+            if (strVal && !matched) {
+              html += '<option value="' + escapeHtml(strVal) + '" selected>' + escapeHtml(strVal) + '</option>';
             }
             html += '</select>';
           } else {
@@ -14888,7 +15808,6 @@
     }
     renderInlineResultsForCurrentRow();
     updateRunAllButtonState?.();
-    updateRunProcessButtonState?.();
   }
 
   document.getElementById('batchCheckQuality')?.addEventListener('change', () => {
@@ -16265,9 +17184,6 @@
   }
 
   document.getElementById('stopPlayback')?.addEventListener('click', () => {
-    if (batchRunInfo && batchRunInfo.workflowName && String(batchRunInfo.workflowName).startsWith('Process:')) {
-      processRunStopRequested = true;
-    }
     if (playbackTabId) {
       cfsCancelApifyRunForTab(playbackTabId);
       chrome.tabs.sendMessage(playbackTabId, { type: 'PLAYER_STOP' }).catch(() => {});
@@ -16504,12 +17420,6 @@
     }
   });
 
-  function setRunButtonState(btn, disabled, text) {
-    if (!btn) return;
-    btn.disabled = !!disabled;
-    btn.textContent = text || (disabled ? 'Running...' : 'Run Current Row');
-  }
-
   function setStatus(msg, type = '') {
     statusEl.textContent = msg;
     statusEl.className = 'status ' + type;
@@ -16525,22 +17435,8 @@
     }
   }
 
-  function scrollToGetStartedSection() {
-    const tabBtn = document.querySelector('.header-tab[data-tab="automations"]');
-    if (tabBtn && !tabBtn.classList.contains('active')) {
-      tabBtn.click();
-    }
-    const el = document.getElementById('getStartedSection');
-    if (el) {
-      setTimeout(function() { el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 100);
-    }
-  }
-
   let rerecordCtaWfId = null;
   let rerecordCtaStepIndex = null;
-
-  function showRerecordCtaForStep(_wfId, _stepIndex, _message) {
-  }
 
   function hideRerecordCta() {
     rerecordCtaWfId = null;
@@ -16555,6 +17451,33 @@
     suggestSelectorsPending = null;
     const wrap = document.getElementById('suggestSelectorsCtaWrap');
     if (wrap) wrap.style.display = 'none';
+  }
+  function showSuggestSelectorsCta(wfId, stepIndex, primary, fallbacks, message) {
+    suggestSelectorsPending = {
+      wfId: wfId,
+      stepIndex: stepIndex,
+      primary: Array.isArray(primary) ? primary : [],
+      fallbacks: Array.isArray(fallbacks) ? fallbacks : [],
+    };
+    const wrap = document.getElementById('suggestSelectorsCtaWrap');
+    const msgEl = document.getElementById('suggestSelectorsCtaMessage');
+    if (msgEl) {
+      msgEl.textContent =
+        message ||
+        ('Step ' +
+          (stepIndex + 1) +
+          ': ' +
+          (suggestSelectorsPending.primary.length || 0) +
+          ' primary / ' +
+          (suggestSelectorsPending.fallbacks.length || 0) +
+          ' fallback selector(s) ready.');
+    }
+    if (wrap) {
+      wrap.style.display = '';
+      try {
+        wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (_) {}
+    }
   }
 
   let projectSaveStatusTimeout = null;
@@ -16575,236 +17498,6 @@
       }, 15000);
     }
   }
-
-  document.getElementById('saveProcess')?.addEventListener('click', async () => {
-    const name = document.getElementById('processName')?.value?.trim();
-    const loopId = document.getElementById('processLoopWorkflow')?.value;
-    if (!loopId) {
-      setStatus('Select a loop workflow.', 'error');
-      return;
-    }
-    const procId = 'proc_' + Date.now();
-    const proc = {
-      id: procId,
-      name: name || 'Process',
-      startWorkflowId: document.getElementById('processStartWorkflow')?.value || null,
-      loopWorkflowId: loopId,
-      qualityWorkflowId: document.getElementById('processQualityWorkflow')?.value || null,
-      endWorkflowId: document.getElementById('processEndWorkflow')?.value || null,
-    };
-    processes[procId] = proc;
-    await saveProcessesToProjectFolder();
-    renderProcessList();
-    setStatus('Process saved.', 'success');
-  });
-
-  document.getElementById('runProcess')?.addEventListener('click', async () => {
-    const loopId = document.getElementById('processLoopWorkflow')?.value;
-    const startId = document.getElementById('processStartWorkflow')?.value;
-    const qualityId = document.getElementById('processQualityWorkflow')?.value;
-    const endId = document.getElementById('processEndWorkflow')?.value;
-    if (!loopId) {
-      setStatus('Select a loop workflow.', 'error');
-      return;
-    }
-    const loopWf = workflows[loopId];
-    const qcWf = qualityId ? workflows[qualityId] : loopWf;
-    const rows = importedRows.length > 0 ? importedRows : (() => {
-      const raw = document.getElementById('rowData')?.value?.trim();
-      if (!raw) return [];
-      const { rows: parsed } = parsePastedContent(raw, loopWf);
-      return parsed;
-    })();
-    if (rows.length === 0) {
-      setStatus('Import CSV or paste row data first.', 'error');
-      return;
-    }
-    const activeRows = importedRows.length > 0
-      ? rows.map((r, i) => ({ row: r, origIndex: i })).filter(({ origIndex }) => !skippedRowIndices.has(origIndex)).map(({ row }) => row)
-      : rows;
-    if (activeRows.length === 0) {
-      setStatus('All rows are skipped. Unskip some rows first.', 'error');
-      return;
-    }
-    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const urlPatternProcess = (loopWf?.urlPattern?.origin || '').trim() || (loopWf?.runs?.[0]?.url ? (() => { try { return new URL(loopWf.runs[0].url).origin; } catch (_) { return ''; } })() : '');
-    const needTabForProcess = !tab?.id || (tab.url && /^(chrome|edge|about):\/\//i.test(tab.url)) || (urlPatternProcess && tab?.url && !urlMatchesPattern(tab.url, urlPatternProcess));
-    if (needTabForProcess && urlPatternProcess) {
-      setStatus('Opening start URL for process…', '');
-      let openUrl = urlPatternProcess.trim();
-      if (!/^https?:\/\//i.test(openUrl)) openUrl = 'https://' + (openUrl.startsWith('*.') ? openUrl.replace(/^\*\./, '') : openUrl);
-      tab = await new Promise(r => chrome.tabs.create({ url: openUrl }, t => r(t)));
-      if (tab?.id) await waitForTabLoad(tab.id);
-    }
-    if (!tab?.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
-      setStatus('Open the target website first (or set start URL on the loop workflow and try again).', 'error');
-      return;
-    }
-    if (urlPatternProcess && !urlMatchesPattern(tab.url, urlPatternProcess)) {
-      setStatus('URL mismatch. Expected: ' + urlPatternProcess + '. Open the correct page (or set start URL on the loop workflow).', 'error');
-      return;
-    }
-    const delayMs = parseInt(document.getElementById('batchDelayMs')?.value || String(DEFAULT_BATCH_DELAY_MS), 10) || 0;
-    const stopOnError = document.getElementById('batchStopOnError')?.checked !== false;
-    try {
-      await ensureContentScriptLoaded(tab.id);
-      processRunStopRequested = false;
-      playbackTabId = tab.id;
-      const runBtn = document.getElementById('runPlayback');
-      const stopBtn = document.getElementById('stopPlayback');
-      const runAllBtn = document.getElementById('runAllRows');
-      const runProcessBtn = document.getElementById('runProcess');
-      if (runBtn) { runBtn.disabled = true; runBtn.style.display = 'none'; }
-      if (runAllBtn) runAllBtn.disabled = true;
-      if (runProcessBtn) runProcessBtn.disabled = true;
-      if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; }
-      let currentTabProcess = tab;
-      const runProcessWorkflowUntilDone = async (tabId, workflow, row, rowIndex) => {
-        const budgetMs = getWorkflowPlaybackTimeoutMs(workflow);
-        const deadline = Date.now() + budgetMs;
-        let startIdx = 0;
-        let res;
-        for (;;) {
-          if (processRunStopRequested) {
-            return { ok: false, error: 'Process stopped.' };
-          }
-          const remainingMs = deadline - Date.now();
-          if (remainingMs <= 0) {
-            return { ok: false, error: playbackTimeoutErrorMessage(budgetMs) + ' (process).' };
-          }
-          res = await Promise.race([
-            new Promise((r) => {
-              chrome.tabs.sendMessage(tabId, { type: 'PLAYER_START', workflow, row, rowIndex, startIndex: startIdx }, (resp) => {
-                if (chrome.runtime.lastError) r({ ok: false, error: chrome.runtime.lastError.message });
-                else r(resp || {});
-              });
-            }),
-            new Promise((_, rej) => {
-              setTimeout(() => rej(new Error(playbackTimeoutErrorMessage(budgetMs) + ' (process).')), remainingMs);
-            }),
-          ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
-          if (res?.navigate && res.url != null) {
-            if (res._useFallback) {
-              setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
-              if (res._fallbackActions?.length && workflow?.actions) {
-                const fi = res.nextStepIndex || 0;
-                workflow.actions.splice(fi, 1, ...res._fallbackActions);
-              }
-            } else {
-              setStatus('Navigating…', '');
-            }
-            chrome.tabs.update(tabId, { url: res.url });
-            await waitForTabLoad(tabId);
-            startIdx = res.nextStepIndex || 0;
-            continue;
-          }
-          if (res?.openTab && res.url != null) {
-            setStatus('Opening tab…', '');
-            let newTab;
-            if (res.openInNewWindow) {
-              const win = await new Promise(rc => chrome.windows.create({ url: res.url }, w => rc(w)));
-              const tabsProc = await chrome.tabs.query({ windowId: win.id });
-              newTab = (tabsProc && tabsProc[0]) ? tabsProc[0] : null;
-            } else {
-              newTab = await new Promise(r => chrome.tabs.create({ url: res.url }, t => r(t)));
-            }
-            if (newTab?.id) {
-              await waitForTabLoad(newTab.id);
-              await ensureContentScriptLoaded(newTab.id);
-              currentTabProcess = newTab;
-              tabId = newTab.id;
-              playbackTabId = newTab.id;
-            }
-            startIdx = res.nextStepIndex || 0;
-            continue;
-          }
-          return res;
-        }
-      };
-      if (startId && workflows[startId]?.analyzed?.actions?.length) {
-        setStatus('Running start workflow...', '');
-        const startResolved = resolveNestedWorkflows(workflows[startId].analyzed, workflows);
-        if (startResolved) {
-          await runProcessWorkflowUntilDone(currentTabProcess.id, startResolved, {}, undefined);
-        }
-      }
-      const resolved = resolveNestedWorkflows(loopWf?.analyzed, workflows);
-      if (!resolved) return;
-      let done = 0, failed = 0;
-      batchRunInfo = { total: activeRows.length, current: 0, workflowId: loopId, workflowName: 'Process: ' + (loopWf?.name || loopId) };
-      if (window.refreshActivityPanel) window.refreshActivityPanel();
-      for (let i = 0; i < activeRows.length; i++) {
-        batchRunInfo.current = i + 1;
-        if (window.refreshActivityPanel) window.refreshActivityPanel();
-        setStatus(`Running row ${i + 1}/${activeRows.length}...`, '');
-        const res = await runProcessWorkflowUntilDone(currentTabProcess.id, resolved, activeRows[i], i);
-        if (res?.ok === false) {
-          failed++;
-          const errNorm = normalizePlaybackError(res);
-          const actions = resolved?.actions || resolved?.analyzed?.actions || [];
-          const failAction = !errNorm.isConnection && res.actionIndex != null && actions[res.actionIndex] ? actions[res.actionIndex] : null;
-          const stepPart = !errNorm.isConnection && res.actionIndex != null
-            ? ' at step ' + (res.actionIndex + 1) + (failAction ? ' (' + (failAction.stepLabel || failAction.type || '') + ')' : '')
-            : '';
-          if (errNorm.isConnection) showConnectionErrorStatus(currentTabProcess.id);
-          else {
-            let batchErrMsg = `Row ${i + 1} failed${stepPart}: ${errNorm.message}`;
-            setStatus(batchErrMsg, 'error');
-          }
-          if (!errNorm.isConnection) scrollToStepAndExpand(res.actionIndex);
-          if (stopOnError) break;
-        } else {
-          done++;
-        }
-        if (i < activeRows.length - 1 && delayMs > 0) await delayWithCountdown(delayMs, `Row ${i + 2}/${activeRows.length} in`);
-      }
-      if (endId && workflows[endId]?.analyzed?.actions?.length) {
-        setStatus('Running end workflow...', '');
-        const endResolved = resolveNestedWorkflows(workflows[endId].analyzed, workflows);
-        if (endResolved) {
-          await runProcessWorkflowUntilDone(currentTabProcess.id, endResolved, {}, undefined);
-        }
-      }
-      setStatus(`Process complete: ${done} ok, ${failed} failed.`, failed ? 'error' : 'success');
-    } catch (err) {
-      setStatus('Process failed: ' + err.message, 'error');
-    } finally {
-      batchRunInfo = null;
-      if (window.refreshActivityPanel) window.refreshActivityPanel();
-    }
-  });
-
-  document.getElementById('processLoopWorkflow')?.addEventListener('change', () => {
-    updateRunProcessButtonState?.();
-  });
-
-  document.getElementById('exportProcess')?.addEventListener('click', () => {
-    const loopId = document.getElementById('processLoopWorkflow')?.value;
-    if (!loopId) {
-      setStatus('Select a loop workflow first.', 'error');
-      return;
-    }
-    const proc = {
-      schemaVersion: 1,
-      exportedAt: new Date().toISOString(),
-      name: document.getElementById('processName')?.value?.trim() || 'Process',
-      startWorkflowId: document.getElementById('processStartWorkflow')?.value || null,
-      loopWorkflowId: loopId,
-      qualityWorkflowId: document.getElementById('processQualityWorkflow')?.value || null,
-      endWorkflowId: document.getElementById('processEndWorkflow')?.value || null,
-      workflows: {},
-    };
-    [proc.startWorkflowId, proc.loopWorkflowId, proc.qualityWorkflowId, proc.endWorkflowId].filter(Boolean).forEach(id => {
-      if (workflows[id]) proc.workflows[id] = workflows[id];
-    });
-    const blob = new Blob([JSON.stringify(proc, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'process.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setStatus('Process exported.', 'success');
-  });
 
   document.getElementById('exportDataCSV')?.addEventListener('click', () => {
     const wfId = playbackWorkflow.value;
@@ -16839,71 +17532,6 @@
     URL.revokeObjectURL(a.href);
     setStatus('Data exported.', 'success');
   });
-
-  document.getElementById('importProcess')?.addEventListener('click', () => {
-    document.getElementById('importProcessInput')?.click();
-  });
-  document.getElementById('importProcessInput')?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    try {
-      const text = await file.text();
-      const proc = JSON.parse(text);
-      const schemaVersion = proc.schemaVersion ?? 0;
-      if (schemaVersion > 1) {
-        setStatus('Import failed: Unknown schema version ' + schemaVersion, 'error');
-        return;
-      }
-      if (proc.workflows) {
-        for (const [id, w] of Object.entries(proc.workflows)) {
-          workflows[id] = w;
-        }
-        await chrome.storage.local.set({ workflows });
-      }
-      const procId = 'proc_' + Date.now();
-      processes[procId] = {
-        id: procId,
-        name: proc.name || 'Imported',
-        startWorkflowId: proc.startWorkflowId || null,
-        loopWorkflowId: proc.loopWorkflowId || null,
-        qualityWorkflowId: proc.qualityWorkflowId || null,
-        endWorkflowId: proc.endWorkflowId || null,
-      };
-      await saveProcessesToProjectFolder();
-      loadWorkflows();
-      loadProcess(procId);
-      setStatus('Process imported.', 'success');
-    } catch (err) {
-      setStatus('Import failed: ' + (err.message || err), 'error');
-    }
-  });
-
-  // Project selector (local + optional Backend projects)
-  async function loadProcessesFromProjectFolder() {
-    try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (projectRoot) {
-        const text = await readFileFromProjectFolder(projectRoot, 'config/processes.json');
-        if (text) {
-          const parsed = JSON.parse(text);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            await chrome.storage.local.set({ processes: parsed });
-            return parsed;
-          }
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  async function saveProcessesToProjectFolder() {
-    try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (projectRoot) await writeJsonToProjectFolder(projectRoot, 'config/processes.json', processes);
-    } catch (_) {}
-    await chrome.storage.local.set({ processes });
-  }
 
   async function loadScheduledRuns() {
     try {
@@ -17552,7 +18180,6 @@
     const sidebarNameInput = document.getElementById('sidebarName');
     const saveSidebarNameBtn = document.getElementById('saveSidebarName');
     const activitySocketStatusEl = document.getElementById('activitySocketStatus');
-    const activitySocketMessageLogEl = document.getElementById('activitySocketMessageLog');
     const sidebarNameSaveStatusEl = document.getElementById('sidebarNameSaveStatus');
     if (!loggedOut || !loggedIn) return;
 
@@ -17572,25 +18199,6 @@
           sidebarNameSaveStatusEl.textContent = '';
           sidebarNameSaveStatusEl.style.display = 'none';
         }, 15000);
-      }
-    }
-
-    const MAX_SOCKET_LOG_ENTRIES = 10;
-
-    function appendSocketLog(eventName, args) {
-      if (!activitySocketMessageLogEl) return;
-      activitySocketMessageLogEl.style.display = '';
-      const payload = args != null && typeof args === 'object' ? JSON.stringify(args, null, 0).slice(0, 200) : String(args ?? '');
-      const line = `[${new Date().toLocaleTimeString()}] ${eventName}${payload ? ': ' + payload : ''}\n`;
-      activitySocketMessageLogEl.textContent = (line + activitySocketMessageLogEl.textContent).split('\n').slice(0, MAX_SOCKET_LOG_ENTRIES).join('\n');
-    }
-
-    async function getCurrentSidebarName() {
-      try {
-        const data = await chrome.storage.local.get(['sidebarName_device']);
-        return data.sidebarName_device || '';
-      } catch (_) {
-        return '';
       }
     }
 
@@ -17685,10 +18293,36 @@
       let whopAuth = null;
       try {
         const res = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => resolve(r || {}));
+          chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => {
+            try {
+              const le = chrome.runtime.lastError && chrome.runtime.lastError.message;
+              if (le) {
+                resolve({ ok: false, error: le });
+                return;
+              }
+            } catch (_) {}
+            resolve(r || {});
+          });
         });
-        if (res.ok && res.access_token) whopAuth = { email: res.user?.email || 'Logged in' };
+        if (res.ok && res.access_token) {
+          whopAuth = {
+            email: res.user?.email || res.user?.username || 'Logged in',
+          };
+        }
       } catch (_) {}
+      // Fallback if SW wake/message failed but tokens are already in local storage.
+      if (!whopAuth) {
+        try {
+          const data = await chrome.storage.local.get(['whop_auth']);
+          const stored = data.whop_auth;
+          if (stored && (stored.access_token || stored.accessToken)) {
+            const user = stored.user && typeof stored.user === 'object' ? stored.user : {};
+            whopAuth = {
+              email: user.email || user.username || stored.email || 'Logged in',
+            };
+          }
+        } catch (_) {}
+      }
       if (whopAuth) {
         loggedOut.style.display = 'none';
         loggedIn.style.display = '';
@@ -17753,43 +18387,6 @@
       }
     }
 
-    async function runPlaybackForWorkflow(wfId, rowData) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
-        setStatus('Open the target website first.', 'error');
-        return;
-      }
-      const wf = workflows[wfId];
-      if (!wf?.analyzed?.actions?.length) {
-        setStatus('Workflow has no actions.', 'error');
-        return;
-      }
-      let resolved = resolveNestedWorkflows ? resolveNestedWorkflows(wf.analyzed, workflows) : wf.analyzed;
-      if (!resolved) return;
-      try {
-        await ensureContentScriptLoaded(tab.id);
-      } catch (_) {}
-      const remoteBudgetMs = getWorkflowPlaybackTimeoutMs(resolved);
-      const remoteRes = await Promise.race([
-        new Promise((r) => {
-          chrome.tabs.sendMessage(tab.id, { type: 'PLAYER_START', workflow: resolved, row: rowData || {} }, (resp) => {
-            if (chrome.runtime.lastError) r({ ok: false, error: chrome.runtime.lastError.message });
-            else r(resp || {});
-          });
-        }),
-        new Promise((_, rej) => {
-          setTimeout(() => rej(new Error(playbackTimeoutErrorMessage(remoteBudgetMs) + ' (remote).')), remoteBudgetMs);
-        }),
-      ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
-      if (remoteRes?.ok === false) {
-        setStatus('Remote workflow failed: ' + (remoteRes.error || 'unknown'), 'error');
-        pushWorkflowRunHistory({ workflowId: wfId, workflowName: workflows[wfId]?.name || wfId, startedAt: 0, endedAt: Date.now(), status: 'failed', type: 'remote', error: remoteRes.error });
-        return;
-      }
-      setStatus('Remote workflow completed.', 'success');
-      pushWorkflowRunHistory({ workflowId: wfId, workflowName: workflows[wfId]?.name || wfId, startedAt: 0, endedAt: Date.now(), status: 'success', type: 'remote' });
-    }
-
     logoutBtn?.addEventListener('click', async () => {
       const whopRes = await new Promise((resolve) => {
         chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => resolve(r || {}));
@@ -17815,10 +18412,19 @@
       }
       try {
         await chrome.storage.session.set({ cfs_whop_login_nonce: code });
-      } catch (_) {
-        // If session storage is unavailable, fall back to opening login without a code.
-        code = '';
+      } catch (e) {
+        // Must match service-worker fail-closed nonce verify — do not open login without a stored nonce.
+        if (typeof setStatus === 'function') {
+          setStatus(
+            'Could not start Whop login (session storage unavailable). Reload the extension and try again.',
+            'error'
+          );
+        }
+        return;
       }
+      try {
+        await chrome.storage.local.remove('cfs_whop_login_last_error');
+      } catch (_) {}
       let extId = '';
       try {
         extId = (chrome.runtime && chrome.runtime.id) || '';
@@ -17833,12 +18439,23 @@
         const qs = params.toString();
         base = 'https://www.extensiblecontent.com/extension/login' + (qs ? '?' + qs : '');
       }
+      if (typeof setStatus === 'function') {
+        setStatus('Complete Whop login in the new tab…', '');
+      }
       chrome.tabs.create({ url: base });
     });
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local' || !changes.whop_auth) return;
-      updateAuthUI();
+      if (areaName !== 'local') return;
+      if (changes.whop_auth) {
+        updateAuthUI();
+      }
+      if (changes.cfs_whop_login_last_error) {
+        const err = changes.cfs_whop_login_last_error.newValue;
+        if (err && err.error && typeof setStatus === 'function') {
+          setStatus(String(err.error), 'error');
+        }
+      }
     });
 
     let authPanelVisibleRefreshTimer = null;
@@ -17849,6 +18466,10 @@
         authPanelVisibleRefreshTimer = null;
         updateAuthUI();
       }, 350);
+      // Wake V3/Infi range watch so still-Inactive positions act without waiting for the alarm.
+      try {
+        void maybeWakeAlwaysOnRangePolls();
+      } catch (_) {}
     });
 
     saveSidebarNameBtn?.addEventListener('click', async () => {
@@ -17988,6 +18609,23 @@
     }
     if (PULSE_WATCH_VISIBILITY_STORAGE_KEYS.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
       refreshPulseWatchActivityPanel().catch(() => {});
+    }
+    const aoPollKeys = [
+      'cfsV3RangeWatchLastPoll',
+      'cfsFileWatchLastPoll',
+      PULSE_SOLANA_LAST_POLL_KEY,
+      PULSE_BSC_LAST_POLL_KEY,
+    ];
+    if (aoPollKeys.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
+      updateAlwaysOnMonitorStatus().catch(() => {});
+      updatePulseWatchLastPollLine().catch(() => {});
+    }
+    if (changes.workflows) {
+      if (alwaysOnMonitorsHasFocus()) {
+        updateAlwaysOnMonitorStatus().catch(() => {});
+      } else {
+        renderAlwaysOnMonitorsPanel({ force: true }).catch(() => {});
+      }
     }
   });
 

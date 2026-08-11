@@ -2,10 +2,11 @@
   "id": "jupiterLimitOrder",
   "label": "Jupiter Limit Order (Trigger V2)",
   "category": "data",
-  "description": "Create a vault-based limit order via Jupiter Trigger V2 API. Supports single price orders, OCO (take-profit/stop-loss), and configurable expiry. Full auth flow handled automatically (challenge → sign → JWT). Requires Solana automation wallet.",
+  "description": "Create, list, or cancel vault-based limit orders via Jupiter Trigger V2. Create supports single price and OCO (TP/SL). Cancel runs the two-step withdraw flow (initiate → sign → confirm). List uses order history. Requires Solana automation wallet and Jupiter API key for auth.",
   "defaultAction": {
     "type": "jupiterLimitOrder",
     "runIf": "",
+    "limitOperation": "create",
     "inputMint": "So11111111111111111111111111111111111111112",
     "outputMint": "",
     "makingAmount": "",
@@ -15,18 +16,26 @@
     "stopLossPriceUsd": "",
     "expireInSeconds": "",
     "slippageBps": 50,
+    "orderId": "",
     "cluster": "mainnet-beta",
     "rpcUrl": "",
     "saveOrderIdVariable": "jupiterOrderId",
     "saveVaultVariable": "jupiterVault",
-    "saveExplorerUrlVariable": "solanaExplorerUrl"
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "saveSignatureVariable": "",
+    "saveOrdersJsonVariable": ""
   },
   "formSchema": [
     { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "limitOperation", "label": "Operation", "inputType": "select", "options": [
+      { "value": "create", "label": "Create" },
+      { "value": "list", "label": "List / history" },
+      { "value": "cancel", "label": "Cancel (withdraw)" }
+    ] },
     { "key": "inputMint", "label": "Input mint (sell)", "inputType": "text" },
     { "key": "outputMint", "label": "Output mint (buy)", "inputType": "text" },
-    { "key": "makingAmount", "label": "Amount to sell (raw, smallest units)", "inputType": "text" },
-    { "key": "triggerPriceUsd", "label": "Trigger price (USD)", "inputType": "text", "placeholder": "e.g. 120.50" },
+    { "key": "makingAmount", "label": "Amount to sell (raw) — create", "inputType": "text" },
+    { "key": "triggerPriceUsd", "label": "Trigger price (USD) — create", "inputType": "text", "placeholder": "e.g. 120.50" },
     { "key": "orderType", "label": "Order type", "inputType": "select", "options": [
       { "value": "single", "label": "Single price" },
       { "value": "oco", "label": "OCO (TP/SL)" }
@@ -35,6 +44,7 @@
     { "key": "stopLossPriceUsd", "label": "Stop loss price USD (OCO only)", "inputType": "text" },
     { "key": "expireInSeconds", "label": "Expire in seconds (optional)", "inputType": "text", "placeholder": "0 = no expiry" },
     { "key": "slippageBps", "label": "Slippage (bps)", "inputType": "number", "placeholder": "50" },
+    { "key": "orderId", "label": "Order ID — cancel", "inputType": "text", "placeholder": "{{jupiterOrderId}}" },
     { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
       { "value": "mainnet-beta", "label": "mainnet-beta" },
       { "value": "devnet", "label": "devnet" }
@@ -42,6 +52,8 @@
     { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
     { "key": "saveOrderIdVariable", "label": "Save order ID to variable", "inputType": "text" },
     { "key": "saveVaultVariable", "label": "Save vault address to variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" },
+    { "key": "saveSignatureVariable", "label": "Save signature (cancel)", "inputType": "text" },
+    { "key": "saveOrdersJsonVariable", "label": "Save orders JSON (list)", "inputType": "text" }
   ]
 }

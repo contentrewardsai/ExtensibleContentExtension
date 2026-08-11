@@ -125,4 +125,114 @@ export function registerSystemTools(server, ctx) {
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
   );
+
+  server.tool(
+    'monitor_watchdog_status',
+    'Status of the Bun MCP LP watchdog (relay offline + out-of-range alerts). Default off until ec-mcp-config.json watchdog.enabled=true. Limits: machine must be on with MCP running; no mobile push; signing still needs unlocked wallet after wake.',
+    {},
+    async () => {
+      const wd = ctx.lpWatchdog;
+      if (!wd || typeof wd.getStatus !== 'function') {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'watchdog not loaded' }) }],
+          isError: true,
+        };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(wd.getStatus(), null, 2) }] };
+    }
+  );
+
+  server.tool(
+    'monitor_watchdog_configure',
+    'Enable/configure the MCP LP watchdog in ec-mcp-config.json (enabled, intervalMs, alertCooldownSec, webhookUrl, wakeOnAlert, refreshOnOor, directRpcWhenRelayDown, reconcileWhenHealthy).',
+    {
+      enabled: z.boolean().optional(),
+      intervalMs: z.number().int().min(5000).max(600000).optional(),
+      alertCooldownSec: z.number().int().min(30).max(86400).optional(),
+      relayStaleSec: z.number().int().min(15).max(3600).optional(),
+      pollStaleSec: z.number().int().min(30).max(3600).optional(),
+      webhookUrl: z.string().optional(),
+      wakeOnAlert: z.boolean().optional(),
+      refreshOnOor: z.boolean().optional(),
+      directRpcWhenRelayDown: z.boolean().optional().describe('When relay down, check snapshot pools via public RPC for OOR'),
+      reconcileWhenHealthy: z.boolean().optional().describe('When relay up, call CFS_V3_RECONCILE_POSITIONS each tick'),
+      rpcUrl: z.string().optional().describe('BSC RPC for direct checks (default public dataseed)'),
+    },
+    async (patch) => {
+      const wd = ctx.lpWatchdog;
+      if (!wd || typeof wd.configure !== 'function') {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'watchdog not loaded' }) }],
+          isError: true,
+        };
+      }
+      const out = wd.configure(patch || {});
+      return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: !out.ok };
+    }
+  );
+
+  server.tool(
+    'wake_extension_relay',
+    'Wake Chrome and open mcp/mcp-relay.html so the MCP WebSocket relay reconnects. Requires extensionId in ec-mcp-config.json (Settings → MCP Server → Save). Optional refreshV3Watch triggers CFS_V3_RANGE_WATCH_REFRESH_NOW after reconnect. Auto-wake also runs when the relay stays down (~30s, rate-limited).',
+    {
+      refreshV3Watch: z
+        .boolean()
+        .optional()
+        .describe('If true, after relay connects send CFS_V3_RANGE_WATCH_REFRESH_NOW (default false)'),
+      waitMs: z
+        .number()
+        .int()
+        .min(1000)
+        .max(60000)
+        .optional()
+        .describe('How long to wait for relay reconnect (default 15000)'),
+    },
+    async ({ refreshV3Watch, waitMs }) => {
+      if (typeof ctx.wakeExtensionRelay !== 'function') {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'wakeExtensionRelay not available' }) }],
+          isError: true,
+        };
+      }
+
+      const already = typeof ctx.isRelayConnected === 'function' && ctx.isRelayConnected();
+      const wake = already
+        ? { ok: true, attempted: false, skipped: true, reason: 'relay_already_connected' }
+        : await ctx.wakeExtensionRelay();
+
+      let connected = already;
+      if (!connected && wake.ok) {
+        connected = await ctx.waitForRelayConnected(waitMs != null ? waitMs : 15000);
+      } else if (!connected && !wake.ok) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, wake, connected: false }, null, 2) }],
+          isError: true,
+        };
+      }
+
+      let v3Refresh = null;
+      if (refreshV3Watch === true) {
+        if (!connected) {
+          v3Refresh = { ok: false, error: 'relay not connected; skipped V3 refresh' };
+        } else {
+          try {
+            v3Refresh = await ctx.sendMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' });
+          } catch (e) {
+            v3Refresh = { ok: false, error: e && e.message ? e.message : String(e) };
+          }
+        }
+      }
+
+      const out = {
+        ok: !!connected,
+        connected: !!connected,
+        wake,
+        v3Refresh,
+      };
+      return {
+        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        isError: !connected,
+      };
+    }
+  );
 }

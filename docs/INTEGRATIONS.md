@@ -23,7 +23,7 @@ Scheduled runs are **not** steps: they open a tab and send `PLAYER_START` with t
 
 - **bscQuery** — read-only RPC via **`CFS_BSC_QUERY`** (`__CFS_bsc_query` in **`background/bsc-evm.js`**): balances, allowances, V2/V3 pool and Quoter reads, **Infinity** bin pool id / slot0 / bins / **BinQuoter** quotes / farm **CampaignManager** (mainnet), etc. No signing; encrypted automation wallets do **not** need unlock.
 - **bscPancake** — signed txs via **`CFS_BSC_POOL_EXECUTE`** (`__CFS_bsc_executePoolOp`): V2/V3 swaps and LP, **Infinity** add/remove/swap, **Permit2**, Merkle **farm claim** (HTTPS `infinity.pancakeswap.com` + on-chain **Distributor**). Prebuilt **`background/infinity-sdk.bundle.js`** from **`npm run build:infinity`** (see CI **build:chain-bundles** guard).
-- **Pulse Following (BSC)** — **`background/bsc-watch.js`** polls BscScan, classifies **V2 / V3 / farm / ParaSwap / Infinity** outgoing txs, optional **receipt log** inference + **retry** when the RPC has not indexed the receipt yet; see [BSC_AUTOMATION.md](BSC_AUTOMATION.md) and [FOLLOWING_AUTOMATION_PIPELINE.md](FOLLOWING_AUTOMATION_PIPELINE.md).
+- **Pulse Following (BSC)** — **`background/bsc-watch.js`** polls via QuickNode / Etherscan / Ankr / Covalent indexers, classifies **V2 / V3 / farm / ParaSwap / Infinity** outgoing txs, optional **receipt log** inference + **retry** when the RPC has not indexed the receipt yet; see [BSC_AUTOMATION.md](BSC_AUTOMATION.md) and [FOLLOWING_AUTOMATION_PIPELINE.md](FOLLOWING_AUTOMATION_PIPELINE.md).
 
 Docs: [BSC_AUTOMATION.md](BSC_AUTOMATION.md), [BSC_PANCAKE_ADDRESSES.md](BSC_PANCAKE_ADDRESSES.md), [BSC_WALLET_STORAGE.md](BSC_WALLET_STORAGE.md). Programmatic messages: [PROGRAMMATIC_API.md](PROGRAMMATIC_API.md) (**`CFS_BSC_QUERY`**, **`CFS_BSC_POOL_EXECUTE`**, **`CFS_BSC_SELLABILITY_PROBE`**).
 
@@ -33,7 +33,9 @@ Workflow steps and **`CFS_*`** signing messages are indexed in **docs/SOLANA_AUT
 
 ## Aster futures (AsterDex)
 
-USDT-margined perpetuals REST (`https://fapi.asterdex.com`) via workflow steps; signing and secrets live in the **service worker**. Store **API key + secret** in **Settings** (never commit). Trading steps require **Allow futures trading** and optional **max est. notional** cap.
+USDT-margined perpetuals REST (`https://fapi.asterdex.com`) via workflow steps; signing and secrets live in the **service worker**.
+
+**Auth (2026):** New Aster API access uses **V3 API Wallet / Agent** credentials ([V1 vs V3 overview](https://github.com/asterdex/api-docs/blob/master/Aster%20API%20Overview.md)): main wallet (`user`), agent address (`signer`), and agent private key. Futures signed calls use **EIP-712** (`AsterSignTransaction`, chainId `1666`) and `/fapi/v3/*` paths. Configure under **Settings → Aster DEX API**. Legacy **V1 API key + HMAC secret** still work when V3 fields are empty (existing keys); **spot** signed calls still use V1 HMAC until Aster documents spot V3. Never commit secrets — use Settings or gitignored `config/crypto-keys.local.json` + `node scripts/apply-local-crypto-keys.mjs` for local E2E profiles. Trading steps require **Allow futures trading** and optional **max est. notional** cap.
 
 - **asterSpotMarket** — spot public reads on **sapi.asterdex.com** (`/api/v3`: depth, klines, tickers, **symbolMeta**, …).
 - **asterSpotAccount** / **asterSpotTrade** — signed spot account + orders on **sapi**; **futuresTransfer** moves margin spot ↔ USDT-M (**Allow spot trading** not required for transfer — keys only). **futuresTransferHistory** uses **`transferHistoryAsset`** / **`transferHistoryPage`** / **`transferHistorySize`** (mapped to API query params), not **`asset`**, to avoid colliding with **futuresTransfer**. **asterSpotTrade** needs **Allow spot trading**. Same API keys as futures. Manifest includes **`wss://fstream.asterdex.com/*`** and **`wss://sstream.asterdex.com/*`** if you open user-data WebSockets from an extension page.

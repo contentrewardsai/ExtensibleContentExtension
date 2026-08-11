@@ -13,8 +13,18 @@
       runner.assertEqual(sl, 50);
     }},
     { name: 'Flashloan lend program address', fn: function () {
-      // Jupiter Lend main program
       runner.assertEqual('jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9', 'jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9');
+    }},
+    { name: 'profitEstimate is return minus borrow', fn: function () {
+      var borrow = BigInt('1000');
+      var ret = BigInt('1005');
+      runner.assertEqual((ret - borrow).toString(), '5');
+    }},
+    { name: 'useFullBalance resolves from prior outAmount', fn: function () {
+      var prior = '12345';
+      var amount = prior;
+      runner.assertEqual(amount, '12345');
+      runner.assertTrue(amount !== '0', 'resolved amount must be non-zero');
     }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

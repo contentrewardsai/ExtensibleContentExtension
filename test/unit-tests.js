@@ -4098,6 +4098,17 @@
     testPlaybackGuardIsPlaybackActiveReturns,
     testPlaybackGuardEnsureBlockedWhenBusy,
     testPlaybackGuardForceBypass,
+
+    // ── Storage secret keys (MCP / STORAGE_READ denylist) ──────────────
+    testStorageSecretKeysDenyRealSecrets,
+    testStorageSecretKeysAllowBenign,
+    testStorageSecretKeysFilterAndStrip,
+
+    // ── Pancake V3 price/tick + LP amounts + BSC indexer helpers ──────
+    testPancakeV3PriceTicksHelpers,
+    testPancakeV3LpAmountsHelpers,
+    testAlwaysOnBoundPositionsHelpers,
+    testBscIndexerProvidersResolveAndCredits,
   ];
 
   // ── Player pure-function tests ─────────────────────────────────────
@@ -4139,7 +4150,8 @@
     var el = document.createElement('div');
     el.textContent = 'failed generation';
     var vid = document.createElement('video');
-    vid.setAttribute('src', 'test.mp4');
+    /* data: URL so file:// unit runner does not request a missing mp4 */
+    vid.setAttribute('src', 'data:video/mp4,');
     el.appendChild(vid);
     assertFalse(qcLastItemHasFailed(el), 'has video → not failed');
   }
@@ -4752,10 +4764,11 @@
     var div = document.createElement('div');
     assertEqual(lastItemVideosRendered(div), 0, 'no videos → 0');
     var v1 = document.createElement('video');
-    v1.setAttribute('src', 'a.mp4');
+    /* data: URLs so file:// unit runner does not request missing mp4 fixtures */
+    v1.setAttribute('src', 'data:video/mp4,');
     div.appendChild(v1);
     var v2 = document.createElement('video');
-    v2.setAttribute('src', 'b.mp4');
+    v2.setAttribute('src', 'data:video/mp4,');
     div.appendChild(v2);
     assertEqual(lastItemVideosRendered(div), 2, 'two videos → 2');
     assertEqual(lastItemVideosRendered(null), 0, 'null → 0');
@@ -6021,6 +6034,284 @@
     assertEqual(workflows.wf1.analyzed.actions[0].type, 'click');
   }
 
+  /* =========================================================================
+   * storage-secret-keys — MCP / STORAGE_READ denylist
+   * ========================================================================= */
+
+  function testStorageSecretKeysDenyRealSecrets() {
+    assertTrue(typeof global.cfsIsStorageSecretKey === 'function', 'cfsIsStorageSecretKey loaded');
+    var mustDeny = [
+      'apifyApiToken',
+      'cfsLlmOpenaiKey',
+      'cfsLlmAnthropicKey',
+      'cfsLlmGeminiKey',
+      'cfsLlmGrokKey',
+      'cfsAsterFuturesApiSecret',
+      'cfsAsterFuturesApiKey',
+      'cfsAsterV3User',
+      'cfsAsterV3Signer',
+      'cfsAsterV3SignerPrivateKey',
+      'cfs_solana_automation_secret_b58',
+      'cfs_solana_secret_enc_json',
+      'cfs_bsc_wallet_secret_plain',
+      'cfs_bsc_wallet_secret_enc_json',
+      'cfs_bsc_wallet_session_secret',
+      'cfs_bscscan_api_key',
+      'cfs_bsc_quicknode_rpc_url',
+      'cfs_ankr_api_key',
+      'cfs_covalent_api_key',
+      'whop_auth',
+      'cfs_solana_wallets_v2',
+      'cfs_bsc_wallets_v2',
+    ];
+    for (var i = 0; i < mustDeny.length; i++) {
+      assertTrue(global.cfsIsStorageSecretKey(mustDeny[i]), 'should deny ' + mustDeny[i]);
+    }
+  }
+
+  function testPancakeV3PriceTicksHelpers() {
+    var P = global.CFS_PANCAKE_V3 || global.__CFS_pancakeV3PriceTicks;
+    assertTrue(typeof P === 'object' && P != null, 'CFS_PANCAKE_V3 loaded');
+    var price = P.tickToPriceToken1PerToken0(-110708, 18, 18);
+    assertTrue(price > 0.000015 && price < 0.000016, 'tick→price near UI current');
+    var tick = P.priceToken1PerToken0ToTick(price, 18, 18);
+    assertEqual(tick, -110708);
+    var range = P.pricesToTickRange({
+      minPrice: '0.000014703',
+      maxPrice: '0.000017532',
+      decimals0: 18,
+      decimals1: 18,
+      tickSpacing: 10,
+      priceDenomination: 'token1PerToken0',
+    });
+    assertTrue(range.tickLower < range.tickUpper, 'min < max ticks');
+    assertEqual(range.tickLower % 10, 0);
+    assertEqual(range.tickUpper % 10, 0);
+    assertEqual(P.nearestUsableTick(-110705, 10), -110700); // Math.round half-away matches Uniswap SDK
+    var sg = global.CFS_PANCAKE_V3_SUBGRAPH || global.__CFS_pancakeV3Subgraph;
+    assertTrue(typeof sg === 'object' && sg != null, 'subgraph helper loaded');
+    assertTrue(!!sg.V3_BSC_SUBGRAPH_ID, 'subgraph id');
+    assertTrue(global.cfsIsStorageSecretKey('cfs_thegraph_api_key'), 'thegraph key is secret');
+  }
+
+  function testPancakeV3LpAmountsHelpers() {
+    var LP = global.CFS_PANCAKE_V3_LP || global.__CFS_pancakeV3LpAmounts;
+    assertTrue(typeof LP === 'object' && LP != null, 'CFS_PANCAKE_V3_LP loaded');
+    var mid = 0.0000158;
+    var ranged = LP.rangeFromPercent({
+      currentPriceToken1PerToken0: mid,
+      rangePercent: 1,
+      tickSpacing: 10,
+      decimals0: 18,
+      decimals1: 18,
+    });
+    assertTrue(ranged.tickLower < ranged.tickUpper, 'range ticks ordered');
+    assertTrue(Number(ranged.minPrice) < mid && Number(ranged.maxPrice) > mid, '±1% brackets mid');
+    var asym = LP.rangeFromPercent({
+      currentPriceToken1PerToken0: mid,
+      rangePercentBelow: 5,
+      rangePercentAbove: 15,
+      tickSpacing: 10,
+      decimals0: 18,
+      decimals1: 18,
+    });
+    assertTrue(asym.tickLower < asym.tickUpper, 'asymmetric ticks ordered');
+    assertTrue(Number(asym.minPrice) < mid && Number(asym.maxPrice) > mid, 'asymmetric brackets mid');
+    assertTrue(Math.abs(Number(asym.minPrice) / mid - 0.95) < 0.02, '~−5% min');
+    assertTrue(Math.abs(Number(asym.maxPrice) / mid - 1.15) < 0.02, '~+15% max');
+    assertTrue(Number(asym.rangePercentBelow) === 5 && Number(asym.rangePercentAbove) === 15, 'asymmetric percents');
+    var restaked = LP.restakeRange({
+      currentPriceToken1PerToken0: mid,
+      rangePercent: 1,
+      tickSpacing: 10,
+      decimals0: 18,
+      decimals1: 18,
+      driftDirection: 'above',
+    });
+    assertEqual(restaked.driftDirection, 'above');
+    assertTrue(restaked.tickLower < restaked.tickUpper);
+    var sqrt = LP.tickToSqrtPriceX96(PancakeV3TickForLpTest(mid));
+    // Use integer wei strings (avoid scientific notation from float→String).
+    var bnbPerToken1Wei = BigInt(Math.round(1 / mid)).toString();
+    var amts = LP.amountsFromBnbBudget({
+      sqrtPriceX96: String(sqrt),
+      tickLower: ranged.tickLower,
+      tickUpper: ranged.tickUpper,
+      bnbBudgetWei: '1000000000000000000',
+      bnbPerToken0Wei: '1',
+      bnbPerToken1Wei: bnbPerToken1Wei,
+    });
+    assertTrue(BigInt(amts.amount0Desired) > 0n || BigInt(amts.amount1Desired) > 0n, 'non-zero desired');
+    var amtsSt = LP.amountsFromStableBudget({
+      sqrtPriceX96: String(sqrt),
+      tickLower: asym.tickLower,
+      tickUpper: asym.tickUpper,
+      stableBudgetWei: '5000000000000000000',
+      stablePerToken0Wei: '15800000000000',
+      stablePerToken1Wei: '1000000000000000000',
+    });
+    assertTrue(BigInt(amtsSt.amount0Desired) > 0n || BigInt(amtsSt.amount1Desired) > 0n, 'stable non-zero desired');
+    var capped = LP.capAmountsToAvailable('1000', '1000', '500', '2000');
+    assertEqual(capped.amount0Desired, '500');
+    assertEqual(capped.amount1Desired, '500');
+    assertTrue(typeof LP.edgeProximity === 'function', 'edgeProximity exported');
+    // Mid-range: both edge distances positive; near canary ticks (−47550…−45650).
+    var midEdge = LP.edgeProximity({
+      currentTick: -46600,
+      tickLower: -47550,
+      tickUpper: -45650,
+      sqrtPriceX96: String(LP.tickToSqrtPriceX96(-46600)),
+      liquidity: '1000000000000000000',
+    });
+    assertTrue(midEdge.inRange === true, 'mid in range');
+    assertTrue(midEdge.inactive === false, 'mid not inactive');
+    assertTrue(midEdge.pctToLower > 0 && midEdge.pctToUpper > 0, 'mid has both edge distances');
+    assertTrue(midEdge.composition0 != null && midEdge.composition1 != null, 'mid composition');
+    assertTrue(midEdge.composition0 > 0 && midEdge.composition0 < 1, 'mid mixed inventory');
+    // Near lower edge while still in range
+    var nearLo = LP.edgeProximity({
+      currentTick: -47500,
+      tickLower: -47550,
+      tickUpper: -45650,
+    });
+    assertTrue(nearLo.inRange === true, 'near-lower in range');
+    assertTrue(nearLo.pctToLower < 1, 'near-lower pctToLower small');
+    assertTrue(nearLo.pctToUpper > nearLo.pctToLower, 'farther from upper');
+    // Hard OOR below (Inactive → ~100% token0)
+    var oorBelow = LP.edgeProximity({
+      currentTick: -47807,
+      tickLower: -47550,
+      tickUpper: -45650,
+      sqrtPriceX96: String(LP.tickToSqrtPriceX96(-47807)),
+      liquidity: '590260698860936288089',
+    });
+    assertTrue(oorBelow.inRange === false && oorBelow.inactive === true, 'OOR inactive');
+    assertEqual(oorBelow.driftDirection, 'below');
+    assertEqual(oorBelow.pctToLower, 0);
+    assertTrue(oorBelow.composition0 >= 0.99, 'below range ~all token0');
+  }
+
+  function PancakeV3TickForLpTest(price) {
+    var P = global.CFS_PANCAKE_V3 || global.__CFS_pancakeV3PriceTicks;
+    return P.priceToken1PerToken0ToTick(price, 18, 18);
+  }
+
+  function testAlwaysOnBoundPositionsHelpers() {
+    var BP = global.CFS_ALWAYS_ON_BOUND_POSITIONS || global.__CFS_alwaysOnBoundPositions;
+    assertTrue(typeof BP === 'object' && BP != null, 'CFS_ALWAYS_ON_BOUND_POSITIONS loaded');
+    var ao = { boundRow: { v3PositionTokenId: '7013364', exitBelowPolicy: 'sell_stable', fundMode: 'bnb' } };
+    var rows = BP.normalizeBoundPositions(ao, 'v3');
+    assertEqual(rows.length, 1);
+    assertEqual(rows[0].v3PositionTokenId, '7013364');
+    BP.upsertBoundPosition(ao, {
+      v3PositionTokenId: '99',
+      exitBelowPolicy: 'sell_stable',
+      exitAbovePolicy: 'restake',
+      fundMode: 'stable',
+      enabled: true,
+    }, 'v3');
+    assertEqual(BP.normalizeBoundPositions(ao, 'v3').length, 2);
+    BP.upsertBoundPosition(ao, { v3PositionTokenId: '99', rangePercentBelow: '5' }, 'v3');
+    assertEqual(BP.normalizeBoundPositions(ao, 'v3').length, 2);
+    BP.replaceBoundPositionTokenId(ao, '99', { v3PositionTokenId: '100', fundMode: 'stable' }, 'v3');
+    assertTrue(BP.normalizeBoundPositions(ao, 'v3').some(function (r) { return r.v3PositionTokenId === '100'; }));
+    assertFalse(BP.normalizeBoundPositions(ao, 'v3').some(function (r) { return r.v3PositionTokenId === '99'; }));
+    BP.removeBoundPosition(ao, '100', 'v3');
+    assertEqual(BP.normalizeBoundPositions(ao, 'v3').length, 1);
+    // Explicit boundRows [] must not rehydrate from stale boundRow (watch spam bug).
+    var sticky = {
+      boundRows: [{ v3PositionTokenId: '7013364' }],
+      boundRow: { v3PositionTokenId: '7013364', exitBelowPolicy: 'sell_stable' },
+    };
+    var rem = BP.removeBoundPosition(sticky, '7013364', 'v3');
+    assertTrue(rem.removed === true, 'remove reports removed');
+    assertEqual(sticky.boundRows.length, 0, 'boundRows cleared');
+    assertEqual(BP.normalizeBoundPositions(sticky, 'v3').length, 0, 'no legacy rehydrate after remove');
+    assertEqual(String(sticky.boundRow.v3PositionTokenId || ''), '', 'primary mirror cleared');
+    var paused = { boundRows: [{ v3PositionTokenId: '1', enabled: false }, { v3PositionTokenId: '2', enabled: true }] };
+    assertEqual(BP.activeWatchPositions(paused, 'v3').length, 1);
+    var diff = BP.reconcilePositions(
+      [{ v3PositionTokenId: '1' }, { v3PositionTokenId: '2' }],
+      [{ v3PositionTokenId: '2', liquidity: '1' }, { v3PositionTokenId: '3', liquidity: '9' }],
+      'v3'
+    );
+    assertEqual(diff.closed.length, 1);
+    assertEqual(diff.untracked.length, 1);
+    assertEqual(diff.ok.length, 1);
+  }
+
+  function testBscIndexerProvidersResolveAndCredits() {
+    assertTrue(typeof global.CFS_BSC_INDEXER === 'object', 'CFS_BSC_INDEXER loaded');
+    var I = global.CFS_BSC_INDEXER;
+    assertTrue(I.isQuickNodeUrl('https://foo.quiknode.pro/abc'), 'detect quiknode.pro');
+    assertTrue(I.isQuickNodeUrl('https://foo.quicknode.com/abc'), 'detect quicknode.com');
+    assertFalse(I.isQuickNodeUrl('https://bsc-dataseed.binance.org'), 'reject public RPC');
+    assertEqual(
+      I.normalizeQuickNodeHttpUrl('wss://foo.bsc.quiknode.pro/token/'),
+      'https://foo.bsc.quiknode.pro/token/',
+    );
+    assertEqual(
+      I.getQuickNodeUrl({ cfs_bsc_quicknode_rpc_url: 'wss://bar.quiknode.pro/t' }),
+      'https://bar.quiknode.pro/t',
+    );
+    var empty = {};
+    assertFalse(I.hasAnyIndexerCredential(empty));
+    assertEqual(I.resolvePreferredProvider(empty, 'bsc'), null);
+    var qnOnly = { cfs_bsc_quicknode_rpc_url: 'https://x.quiknode.pro/k' };
+    assertTrue(I.hasAnyIndexerCredential(qnOnly));
+    assertEqual(I.resolvePreferredProvider(qnOnly, 'bsc').id, 'quicknode');
+    var ethOnly = { cfs_bscscan_api_key: 'abc' };
+    assertEqual(I.resolvePreferredProvider(ethOnly, 'bsc').id, 'etherscan');
+    var both = {
+      cfs_bsc_quicknode_rpc_url: 'https://x.quiknode.pro/k',
+      cfs_bscscan_api_key: 'abc',
+      cfs_bsc_indexer_preference: 'etherscan',
+    };
+    assertEqual(I.resolvePreferredProvider(both, 'bsc').id, 'etherscan');
+    assertEqual(I.resolveProviderFailoverOrder(both, 'bsc')[0], 'etherscan');
+    assertEqual(I.resolveProviderFailoverOrder(both, 'bsc')[1], 'quicknode');
+    var ankrChapel = { cfs_ankr_api_key: 'k' };
+    assertEqual(I.resolvePreferredProvider(ankrChapel, 'chapel'), null);
+    assertTrue(I.resolvePreferredProvider(ethOnly, 'chapel').id === 'etherscan');
+    var fromRpc = { cfs_bsc_rpc_url: 'https://y.quiknode.pro/z' };
+    assertEqual(I.getQuickNodeUrl(fromRpc), 'https://y.quiknode.pro/z');
+    var est2 = I.estimateQuickNodeMonthlyCredits({ watchedCount: 2, intervalMinutes: 2 });
+    var est1 = I.estimateQuickNodeMonthlyCredits({ watchedCount: 2, intervalMinutes: 1 });
+    assertTrue(est2 > 0 && est1 > est2, '1 min burns more than 2 min for same wallet count');
+    var estMany = I.estimateQuickNodeMonthlyCredits({ watchedCount: 10, intervalMinutes: 2 });
+    assertTrue(estMany > est2, 'more wallets → more credits (log queries)');
+    assertEqual(I.quickNodeMinPollMinutes({}), 2);
+    assertEqual(I.quickNodeMinPollMinutes({ cfs_bsc_quicknode_aggressive_poll: true }), 1);
+    assertTrue(/QuickNode|Etherscan|Ankr|Covalent/i.test(I.requiredKeyHint()));
+    var st = I.statusPayload(qnOnly, 2);
+    assertEqual(st.minPollMinutes, 2);
+    assertTrue(st.estimatedCredits > 0);
+    assertTrue(/plain RPC|blocks|logs|credits/i.test(String(st.freeTierNote || '')));
+    assertEqual(I.normalizeQuickNodeHttpUrl('ws://foo.quiknode.pro/t'), 'http://foo.quiknode.pro/t');
+  }
+
+  function testStorageSecretKeysAllowBenign() {
+    var mustAllow = ['discoveryHints', 'cfs_solana_cluster', 'cfs_wallet_injection_allowlist', 'workflows'];
+    for (var i = 0; i < mustAllow.length; i++) {
+      assertFalse(global.cfsIsStorageSecretKey(mustAllow[i]), 'should allow ' + mustAllow[i]);
+    }
+  }
+
+  function testStorageSecretKeysFilterAndStrip() {
+    var filtered = global.cfsFilterStorageKeys(['apifyApiToken', 'discoveryHints', 'cfsLlmOpenaiKey']);
+    assertEqual(filtered.allowed.length, 1);
+    assertEqual(filtered.allowed[0], 'discoveryHints');
+    assertEqual(filtered.denied.length, 2);
+    var stripped = global.cfsStripSecretKeysFromObject({
+      apifyApiToken: 'secret',
+      discoveryHints: { a: 1 },
+      cfsAsterFuturesApiSecret: 'x',
+    });
+    assertTrue(stripped.data.discoveryHints != null);
+    assertTrue(stripped.data.apifyApiToken === undefined);
+    assertTrue(stripped.denied.indexOf('apifyApiToken') >= 0);
+  }
+
   /* ── Inline test calls ── */
   testDefiActionPatternsMatchUrl();
   testDefiActionPatternsMatchSelector();
@@ -6044,6 +6335,13 @@
   testRemovedStepsStripTopLevel();
   testRemovedStepsStripLoopNested();
   testRemovedStepsMigrateWorkflowsLeavesValid();
+  testStorageSecretKeysDenyRealSecrets();
+  testStorageSecretKeysAllowBenign();
+  testStorageSecretKeysFilterAndStrip();
+  testPancakeV3PriceTicksHelpers();
+  testPancakeV3LpAmountsHelpers();
+  testAlwaysOnBoundPositionsHelpers();
+  testBscIndexerProvidersResolveAndCredits();
 
 })(typeof window !== 'undefined' ? window : globalThis);
 

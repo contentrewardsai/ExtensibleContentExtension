@@ -160,7 +160,7 @@
         <div class="pulse-watch-heading-row">
           <h3 class="activity-heading">Always-On Activity</h3>
           <div class="pulse-watch-toolbar">
-            <button type="button" id="pulseWatchRefreshBtn" class="btn btn-outline btn-small">Refresh poll</button>
+            <button type="button" id="pulseWatchRefreshBtn" class="btn btn-outline btn-small" data-testid="cfs-always-on-refresh-poll">Refresh poll</button>
             <button type="button" id="pulseWatchClearActivityBtn" class="btn btn-outline btn-small">Clear activity</button>
             <button type="button" id="pulseWatchExportActivityBtn" class="btn btn-outline btn-small">Export JSON</button>
           </div>
@@ -168,6 +168,12 @@
         <div id="pulseWatchStatusBanner" class="pulse-watch-status-banner" hidden aria-live="polite"></div>
         <p id="pulseWatchLastPollLine" class="hint pulse-watch-last-poll" hidden></p>
         <p id="pulseWatchBundleLine" class="hint pulse-watch-last-poll" hidden></p>
+        <h4 class="activity-heading always-on-monitors-heading">Always-on monitors</h4>
+        <p class="hint" style="margin:0 0 8px 0;">Live background workflows. Edit rules here while they run — state is stored in this browser (survives side panel close and Reload Extension).</p>
+        <div id="alwaysOnMonitorsList" class="always-on-monitors-list" data-testid="cfs-always-on-monitors-list" aria-live="polite"></div>
+        <h4 class="activity-heading always-on-lp-activity-heading">LP watch activity</h4>
+        <div id="alwaysOnLpActivityList" class="always-on-lp-activity-list" data-testid="cfs-ao-lp-activity" aria-live="polite"></div>
+        <h4 class="activity-heading always-on-events-heading">Following / event feed</h4>
         <div id="pulseWatchActivityList" class="pulse-watch-activity-list" aria-live="polite"></div>
       </div>
       <div class="defi-positions-section" id="defiPositionsSection" style="display:none">
@@ -481,48 +487,10 @@
         <p>Set your project folder to create and run workflows and use exports.</p>
         <button type="button" id="projectFolderBannerBtn" class="btn btn-primary btn-small">Set project folder</button>
       </div>
-    <section class="process-section" id="processSection" style="display:none">
-      <h2>Process</h2>
-      <p class="hint">Chain workflows: Start → Loop (per row) → Quality check → End</p>
-      <div class="process-builder">
-        <div class="process-row">
-          <label>Start workflow</label>
-          <select id="processStartWorkflow">
-            <option value="">None</option>
-          </select>
-        </div>
-        <div class="process-row">
-          <label>Loop workflow</label>
-          <select id="processLoopWorkflow"></select>
-        </div>
-        <div class="process-row">
-          <label>Quality check workflow</label>
-          <select id="processQualityWorkflow">
-            <option value="">None</option>
-          </select>
-        </div>
-        <div class="process-row">
-          <label>End workflow</label>
-          <select id="processEndWorkflow">
-            <option value="">None</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <input type="text" id="processName" placeholder="Process name">
-          <button id="saveProcess" class="btn btn-primary">Save Process</button>
-          <button id="runProcess" class="btn btn-play">Run Process</button>
-        </div>
-        <div class="process-list" id="processList"></div>
-      </div>
-    </section>
-
-    <section class="process-export-section" style="display:none">
-      <h2>Import / Export</h2>
+    <section class="data-export-section" id="dataExportSection">
+      <h2>Export data</h2>
       <div class="btn-group">
-        <button id="exportProcess" class="btn btn-outline">Export process (JSON)</button>
         <button id="exportDataCSV" class="btn btn-outline">Export data (CSV)</button>
-        <button id="importProcess" class="btn btn-outline">Import process</button>
-        <input type="file" id="importProcessInput" accept=".json" style="display:none">
       </div>
     </section>
 
@@ -731,11 +699,13 @@
   </div>
 
   <script src="../config/whop-auth.example.js"></script>
+  <!-- Local overrides (committed stub). Must be an external script — MV3 extension CSP blocks inline. -->
   <script src="../config/whop-auth.js"></script>
   <script src="../extension/config.js"></script>
   <script src="../extension/auth-fetch.js"></script>
   <script src="../extension/workflow-normalize.js"></script>
   <script src="../shared/dom-utils.js"></script>
+  <script src="../shared/bsc-indexer-providers.js"></script>
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
   <script src="../extension/sidebars-api.js"></script>
@@ -769,6 +739,7 @@
   <script src="../shared/workflow-removed-steps-migration.js"></script>
   <script src="../shared/playback-error-normalize.js"></script>
   <script src="../shared/content-script-tab-bundle.js"></script>
+  <script src="../shared/always-on-bound-positions.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

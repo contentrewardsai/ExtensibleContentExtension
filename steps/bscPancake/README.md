@@ -41,7 +41,7 @@ Pinned **SwapRouter** and **NonfungiblePositionManager** on BSC: **`docs/BSC_PAN
 | **`v3SwapExactOutputSingle`** | **`tokenIn`**, **`tokenOut`**, **`v3Fee`**, **`amountOut`**, **`amountInMax`** (**max** = unlimited like V2), optional sqrt limit |
 | **`v3SwapExactInput`** | **`v3Path`** (`token,fee,token,...`), **`amountIn`**, **`amountOutMin`** |
 | **`v3SwapExactOutput`** | **`v3Path`** (forward order; encoded reversed internally), **`amountOut`**, **`amountInMax`** |
-| **`v3PositionMint`** | **`tokenA`**, **`tokenB`**, **`v3Fee`**, **`tickLower`**, **`tickUpper`**, **`amountADesired`** / **`amountBDesired`** (**max** / **balance** OK), **`amountAMin`** / **`amountBMin`** — tokens are sorted to pool **token0/token1** internally |
+| **`v3PositionMint`** | **`tokenA`**, **`tokenB`**, **`v3Fee`**, either **`tickLower`/`tickUpper`** **or** **`minPrice`/`maxPrice`** (human prices; default **`priceDenomination`**=`token1PerToken0` like Pancake UI), **`amountADesired`** / **`amountBDesired`** (**max** / **balance** OK), **`amountAMin`** / **`amountBMin`** — prices snap to pool **`tickSpacing`**; tokens sorted to pool **token0/token1** internally |
 | **`v3PositionIncreaseLiquidity`** | **`v3PositionTokenId`**; amounts **`v3Amount0Desired`** / **`v3Amount1Desired`** refer to the position’s **token0** / **token1** (from chain); **max** / **balance** OK; **`v3Amount0Min`**, **`v3Amount1Min`** |
 | **`v3PositionDecreaseLiquidity`** | **`v3PositionTokenId`**, **`v3Liquidity`** (uint128 or **max** / **balance** = full tracked liquidity), **`v3Amount0Min`**, **`v3Amount1Min`** — then run **`v3PositionCollect`** |
 | **`v3PositionCollect`** | **`v3PositionTokenId`**; optional **`v3Amount0Max`** / **`v3Amount1Max`** (default max uint128) |

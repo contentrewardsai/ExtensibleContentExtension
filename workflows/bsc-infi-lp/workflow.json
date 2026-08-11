@@ -1,0 +1,310 @@
+{
+  "id": "bsc-infi-lp",
+  "name": "BSC Infinity LP rebalance (examples)",
+  "version": "1",
+  "description": "Example workflows: Infinity bin LP add, pancakeInfiBinRangeWatch monitor, exit-usdc and restake child workflows. Import into Library; set token addresses and bin ids on rows.",
+  "workflows": {
+    "wf-bsc-infi-initial-lp": {
+      "id": "wf-bsc-infi-initial-lp",
+      "name": "BSC Infinity — initial LP",
+      "version": 1,
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscQuery",
+            "runIf": "",
+            "operation": "infiBinPoolId",
+            "tokenA": "{{tokenA}}",
+            "tokenB": "{{tokenB}}",
+            "infinityFee": "{{infinityFee}}",
+            "binStep": "{{binStep}}",
+            "saveResultVariable": "poolIdResult"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "infiBinAddLiquidity",
+            "tokenA": "{{tokenA}}",
+            "tokenB": "{{tokenB}}",
+            "infinityFee": "{{infinityFee}}",
+            "binStep": "{{binStep}}",
+            "infiLowerBinId": "{{lowerBinId}}",
+            "infiUpperBinId": "{{upperBinId}}",
+            "infiAmount0": "{{amount0}}",
+            "infiAmount1": "{{amount1}}",
+            "infiLiquidityShape": "{{restakeShape}}",
+            "saveInfiPositionTokenIdVariable": "positionNftId"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-infi-monitor",
+            "bindMode": "upsert",
+            "kind": "infi",
+            "enablePriceRangeWatch": true,
+            "pollIntervalMs": "60000",
+            "fieldMap": {
+              "positionNftId": "{{positionNftId}}",
+              "infiPositionTokenId": "{{positionNftId}}",
+              "poolId": "{{poolId}}",
+              "lowerBinId": "{{lowerBinId}}",
+              "upperBinId": "{{upperBinId}}",
+              "exitPolicy": "{{exitPolicy}}",
+              "enabled": "true"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRow"
+          }
+        ]
+      }
+    },
+    "wf-bsc-infi-monitor": {
+      "id": "wf-bsc-infi-monitor",
+      "name": "BSC Infinity — monitor + branch",
+      "version": 1,
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "alwaysOn": {
+        "enabled": false,
+        "pollIntervalMs": 60000,
+        "scopes": {
+          "priceRangeWatch": true
+        },
+        "boundRow": {
+          "exitPolicy": "restake",
+          "positionNftId": "{{positionNftId}}",
+          "poolId": "{{poolId}}",
+          "lowerBinId": "{{lowerBinId}}",
+          "upperBinId": "{{upperBinId}}"
+        },
+        "priceRangeWatch": {
+          "infiPositionTokenId": "{{positionNftId}}",
+          "poolId": "{{poolId}}",
+          "infiLowerBinId": "{{lowerBinId}}",
+          "infiUpperBinId": "{{upperBinId}}",
+          "playbackStartUrl": "https://pancakeswap.finance",
+          "onOutOfRange": [
+            {
+              "runIf": "{{exitPolicy}} === sell_usdc",
+              "workflowId": "wf-bsc-infi-exit-usdc"
+            },
+            {
+              "runIf": "{{exitPolicy}} === restake",
+              "workflowId": "wf-bsc-infi-restake"
+            }
+          ]
+        },
+        "boundRows": [],
+        "gasReloadEnabled": false,
+        "gasReloadBelowWei": "",
+        "gasReloadTargetWei": ""
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "pancakeInfiBinRangeWatch",
+            "runIf": "",
+            "infiPositionTokenId": "{{positionNftId}}",
+            "poolId": "{{poolId}}",
+            "infiLowerBinId": "{{lowerBinId}}",
+            "infiUpperBinId": "{{upperBinId}}",
+            "tokenA": "{{tokenA}}",
+            "tokenB": "{{tokenB}}",
+            "infinityFee": "{{infinityFee}}",
+            "binStep": "{{binStep}}",
+            "pollIntervalMs": 30000,
+            "timeoutMs": 0,
+            "saveDriftDirection": "driftDirection",
+            "saveActiveBin": "activeBinId"
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{exitPolicy}} === sell_usdc",
+            "workflowId": "wf-bsc-infi-exit-usdc",
+            "rowMapping": {}
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{exitPolicy}} === restake",
+            "workflowId": "wf-bsc-infi-restake",
+            "rowMapping": {}
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{exitPolicy}} === restake",
+            "workflowId": "wf-bsc-infi-monitor",
+            "rowMapping": {}
+          }
+        ]
+      }
+    },
+    "wf-bsc-infi-exit-usdc": {
+      "id": "wf-bsc-infi-exit-usdc",
+      "name": "BSC Infinity — exit to USDC",
+      "version": 1,
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "ensureNativeGasFromStable",
+            "gasReloadBelowWei": "{{gasReloadBelowWei}}",
+            "gasReloadTargetWei": "{{gasReloadTargetWei}}",
+            "gasReloadStableToken": "{{usdcToken}}",
+            "stableReserveWei": "{{stableReserveWei}}"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "infiBinRemoveLiquidity",
+            "infiPositionTokenId": "{{positionNftId}}",
+            "infiLowerBinId": "{{lowerBinId}}",
+            "infiUpperBinId": "{{upperBinId}}"
+          },
+          {
+            "type": "bscAggregatorSwap",
+            "runIf": "",
+            "srcToken": "{{tokenA}}",
+            "destToken": "{{usdcToken}}",
+            "side": "SELL",
+            "amount": "max",
+            "slippage": "150"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-infi-monitor",
+            "bindMode": "remove",
+            "kind": "infi",
+            "tokenId": "{{positionNftId}}",
+            "fieldMap": {
+              "positionNftId": "{{positionNftId}}"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRowAfterExit"
+          }
+        ]
+      }
+    },
+    "wf-bsc-infi-restake": {
+      "id": "wf-bsc-infi-restake",
+      "name": "BSC Infinity — restake after drift",
+      "version": 1,
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "ensureNativeGasFromStable",
+            "gasReloadBelowWei": "{{gasReloadBelowWei}}",
+            "gasReloadTargetWei": "{{gasReloadTargetWei}}",
+            "gasReloadStableToken": "{{usdcToken}}",
+            "stableReserveWei": "{{stableReserveWei}}"
+          },
+          {
+            "type": "rowSetFields",
+            "runIf": "",
+            "fieldMap": {
+              "oldTokenId": "{{positionNftId}}"
+            }
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "infiBinRemoveLiquidity",
+            "infiPositionTokenId": "{{positionNftId}}",
+            "infiLowerBinId": "{{lowerBinId}}",
+            "infiUpperBinId": "{{upperBinId}}"
+          },
+          {
+            "type": "bscQuery",
+            "runIf": "",
+            "operation": "infiBinSlot0",
+            "poolId": "{{poolId}}",
+            "saveResultVariable": "slot0Result"
+          },
+          {
+            "type": "rowMath",
+            "runIf": "{{driftDirection}} === below",
+            "operation": "subtract",
+            "leftVariable": "activeBinId",
+            "rightVariable": "restakeBinSpan",
+            "saveResultVariable": "lowerBinId"
+          },
+          {
+            "type": "rowMath",
+            "runIf": "{{driftDirection}} === below",
+            "operation": "subtract",
+            "leftVariable": "activeBinId",
+            "rightVariable": "restakeBinOffset",
+            "saveResultVariable": "upperBinId"
+          },
+          {
+            "type": "rowMath",
+            "runIf": "{{driftDirection}} === above",
+            "operation": "add",
+            "leftVariable": "activeBinId",
+            "rightVariable": "restakeBinOffset",
+            "saveResultVariable": "lowerBinId"
+          },
+          {
+            "type": "rowMath",
+            "runIf": "{{driftDirection}} === above",
+            "operation": "add",
+            "leftVariable": "activeBinId",
+            "rightVariable": "restakeBinSpan",
+            "saveResultVariable": "upperBinId"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "infiBinAddLiquidity",
+            "tokenA": "{{tokenA}}",
+            "tokenB": "{{tokenB}}",
+            "infinityFee": "{{infinityFee}}",
+            "binStep": "{{binStep}}",
+            "infiLowerBinId": "{{lowerBinId}}",
+            "infiUpperBinId": "{{upperBinId}}",
+            "infiAmount0": "max",
+            "infiAmount1": "max",
+            "infiLiquidityShape": "{{restakeShape}}",
+            "saveInfiPositionTokenIdVariable": "positionNftId"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-infi-monitor",
+            "bindMode": "replace",
+            "kind": "infi",
+            "oldTokenId": "{{oldTokenId}}",
+            "enablePriceRangeWatch": true,
+            "pollIntervalMs": "60000",
+            "fieldMap": {
+              "positionNftId": "{{positionNftId}}",
+              "infiPositionTokenId": "{{positionNftId}}",
+              "oldTokenId": "{{oldTokenId}}",
+              "poolId": "{{poolId}}",
+              "lowerBinId": "{{lowerBinId}}",
+              "upperBinId": "{{upperBinId}}",
+              "exitPolicy": "{{exitPolicy}}",
+              "enabled": "true"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRow"
+          }
+        ]
+      }
+    }
+  }
+}

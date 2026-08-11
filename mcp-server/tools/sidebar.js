@@ -15,18 +15,6 @@ function isSidebarAlive(entry) {
   return Date.now() - entry.lastHeartbeat < SIDEBAR_STALE_MS;
 }
 
-/** Forward sidebar state to the backend via the relay. */
-async function backendFetch(ctx, path, method = 'GET', body = null) {
-  const payload = { path, method };
-  if (body) payload.body = body;
-  return ctx.sendMessage({
-    type: 'BACKEND_FETCH_PROXY',
-    fetchPath: path,
-    fetchMethod: method,
-    fetchBody: body,
-  });
-}
-
 export function registerSidebarTools(server, ctx) {
   /* ── list_sidebars ── */
   server.tool(

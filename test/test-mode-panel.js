@@ -36,6 +36,13 @@
     { section: 'Optional', id: 'quality-check', label: 'Quality check', desc: 'Add QC inputs/outputs, run workflow with Check quality after each run.', snippet: null },
   ];
 
+  /**
+   * Steps that ship steps/{id}/e2e-checklist.json. Only these are fetched so Chrome
+   * does not log hundreds of ERR_FILE_NOT_FOUND for steps without a checklist.
+   * When adding a new checklist file, include its step id here.
+   */
+  var STEPS_WITH_E2E_CHECKLIST = ['click', 'type'];
+
   /** Load E2E checklist items from steps/{id}/e2e-checklist.json. Returns Promise<Array>. */
   function loadStepChecklistItems() {
     var getUrl = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
@@ -43,40 +50,34 @@
       : null;
     if (!getUrl) return Promise.resolve([]);
 
-    return fetch(getUrl('steps/manifest.json'))
-      .then(function (r) { return r.ok ? r.json() : { steps: [] }; })
-      .catch(function () { return { steps: [] }; })
-      .then(function (manifest) {
-        var steps = Array.isArray(manifest.steps) ? manifest.steps : [];
-        return Promise.all(steps.map(function (stepId) {
-          return fetch(getUrl('steps/' + stepId + '/e2e-checklist.json'))
-            .then(function (r) {
-              if (!r.ok) return null;
-              return r.json().catch(function () { return null; });
-            })
-            .catch(function () { return null; })
-            .then(function (data) {
-              if (!data || !Array.isArray(data.items) || data.items.length === 0) return [];
-              var section = (data.section != null && data.section !== '')
-                ? String(data.section)
-                : (stepId.charAt(0).toUpperCase() + stepId.slice(1));
-              return data.items.map(function (item) {
-                var id = (item.id && String(item.id).indexOf(':') < 0)
-                  ? stepId + ':' + item.id
-                  : (item.id || stepId + ':item');
-                return {
-                  section: section,
-                  id: id,
-                  label: item.label || id,
-                  desc: item.desc || '',
-                  snippet: item.snippet != null ? item.snippet : null,
-                };
-              });
-            });
-        })).then(function (arrays) {
-          return arrays.reduce(function (acc, arr) { return acc.concat(arr); }, []);
+    return Promise.all(STEPS_WITH_E2E_CHECKLIST.map(function (stepId) {
+      return fetch(getUrl('steps/' + stepId + '/e2e-checklist.json'))
+        .then(function (r) {
+          if (!r.ok) return null;
+          return r.json().catch(function () { return null; });
+        })
+        .catch(function () { return null; })
+        .then(function (data) {
+          if (!data || !Array.isArray(data.items) || data.items.length === 0) return [];
+          var section = (data.section != null && data.section !== '')
+            ? String(data.section)
+            : (stepId.charAt(0).toUpperCase() + stepId.slice(1));
+          return data.items.map(function (item) {
+            var id = (item.id && String(item.id).indexOf(':') < 0)
+              ? stepId + ':' + item.id
+              : (item.id || stepId + ':item');
+            return {
+              section: section,
+              id: id,
+              label: item.label || id,
+              desc: item.desc || '',
+              snippet: item.snippet != null ? item.snippet : null,
+            };
+          });
         });
-      });
+    })).then(function (arrays) {
+      return arrays.reduce(function (acc, arr) { return acc.concat(arr); }, []);
+    });
   }
 
   function getStorage() {

@@ -44,7 +44,7 @@
         return '<div class="step-field"><label>' + label + '</label><input type="text" data-field="' + key + '" data-step="' + i + '" value="' + escapeHtml(v) + '"></div>';
       }
       var body =
-        '<p class="step-hint">Calls <code>CFS_PERPS_AUTOMATION_STATUS</code>. Optional <code>CFS_JUPITER_PERPS_MARKETS</code>. See <code>docs/PERPS_SPIKES.md</code>.</p>' +
+        '<p class="step-hint"><strong>Read-only status only</strong> — Raydium/Jupiter perp <em>order execution is not implemented</em> (<code>not_implemented</code>). This step fills row vars from <code>CFS_PERPS_AUTOMATION_STATUS</code> and optionally fetches market-stats via <code>CFS_JUPITER_PERPS_MARKETS</code>. Use spot Jupiter / Raydium steps to trade. See <code>docs/PERPS_SPIKES.md</code>.</p>' +
         '<div class="step-field"><label>Run only if</label><input type="text" data-field="runIf" data-step="' + i + '" value="' + escapeHtml((action.runIf || '').trim()) + '"></div>' +
         inp('saveRaydiumPerpsVariable', 'Var: Raydium perps') +
         inp('saveJupiterPerpsVariable', 'Var: Jupiter perps') +
