@@ -115,10 +115,25 @@
     "bn.js": "^5.2.3",
     "bigint-buffer": "npm:bigint-buffer-fixed@1.1.6",
     "@tootallnate/once": "^3.0.2",
-    "tar": "^7.5.2",
+    "tar": "^7.5.21",
     "cacache": "^19.0.0",
     "make-fetch-happen": "^14.0.0",
     "http-proxy-agent": "^7.0.2",
-    "node-gyp": "^11.2.0"
+    "node-gyp": "^11.2.0",
+    "ws": "^8.21.3",
+    "uuid": "^11.1.1",
+    "axios": "^1.18.0",
+    "basic-ftp": "^5.3.1",
+    "brace-expansion": "^2.1.4",
+    "form-data": "^4.0.6",
+    "ip-address": "^10.5.0",
+    "js-yaml": "^4.3.1",
+    "lodash": "^4.18.1",
+    "qs": "^6.15.3",
+    "follow-redirects": "^1.16.0",
+    "body-parser": "^1.20.6",
+    "express": "^4.22.2",
+    "path-to-regexp": "^0.1.13"
   }
 }
+
