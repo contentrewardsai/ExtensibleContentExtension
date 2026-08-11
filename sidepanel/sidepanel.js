@@ -18293,10 +18293,36 @@
       let whopAuth = null;
       try {
         const res = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => resolve(r || {}));
+          chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => {
+            try {
+              const le = chrome.runtime.lastError && chrome.runtime.lastError.message;
+              if (le) {
+                resolve({ ok: false, error: le });
+                return;
+              }
+            } catch (_) {}
+            resolve(r || {});
+          });
         });
-        if (res.ok && res.access_token) whopAuth = { email: res.user?.email || 'Logged in' };
+        if (res.ok && res.access_token) {
+          whopAuth = {
+            email: res.user?.email || res.user?.username || 'Logged in',
+          };
+        }
       } catch (_) {}
+      // Fallback if SW wake/message failed but tokens are already in local storage.
+      if (!whopAuth) {
+        try {
+          const data = await chrome.storage.local.get(['whop_auth']);
+          const stored = data.whop_auth;
+          if (stored && (stored.access_token || stored.accessToken)) {
+            const user = stored.user && typeof stored.user === 'object' ? stored.user : {};
+            whopAuth = {
+              email: user.email || user.username || stored.email || 'Logged in',
+            };
+          }
+        } catch (_) {}
+      }
       if (whopAuth) {
         loggedOut.style.display = 'none';
         loggedIn.style.display = '';
@@ -18386,10 +18412,19 @@
       }
       try {
         await chrome.storage.session.set({ cfs_whop_login_nonce: code });
-      } catch (_) {
-        // If session storage is unavailable, fall back to opening login without a code.
-        code = '';
+      } catch (e) {
+        // Must match service-worker fail-closed nonce verify — do not open login without a stored nonce.
+        if (typeof setStatus === 'function') {
+          setStatus(
+            'Could not start Whop login (session storage unavailable). Reload the extension and try again.',
+            'error'
+          );
+        }
+        return;
       }
+      try {
+        await chrome.storage.local.remove('cfs_whop_login_last_error');
+      } catch (_) {}
       let extId = '';
       try {
         extId = (chrome.runtime && chrome.runtime.id) || '';
@@ -18404,12 +18439,23 @@
         const qs = params.toString();
         base = 'https://www.extensiblecontent.com/extension/login' + (qs ? '?' + qs : '');
       }
+      if (typeof setStatus === 'function') {
+        setStatus('Complete Whop login in the new tab…', '');
+      }
       chrome.tabs.create({ url: base });
     });
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local' || !changes.whop_auth) return;
-      updateAuthUI();
+      if (areaName !== 'local') return;
+      if (changes.whop_auth) {
+        updateAuthUI();
+      }
+      if (changes.cfs_whop_login_last_error) {
+        const err = changes.cfs_whop_login_last_error.newValue;
+        if (err && err.error && typeof setStatus === 'function') {
+          setStatus(String(err.error), 'error');
+        }
+      }
     });
 
     let authPanelVisibleRefreshTimer = null;

@@ -127,14 +127,16 @@ if (
 
 const solW = fs.readFileSync(swWatch, 'utf8');
 const solRpcH = fs.readFileSync(solRpcHelpers, 'utf8');
-// Jupiter mint price lives in solana-rpc-helpers; solana-watch delegates + caches.
+// Jupiter mint price GET lives in solana-rpc-helpers (shared); watch must delegate to it.
+const jupFnIdx = solRpcH.indexOf('function fetchJupiterMintPriceUsd');
+const jupFnSlice = jupFnIdx >= 0 ? solRpcH.slice(jupFnIdx, jupFnIdx + 900) : '';
 if (
   !solW.includes('solRpc.fetchJupiterMintPriceUsd') ||
-  !solRpcH.includes('__CFS_fetchGetTiered') ||
-  !solRpcH.includes('function fetchJupiterMintPriceUsd')
+  jupFnIdx < 0 ||
+  !jupFnSlice.includes('__CFS_fetchGetTiered')
 ) {
   console.error(
-    'verify-crypto-rate-limit-wired: solana-watch must delegate Jupiter price to solana-rpc-helpers tiered GET',
+    'verify-crypto-rate-limit-wired: solana-watch.js must delegate Jupiter price GET to solana-rpc-helpers (__CFS_fetchGetTiered)',
   );
   process.exit(1);
 }
@@ -214,14 +216,14 @@ if (!raySlice.includes('__CFS_fetchGetTiered') || !raySlice.includes('__CFS_fetc
 }
 
 const waf = fs.readFileSync(wafPath, 'utf8');
-// Jupiter/Paraswap GET stay in waf; Solana RPC 429 backoff is via CFS_SOLANA_RPC.rpcCall.
+// Jupiter/Paraswap GET must use tiered fetch; Solana RPC 429 backoff lives in CFS_SOLANA_RPC.rpcCall.
 if (
   !waf.includes('__CFS_fetchGetTiered') ||
   !waf.includes('solRpc.rpcCall') ||
   !solRpcH.includes('__CFS_fetchWith429Backoff')
 ) {
   console.error(
-    'verify-crypto-rate-limit-wired: watch-activity-price-filter.js must use tiered Jupiter/Paraswap GET + solRpc 429 backoff RPC',
+    'verify-crypto-rate-limit-wired: watch-activity-price-filter.js must use tiered Jupiter/Paraswap GET + solRpc.rpcCall (429 backoff in solana-rpc-helpers)',
   );
   process.exit(1);
 }
