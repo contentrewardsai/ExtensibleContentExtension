@@ -29,6 +29,30 @@
     return false;
   }
 
+  function extractLoginCode(data) {
+    if (!data || typeof data !== 'object') return '';
+    const candidates = [data.code, data.nonce, data.loginNonce, data.login_code, data.state];
+    for (let i = 0; i < candidates.length; i++) {
+      const v = candidates[i];
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (s) return s;
+    }
+    return '';
+  }
+
+  function reportLoginError(error) {
+    const msg = error ? String(error) : 'STORE_TOKENS failed';
+    try {
+      console.warn('[CFS Whop auth]', msg);
+    } catch (_) {}
+    try {
+      chrome.storage.local.set({
+        cfs_whop_login_last_error: { at: Date.now(), error: msg },
+      });
+    } catch (_) {}
+  }
+
   window.addEventListener('message', (event) => {
     if (!isAllowedOrigin(event.origin)) return;
     const data = event.data;
@@ -50,15 +74,28 @@
     const hasAccess = !!(tokens.access_token || tokens.accessToken);
     if (!hasAccess) return;
     // The extension opened /extension/login?code=<nonce>; the page must echo that nonce back
-    // explicitly (data.code) so the service worker can verify the response. Do NOT read `code`
-    // from the page URL — after the Whop OAuth redirect that param holds Whop's authorization
-    // code, not our nonce, which would fail verification.
-    const code = data.code == null ? '' : String(data.code);
-    chrome.runtime.sendMessage({
-      type: 'STORE_TOKENS',
-      tokens,
-      user: user && typeof user === 'object' ? user : {},
-      code,
-    }).catch(() => {});
+    // explicitly (data.code / nonce / loginNonce / state) so the service worker can verify.
+    // Do NOT read `code` from the page URL — after the Whop OAuth redirect that param holds
+    // Whop's authorization code, not our nonce, which would fail verification.
+    const code = extractLoginCode(data);
+    chrome.runtime
+      .sendMessage({
+        type: 'STORE_TOKENS',
+        tokens,
+        user: user && typeof user === 'object' ? user : {},
+        code,
+      })
+      .then((res) => {
+        if (res && res.ok === false) {
+          reportLoginError(res.error || 'STORE_TOKENS rejected');
+          return;
+        }
+        try {
+          chrome.storage.local.remove('cfs_whop_login_last_error');
+        } catch (_) {}
+      })
+      .catch((e) => {
+        reportLoginError((e && e.message) || e || 'STORE_TOKENS failed');
+      });
   });
 })();
