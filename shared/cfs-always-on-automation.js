@@ -22,6 +22,15 @@
     return n;
   }
 
+  /** True if any Following BSC indexer credential is configured (QuickNode / Etherscan / Ankr / Covalent). */
+  function hasBscIndexerCredential(stored) {
+    var idx = global.CFS_BSC_INDEXER;
+    if (idx && typeof idx.hasAnyIndexerCredential === 'function') {
+      return idx.hasAnyIndexerCredential(stored || {});
+    }
+    return !!(stored && String(stored[BSC_API_KEY] || '').trim());
+  }
+
   function hasAnyWorkflows(stored) {
     var w = stored[WORKFLOWS_KEY];
     if (!w || typeof w !== 'object' || Array.isArray(w)) return false;
@@ -61,7 +70,7 @@
     var ids = Object.keys(w);
     var solBundle = stored[SOL_BUNDLE_KEY];
     var bscBundle = stored[BSC_BUNDLE_KEY];
-    var bscKey = String(stored[BSC_API_KEY] || '').trim();
+    var hasIndexer = hasBscIndexerCredential(stored);
 
     for (var i = 0; i < ids.length; i++) {
       var wf = w[ids[i]];
@@ -77,7 +86,8 @@
         if (wantSol && countBundleAddresses(solBundle) === 0) wantSol = false;
         if (wantBsc && countBundleAddresses(bscBundle) === 0) wantBsc = false;
       }
-      if (c.requireBscScanKeyForBsc === true && wantBsc && !bscKey) {
+      // Flag name kept for workflow compatibility; means any BSC Following indexer credential.
+      if (c.requireBscScanKeyForBsc === true && wantBsc && !hasIndexer) {
         wantBsc = false;
       }
 
@@ -95,7 +105,9 @@
           out.followingBscWatch = true;
         }
       }
-      // New universal scopes (no conditions gating — purely opt-in)
+      // Universal scopes (no conditions gating — purely opt-in).
+      // priceRangeWatch is dual-mode: Infinity bin LP (infi-bin-range-watch) and/or
+      // Pancake V3 NFT (v3-range-watch) based on alwaysOn.priceRangeWatch fields.
       if (sc.fileWatch) out.fileWatch = true;
       if (sc.priceRangeWatch) out.priceRangeWatch = true;
       if (sc.custom) out.custom = true;

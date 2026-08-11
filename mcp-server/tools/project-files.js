@@ -99,13 +99,13 @@ export function registerProjectTools(server, ctx) {
   /* ── set_always_on_scope ── */
   server.tool(
     'set_always_on_scope',
-    'Enable or disable a specific always-on scope on a workflow. Scopes: followingSolanaWatch, followingBscWatch, followingAutomationSolana, followingAutomationBsc, fileWatch, priceRangeWatch, custom.',
+    'Enable or disable a specific always-on scope on a workflow. Scopes: followingSolanaWatch, followingBscWatch, followingAutomationSolana, followingAutomationBsc, fileWatch, priceRangeWatch, custom. For V3 LP monitoring use priceRangeWatch + set_always_on_bound_row (v3PositionTokenId).',
     {
       workflowId: z.string().describe('Workflow ID'),
       scope: z.enum(['followingSolanaWatch', 'followingBscWatch', 'followingAutomationSolana', 'followingAutomationBsc', 'fileWatch', 'priceRangeWatch', 'custom']).describe('Scope name'),
       enabled: z.boolean().describe('Enable or disable this scope'),
       projectId: z.string().optional().describe('Project ID to bind (for fileWatch scope)'),
-      pollIntervalMs: z.number().int().min(1000).optional().describe('Poll interval in ms (for fileWatch)'),
+      pollIntervalMs: z.number().int().min(1000).optional().describe('Poll interval in ms (fileWatch / priceRangeWatch)'),
     },
     async ({ workflowId, scope, enabled, projectId, pollIntervalMs }) => {
       const storageRes = await ctx.readStorage(['workflows']);
@@ -126,6 +126,42 @@ export function registerProjectTools(server, ctx) {
       const writeRes = await ctx.writeStorage('workflows', wfs);
 
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, workflowId, scope, enabled, alwaysOn: wf.alwaysOn }, null, 2) }] };
+    }
+  );
+
+  /* ── set_always_on_bound_row ── */
+  server.tool(
+    'set_always_on_bound_row',
+    'Upsert/remove/replace a position in alwaysOn.boundRows (CFS_ALWAYS_ON_MERGE_BOUND_ROW). Defaults to upsert by tokenId (does not wipe other positions). Legacy scalar boundRow is mirrored from primary. Modes: upsert|remove|replace|mergeLegacy. kind: v3|infi.',
+    {
+      workflowId: z.string().describe('Target workflow id (e.g. wf-bsc-v3-monitor)'),
+      fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).describe('Position fields (e.g. { v3PositionTokenId, v3Pool, exitBelowPolicy, fundMode })'),
+      mode: z.enum(['upsert', 'remove', 'replace', 'mergeLegacy', 'upsertPosition', 'removePosition', 'replaceTokenId']).optional()
+        .describe('upsert (default when id present), remove, replace (restake tokenId change), mergeLegacy'),
+      kind: z.enum(['v3', 'infi']).optional().describe('Position family (default v3)'),
+      tokenId: z.string().optional().describe('Token id for remove mode'),
+      oldTokenId: z.string().optional().describe('Prior NFT id for replace mode'),
+      enablePriceRangeWatch: z.boolean().optional().describe('Enable alwaysOn + scopes.priceRangeWatch (default true)'),
+      pollIntervalMs: z.number().int().min(1000).optional().describe('alwaysOn.pollIntervalMs'),
+    },
+    async ({ workflowId, fields, mode, kind, tokenId, oldTokenId, enablePriceRangeWatch, pollIntervalMs }) => {
+      let bindMode = mode || '';
+      if (bindMode === 'upsert') bindMode = 'upsertPosition';
+      if (bindMode === 'remove') bindMode = 'removePosition';
+      if (bindMode === 'replace') bindMode = 'replaceTokenId';
+      const payload = {
+        type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+        workflowId,
+        fields,
+        kind: kind || 'v3',
+        enablePriceRangeWatch: enablePriceRangeWatch !== false,
+      };
+      if (bindMode) payload.mode = bindMode;
+      if (tokenId) payload.tokenId = tokenId;
+      if (oldTokenId) payload.oldTokenId = oldTokenId;
+      if (pollIntervalMs != null) payload.pollIntervalMs = pollIntervalMs;
+      const res = await ctx.sendMessage(payload);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
   );
 

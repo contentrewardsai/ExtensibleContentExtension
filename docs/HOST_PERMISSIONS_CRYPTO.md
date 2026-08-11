@@ -21,6 +21,7 @@ Chrome MV3 extensions only `fetch` origins allowed in **`manifest.json`** `host_
 
 4. **Optional guard script**
    - CI runs **`npm run test:crypto-manifest-hosts`** (`scripts/verify-crypto-manifest-hosts.cjs`) to keep explicit **`host_permissions`** entries for major chain/crypto APIs. When you add a **new** required origin, extend the **`REQUIRED`** list in that script.
+   - BSC Following indexers also require **`rpc.ankr.com`**, **`api.covalenthq.com`**, **`*.quiknode.pro`**, **`*.quicknode.com`** (in addition to Etherscan / legacy BscScan hosts).
    - For module wiring, add or extend a **`scripts/verify-*-wired.cjs`** assertion (see **`verify-bsc-infinity-wired.cjs`**, **`verify-aster-futures-wired.cjs`**).
 
 5. **Privacy / review**

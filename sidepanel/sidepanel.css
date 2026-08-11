@@ -861,6 +861,133 @@ h1 {
   background: #f9f9fb;
   margin-bottom: 4px;
 }
+.always-on-monitors-heading,
+.always-on-events-heading {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.always-on-monitors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.always-on-monitor-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  font-size: 12px;
+}
+.always-on-monitor-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.always-on-monitor-card-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin: 0;
+}
+.always-on-monitor-scopes {
+  color: #6b7280;
+  font-size: 11px;
+  margin: 2px 0 0;
+}
+.always-on-monitor-status {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 0 0 8px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.always-on-monitor-status.is-error {
+  color: #b91c1c;
+}
+.always-on-monitor-status.is-ok {
+  color: #047857;
+}
+.always-on-monitor-fields {
+  display: grid;
+  grid-template-columns: minmax(90px, 110px) 1fr;
+  gap: 6px 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.always-on-monitor-fields label {
+  font-size: 11px;
+  color: #4b5563;
+  margin: 0;
+}
+.always-on-monitor-fields input,
+.always-on-monitor-fields select {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.always-on-monitor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.always-on-monitor-card details {
+  margin-top: 6px;
+  font-size: 11px;
+}
+.always-on-monitor-card details textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.always-on-monitor-msg {
+  font-size: 11px;
+  margin: 4px 0 0;
+  min-height: 1.2em;
+}
+.always-on-monitor-msg.is-error { color: #b91c1c; }
+.always-on-monitor-msg.is-success { color: #047857; }
+.always-on-lp-activity-heading {
+  margin: 14px 0 6px;
+}
+.always-on-lp-activity-list {
+  margin: 0 0 12px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.always-on-lp-activity-line {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: #444;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.always-on-position-card {
+  border: 1px solid #e5e5e7;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 0 0 8px;
+  background: #fafafa;
+}
+.always-on-reconcile-banner {
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff8e6;
+  border: 1px solid #f0d78c;
+  font-size: 12px;
+}
+.always-on-monitors-empty {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0;
+  padding: 8px 0;
+}
 .pulse-watch-copy-sig {
   font-family: ui-monospace, monospace;
   font-size: 0.85em;
@@ -3123,15 +3250,7 @@ section {
   font-size: 11px;
 }
 
-.process-section { margin-top: 16px; }
-.process-builder { margin-top: 8px; }
-.process-row { margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-.process-row label { min-width: 140px; font-size: 12px; }
-.process-row select { flex: 1; padding: 6px 10px; border-radius: 6px; }
-.process-list { margin-top: 12px; }
-.process-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 10px; background: #f5f5f7; border-radius: 6px; font-size: 12px; }
-.process-item span { flex: 1; }
-.process-item small { color: #6e6e73; }
+.data-export-section { margin-top: 16px; }
 
 .quality-record-row { margin-bottom: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .quality-strategy-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
@@ -3223,8 +3342,6 @@ section {
 .inline-results-badge { font-weight: 600; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-right: 8px; }
 .inline-results-badge.pass { background: #d4edda; color: #155724; }
 .inline-results-badge.fail { background: #f8d7da; color: #721c24; }
-
-.process-export-section { margin-top: 16px; }
 
 .library-project-row:hover { background: #f0f0f2; }
 .library-project-row-selected { background: #e8f4fd; border-left: 3px solid #007aff; margin-left: -2px; padding-left: 2px; }

@@ -141,6 +141,34 @@
     }
   }
 
+  function base64ToUint8(b64) {
+    var bin = atob(String(b64 || '').replace(/\s/g, ''));
+    var u8 = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+
+  async function writeBase64ToProjectFolder(projectRoot, relativePath, content) {
+    if (!projectRoot || typeof relativePath !== 'string') return { ok: false, error: 'Invalid path' };
+    try {
+      var perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return { ok: false, error: 'Project folder permission denied' };
+      var parts = relativePath.replace(/^\/+|\/+$/g, '').split('/');
+      if (parts.length === 0) return { ok: false, error: 'Empty path' };
+      var dir = projectRoot;
+      for (var i = 0; i < parts.length - 1; i++) {
+        dir = await dir.getDirectoryHandle(parts[i], { create: true });
+      }
+      var fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+      var w = await fh.createWritable();
+      await w.write(base64ToUint8(content));
+      await w.close();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) ? e.message : String(e) };
+    }
+  }
+
   chrome.runtime.onMessage.addListener(function(msg, _sender, sendResponse) {
     if (!msg || msg.type !== 'CFS_PROJECT_FOLDER_IO_PAYLOAD') return false;
     var op = msg.op;
@@ -180,7 +208,11 @@
         return;
       }
       if (op === 'write') {
-        var outW = await writeTextToProjectFolder(root, relativePath, msg.content);
+        var writeEnc = (msg.encoding || 'text').toLowerCase();
+        var outW =
+          writeEnc === 'base64'
+            ? await writeBase64ToProjectFolder(root, relativePath, msg.content)
+            : await writeTextToProjectFolder(root, relativePath, msg.content);
         sendResponse(outW);
         return;
       }

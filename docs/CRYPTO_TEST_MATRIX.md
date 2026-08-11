@@ -75,8 +75,8 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `bscTransferBep20` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
 | `bscAggregatorSwap` | BNB Chain (EVM) | CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | Fork: mainnet addresses in `bsc-evm.js`; testnet 97 needs address map. |
 | `bscSellabilityProbe` | BNB Chain (EVM) | CFS_BSC_SELLABILITY_PROBE | L1 · L2 · L3 · L5 | yes | Fork: mainnet addresses in `bsc-evm.js`; testnet 97 needs address map. |
-| `bscWatchRefresh` | BNB Chain (EVM) | CFS_BSC_WATCH_REFRESH_NOW | L1 · L2 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
-| `bscWatchReadActivity` | BNB Chain (EVM) | CFS_BSC_WATCH_GET_ACTIVITY | L1 · L2 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
+| `bscWatchRefresh` | BNB Chain (EVM) | CFS_BSC_INDEXER_STATUS, CFS_BSC_WATCH_REFRESH_NOW | L1 · L2 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
+| `bscWatchReadActivity` | BNB Chain (EVM) | CFS_BSC_INDEXER_STATUS, CFS_BSC_WATCH_GET_ACTIVITY | L1 · L2 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
 | `watchActivityFilterTxAge` | Pulse / APIs | — | L1 · L2 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
 | `watchActivityFilterPriceDrift` | Pulse / APIs | CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW | L1 · L2 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
 | `selectFollowingAccount` | Pulse / APIs | — | L1 · L5 | yes | — |
@@ -103,7 +103,12 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `jupiterPredictionTrade` | — | CFS_JUPITER_PREDICTION_TRADE | L1 · L5 | yes | — |
 | `jupiterPredictionSearch` | — | CFS_JUPITER_PREDICTION_SEARCH | L1 · L5 | yes | — |
 | `pancakeV3RangeWatch` | — | CFS_BSC_V3_RANGE_CHECK | L1 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
-| `pancakeInfiBinRangeWatch` | BNB Chain (EVM) | CFS_BSC_INFI_BIN_RANGE_CHECK | L1 · L5 | yes | Read-only `getSlot0` activeId vs bin range; always-on via `infi-bin-range-watch.js`. |
+| `bscV3LpWizard` | BNB Chain (EVM) | CFS_BSC_QUERY | L1 · L2 · L3 · L5 | yes | — |
+| `bscV3AutoApprove` | BNB Chain (EVM) | CFS_BSC_QUERY, CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
+| `bscV3RebalanceOnce` | BNB Chain (EVM) | CFS_BSC_QUERY, CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
+| `bscV3EnterFromStable` | BNB Chain (EVM) | CFS_BSC_QUERY, CFS_BSC_POOL_EXECUTE | L1 · L2 · L3 · L5 | yes | — |
+| `bindAlwaysOnBoundRow` | — | CFS_ALWAYS_ON_MERGE_BOUND_ROW | L1 · L5 | yes | — |
+| `pancakeInfiBinRangeWatch` | — | CFS_BSC_INFI_BIN_RANGE_CHECK | L1 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
 | `walletApprove` | — | CFS_WALLET_ENABLE_AUTO_APPROVE | L1 · L5 | yes | — |
 
 ## Regenerate

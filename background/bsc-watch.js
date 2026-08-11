@@ -1,5 +1,7 @@
 /**
- * Pulse Following: BSC (EVM) address watch via BscScan HTTP API (no relay).
+ * Pulse Following: BSC (EVM) address watch via multi-provider indexers (no relay).
+ * Providers: QuickNode (qn_getTransactionsByAddress), Etherscan Multichain V2, Ankr Advanced, Covalent GoldRush
+ * — see shared/bsc-indexer-providers.js + background/bsc-indexer-transports.js.
  * Optional Following automation: PancakeSwap V2/V3, MasterChef farm, Infinity Bin PM (ParaSwap fallback), and ParaSwap Augustus
  * calldata + receipt log hints (mainnet); mirrors Solana Pulse gates where applicable.
  *
@@ -8,12 +10,12 @@
  * - cfsBscWatchCursors — { [addressLowercase]: lastProcessedBlockNumber }
  * - cfsBscWatchTokenCursors — { [addressLowercase]: lastTokenBlock } (tokentx)
  * - cfsBscWatchActivity — recent events (ring buffer)
- * - cfs_bscscan_api_key — from Settings → BSC
- * - cfsBscWatchLastPoll — last tick summary for Pulse UI
+ * - indexer creds: cfs_bsc_quicknode_rpc_url, cfs_bscscan_api_key, cfs_ankr_api_key, cfs_covalent_api_key
+ * - cfsBscWatchLastPoll — last tick summary for Pulse UI (includes indexer id)
  * - workflows / cfsPulseSolanaWatchBundle — always-on gate (__CFS_evaluateFollowingAutomation)
  * - cfsFollowingAutomationGlobal — watch/automation pause, paper, deny lists (drift/age/cooldown are workflow steps, not SW gates)
  *
- * Messages: CFS_BSC_WATCH_GET_ACTIVITY, CFS_BSC_WATCH_REFRESH_NOW, CFS_BSC_WATCH_CLEAR_ACTIVITY
+ * Messages: CFS_BSC_WATCH_GET_ACTIVITY, CFS_BSC_WATCH_REFRESH_NOW, CFS_BSC_WATCH_CLEAR_ACTIVITY, CFS_BSC_INDEXER_STATUS
  */
 (function (global) {
   'use strict';
@@ -28,12 +30,13 @@
   var SOL_BUNDLE_KEY = 'cfsPulseSolanaWatchBundle';
   var WORKFLOWS_KEY = 'workflows';
   var ACTIVITY_MAX = 80;
-  /** Spread BscScan calls when many addresses are watched (same API key rate limits). */
+  /** Spread indexer calls when many addresses are watched. */
   var BSCSCAN_INTER_ADDRESS_MIN_MS = 100;
   var BSCSCAN_INTER_ADDRESS_JITTER_MS = 240;
-  /** Same address uses txlist then tokentx — short pause avoids back-to-back weight on one key. */
+  /** Same address uses native txs then token txs — short pause. */
   var BSCSCAN_TXLIST_TO_TOKENTX_MIN_MS = 55;
   var BSCSCAN_TXLIST_TO_TOKENTX_JITTER_MS = 140;
+  var IDX = globalThis.CFS_BSC_INDEXER;
 
   var WBNB_BSC = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
   var PANCAKE_ROUTER_V2 = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
@@ -111,8 +114,29 @@
   var storageLocalGet = globalThis.CFS_CRYPTO_STORAGE.storageLocalGet;
   var storageLocalSet = globalThis.CFS_CRYPTO_STORAGE.storageLocalSet;
 
-  function bscscanApiBase(network) {
-    return network === 'chapel' ? 'https://api-testnet.bscscan.com/api' : 'https://api.bscscan.com/api';
+  /** Prefetch tip block once per distinct watch network using the active transport. */
+  function prefetchBscBlockNumbers(bundle, transport) {
+    var nets = Object.create(null);
+    if (bundle && Array.isArray(bundle.entries)) {
+      bundle.entries.forEach(function (e) {
+        if (!(e && (e.address || '').trim())) return;
+        nets[e.network === 'chapel' ? 'chapel' : 'bsc'] = true;
+      });
+    }
+    var keys = Object.keys(nets);
+    if (!keys.length) return Promise.resolve({});
+    var out = Object.create(null);
+    return keys
+      .reduce(function (p, net) {
+        return p.then(function () {
+          return transport.getTipBlock(net).then(function (bn) {
+            out[net] = bn;
+          });
+        });
+      }, Promise.resolve())
+      .then(function () {
+        return out;
+      });
   }
 
   function addrKey(addr) {
@@ -214,42 +238,18 @@
     });
   }
 
-  function bscWatchFetchGet(url) {
-    var t = globalThis.__CFS_fetchGetTiered;
-    return typeof t === 'function' ? t(url, { method: 'GET' }) : fetch(url);
-  }
-
-  function fetchBscScanJson(fullUrl) {
-    return bscWatchFetchGet(fullUrl).then(function (res) {
-      if (res.status === 429) {
-        try {
-          var obs = globalThis.__CFS_cryptoObsWarn;
-          if (typeof obs === 'function') {
-            obs('bscscan', 'HTTP 429 (rate limit); reduce watch addresses or upgrade API tier', {
-              status: res.status,
-            });
-          }
-        } catch (_) {}
-      } else if (!res.ok) {
-        try {
-          var obs2 = globalThis.__CFS_cryptoObsWarn;
-          if (typeof obs2 === 'function') {
-            obs2('bscscan', 'HTTP ' + res.status + ' from BscScan API', { status: res.status });
-          }
-        } catch (_) {}
-      }
-      return res.json().then(function (j) {
-        return j;
-      });
-    });
-  }
-
   function parseBlockNumber(hexOrStr) {
     if (hexOrStr == null) return 0;
     var s = String(hexOrStr).trim();
     if (s.indexOf('0x') === 0 || s.indexOf('0X') === 0) return parseInt(s, 16) || 0;
     var n = parseInt(s, 10);
     return Number.isFinite(n) ? n : 0;
+  }
+
+  /** Etherscan Multichain free tier often rejects chainid 56/97. */
+  function isEtherscanPlanCoverageError(errOrMsg) {
+    var s = errOrMsg && errOrMsg.message != null ? String(errOrMsg.message) : String(errOrMsg || '');
+    return /Free API access is not supported for this chain/i.test(s) || /upgrade your api plan for full chain coverage/i.test(s);
   }
 
   function summarizeTx(tx, watchedLower) {
@@ -265,64 +265,6 @@
     else parts.push('tx');
     if (to) parts.push('↔ ' + to.slice(0, 6) + '…');
     return parts.join(' · ');
-  }
-
-  function ethBlockNumber(base, apiKey) {
-    var u =
-      base +
-      '?module=proxy&action=eth_blockNumber&apikey=' +
-      encodeURIComponent(apiKey);
-    return fetchBscScanJson(u).then(function (j) {
-      if (!j || j.status !== '1' || j.result == null) {
-        throw new Error((j && j.result) || (j && j.message) || 'eth_blockNumber failed');
-      }
-      return parseBlockNumber(j.result);
-    });
-  }
-
-  function txList(base, apiKey, address, startBlock, endBlock) {
-    var u =
-      base +
-      '?module=account&action=txlist&address=' +
-      encodeURIComponent(address) +
-      '&startblock=' +
-      encodeURIComponent(String(startBlock)) +
-      '&endblock=' +
-      encodeURIComponent(String(endBlock)) +
-      '&page=1&offset=100&sort=asc&apikey=' +
-      encodeURIComponent(apiKey);
-    return fetchBscScanJson(u).then(function (j) {
-      if (j.status === '0' && j.message === 'No transactions found') {
-        return [];
-      }
-      if (j.status !== '1' || !Array.isArray(j.result)) {
-        var err = (j && j.result) || (j && j.message) || 'txlist failed';
-        throw new Error(typeof err === 'string' ? err : JSON.stringify(err).slice(0, 200));
-      }
-      return j.result;
-    });
-  }
-
-  function tokenTxList(base, apiKey, address, startBlock, endBlock) {
-    var u =
-      base +
-      '?module=account&action=tokentx&address=' +
-      encodeURIComponent(address) +
-      '&startblock=' +
-      encodeURIComponent(String(startBlock)) +
-      '&endblock=' +
-      encodeURIComponent(String(endBlock)) +
-      '&page=1&offset=100&sort=asc&apikey=' +
-      encodeURIComponent(apiKey);
-    return fetchBscScanJson(u).then(function (j) {
-      if (j.status === '0' && j.message === 'No transactions found') {
-        return [];
-      }
-      if (j.status !== '1' || !Array.isArray(j.result)) {
-        return [];
-      }
-      return j.result;
-    });
   }
 
   function getEthers() {
@@ -1696,14 +1638,16 @@
     return runSwapFollowingAutomationResolved(classification, 0);
   }
 
-  function pollOneAddress(apiKey, entry, cursors, tokenCursors, pollCtx) {
+  /** Cap catch-up span so QuickNode plain-RPC block scans stay bounded per tick. */
+  var BSC_WATCH_MAX_SPAN_BLOCKS = 120;
+
+  function pollOneAddress(transport, entry, cursors, tokenCursors, pollCtx) {
     var storedGlobal = pollCtx && pollCtx.globalCfg ? pollCtx.globalCfg : pollCtx || {};
     var followingAuto = pollCtx && pollCtx.followingAuto;
     var fullStored = pollCtx && pollCtx.fullStored;
     var watched = String(entry.address || '').trim();
     var k = addrKey(watched);
     var network = entry.network === 'chapel' ? 'chapel' : 'bsc';
-    var base = bscscanApiBase(network);
     var watchedLower = k;
     var netKey = network === 'chapel' ? 'chapel' : 'bsc';
     var blockMap = pollCtx && pollCtx.blockByNetwork;
@@ -1711,7 +1655,8 @@
       blockMap && blockMap[netKey] != null && Number.isFinite(Number(blockMap[netKey]))
         ? Number(blockMap[netKey])
         : null;
-    var blockP = prefetched != null ? Promise.resolve(prefetched) : ethBlockNumber(base, apiKey);
+    var blockP =
+      prefetched != null ? Promise.resolve(prefetched) : transport.getTipBlock(network);
 
     return blockP.then(function (curBn) {
         if (cursors[k] == null) {
@@ -1725,7 +1670,11 @@
         if (start > curBn) {
           return null;
         }
-        return txList(base, apiKey, watched, start, curBn).then(function (rows) {
+        var scanEnd = curBn;
+        if (curBn - start + 1 > BSC_WATCH_MAX_SPAN_BLOCKS) {
+          scanEnd = start + BSC_WATCH_MAX_SPAN_BLOCKS - 1;
+        }
+        return transport.getNativeTxs(network, watched, start, scanEnd).then(function (rows) {
           var maxSeen = last;
           var chain = Promise.resolve();
           (rows || []).forEach(function (tx) {
@@ -1814,7 +1763,7 @@
           });
           return chain.then(function () {
             return sleepBscScanPaceTxlistToTokentx().then(function () {
-              return tokenTxList(base, apiKey, watched, start, curBn);
+              return transport.getTokenTxs(network, watched, start, scanEnd);
             }).then(function (tokRows) {
               var tChain = Promise.resolve();
               (tokRows || []).forEach(function (t) {
@@ -1860,8 +1809,8 @@
                 });
               });
               return tChain.then(function () {
-                cursors[k] = curBn;
-                tokenCursors[k] = curBn;
+                cursors[k] = scanEnd;
+                tokenCursors[k] = scanEnd;
                 return null;
               });
             });
@@ -1886,8 +1835,8 @@
     stored.__cfsFollowingAuto = fn(stored);
   }
 
-  global.__CFS_bscWatch_tick = function () {
-    return storageLocalGet([
+  function indexerStorageKeys() {
+    var keys = [
       'cfsCryptoWeb3Enabled',
       BUNDLE_KEY,
       CURSORS_KEY,
@@ -1896,7 +1845,161 @@
       GLOBAL_FOLLOWING_AUTOMATION_KEY,
       WORKFLOWS_KEY,
       SOL_BUNDLE_KEY,
-    ])
+    ];
+    if (IDX) {
+      keys.push(
+        IDX.STORAGE_QUICKNODE,
+        IDX.STORAGE_ANKR,
+        IDX.STORAGE_COVALENT,
+        IDX.STORAGE_PREFERENCE,
+        IDX.STORAGE_QN_AGGRESSIVE,
+        IDX.STORAGE_BSC_RPC,
+      );
+    } else {
+      keys.push(
+        'cfs_bsc_quicknode_rpc_url',
+        'cfs_ankr_api_key',
+        'cfs_covalent_api_key',
+        'cfs_bsc_indexer_preference',
+        'cfs_bsc_quicknode_aggressive_poll',
+        'cfs_bsc_rpc_url',
+      );
+    }
+    return keys;
+  }
+
+  function runPollWithTransport(bundle, stored, auto, gAll, cursors, tokenCursors, transport) {
+    var watchedN = countWatchedAddresses(bundle);
+    if (transport && typeof transport.clearBlockCache === 'function') {
+      try {
+        transport.clearBlockCache();
+      } catch (_) {}
+    }
+    return prefetchBscBlockNumbers(bundle, transport).then(function (blockByNetwork) {
+      var pollCtx = {
+        globalCfg: gAll,
+        followingAuto: auto,
+        fullStored: stored,
+        blockByNetwork: blockByNetwork,
+        transportId: transport.id,
+      };
+      var seq = Promise.resolve();
+      var needsAddrPace = false;
+      bundle.entries.forEach(function (entry) {
+        var addr = (entry.address || '').trim();
+        if (!addr) return;
+        seq = seq
+          .then(function () {
+            if (!needsAddrPace) {
+              needsAddrPace = true;
+              return null;
+            }
+            return sleepBscScanPaceBetweenAddresses();
+          })
+          .then(function () {
+            return pollOneAddress(transport, entry, cursors, tokenCursors, pollCtx);
+          });
+      });
+      return seq;
+    })
+      .then(function () {
+        return storageLocalSet({ [CURSORS_KEY]: cursors, [TOKEN_CURSORS_KEY]: tokenCursors });
+      })
+      .then(function () {
+        return finishTick(
+          {
+            ok: true,
+            idle: false,
+            reason: 'polled',
+            watchedCount: watchedN,
+            indexer: transport.id,
+          },
+          {
+            ok: true,
+            idle: false,
+            reason: 'polled',
+            watchedCount: watchedN,
+            indexer: transport.id,
+          },
+        );
+      });
+  }
+
+  function tryProvidersInOrder(providerIds, stored, bundle, auto, gAll, cursors, tokenCursors, idx) {
+    if (idx >= providerIds.length) {
+      return Promise.reject(new Error('All configured BSC indexers failed'));
+    }
+    var pid = providerIds[idx];
+    var create = globalThis.__CFS_createBscIndexerTransport;
+    var transport;
+    try {
+      transport = typeof create === 'function' ? create(pid, stored) : null;
+    } catch (e) {
+      return tryProvidersInOrder(
+        providerIds,
+        stored,
+        bundle,
+        auto,
+        gAll,
+        cursors,
+        tokenCursors,
+        idx + 1,
+      );
+    }
+    if (!transport) {
+      return tryProvidersInOrder(
+        providerIds,
+        stored,
+        bundle,
+        auto,
+        gAll,
+        cursors,
+        tokenCursors,
+        idx + 1,
+      );
+    }
+    return runPollWithTransport(bundle, stored, auto, gAll, cursors, tokenCursors, transport).catch(
+      function (err) {
+        var msg = err && err.message ? String(err.message) : String(err);
+        var planErr =
+          typeof globalThis.__CFS_bscIndexerIsEtherscanPlanError === 'function'
+            ? globalThis.__CFS_bscIndexerIsEtherscanPlanError(msg)
+            : isEtherscanPlanCoverageError(msg);
+        var qnMissing =
+          (err && err.code === 'quicknode_token_api_missing') ||
+          /quicknode_token_api_missing/i.test(msg);
+        var rateLimited =
+          (err && err.code === 'quicknode_rate_limited') || /HTTP 429|15\/second|rate limit/i.test(msg);
+        // Prefer staying on QuickNode for rate limits (caller can retry next alarm); otherwise failover.
+        if (
+          !rateLimited &&
+          (planErr || qnMissing || /Ankr|Covalent|QuickNode|Etherscan/i.test(msg)) &&
+          idx + 1 < providerIds.length
+        ) {
+          return tryProvidersInOrder(
+            providerIds,
+            stored,
+            bundle,
+            auto,
+            gAll,
+            cursors,
+            tokenCursors,
+            idx + 1,
+          );
+        }
+        return Promise.reject(err);
+      },
+    );
+  }
+
+  global.__CFS_bscWatch_tick = function () {
+    var paceP =
+      typeof global.__CFS_bscWatch_setupAlarm === 'function'
+        ? Promise.resolve(global.__CFS_bscWatch_setupAlarm()).catch(function () {})
+        : Promise.resolve();
+    return paceP.then(function () {
+      return storageLocalGet(indexerStorageKeys());
+    })
       .then(function (stored) {
         if (stored.cfsCryptoWeb3Enabled !== true) {
           return finishTick(
@@ -1904,11 +2007,14 @@
             { ok: true, idle: true, reason: 'crypto_disabled', watchedCount: 0 },
           );
         }
-        var apiKey = String(stored[API_KEY_STORAGE] || '').trim();
-        if (!apiKey) {
+        var hasIndexer =
+          IDX && typeof IDX.hasAnyIndexerCredential === 'function'
+            ? IDX.hasAnyIndexerCredential(stored)
+            : !!(String(stored[API_KEY_STORAGE] || '').trim());
+        if (!hasIndexer) {
           return finishTick(
-            { ok: true, idle: true, reason: 'no_bscscan_key' },
-            { ok: true, idle: true, reason: 'no_bscscan_key', watchedCount: 0 },
+            { ok: true, idle: true, reason: 'no_bsc_indexer_key' },
+            { ok: true, idle: true, reason: 'no_bsc_indexer_key', watchedCount: 0 },
           );
         }
         var bundle = stored[BUNDLE_KEY];
@@ -1963,49 +2069,86 @@
           stored[TOKEN_CURSORS_KEY] && typeof stored[TOKEN_CURSORS_KEY] === 'object'
             ? Object.assign({}, stored[TOKEN_CURSORS_KEY])
             : {};
-        var watchedN = countWatchedAddresses(bundle);
-        return prefetchBscBlockNumbers(bundle, apiKey).then(function (blockByNetwork) {
-          var pollCtx = {
-            globalCfg: gAll,
-            followingAuto: auto,
-            fullStored: stored,
-            blockByNetwork: blockByNetwork,
-          };
-          var seq = Promise.resolve();
-          var needsAddrPace = false;
-          bundle.entries.forEach(function (entry) {
-            var addr = (entry.address || '').trim();
-            if (!addr) return;
-            seq = seq
-              .then(function () {
-                if (!needsAddrPace) {
-                  needsAddrPace = true;
-                  return null;
-                }
-                return sleepBscScanPaceBetweenAddresses();
-              })
-              .then(function () {
-                return pollOneAddress(apiKey, entry, cursors, tokenCursors, pollCtx);
-              });
-          });
-          return seq;
-        })
-          .then(function () {
-            return storageLocalSet({ [CURSORS_KEY]: cursors, [TOKEN_CURSORS_KEY]: tokenCursors });
-          })
-          .then(function () {
-            return finishTick({ ok: true }, { ok: true, idle: false, reason: 'polled', watchedCount: watchedN });
-          });
+
+        var nets = Object.create(null);
+        bundle.entries.forEach(function (e) {
+          if (!(e && (e.address || '').trim())) return;
+          nets[e.network === 'chapel' ? 'chapel' : 'bsc'] = true;
+        });
+        var netList = Object.keys(nets);
+        // Prefer failover order for mainnet; if only chapel, resolve chapel-capable providers.
+        var primaryNet = nets.bsc ? 'bsc' : 'chapel';
+        var order =
+          IDX && typeof IDX.resolveProviderFailoverOrder === 'function'
+            ? IDX.resolveProviderFailoverOrder(stored, primaryNet)
+            : String(stored[API_KEY_STORAGE] || '').trim()
+              ? ['etherscan']
+              : [];
+        if (!order.length) {
+          return finishTick(
+            { ok: true, idle: true, reason: 'no_bsc_indexer_key' },
+            { ok: true, idle: true, reason: 'no_bsc_indexer_key', watchedCount: 0 },
+          );
+        }
+        void netList;
+        return tryProvidersInOrder(order, stored, bundle, auto, gAll, cursors, tokenCursors, 0);
       })
       .catch(function (err) {
         var msg = err && err.message ? String(err.message) : String(err);
-        return finishTick({ ok: false, error: msg }, {
-          ok: false,
-          idle: true,
-          reason: 'error',
-          error: msg.slice(0, 240),
-          watchedCount: 0,
-        });
+        if (isEtherscanPlanCoverageError(msg) || /Free API access is not supported/i.test(msg)) {
+          try {
+            var obsPlan = globalThis.__CFS_cryptoObsWarn;
+            if (typeof obsPlan === 'function') {
+              obsPlan(
+                'bscscan',
+                'Etherscan API key lacks BSC Multichain coverage (upgrade plan or use QuickNode/Ankr/Covalent)',
+                { reason: 'etherscan_plan_no_bsc' },
+              );
+            }
+          } catch (_) {}
+          return finishTick(
+            {
+              ok: true,
+              idle: true,
+              reason: 'etherscan_plan_no_bsc',
+              error: msg.slice(0, 240),
+            },
+            {
+              ok: true,
+              idle: true,
+              reason: 'etherscan_plan_no_bsc',
+              error: msg.slice(0, 240),
+              watchedCount: 0,
+            },
+          );
+        }
+        if (/quicknode_token_api_missing/i.test(msg)) {
+          return finishTick(
+            {
+              ok: true,
+              idle: true,
+              reason: 'quicknode_token_api_missing',
+              error: msg.slice(0, 240),
+            },
+            {
+              ok: true,
+              idle: true,
+              reason: 'quicknode_token_api_missing',
+              error: msg.slice(0, 240),
+              watchedCount: 0,
+            },
+          );
+        }
+        return finishTick(
+          { ok: false, error: msg, reason: 'indexer_error' },
+          {
+            ok: false,
+            idle: true,
+            reason: 'indexer_error',
+            error: msg.slice(0, 240),
+            watchedCount: 0,
+          },
+        );
       });
   };
 
@@ -2024,8 +2167,124 @@
   };
 
   global.__CFS_bscWatch_setupAlarm = function () {
-    try {
-      chrome.alarms.create('cfs_bsc_watch_poll', { periodInMinutes: 1 });
-    } catch (_) {}
+    var keys = IDX
+      ? [
+          IDX.STORAGE_QUICKNODE,
+          IDX.STORAGE_ETHERSCAN,
+          IDX.STORAGE_ANKR,
+          IDX.STORAGE_COVALENT,
+          IDX.STORAGE_PREFERENCE,
+          IDX.STORAGE_QN_AGGRESSIVE,
+          IDX.STORAGE_BSC_RPC,
+        ]
+      : [
+          'cfs_bsc_quicknode_rpc_url',
+          'cfs_bscscan_api_key',
+          'cfs_ankr_api_key',
+          'cfs_covalent_api_key',
+          'cfs_bsc_indexer_preference',
+          'cfs_bsc_quicknode_aggressive_poll',
+          'cfs_bsc_rpc_url',
+        ];
+    return storageLocalGet(keys)
+      .then(function (stored) {
+        var minutes = 1;
+        var resolved =
+          IDX && typeof IDX.resolvePreferredProvider === 'function'
+            ? IDX.resolvePreferredProvider(stored, 'bsc')
+            : null;
+        if (resolved && resolved.id === 'quicknode' && IDX && typeof IDX.quickNodeMinPollMinutes === 'function') {
+          minutes = IDX.quickNodeMinPollMinutes(stored);
+        }
+        try {
+          chrome.alarms.create('cfs_bsc_watch_poll', { periodInMinutes: minutes });
+        } catch (_) {}
+        return { ok: true, periodInMinutes: minutes };
+      })
+      .catch(function () {
+        try {
+          chrome.alarms.create('cfs_bsc_watch_poll', { periodInMinutes: 1 });
+        } catch (_) {}
+        return { ok: true, periodInMinutes: 1 };
+      });
+  };
+
+  global.__CFS_bscIndexer_status = function () {
+    return storageLocalGet(indexerStorageKeys().concat([BUNDLE_KEY])).then(function (stored) {
+      var n = countWatchedAddresses(stored[BUNDLE_KEY]);
+      if (IDX && typeof IDX.statusPayload === 'function') {
+        return IDX.statusPayload(stored, n);
+      }
+      return {
+        ok: true,
+        configured: String(stored[API_KEY_STORAGE] || '').trim()
+          ? [{ id: 'etherscan', label: 'Etherscan' }]
+          : [],
+        hint: String(stored[API_KEY_STORAGE] || '').trim()
+          ? ''
+          : 'Add a BSC indexer credential in Settings → BSC.',
+      };
+    });
+  };
+
+  /**
+   * Test / smoke hooks (CFS_BSC_WATCH_TEST_HOOK). Not used by product workflows.
+   * ops: classifyOutgoing | enrichReceipt | setupAlarm | maxSpan | alarmPeriod
+   */
+  global.__CFS_bscWatch_testHook = function (op, payload) {
+    payload = payload || {};
+    var kind = String(op || '').trim();
+    if (kind === 'maxSpan') {
+      return Promise.resolve({ ok: true, maxSpan: BSC_WATCH_MAX_SPAN_BLOCKS });
+    }
+    if (kind === 'setupAlarm' || kind === 'alarmPeriod') {
+      return Promise.resolve(global.__CFS_bscWatch_setupAlarm()).then(function (r) {
+        return new Promise(function (resolve) {
+          try {
+            chrome.alarms.get('cfs_bsc_watch_poll', function (alarm) {
+              resolve({
+                ok: true,
+                periodInMinutes: r && r.periodInMinutes != null ? r.periodInMinutes : null,
+                alarmPeriodInMinutes: alarm && alarm.periodInMinutes != null ? alarm.periodInMinutes : null,
+              });
+            });
+          } catch (e) {
+            resolve({
+              ok: true,
+              periodInMinutes: r && r.periodInMinutes != null ? r.periodInMinutes : null,
+              alarmPeriodInMinutes: null,
+              error: e && e.message ? e.message : String(e),
+            });
+          }
+        });
+      });
+    }
+    if (kind === 'classifyOutgoing') {
+      var addr = addrKey(payload.address);
+      var tx = payload.tx && typeof payload.tx === 'object' ? payload.tx : null;
+      if (!addr || !tx) return Promise.resolve({ ok: false, error: 'address and tx required' });
+      try {
+        var cl = classifyOutgoingBscTx(addr, tx);
+        return Promise.resolve({ ok: true, classification: cl });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: e && e.message ? e.message : String(e) });
+      }
+    }
+    if (kind === 'enrichReceipt') {
+      var addrE = addrKey(payload.address);
+      var txE = payload.tx && typeof payload.tx === 'object' ? payload.tx : null;
+      var hashE = String(payload.txHash || (txE && txE.hash) || '').trim();
+      var cl0 = payload.classification && typeof payload.classification === 'object'
+        ? payload.classification
+        : { kind: 'unknown', summary: '', side: '' };
+      if (!addrE || !hashE || !txE) {
+        return Promise.resolve({ ok: false, error: 'address, txHash, and tx required' });
+      }
+      var quote = payload.quoteToken || WBNB_BSC;
+      return fetchReceiptAndEnrichClassification(cl0, hashE, txE, addrE, quote).then(function (clOut) {
+        return { ok: true, classification: clOut || cl0 };
+      });
+    }
+    return Promise.resolve({ ok: false, error: 'unknown op: ' + kind });
   };
 })(typeof self !== 'undefined' ? self : globalThis);

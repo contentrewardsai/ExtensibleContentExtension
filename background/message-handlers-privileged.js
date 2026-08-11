@@ -16,8 +16,69 @@
     var cryptoToggle = deps.cryptoToggleFeatures;
     var defaultWalletAllowlist = deps.defaultWalletAllowlist || [];
     var registerWalletProxy = deps.registerWalletProxyScripts;
+    var broadcastToHttpTabs = deps.broadcastToHttpTabs;
     var whopAppOrigin = deps.whopAppOrigin || 'https://www.extensiblecontent.com';
     var filterStorageKeys = deps.filterStorageKeys;
+
+    register(
+      'CFS_WALLET_ENABLE_AUTO_APPROVE',
+      function (msg, sender, sendResponse) {
+        /* Same-extension only (onMessage); content-script step handlers must be able to call this. */
+        var enabled = !!msg.enabled;
+        var tabId = sender && sender.tab && sender.tab.id;
+        global.__CFS_walletSessionAutoApprove = enabled;
+        Promise.resolve(
+          typeof broadcastToHttpTabs === 'function'
+            ? broadcastToHttpTabs({ type: 'CFS_WALLET_SET_AUTO_APPROVE', enabled: enabled }, tabId)
+            : null
+        )
+          .then(function () {
+            sendResponse({ ok: true, enabled: enabled });
+          })
+          .catch(function (e) {
+            sendResponse({ ok: false, error: (e && e.message) || String(e) });
+          });
+      },
+      { async: true }
+    );
+
+    register(
+      'CFS_WALLET_SET_INJECTION_SETTINGS',
+      function (msg, sender, sendResponse) {
+        if (!isExt(sender)) {
+          sendResponse({ ok: false, error: 'CFS_WALLET_SET_INJECTION_SETTINGS only allowed from extension pages' });
+          return;
+        }
+        (async function () {
+          try {
+            var enabled = msg.enabled !== false;
+            var autoApprove = msg.autoApprove === true;
+            await chrome.storage.local.set({
+              cfs_wallet_injection_enabled: enabled,
+              cfs_wallet_injection_auto_approve: autoApprove,
+            });
+            if (!enabled) {
+              try {
+                await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] });
+              } catch (_) {}
+            } else if (typeof registerWalletProxy === 'function') {
+              var data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist', 'cfsCryptoWeb3Enabled']);
+              if (data.cfsCryptoWeb3Enabled === true) {
+                var list = data.cfs_wallet_injection_allowlist;
+                await registerWalletProxy(Array.isArray(list) && list.length ? list : defaultWalletAllowlist.slice());
+              }
+            }
+            if (typeof broadcastToHttpTabs === 'function') {
+              await broadcastToHttpTabs({ type: 'CFS_WALLET_SET_AUTO_APPROVE', enabled: autoApprove });
+            }
+            sendResponse({ ok: true, enabled: enabled, autoApprove: autoApprove });
+          } catch (e) {
+            sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
+          }
+        })();
+      },
+      { async: true }
+    );
 
     register(
       'CFS_CRYPTO_WEB3_TOGGLE',
@@ -55,11 +116,27 @@
                 try {
                   await chrome.scripting.unregisterContentScripts({ ids: ['cfs-wallet-proxy', 'cfs-wallet-relay'] });
                 } catch (_) {}
+                try {
+                  await chrome.storage.local.set({ cfs_wallet_injection_enabled: false });
+                } catch (_) {}
+              } else if (typeof registerWalletProxy === 'function') {
+                /* Empty reset → restore default domain injections (not leave prior custom scripts). */
+                var inj = await chrome.storage.local.get(['cfs_wallet_injection_enabled', 'cfsCryptoWeb3Enabled']);
+                if (inj.cfs_wallet_injection_enabled !== false && inj.cfsCryptoWeb3Enabled === true) {
+                  await registerWalletProxy(defaultWalletAllowlist.slice());
+                }
               }
               sendResponse({ ok: true, allowlist: defaultWalletAllowlist.slice() });
             } else {
               await chrome.storage.local.set({ cfs_wallet_injection_allowlist: raw });
-              await registerWalletProxy(raw);
+              var flags = await chrome.storage.local.get(['cfs_wallet_injection_enabled', 'cfsCryptoWeb3Enabled']);
+              if (
+                typeof registerWalletProxy === 'function' &&
+                flags.cfs_wallet_injection_enabled !== false &&
+                flags.cfsCryptoWeb3Enabled === true
+              ) {
+                await registerWalletProxy(raw);
+              }
               sendResponse({ ok: true, allowlist: raw });
             }
           } catch (e) {
@@ -185,8 +262,11 @@
           sendResponse({ ok: false, error: 'STORAGE_READ requires 1-100 keys' });
           return;
         }
-        var filtered =
-          typeof filterStorageKeys === 'function' ? filterStorageKeys(keys) : { allowed: keys, denied: [] };
+        if (typeof filterStorageKeys !== 'function') {
+          sendResponse({ ok: false, error: 'Storage secret filter unavailable', denied: keys });
+          return;
+        }
+        var filtered = filterStorageKeys(keys);
         if (filtered.allowed.length === 0) {
           sendResponse({
             ok: false,
@@ -196,6 +276,10 @@
           return;
         }
         chrome.storage.local.get(filtered.allowed, function (data) {
+          if (chrome.runtime.lastError) {
+            sendResponse({ ok: false, error: chrome.runtime.lastError.message || 'STORAGE_READ failed' });
+            return;
+          }
           sendResponse({
             ok: true,
             data: data || {},

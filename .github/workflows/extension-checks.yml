@@ -43,9 +43,11 @@ jobs:
       - run: npm run test:cfs-e2e-testids-wired
       - run: npm run test:sellability-probe-wired
       - run: npm run test:bsc-v3-npm-query-wired
+      - run: npm run test:bsc-v3-range-watch-wired
       - run: npm run test:infinity-bundle
       - run: npm run test:bsc-infinity-wired
       - run: npm run test:infi-bin-path-json
+      - run: npm run test:bsc-infi-range-watch-wired
       - run: npm run test:remote-llm-wired
       - run: npm run check:content-bundle
       - run: npm run test:ffmpeg-vendor

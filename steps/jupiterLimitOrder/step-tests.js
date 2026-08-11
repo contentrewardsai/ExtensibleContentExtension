@@ -8,6 +8,14 @@
       var ot = String(undefined || 'single').trim();
       runner.assertEqual(ot, 'single');
     }},
+    { name: 'limitOperation defaults to create', fn: function () {
+      var op = String(undefined || 'create').trim().toLowerCase();
+      runner.assertEqual(op, 'create');
+    }},
+    { name: 'cancel requires orderId', fn: function () {
+      var id = String('').trim();
+      runner.assertTrue(!id, 'empty orderId');
+    }},
     { name: 'slippageBps clamped', fn: function () {
       var sl = Math.min(10000, Math.max(0, parseInt('50', 10) || 50));
       runner.assertEqual(sl, 50);

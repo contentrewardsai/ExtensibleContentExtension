@@ -27,7 +27,11 @@ const htmlPaths = [
   path.join(root, 'settings/settings.html'),
   path.join(root, 'test/unit-tests.html'),
 ];
-const combined = htmlPaths.map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+const jsPaths = [
+  path.join(root, 'sidepanel/sidepanel.js'),
+  path.join(root, 'settings/settings.js'),
+];
+const combined = [...htmlPaths, ...jsPaths].map((p) => fs.readFileSync(p, 'utf8')).join('\n');
 const sidepanelHtml = fs.readFileSync(path.join(root, 'sidepanel/sidepanel.html'), 'utf8');
 
 let ok = true;

@@ -1,0 +1,432 @@
+{
+  "id": "bsc-v3-lp",
+  "name": "BSC Pancake V3 concentrated LP",
+  "version": "1",
+  "description": "BNB or stable → V3 mint (multi-position boundRows, asymmetric ranges) → always-on batch watch → exit to stable or stable restake. See docs/BSC_V3_LP_WORKFLOWS.md.",
+  "workflows": {
+    "wf-bsc-v3-enter-stable": {
+      "id": "wf-bsc-v3-enter-stable",
+      "name": "BSC V3 LP enter (stable → mint, asymmetric)",
+      "version": 1,
+      "initial_version": "wf-bsc-v3-enter-stable",
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscV3EnterFromStable",
+            "runIf": "",
+            "tokenA": "0x0A43fC31a73013089DF59194872Ecae4cAe14444",
+            "tokenB": "0x55d398326f99059fF775485246999027B3197955",
+            "v3Fee": "2500",
+            "v3Pool": "0xEe04B2A82BAb9EfEFCD626F5D66F51Cc2B6FA12A",
+            "rangePercentBelow": "5",
+            "rangePercentAbove": "15",
+            "stableToken": "0x55d398326f99059fF775485246999027B3197955",
+            "stableBudgetWei": "max",
+            "stableReserveWei": "0",
+            "exitBelowPolicy": "sell_stable",
+            "exitAbovePolicy": "restake",
+            "slippageBps": "100",
+            "ensureApprovals": true,
+            "saveV3PositionTokenIdVariable": "v3PositionTokenId"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-v3-monitor",
+            "enablePriceRangeWatch": true,
+            "pollIntervalMs": "30000",
+            "fieldMap": {
+              "v3PositionTokenId": "{{v3PositionTokenId}}",
+              "v3Pool": "{{v3Pool}}",
+              "token0": "{{token0}}",
+              "token1": "{{token1}}",
+              "tokenA": "{{tokenA}}",
+              "tokenB": "{{tokenB}}",
+              "v3Fee": "{{v3Fee}}",
+              "rangePercentBelow": "{{rangePercentBelow}}",
+              "rangePercentAbove": "{{rangePercentAbove}}",
+              "exitBelowPolicy": "{{exitBelowPolicy}}",
+              "exitAbovePolicy": "{{exitAbovePolicy}}",
+              "stableToken": "{{stableToken}}",
+              "minPrice": "{{minPrice}}",
+              "maxPrice": "{{maxPrice}}",
+              "tickLower": "{{tickLower}}",
+              "tickUpper": "{{tickUpper}}",
+              "fundMode": "stable",
+              "enabled": "true"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRow",
+            "bindMode": "upsert",
+            "kind": "v3"
+          }
+        ]
+      }
+    },
+    "wf-bsc-v3-enter": {
+      "id": "wf-bsc-v3-enter",
+      "name": "BSC V3 LP enter (BNB → mint)",
+      "version": 1,
+      "initial_version": "wf-bsc-v3-enter",
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscV3LpWizard",
+            "runIf": "",
+            "tokenA": "0x55d398326f99059fF775485246999027B3197955",
+            "tokenB": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+            "v3Fee": "500",
+            "v3Pool": "0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4",
+            "rangePercent": "0.5",
+            "bnbBudgetWei": "max",
+            "stableToken": "0x55d398326f99059fF775485246999027B3197955",
+            "exitBelowPolicy": "sell_stable",
+            "exitAbovePolicy": "restake",
+            "slippageBps": "50",
+            "previewAmounts": true
+          },
+          {
+            "type": "bscV3AutoApprove",
+            "runIf": "",
+            "tokenA": "{{tokenA}}",
+            "tokenB": "{{tokenB}}",
+            "amount": "max",
+            "saveApproveResultsVariable": "v3ApproveResults"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "swapExactETHForTokens",
+            "path": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c,{{token0}}",
+            "ethWei": "{{bnbFor0Wei}}",
+            "amountOutMin": "0",
+            "waitConfirmations": 1,
+            "saveTxHashVariable": "bscTxHashSwap0"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "swapExactETHForTokens",
+            "path": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c,{{token1}}",
+            "ethWei": "{{bnbFor1Wei}}",
+            "amountOutMin": "0",
+            "waitConfirmations": 1,
+            "saveTxHashVariable": "bscTxHashSwap1"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "v3PositionMint",
+            "tokenA": "{{token0}}",
+            "tokenB": "{{token1}}",
+            "v3Fee": "{{v3Fee}}",
+            "minPrice": "{{minPrice}}",
+            "maxPrice": "{{maxPrice}}",
+            "amountADesired": "{{amount0Desired}}",
+            "amountBDesired": "{{amount1Desired}}",
+            "amountAMin": "0",
+            "amountBMin": "0",
+            "waitConfirmations": 1,
+            "saveV3PositionTokenIdVariable": "v3PositionTokenId",
+            "saveTxHashVariable": "bscTxHashMint"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-v3-monitor",
+            "enablePriceRangeWatch": true,
+            "pollIntervalMs": "30000",
+            "fieldMap": {
+              "v3PositionTokenId": "{{v3PositionTokenId}}",
+              "v3Pool": "{{v3Pool}}",
+              "token0": "{{token0}}",
+              "token1": "{{token1}}",
+              "tokenA": "{{tokenA}}",
+              "tokenB": "{{tokenB}}",
+              "v3Fee": "{{v3Fee}}",
+              "rangePercent": "{{rangePercent}}",
+              "exitBelowPolicy": "{{exitBelowPolicy}}",
+              "exitAbovePolicy": "{{exitAbovePolicy}}",
+              "stableToken": "{{stableToken}}",
+              "minPrice": "{{minPrice}}",
+              "maxPrice": "{{maxPrice}}",
+              "tickLower": "{{tickLower}}",
+              "tickUpper": "{{tickUpper}}",
+              "fundMode": "bnb",
+              "enabled": "true"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRow",
+            "bindMode": "upsert",
+            "kind": "v3"
+          }
+        ]
+      }
+    },
+    "wf-bsc-v3-monitor": {
+      "id": "wf-bsc-v3-monitor",
+      "name": "BSC V3 LP monitor (always-on)",
+      "version": 1,
+      "initial_version": "wf-bsc-v3-monitor",
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "alwaysOn": {
+        "enabled": true,
+        "pollIntervalMs": 30000,
+        "scopes": {
+          "priceRangeWatch": true
+        },
+        "boundRow": {
+          "v3PositionTokenId": "",
+          "v3Pool": "0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4",
+          "rangePercent": "0.5",
+          "exitBelowPolicy": "sell_stable",
+          "exitAbovePolicy": "restake",
+          "stableToken": "0x55d398326f99059fF775485246999027B3197955",
+          "tokenA": "0x55d398326f99059fF775485246999027B3197955",
+          "tokenB": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+          "v3Fee": "500"
+        },
+        "priceRangeWatch": {
+          "mode": "v3",
+          "v3PositionTokenId": "{{v3PositionTokenId}}",
+          "v3Pool": "{{v3Pool}}",
+          "pollIntervalMs": 30000,
+          "playbackStartUrl": "https://pancakeswap.finance",
+          "exitBelowPolicy": "{{exitBelowPolicy}}",
+          "exitAbovePolicy": "{{exitAbovePolicy}}",
+          "stableToken": "{{stableToken}}",
+          "rangePercent": "{{rangePercent}}",
+          "onOutOfRange": [
+            {
+              "runIf": "{{driftDirection}} === below && {{exitBelowPolicy}} === sell_stable",
+              "workflowId": "wf-bsc-v3-exit-stable"
+            },
+            {
+              "runIf": "{{driftDirection}} === below && {{exitBelowPolicy}} === restake",
+              "workflowId": "wf-bsc-v3-restake"
+            },
+            {
+              "runIf": "{{driftDirection}} === above && {{exitAbovePolicy}} === sell_stable",
+              "workflowId": "wf-bsc-v3-exit-stable"
+            },
+            {
+              "runIf": "{{driftDirection}} === above && {{exitAbovePolicy}} === restake",
+              "workflowId": "wf-bsc-v3-restake"
+            }
+          ]
+        },
+        "boundRows": [],
+        "gasReloadEnabled": false,
+        "gasReloadBelowWei": "",
+        "gasReloadTargetWei": "",
+        "reconcileAutoTrackNew": false
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "pancakeV3RangeWatch",
+            "runIf": "",
+            "v3PositionTokenId": "{{v3PositionTokenId}}",
+            "pollIntervalMs": 30000,
+            "timeoutMs": 0,
+            "saveDriftDirection": "driftDirection",
+            "saveCurrentTick": "currentTick",
+            "savePositionRange": "positionRange"
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{driftDirection}} === below && {{exitBelowPolicy}} === sell_stable",
+            "workflowId": "wf-bsc-v3-exit-stable"
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{driftDirection}} === below && {{exitBelowPolicy}} === restake",
+            "workflowId": "wf-bsc-v3-restake"
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{driftDirection}} === above && {{exitAbovePolicy}} === sell_stable",
+            "workflowId": "wf-bsc-v3-exit-stable"
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "{{driftDirection}} === above && {{exitAbovePolicy}} === restake",
+            "workflowId": "wf-bsc-v3-restake"
+          }
+        ]
+      }
+    },
+    "wf-bsc-v3-exit-stable": {
+      "id": "wf-bsc-v3-exit-stable",
+      "name": "BSC V3 LP exit to stable",
+      "version": 1,
+      "initial_version": "wf-bsc-v3-exit-stable",
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "ensureNativeGasFromStable",
+            "gasReloadBelowWei": "{{gasReloadBelowWei}}",
+            "gasReloadTargetWei": "{{gasReloadTargetWei}}",
+            "gasReloadStableToken": "{{stableToken}}",
+            "stableReserveWei": "{{stableReserveWei}}",
+            "waitConfirmations": 1
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "v3PositionDecreaseLiquidity",
+            "v3PositionTokenId": "{{v3PositionTokenId}}",
+            "v3Liquidity": "max",
+            "v3Amount0Min": "0",
+            "v3Amount1Min": "0",
+            "waitConfirmations": 1
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "v3PositionCollect",
+            "v3PositionTokenId": "{{v3PositionTokenId}}",
+            "waitConfirmations": 1
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "",
+            "operation": "v3PositionBurn",
+            "v3PositionTokenId": "{{v3PositionTokenId}}",
+            "waitConfirmations": 1
+          },
+          {
+            "type": "bscV3AutoApprove",
+            "runIf": "",
+            "tokenA": "{{token0}}",
+            "tokenB": "{{token1}}",
+            "amount": "max",
+            "saveApproveResultsVariable": "v3ExitApproveResults"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "{{token1}} !== {{stableToken}}",
+            "operation": "v3SwapExactInputSingle",
+            "tokenIn": "{{token1}}",
+            "tokenOut": "{{stableToken}}",
+            "v3Fee": "{{v3Fee}}",
+            "amountIn": "max",
+            "amountOutMin": "0",
+            "waitConfirmations": 1,
+            "saveTxHashVariable": "bscTxHashExit1"
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "{{token0}} !== {{stableToken}}",
+            "operation": "v3SwapExactInputSingle",
+            "tokenIn": "{{token0}}",
+            "tokenOut": "{{stableToken}}",
+            "v3Fee": "{{v3Fee}}",
+            "amountIn": "max",
+            "amountOutMin": "0",
+            "waitConfirmations": 1,
+            "saveTxHashVariable": "bscTxHashExit0"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-v3-monitor",
+            "enablePriceRangeWatch": true,
+            "pollIntervalMs": "30000",
+            "fieldMap": {
+              "v3PositionTokenId": "{{v3PositionTokenId}}"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRowAfterExit",
+            "bindMode": "remove",
+            "kind": "v3",
+            "tokenId": "{{v3PositionTokenId}}"
+          }
+        ]
+      }
+    },
+    "wf-bsc-v3-restake": {
+      "id": "wf-bsc-v3-restake",
+      "name": "BSC V3 LP restake (rebalance once)",
+      "version": 1,
+      "initial_version": "wf-bsc-v3-restake",
+      "urlPattern": {
+        "origin": "https://pancakeswap.finance",
+        "pathPattern": "*"
+      },
+      "analyzed": {
+        "actions": [
+          {
+            "type": "bscV3RebalanceOnce",
+            "runIf": "",
+            "v3PositionTokenId": "{{v3PositionTokenId}}",
+            "v3Pool": "{{v3Pool}}",
+            "rangePercent": "{{rangePercent}}",
+            "rangePercentBelow": "{{rangePercentBelow}}",
+            "rangePercentAbove": "{{rangePercentAbove}}",
+            "driftDirection": "{{driftDirection}}",
+            "slippageBps": "50",
+            "burnPosition": true,
+            "ensureApprovals": true,
+            "bnbBudgetWei": "max",
+            "saveV3PositionTokenIdVariable": "v3PositionTokenId",
+            "saveTickLower": "tickLower",
+            "saveTickUpper": "tickUpper",
+            "saveMinPrice": "minPrice",
+            "saveMaxPrice": "maxPrice",
+            "fundMode": "{{fundMode}}",
+            "stableToken": "{{stableToken}}",
+            "stableBudgetWei": "max"
+          },
+          {
+            "type": "bindAlwaysOnBoundRow",
+            "runIf": "",
+            "targetWorkflowId": "wf-bsc-v3-monitor",
+            "enablePriceRangeWatch": true,
+            "pollIntervalMs": "30000",
+            "fieldMap": {
+              "v3PositionTokenId": "{{v3PositionTokenId}}",
+              "v3Pool": "{{v3Pool}}",
+              "rangePercent": "{{rangePercent}}",
+              "rangePercentBelow": "{{rangePercentBelow}}",
+              "rangePercentAbove": "{{rangePercentAbove}}",
+              "exitBelowPolicy": "{{exitBelowPolicy}}",
+              "exitAbovePolicy": "{{exitAbovePolicy}}",
+              "stableToken": "{{stableToken}}",
+              "minPrice": "{{minPrice}}",
+              "maxPrice": "{{maxPrice}}",
+              "tickLower": "{{tickLower}}",
+              "tickUpper": "{{tickUpper}}",
+              "oldTokenId": "{{oldTokenId}}",
+              "fundMode": "{{fundMode}}",
+              "enabled": "true"
+            },
+            "saveBoundRowVariable": "alwaysOnBoundRow",
+            "bindMode": "replace",
+            "kind": "v3",
+            "oldTokenId": "{{oldTokenId}}"
+          },
+          {
+            "type": "runWorkflow",
+            "runIf": "",
+            "workflowId": "wf-bsc-v3-monitor"
+          }
+        ]
+      }
+    }
+  }
+}

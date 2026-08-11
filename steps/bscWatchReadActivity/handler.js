@@ -19,12 +19,27 @@
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
+  function requiredIndexerHint() {
+    var idx = typeof CFS_BSC_INDEXER !== 'undefined' ? CFS_BSC_INDEXER : null;
+    if (idx && typeof idx.requiredKeyHint === 'function') return idx.requiredKeyHint();
+    return 'Add one of: QuickNode BSC endpoint (free), Etherscan Multichain, Ankr, or Covalent (GoldRush) in Settings → BSC.';
+  }
+
   window.__CFS_registerStepHandler('bscWatchReadActivity', async function (action, opts) {
     var ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (bscWatchReadActivity)');
     var sendMessage = ctx.sendMessage;
     var row = ctx.currentRow || {};
     var getRowValue = ctx.getRowValue;
+
+    try {
+      var st = await sendMessage({ type: 'CFS_BSC_INDEXER_STATUS' });
+      if (st && st.ok && Array.isArray(st.configured) && st.configured.length === 0) {
+        throw new Error(st.hint || requiredIndexerHint());
+      }
+    } catch (e) {
+      if (e && /Add one of:|QuickNode|indexer/i.test(String(e.message || e))) throw e;
+    }
 
     var limitStr = trimResolved(row, getRowValue, action, action.limit);
     var limit = parseInt(limitStr, 10);

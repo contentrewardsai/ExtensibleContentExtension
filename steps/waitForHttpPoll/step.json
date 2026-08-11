@@ -22,5 +22,40 @@
     "domWatchLastLogItem": true,
     "sideRegex": "\\b(BUY|SELL|LONG|SHORT)\\b",
     "onFailure": "stop"
-  }
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text", "placeholder": "{{var}}" },
+    {
+      "key": "signalSource",
+      "label": "Signal source",
+      "inputType": "select",
+      "options": [
+        { "value": "httpPoll", "label": "HTTP poll (webhook relay)" },
+        { "value": "tradingViewDom", "label": "TradingView DOM (brittle)" }
+      ]
+    },
+    { "key": "url", "label": "Poll URL (optional if using row variable)", "inputType": "text", "placeholder": "https://relay.example.com/latest" },
+    { "key": "urlVariableKey", "label": "Row variable for poll URL", "inputType": "text", "placeholder": "alertRelayUrl" },
+    { "key": "headersJson", "label": "GET headers (JSON or Header: value lines)", "inputType": "textarea", "placeholder": "{\"Authorization\":\"Bearer {{relaySecret}}\"}" },
+    { "key": "pollIntervalMs", "label": "Poll interval (ms)", "inputType": "text", "placeholder": "2000" },
+    { "key": "requestTimeoutMs", "label": "Request timeout (ms)", "inputType": "text", "placeholder": "25000" },
+    { "key": "waitTimeoutMs", "label": "Overall wait timeout (ms)", "inputType": "text", "placeholder": "300000" },
+    { "key": "dedupeField", "label": "Dedupe field (dot path)", "inputType": "text", "placeholder": "alertId" },
+    { "key": "acceptFirstPayload", "label": "Accept first valid payload (no dedupe)", "inputType": "checkbox" },
+    { "key": "payloadPath", "label": "Payload path to merge (optional)", "inputType": "text", "placeholder": "data" },
+    { "key": "pendingField", "label": "Pending field (skip while matches)", "inputType": "text", "placeholder": "status" },
+    { "key": "pendingValue", "label": "Pending value", "inputType": "text", "placeholder": "waiting" },
+    { "key": "domContainerSelector", "label": "DOM container selector (TradingView mode)", "inputType": "text", "placeholder": "#id_alert-widget-tabs-slots_tabpanel_log" },
+    { "key": "domWatchLastLogItem", "label": "Watch last log row only (DOM mode)", "inputType": "checkbox" },
+    { "key": "sideRegex", "label": "Side regex (DOM mode)", "inputType": "text", "placeholder": "\\b(BUY|SELL|LONG|SHORT)\\b" },
+    {
+      "key": "onFailure",
+      "label": "On failure",
+      "inputType": "select",
+      "options": [
+        { "value": "stop", "label": "Stop workflow" },
+        { "value": "continue", "label": "Continue" }
+      ]
+    }
+  ]
 }

@@ -32,9 +32,21 @@
 
     if (row && typeof row === 'object') {
       var v1 = String(action.saveSignatureVariable || '').trim();
-      if (v1 && response.signature) row[v1] = response.signature;
+      if (v1) {
+        if (Array.isArray(response.signatures) && response.signatures.length > 1) {
+          row[v1] = JSON.stringify(response.signatures);
+        } else if (response.signature) {
+          row[v1] = response.signature;
+        }
+      }
       var v2 = String(action.saveExplorerUrlVariable || '').trim();
-      if (v2 && response.explorerUrl) row[v2] = response.explorerUrl;
+      if (v2) {
+        if (Array.isArray(response.explorerUrls) && response.explorerUrls.length > 1) {
+          row[v2] = JSON.stringify(response.explorerUrls);
+        } else if (response.explorerUrl) {
+          row[v2] = response.explorerUrl;
+        }
+      }
     }
   }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });
 })();

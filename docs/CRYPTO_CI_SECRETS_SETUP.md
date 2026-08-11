@@ -30,7 +30,7 @@ These jobs run on every PR with no configuration needed:
 | Secret | Required? | Example | Purpose |
 |--------|-----------|---------|---------|
 | `CRYPTO_HTTP_SMOKE_RUN` | At least one | `1` | Enables Rugcheck + Aster + Jupiter v6 quote |
-| `CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY` | Optional | BscScan API key | BscScan endpoint check |
+| `CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY` | Optional | Etherscan Multichain V2 API key | Etherscan V2 `eth_blockNumber` (BSC `chainid`; free keys may soft-skip) |
 | `CRYPTO_HTTP_SMOKE_JUPITER_API_KEY` | Optional | Jupiter API key | Jupiter authenticated quote |
 
 ## Tier 3: EVM Fork Smoke

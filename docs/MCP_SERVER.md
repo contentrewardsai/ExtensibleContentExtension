@@ -49,7 +49,11 @@ No Node.js or npm needed — the binaries are self-contained.
 
 ### 3. Start the server
 
-Double-click the binary for your OS. It auto-reads your token and port from `ec-mcp-config.json` (written when you save settings).
+**Settings → MCP Server → ▶ Start** launches the binary through Chrome native messaging (host `com.extensiblecontent.mcp`).
+
+**First time only** (or if Start says the host was not found): use **📂 Find MCP Server binary**, open `mcp-server/dist/`, and **double-click** the binary for your OS. That run installs the native messaging host and starts HTTP on port 3100. After that, ▶ Start / ■ Stop work from Settings.
+
+It auto-reads token/port/`extensionId` from `ec-mcp-config.json` next to the binary (written when you save MCP settings or use Find binary with a project folder).
 
 > **macOS first time:** Right-click the binary → **Open**, then click **Open** in the Gatekeeper dialog.
 
@@ -69,9 +73,53 @@ Example `ec-mcp-config.json`:
 ```json
 {
   "token": "auto-generated-uuid",
-  "port": 3100
+  "port": 3100,
+  "extensionId": "your-chrome-extension-id",
+  "wakeChromeOnDisconnect": true,
+  "wakeChromeIntervalMs": 30000,
+  "wakeChromeMinIntervalMs": 60000
 }
 ```
+
+`extensionId` is written when you click **Save MCP settings** in the extension. Optional wake knobs control the Chrome wake-up backup (defaults shown above).
+
+### Chrome wake-up (relay backup)
+
+If Chrome is quit or the relay tab is gone, the MCP process can relaunch/activate Chrome and open `chrome-extension://<extensionId>/mcp/mcp-relay.html` so the WebSocket reconnects.
+
+- **Auto:** when the relay stays disconnected for ~30s (`wakeChromeIntervalMs`), the server attempts a wake (at most once per `wakeChromeMinIntervalMs`, with backoff after failures). Set `wakeChromeOnDisconnect: false` to disable.
+- **Tool:** `wake_extension_relay` — on-demand wake; optional `refreshV3Watch: true` sends `CFS_V3_RANGE_WATCH_REFRESH_NOW` after reconnect.
+- **Prerequisite:** `extensionId` in `ec-mcp-config.json` (Save MCP settings once).
+- **Limits:** this reopens Chrome/relay only. It does not unlock wallets, keep Chrome alive against OS kill, or replace service-worker V3 polling/exits.
+
+### LP monitor watchdog (optional)
+
+Default **off**. Enable in `ec-mcp-config.json`:
+
+```json
+{
+  "watchdog": {
+    "enabled": true,
+    "intervalMs": 30000,
+    "alertCooldownSec": 300,
+    "relayStaleSec": 60,
+    "pollStaleSec": 120,
+    "webhookUrl": "",
+    "wakeOnAlert": true,
+    "refreshOnOor": true,
+    "reconcileWhenHealthy": true,
+    "directRpcWhenRelayDown": true,
+    "rpcUrl": "https://bsc-dataseed.binance.org"
+  }
+}
+```
+
+- Alerts (structured log + optional webhook + best-effort OS notification) when the relay is down longer than `relayStaleSec`, V3 poll is stale, or any watched position is out of range.
+- On OOR: optional wake + `CFS_V3_RANGE_WATCH_REFRESH_NOW`. Alert text distinguishes wallet locked vs needs action when status is available.
+- When healthy: reconciles NPM NFTs vs `boundRows`, persists a local snapshot (including `automationWallet`), and mirrors status into extension storage (`cfsMcpWatchdogStatus`) for the side-panel hint.
+- When relay is down and `directRpcWhenRelayDown` is true: Multicall3 `aggregate3` batch of pool `slot0` checks against the last snapshot’s pool/ticks (sequential eth_call fallback) → alert “OOR while Chrome closed.”
+- Tools: `monitor_watchdog_status`, `monitor_watchdog_configure`.
+- **Limits:** machine must be on with MCP running; sleep/power-off stops the watchdog; no mobile push in v1; signing still needs an unlocked automation wallet after wake.
 
 ## Developer Setup
 
@@ -151,7 +199,7 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 
 > ⚠️ **WARNING:** MCP tools can execute real financial transactions through your extension wallets. Do not use large amounts of funds or funds you are concerned about losing. Always review tool calls in your AI client before approving.
 
-## Available Tools (73)
+## Available Tools (76+)
 
 ### Workflows (6)
 | Tool | Description |
@@ -162,6 +210,12 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 | `set_imported_rows` | Set sidepanel imported rows |
 | `clear_imported_rows` | Clear all imported rows |
 | `get_run_history` | Get workflow run history |
+
+### Always-on / project
+| Tool | Description |
+|------|-------------|
+| `set_always_on_scope` | Enable/disable scopes (incl. `priceRangeWatch`) |
+| `set_always_on_bound_row` | Merge fields into `alwaysOn.boundRow` (V3 NFT handoff after mint) |
 
 ### Scheduling (3)
 | Tool | Description |
@@ -203,12 +257,14 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 | `solana_pump_or_jupiter_sell` | Auto-route sell ⚠️ |
 | `solana_sellability_probe` | Sellability probe ⚠️ |
 
-### BSC (4)
+### BSC (6)
 | Tool | Description |
 |------|-------------|
-| `bsc_query` | Read-only BSC queries |
-| `bsc_execute` | BSC transaction ⚠️ |
+| `bsc_query` | Read-only BSC queries (incl. V3 LP: `v3RangeFromPercent`, `v3LpAmountsFromBnb`, `v3NpmPosition`) |
+| `bsc_execute` | BSC transaction ⚠️ (incl. `v3PositionMint` / decrease / collect / burn) |
 | `bsc_sellability_probe` | BSC sellability probe ⚠️ |
+| `bsc_v3_range_watch_status` | Pancake V3 always-on range watch status (see `docs/BSC_V3_LP_WORKFLOWS.md`) |
+| `bsc_v3_range_watch_refresh` | Trigger one V3 range-watch poll now |
 
 ### Raydium (9)
 | Tool | Description |
@@ -262,7 +318,7 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 | `apify_dataset_items` | Fetch dataset items |
 | `apify_test_token` | Test API token |
 
-### System & MCP Gateway (7)
+### System & MCP Gateway
 | Tool | Description |
 |------|-------------|
 | `get_extension_status` | Relay connection status |
@@ -270,6 +326,9 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 | `read_storage` | Read chrome.storage keys |
 | `get_tab_info` | Active tab information |
 | `tunnel_status` | Remote access tunnel status |
+| `wake_extension_relay` | Launch/activate Chrome and open `mcp/mcp-relay.html`; optional `refreshV3Watch` |
+| `monitor_watchdog_status` / `monitor_watchdog_configure` | LP watchdog (relay offline + OOR alerts); default off |
+| `bsc_v3_reconcile_positions` | Discover NPM NFTs vs `boundRows` |
 | `list_external_mcp_endpoints` | List configured external MCP servers |
 | `list_external_mcp_tools` | Browse tools on a remote MCP server |
 | `call_external_mcp_tool` | Execute a tool on a remote MCP server |
@@ -314,4 +373,4 @@ xattr -d com.apple.quarantine StartMacMCPServer
 ```
 
 ### Tools return "Extension relay not connected"
-The relay page (`mcp/mcp-relay.html`) must be open in the extension browser. The WebSocket reconnects automatically if the server restarts.
+The relay page (`mcp/mcp-relay.html`) must be open in the extension browser. The WebSocket reconnects automatically if the server restarts. If Chrome was quit, call `wake_extension_relay` (or wait for auto-wake) — requires `extensionId` in `ec-mcp-config.json`.
