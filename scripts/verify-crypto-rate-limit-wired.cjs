@@ -15,6 +15,7 @@ const cwPath = path.join(root, 'shared', 'crypto-workflow-step-ids.js');
 const cfsPath = path.join(root, 'shared', 'cfs-always-on-automation.js');
 const swSol = path.join(root, 'background', 'solana-swap.js');
 const swWatch = path.join(root, 'background', 'solana-watch.js');
+const solRpcHelpers = path.join(root, 'background', 'solana-rpc-helpers.js');
 const bscEvm = path.join(root, 'background', 'bsc-evm.js');
 const pumpProbe = path.join(root, 'background', 'pump-market-probe.js');
 const wafPath = path.join(root, 'background', 'watch-activity-price-filter.js');
@@ -22,7 +23,21 @@ const cprPath = path.join(root, 'background', 'following-automation-runner.js');
 const perpsPath = path.join(root, 'background', 'perps-status.js');
 const smbPath = path.join(root, 'shared', 'solana-jsonrpc-mint-batch.js');
 
-for (const p of [swPath, frPath, smbPath, cwPath, cfsPath, swSol, swWatch, bscEvm, pumpProbe, wafPath, cprPath, perpsPath]) {
+for (const p of [
+  swPath,
+  frPath,
+  smbPath,
+  cwPath,
+  cfsPath,
+  swSol,
+  swWatch,
+  solRpcHelpers,
+  bscEvm,
+  pumpProbe,
+  wafPath,
+  cprPath,
+  perpsPath,
+]) {
   if (!fs.existsSync(p)) {
     console.error('verify-crypto-rate-limit-wired: missing', path.relative(root, p));
     process.exit(1);
@@ -111,8 +126,18 @@ if (
 }
 
 const solW = fs.readFileSync(swWatch, 'utf8');
-if (!solW.includes('__CFS_fetchGetTiered')) {
-  console.error('verify-crypto-rate-limit-wired: solana-watch.js should use tiered Jupiter price GET');
+const solRpcH = fs.readFileSync(solRpcHelpers, 'utf8');
+// Jupiter mint price GET lives in solana-rpc-helpers (shared); watch must delegate to it.
+const jupFnIdx = solRpcH.indexOf('function fetchJupiterMintPriceUsd');
+const jupFnSlice = jupFnIdx >= 0 ? solRpcH.slice(jupFnIdx, jupFnIdx + 900) : '';
+if (
+  !solW.includes('solRpc.fetchJupiterMintPriceUsd') ||
+  jupFnIdx < 0 ||
+  !jupFnSlice.includes('__CFS_fetchGetTiered')
+) {
+  console.error(
+    'verify-crypto-rate-limit-wired: solana-watch.js must delegate Jupiter price GET to solana-rpc-helpers (__CFS_fetchGetTiered)',
+  );
   process.exit(1);
 }
 if (!solW.includes('cfs_quicknode_solana_http_url') || !solW.includes('cfs_solana_watch_high_reliability')) {
@@ -191,9 +216,14 @@ if (!raySlice.includes('__CFS_fetchGetTiered') || !raySlice.includes('__CFS_fetc
 }
 
 const waf = fs.readFileSync(wafPath, 'utf8');
-if (!waf.includes('__CFS_fetchWith429Backoff') || !waf.includes('__CFS_fetchGetTiered')) {
+// Jupiter/Paraswap GET must use tiered fetch; Solana RPC 429 backoff lives in CFS_SOLANA_RPC.rpcCall.
+if (
+  !waf.includes('__CFS_fetchGetTiered') ||
+  !waf.includes('solRpc.rpcCall') ||
+  !solRpcH.includes('__CFS_fetchWith429Backoff')
+) {
   console.error(
-    'verify-crypto-rate-limit-wired: watch-activity-price-filter.js must use tiered Jupiter/Paraswap GET + 429 backoff RPC',
+    'verify-crypto-rate-limit-wired: watch-activity-price-filter.js must use tiered Jupiter/Paraswap GET + solRpc.rpcCall (429 backoff in solana-rpc-helpers)',
   );
   process.exit(1);
 }

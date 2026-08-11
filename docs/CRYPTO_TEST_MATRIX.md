@@ -103,7 +103,7 @@ This table lists steps gated as **crypto or Pulse** (`shared/crypto-workflow-ste
 | `jupiterPredictionTrade` | — | CFS_JUPITER_PREDICTION_TRADE | L1 · L5 | yes | — |
 | `jupiterPredictionSearch` | — | CFS_JUPITER_PREDICTION_SEARCH | L1 · L5 | yes | — |
 | `pancakeV3RangeWatch` | — | CFS_BSC_V3_RANGE_CHECK | L1 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
-| `pancakeInfiBinRangeWatch` | BNB Chain (EVM) | CFS_BSC_INFI_BIN_RANGE_CHECK | L1 · L5 | yes | Read-only `getSlot0` activeId vs bin range; always-on via `infi-bin-range-watch.js`. |
+| `pancakeInfiBinRangeWatch` | — | CFS_BSC_INFI_BIN_RANGE_CHECK | L1 · L5 | yes | Indexers/API keys; not covered by RPC smoke alone. |
 | `walletApprove` | — | CFS_WALLET_ENABLE_AUTO_APPROVE | L1 · L5 | yes | — |
 
 ## Regenerate
