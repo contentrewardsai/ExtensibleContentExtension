@@ -1,4 +1,3 @@
-"use strict";
 (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
@@ -7,15 +6,8 @@
   var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __pow = function(a,b){if(typeof a==="bigint"&&typeof b==="bigint"){if(b<0n)throw new RangeError("bigint exponent negative");var r=1n,x=a,e=b;while(e>0n){if(e&1n)r*=x;x*=x;e>>=1n;}return r;}return Math.pow(a,b);};
-  var __esm = (fn, res) => function __init() {
-    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-  };
   var __commonJS = (cb, mod2) => function __require() {
     return mod2 || (0, cb[__getOwnPropNames(cb)[0]])((mod2 = { exports: {} }).exports, mod2), mod2.exports;
-  };
-  var __export = (target, all) => {
-    for (var name in all)
-      __defProp(target, name, { get: all[name], enumerable: true });
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
@@ -33,7 +25,6 @@
     isNodeMode || !mod2 || !mod2.__esModule ? __defProp(target, "default", { value: mod2, enumerable: true }) : target,
     mod2
   ));
-  var __toCommonJS = (mod2) => __copyProps(__defProp({}, "__esModule", { value: true }), mod2);
 
   // (disabled):node_modules/buffer/index.js
   var require_buffer = __commonJS({
@@ -6282,7 +6273,7 @@
         if (BYTES > 2048)
           throw new Error("invalid field: expected ORDER of <= 2048 bytes");
         let sqrtP;
-        const f2 = Object.freeze({
+        const f = Object.freeze({
           ORDER,
           isLE,
           BITS,
@@ -6299,7 +6290,7 @@
           },
           is0: (num) => num === _0n,
           // is valid and invertible
-          isValidNot0: (num) => !f2.is0(num) && f2.isValid(num),
+          isValidNot0: (num) => !f.is0(num) && f.isValid(num),
           isOdd: (num) => (num & _1n) === _1n,
           neg: (num) => mod2(-num, ORDER),
           eql: (lhs, rhs) => lhs === rhs,
@@ -6307,7 +6298,7 @@
           add: (lhs, rhs) => mod2(lhs + rhs, ORDER),
           sub: (lhs, rhs) => mod2(lhs - rhs, ORDER),
           mul: (lhs, rhs) => mod2(lhs * rhs, ORDER),
-          pow: (num, power) => FpPow(f2, num, power),
+          pow: (num, power) => FpPow(f, num, power),
           div: (lhs, rhs) => mod2(lhs * invert(rhs, ORDER), ORDER),
           // Same as above, but doesn't normalize
           sqrN: (num) => num * num,
@@ -6318,7 +6309,7 @@
           sqrt: _sqrt || ((n) => {
             if (!sqrtP)
               sqrtP = FpSqrt(ORDER);
-            return sqrtP(f2, n);
+            return sqrtP(f, n);
           }),
           toBytes: (num) => isLE ? (0, utils_ts_1.numberToBytesLE)(num, BYTES) : (0, utils_ts_1.numberToBytesBE)(num, BYTES),
           fromBytes: (bytes, skipValidation = true) => {
@@ -6336,18 +6327,18 @@
             if (modFromBytes)
               scalar = mod2(scalar, ORDER);
             if (!skipValidation) {
-              if (!f2.isValid(scalar))
+              if (!f.isValid(scalar))
                 throw new Error("invalid field element: outside of range 0..ORDER");
             }
             return scalar;
           },
           // TODO: we don't need it here, move out to separate fn
-          invertBatch: (lst) => FpInvertBatch(f2, lst),
+          invertBatch: (lst) => FpInvertBatch(f, lst),
           // We can't move this out because Fp6, Fp12 implement it
           // and it's unclear what to return in there.
           cmov: (a, b, c) => c ? b : a
         });
-        return Object.freeze(f2);
+        return Object.freeze(f);
       }
       function FpSqrtOdd(Fp, elm) {
         if (!Fp.isOdd)
@@ -6529,19 +6520,19 @@
           if (!this.Fn.isValid(n))
             throw new Error("invalid scalar");
           let p = this.ZERO;
-          let f2 = this.BASE;
+          let f = this.BASE;
           const wo = calcWOpts(W, this.bits);
           for (let window2 = 0; window2 < wo.windows; window2++) {
             const { nextN, offset: offset2, isZero, isNeg, isNegF, offsetF } = calcOffsets(n, window2, wo);
             n = nextN;
             if (isZero) {
-              f2 = f2.add(negateCt(isNegF, precomputes[offsetF]));
+              f = f.add(negateCt(isNegF, precomputes[offsetF]));
             } else {
               p = p.add(negateCt(isNeg, precomputes[offset2]));
             }
           }
           assert0(n);
-          return { p, f: f2 };
+          return { p, f };
         }
         /**
          * Implements ec unsafe (non const-time) multiplication using precomputed tables and w-ary non-adjacent form.
@@ -6955,8 +6946,8 @@
           multiply(scalar) {
             if (!Fn.isValidNot0(scalar))
               throw new Error("invalid scalar: expected 1 <= sc < curve.n");
-            const { p, f: f2 } = wnaf.cached(this, scalar, (p2) => (0, curve_ts_1.normalizeZ)(Point, p2));
-            return (0, curve_ts_1.normalizeZ)(Point, [p, f2])[0];
+            const { p, f } = wnaf.cached(this, scalar, (p2) => (0, curve_ts_1.normalizeZ)(Point, p2));
+            return (0, curve_ts_1.normalizeZ)(Point, [p, f])[0];
           }
           // Non-constant-time multiplication. Uses double-and-add algorithm.
           // It's faster, but should only be used when you don't care about
@@ -7668,10 +7659,10 @@
       var ED25519_SQRT_M1 = /* @__PURE__ */ BigInt("19681161376707505956807079304988542015446066515923890162744021073123829784752");
       function uvRatio(u, v) {
         const P2 = ed25519_CURVE_p;
-        const v32 = (0, modular_ts_1.mod)(v * v * v, P2);
-        const v7 = (0, modular_ts_1.mod)(v32 * v32 * v, P2);
+        const v3 = (0, modular_ts_1.mod)(v * v * v, P2);
+        const v7 = (0, modular_ts_1.mod)(v3 * v3 * v, P2);
         const pow3 = ed25519_pow_2_252_3(u * v7).pow_p_5_8;
-        let x = (0, modular_ts_1.mod)(u * v32 * pow3, P2);
+        let x = (0, modular_ts_1.mod)(u * v3 * pow3, P2);
         const vx2 = (0, modular_ts_1.mod)(v * x * x, P2);
         const root1 = x;
         const root2 = (0, modular_ts_1.mod)(x * ED25519_SQRT_M1, P2);
@@ -12568,17 +12559,17 @@
            * masking of the unknown `object` props recursively if passed.
            */
           validate(value, options = {}) {
-            return validate3(value, this, options);
+            return validate2(value, this, options);
           }
         }
         function assert2(value, struct8, message) {
-          const result = validate3(value, struct8, { message });
+          const result = validate2(value, struct8, { message });
           if (result[0]) {
             throw result[0];
           }
         }
         function create2(value, struct8, message) {
-          const result = validate3(value, struct8, { coerce: true, message });
+          const result = validate2(value, struct8, { coerce: true, message });
           if (result[0]) {
             throw result[0];
           } else {
@@ -12586,7 +12577,7 @@
           }
         }
         function mask2(value, struct8, message) {
-          const result = validate3(value, struct8, { coerce: true, mask: true, message });
+          const result = validate2(value, struct8, { coerce: true, mask: true, message });
           if (result[0]) {
             throw result[0];
           } else {
@@ -12594,10 +12585,10 @@
           }
         }
         function is2(value, struct8) {
-          const result = validate3(value, struct8);
+          const result = validate2(value, struct8);
           return !result[0];
         }
-        function validate3(value, struct8, options = {}) {
+        function validate2(value, struct8, options = {}) {
           const tuples = run2(value, struct8, options);
           const tuple2 = shiftIterator2(tuples);
           if (tuple2[0]) {
@@ -13043,16 +13034,16 @@
         }
         function defaulted(struct8, fallback, options = {}) {
           return coerce2(struct8, unknown2(), (x) => {
-            const f2 = typeof fallback === "function" ? fallback() : fallback;
+            const f = typeof fallback === "function" ? fallback() : fallback;
             if (x === void 0) {
-              return f2;
+              return f;
             }
-            if (!options.strict && isPlainObject(x) && isPlainObject(f2)) {
+            if (!options.strict && isPlainObject(x) && isPlainObject(f)) {
               const ret = { ...x };
               let changed = false;
-              for (const key in f2) {
+              for (const key in f) {
                 if (ret[key] === void 0) {
-                  ret[key] = f2[key];
+                  ret[key] = f[key];
                   changed = true;
                 }
               }
@@ -13180,536 +13171,779 @@
         exports2.type = type2;
         exports2.union = union2;
         exports2.unknown = unknown2;
-        exports2.validate = validate3;
+        exports2.validate = validate2;
       }));
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/rng.js
-  function rng() {
-    if (!getRandomValues) {
-      getRandomValues = typeof crypto !== "undefined" && crypto.getRandomValues && crypto.getRandomValues.bind(crypto) || typeof msCrypto !== "undefined" && typeof msCrypto.getRandomValues === "function" && msCrypto.getRandomValues.bind(msCrypto);
-      if (!getRandomValues) {
-        throw new Error("crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported");
-      }
-    }
-    return getRandomValues(rnds8);
-  }
-  var getRandomValues, rnds8;
-  var init_rng = __esm({
-    "node_modules/uuid/dist/esm-browser/rng.js"() {
-      rnds8 = new Uint8Array(16);
+  // node_modules/uuid/dist/cjs-browser/max.js
+  var require_max = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/max.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.default = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/regex.js
-  var regex_default;
-  var init_regex = __esm({
-    "node_modules/uuid/dist/esm-browser/regex.js"() {
-      regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000)$/i;
+  // node_modules/uuid/dist/cjs-browser/nil.js
+  var require_nil = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/nil.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.default = "00000000-0000-0000-0000-000000000000";
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/validate.js
-  function validate(uuid) {
-    return typeof uuid === "string" && regex_default.test(uuid);
-  }
-  var validate_default;
-  var init_validate = __esm({
-    "node_modules/uuid/dist/esm-browser/validate.js"() {
-      init_regex();
-      validate_default = validate;
+  // node_modules/uuid/dist/cjs-browser/regex.js
+  var require_regex = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/regex.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/stringify.js
-  function stringify(arr) {
-    var offset2 = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : 0;
-    var uuid = (byteToHex[arr[offset2 + 0]] + byteToHex[arr[offset2 + 1]] + byteToHex[arr[offset2 + 2]] + byteToHex[arr[offset2 + 3]] + "-" + byteToHex[arr[offset2 + 4]] + byteToHex[arr[offset2 + 5]] + "-" + byteToHex[arr[offset2 + 6]] + byteToHex[arr[offset2 + 7]] + "-" + byteToHex[arr[offset2 + 8]] + byteToHex[arr[offset2 + 9]] + "-" + byteToHex[arr[offset2 + 10]] + byteToHex[arr[offset2 + 11]] + byteToHex[arr[offset2 + 12]] + byteToHex[arr[offset2 + 13]] + byteToHex[arr[offset2 + 14]] + byteToHex[arr[offset2 + 15]]).toLowerCase();
-    if (!validate_default(uuid)) {
-      throw TypeError("Stringified UUID is invalid");
-    }
-    return uuid;
-  }
-  var byteToHex, i, stringify_default;
-  var init_stringify = __esm({
-    "node_modules/uuid/dist/esm-browser/stringify.js"() {
-      init_validate();
-      byteToHex = [];
-      for (i = 0; i < 256; ++i) {
-        byteToHex.push((i + 256).toString(16).substr(1));
+  // node_modules/uuid/dist/cjs-browser/validate.js
+  var require_validate = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/validate.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var regex_js_1 = require_regex();
+      function validate2(uuid) {
+        return typeof uuid === "string" && regex_js_1.default.test(uuid);
       }
-      stringify_default = stringify;
+      exports.default = validate2;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/v1.js
-  function v1(options, buf, offset2) {
-    var i = buf && offset2 || 0;
-    var b = buf || new Array(16);
-    options = options || {};
-    var node = options.node || _nodeId;
-    var clockseq = options.clockseq !== void 0 ? options.clockseq : _clockseq;
-    if (node == null || clockseq == null) {
-      var seedBytes = options.random || (options.rng || rng)();
-      if (node == null) {
-        node = _nodeId = [seedBytes[0] | 1, seedBytes[1], seedBytes[2], seedBytes[3], seedBytes[4], seedBytes[5]];
+  // node_modules/uuid/dist/cjs-browser/parse.js
+  var require_parse = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/parse.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var validate_js_1 = require_validate();
+      function parse(uuid) {
+        if (!(0, validate_js_1.default)(uuid)) {
+          throw TypeError("Invalid UUID");
+        }
+        let v;
+        return Uint8Array.of((v = parseInt(uuid.slice(0, 8), 16)) >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255, (v = parseInt(uuid.slice(9, 13), 16)) >>> 8, v & 255, (v = parseInt(uuid.slice(14, 18), 16)) >>> 8, v & 255, (v = parseInt(uuid.slice(19, 23), 16)) >>> 8, v & 255, (v = parseInt(uuid.slice(24, 36), 16)) / 1099511627776 & 255, v / 4294967296 & 255, v >>> 24 & 255, v >>> 16 & 255, v >>> 8 & 255, v & 255);
       }
-      if (clockseq == null) {
-        clockseq = _clockseq = (seedBytes[6] << 8 | seedBytes[7]) & 16383;
-      }
-    }
-    var msecs = options.msecs !== void 0 ? options.msecs : Date.now();
-    var nsecs = options.nsecs !== void 0 ? options.nsecs : _lastNSecs + 1;
-    var dt = msecs - _lastMSecs + (nsecs - _lastNSecs) / 1e4;
-    if (dt < 0 && options.clockseq === void 0) {
-      clockseq = clockseq + 1 & 16383;
-    }
-    if ((dt < 0 || msecs > _lastMSecs) && options.nsecs === void 0) {
-      nsecs = 0;
-    }
-    if (nsecs >= 1e4) {
-      throw new Error("uuid.v1(): Can't create more than 10M uuids/sec");
-    }
-    _lastMSecs = msecs;
-    _lastNSecs = nsecs;
-    _clockseq = clockseq;
-    msecs += 122192928e5;
-    var tl = ((msecs & 268435455) * 1e4 + nsecs) % 4294967296;
-    b[i++] = tl >>> 24 & 255;
-    b[i++] = tl >>> 16 & 255;
-    b[i++] = tl >>> 8 & 255;
-    b[i++] = tl & 255;
-    var tmh = msecs / 4294967296 * 1e4 & 268435455;
-    b[i++] = tmh >>> 8 & 255;
-    b[i++] = tmh & 255;
-    b[i++] = tmh >>> 24 & 15 | 16;
-    b[i++] = tmh >>> 16 & 255;
-    b[i++] = clockseq >>> 8 | 128;
-    b[i++] = clockseq & 255;
-    for (var n = 0; n < 6; ++n) {
-      b[i + n] = node[n];
-    }
-    return buf || stringify_default(b);
-  }
-  var _nodeId, _clockseq, _lastMSecs, _lastNSecs, v1_default;
-  var init_v1 = __esm({
-    "node_modules/uuid/dist/esm-browser/v1.js"() {
-      init_rng();
-      init_stringify();
-      _lastMSecs = 0;
-      _lastNSecs = 0;
-      v1_default = v1;
+      exports.default = parse;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/parse.js
-  function parse(uuid) {
-    if (!validate_default(uuid)) {
-      throw TypeError("Invalid UUID");
-    }
-    var v;
-    var arr = new Uint8Array(16);
-    arr[0] = (v = parseInt(uuid.slice(0, 8), 16)) >>> 24;
-    arr[1] = v >>> 16 & 255;
-    arr[2] = v >>> 8 & 255;
-    arr[3] = v & 255;
-    arr[4] = (v = parseInt(uuid.slice(9, 13), 16)) >>> 8;
-    arr[5] = v & 255;
-    arr[6] = (v = parseInt(uuid.slice(14, 18), 16)) >>> 8;
-    arr[7] = v & 255;
-    arr[8] = (v = parseInt(uuid.slice(19, 23), 16)) >>> 8;
-    arr[9] = v & 255;
-    arr[10] = (v = parseInt(uuid.slice(24, 36), 16)) / 1099511627776 & 255;
-    arr[11] = v / 4294967296 & 255;
-    arr[12] = v >>> 24 & 255;
-    arr[13] = v >>> 16 & 255;
-    arr[14] = v >>> 8 & 255;
-    arr[15] = v & 255;
-    return arr;
-  }
-  var parse_default;
-  var init_parse = __esm({
-    "node_modules/uuid/dist/esm-browser/parse.js"() {
-      init_validate();
-      parse_default = parse;
+  // node_modules/uuid/dist/cjs-browser/stringify.js
+  var require_stringify = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/stringify.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.unsafeStringify = void 0;
+      var validate_js_1 = require_validate();
+      var byteToHex = [];
+      for (let i = 0; i < 256; ++i) {
+        byteToHex.push((i + 256).toString(16).slice(1));
+      }
+      function unsafeStringify(arr, offset2 = 0) {
+        return (byteToHex[arr[offset2 + 0]] + byteToHex[arr[offset2 + 1]] + byteToHex[arr[offset2 + 2]] + byteToHex[arr[offset2 + 3]] + "-" + byteToHex[arr[offset2 + 4]] + byteToHex[arr[offset2 + 5]] + "-" + byteToHex[arr[offset2 + 6]] + byteToHex[arr[offset2 + 7]] + "-" + byteToHex[arr[offset2 + 8]] + byteToHex[arr[offset2 + 9]] + "-" + byteToHex[arr[offset2 + 10]] + byteToHex[arr[offset2 + 11]] + byteToHex[arr[offset2 + 12]] + byteToHex[arr[offset2 + 13]] + byteToHex[arr[offset2 + 14]] + byteToHex[arr[offset2 + 15]]).toLowerCase();
+      }
+      exports.unsafeStringify = unsafeStringify;
+      function stringify(arr, offset2 = 0) {
+        const uuid = unsafeStringify(arr, offset2);
+        if (!(0, validate_js_1.default)(uuid)) {
+          throw TypeError("Stringified UUID is invalid");
+        }
+        return uuid;
+      }
+      exports.default = stringify;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/v35.js
-  function stringToBytes(str2) {
-    str2 = unescape(encodeURIComponent(str2));
-    var bytes = [];
-    for (var i = 0; i < str2.length; ++i) {
-      bytes.push(str2.charCodeAt(i));
+  // node_modules/uuid/dist/cjs-browser/rng.js
+  var require_rng = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/rng.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var getRandomValues;
+      var rnds8 = new Uint8Array(16);
+      function rng() {
+        if (!getRandomValues) {
+          if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+            throw new Error("crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported");
+          }
+          getRandomValues = crypto.getRandomValues.bind(crypto);
+        }
+        return getRandomValues(rnds8);
+      }
+      exports.default = rng;
     }
-    return bytes;
-  }
-  function v35_default(name, version2, hashfunc) {
-    function generateUUID(value, namespace, buf, offset2) {
-      if (typeof value === "string") {
-        value = stringToBytes(value);
+  });
+
+  // node_modules/uuid/dist/cjs-browser/v1.js
+  var require_v1 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v1.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.updateV1State = void 0;
+      var rng_js_1 = require_rng();
+      var stringify_js_1 = require_stringify();
+      var _state = {};
+      function v1(options, buf, offset2) {
+        let bytes;
+        const isV6 = options?._v6 ?? false;
+        if (options) {
+          const optionsKeys = Object.keys(options);
+          if (optionsKeys.length === 1 && optionsKeys[0] === "_v6") {
+            options = void 0;
+          }
+        }
+        if (options) {
+          bytes = v1Bytes(options.random ?? options.rng?.() ?? (0, rng_js_1.default)(), options.msecs, options.nsecs, options.clockseq, options.node, buf, offset2);
+        } else {
+          const now = Date.now();
+          const rnds = (0, rng_js_1.default)();
+          updateV1State(_state, now, rnds);
+          bytes = v1Bytes(rnds, _state.msecs, _state.nsecs, isV6 ? void 0 : _state.clockseq, isV6 ? void 0 : _state.node, buf, offset2);
+        }
+        return buf ?? (0, stringify_js_1.unsafeStringify)(bytes);
       }
-      if (typeof namespace === "string") {
-        namespace = parse_default(namespace);
+      function updateV1State(state, now, rnds) {
+        state.msecs ??= -Infinity;
+        state.nsecs ??= 0;
+        if (now === state.msecs) {
+          state.nsecs++;
+          if (state.nsecs >= 1e4) {
+            state.node = void 0;
+            state.nsecs = 0;
+          }
+        } else if (now > state.msecs) {
+          state.nsecs = 0;
+        } else if (now < state.msecs) {
+          state.node = void 0;
+        }
+        if (!state.node) {
+          state.node = rnds.slice(10, 16);
+          state.node[0] |= 1;
+          state.clockseq = (rnds[8] << 8 | rnds[9]) & 16383;
+        }
+        state.msecs = now;
+        return state;
       }
-      if (namespace.length !== 16) {
-        throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
-      }
-      var bytes = new Uint8Array(16 + value.length);
-      bytes.set(namespace);
-      bytes.set(value, namespace.length);
-      bytes = hashfunc(bytes);
-      bytes[6] = bytes[6] & 15 | version2;
-      bytes[8] = bytes[8] & 63 | 128;
-      if (buf) {
-        offset2 = offset2 || 0;
-        for (var i = 0; i < 16; ++i) {
-          buf[offset2 + i] = bytes[i];
+      exports.updateV1State = updateV1State;
+      function v1Bytes(rnds, msecs, nsecs, clockseq, node, buf, offset2 = 0) {
+        if (rnds.length < 16) {
+          throw new Error("Random bytes length must be >= 16");
+        }
+        if (!buf) {
+          buf = new Uint8Array(16);
+          offset2 = 0;
+        } else {
+          if (offset2 < 0 || offset2 + 16 > buf.length) {
+            throw new RangeError(`UUID byte range ${offset2}:${offset2 + 15} is out of buffer bounds`);
+          }
+        }
+        msecs ??= Date.now();
+        nsecs ??= 0;
+        clockseq ??= (rnds[8] << 8 | rnds[9]) & 16383;
+        node ??= rnds.slice(10, 16);
+        msecs += 122192928e5;
+        const tl = ((msecs & 268435455) * 1e4 + nsecs) % 4294967296;
+        buf[offset2++] = tl >>> 24 & 255;
+        buf[offset2++] = tl >>> 16 & 255;
+        buf[offset2++] = tl >>> 8 & 255;
+        buf[offset2++] = tl & 255;
+        const tmh = msecs / 4294967296 * 1e4 & 268435455;
+        buf[offset2++] = tmh >>> 8 & 255;
+        buf[offset2++] = tmh & 255;
+        buf[offset2++] = tmh >>> 24 & 15 | 16;
+        buf[offset2++] = tmh >>> 16 & 255;
+        buf[offset2++] = clockseq >>> 8 | 128;
+        buf[offset2++] = clockseq & 255;
+        for (let n = 0; n < 6; ++n) {
+          buf[offset2++] = node[n];
         }
         return buf;
       }
-      return stringify_default(bytes);
-    }
-    try {
-      generateUUID.name = name;
-    } catch (err2) {
-    }
-    generateUUID.DNS = DNS;
-    generateUUID.URL = URL;
-    return generateUUID;
-  }
-  var DNS, URL;
-  var init_v35 = __esm({
-    "node_modules/uuid/dist/esm-browser/v35.js"() {
-      init_stringify();
-      init_parse();
-      DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-      URL = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
+      exports.default = v1;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/md5.js
-  function md5(bytes) {
-    if (typeof bytes === "string") {
-      var msg = unescape(encodeURIComponent(bytes));
-      bytes = new Uint8Array(msg.length);
-      for (var i = 0; i < msg.length; ++i) {
-        bytes[i] = msg.charCodeAt(i);
+  // node_modules/uuid/dist/cjs-browser/v1ToV6.js
+  var require_v1ToV6 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v1ToV6.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var parse_js_1 = require_parse();
+      var stringify_js_1 = require_stringify();
+      function v1ToV6(uuid) {
+        const v1Bytes = typeof uuid === "string" ? (0, parse_js_1.default)(uuid) : uuid;
+        const v6Bytes = _v1ToV6(v1Bytes);
+        return typeof uuid === "string" ? (0, stringify_js_1.unsafeStringify)(v6Bytes) : v6Bytes;
+      }
+      exports.default = v1ToV6;
+      function _v1ToV6(v1Bytes) {
+        return Uint8Array.of((v1Bytes[6] & 15) << 4 | v1Bytes[7] >> 4 & 15, (v1Bytes[7] & 15) << 4 | (v1Bytes[4] & 240) >> 4, (v1Bytes[4] & 15) << 4 | (v1Bytes[5] & 240) >> 4, (v1Bytes[5] & 15) << 4 | (v1Bytes[0] & 240) >> 4, (v1Bytes[0] & 15) << 4 | (v1Bytes[1] & 240) >> 4, (v1Bytes[1] & 15) << 4 | (v1Bytes[2] & 240) >> 4, 96 | v1Bytes[2] & 15, v1Bytes[3], v1Bytes[8], v1Bytes[9], v1Bytes[10], v1Bytes[11], v1Bytes[12], v1Bytes[13], v1Bytes[14], v1Bytes[15]);
       }
     }
-    return md5ToHexEncodedArray(wordsToMd5(bytesToWords(bytes), bytes.length * 8));
-  }
-  function md5ToHexEncodedArray(input) {
-    var output = [];
-    var length32 = input.length * 32;
-    var hexTab = "0123456789abcdef";
-    for (var i = 0; i < length32; i += 8) {
-      var x = input[i >> 5] >>> i % 32 & 255;
-      var hex = parseInt(hexTab.charAt(x >>> 4 & 15) + hexTab.charAt(x & 15), 16);
-      output.push(hex);
-    }
-    return output;
-  }
-  function getOutputLength(inputLength8) {
-    return (inputLength8 + 64 >>> 9 << 4) + 14 + 1;
-  }
-  function wordsToMd5(x, len) {
-    x[len >> 5] |= 128 << len % 32;
-    x[getOutputLength(len) - 1] = len;
-    var a = 1732584193;
-    var b = -271733879;
-    var c = -1732584194;
-    var d = 271733878;
-    for (var i = 0; i < x.length; i += 16) {
-      var olda = a;
-      var oldb = b;
-      var oldc = c;
-      var oldd = d;
-      a = md5ff(a, b, c, d, x[i], 7, -680876936);
-      d = md5ff(d, a, b, c, x[i + 1], 12, -389564586);
-      c = md5ff(c, d, a, b, x[i + 2], 17, 606105819);
-      b = md5ff(b, c, d, a, x[i + 3], 22, -1044525330);
-      a = md5ff(a, b, c, d, x[i + 4], 7, -176418897);
-      d = md5ff(d, a, b, c, x[i + 5], 12, 1200080426);
-      c = md5ff(c, d, a, b, x[i + 6], 17, -1473231341);
-      b = md5ff(b, c, d, a, x[i + 7], 22, -45705983);
-      a = md5ff(a, b, c, d, x[i + 8], 7, 1770035416);
-      d = md5ff(d, a, b, c, x[i + 9], 12, -1958414417);
-      c = md5ff(c, d, a, b, x[i + 10], 17, -42063);
-      b = md5ff(b, c, d, a, x[i + 11], 22, -1990404162);
-      a = md5ff(a, b, c, d, x[i + 12], 7, 1804603682);
-      d = md5ff(d, a, b, c, x[i + 13], 12, -40341101);
-      c = md5ff(c, d, a, b, x[i + 14], 17, -1502002290);
-      b = md5ff(b, c, d, a, x[i + 15], 22, 1236535329);
-      a = md5gg(a, b, c, d, x[i + 1], 5, -165796510);
-      d = md5gg(d, a, b, c, x[i + 6], 9, -1069501632);
-      c = md5gg(c, d, a, b, x[i + 11], 14, 643717713);
-      b = md5gg(b, c, d, a, x[i], 20, -373897302);
-      a = md5gg(a, b, c, d, x[i + 5], 5, -701558691);
-      d = md5gg(d, a, b, c, x[i + 10], 9, 38016083);
-      c = md5gg(c, d, a, b, x[i + 15], 14, -660478335);
-      b = md5gg(b, c, d, a, x[i + 4], 20, -405537848);
-      a = md5gg(a, b, c, d, x[i + 9], 5, 568446438);
-      d = md5gg(d, a, b, c, x[i + 14], 9, -1019803690);
-      c = md5gg(c, d, a, b, x[i + 3], 14, -187363961);
-      b = md5gg(b, c, d, a, x[i + 8], 20, 1163531501);
-      a = md5gg(a, b, c, d, x[i + 13], 5, -1444681467);
-      d = md5gg(d, a, b, c, x[i + 2], 9, -51403784);
-      c = md5gg(c, d, a, b, x[i + 7], 14, 1735328473);
-      b = md5gg(b, c, d, a, x[i + 12], 20, -1926607734);
-      a = md5hh(a, b, c, d, x[i + 5], 4, -378558);
-      d = md5hh(d, a, b, c, x[i + 8], 11, -2022574463);
-      c = md5hh(c, d, a, b, x[i + 11], 16, 1839030562);
-      b = md5hh(b, c, d, a, x[i + 14], 23, -35309556);
-      a = md5hh(a, b, c, d, x[i + 1], 4, -1530992060);
-      d = md5hh(d, a, b, c, x[i + 4], 11, 1272893353);
-      c = md5hh(c, d, a, b, x[i + 7], 16, -155497632);
-      b = md5hh(b, c, d, a, x[i + 10], 23, -1094730640);
-      a = md5hh(a, b, c, d, x[i + 13], 4, 681279174);
-      d = md5hh(d, a, b, c, x[i], 11, -358537222);
-      c = md5hh(c, d, a, b, x[i + 3], 16, -722521979);
-      b = md5hh(b, c, d, a, x[i + 6], 23, 76029189);
-      a = md5hh(a, b, c, d, x[i + 9], 4, -640364487);
-      d = md5hh(d, a, b, c, x[i + 12], 11, -421815835);
-      c = md5hh(c, d, a, b, x[i + 15], 16, 530742520);
-      b = md5hh(b, c, d, a, x[i + 2], 23, -995338651);
-      a = md5ii(a, b, c, d, x[i], 6, -198630844);
-      d = md5ii(d, a, b, c, x[i + 7], 10, 1126891415);
-      c = md5ii(c, d, a, b, x[i + 14], 15, -1416354905);
-      b = md5ii(b, c, d, a, x[i + 5], 21, -57434055);
-      a = md5ii(a, b, c, d, x[i + 12], 6, 1700485571);
-      d = md5ii(d, a, b, c, x[i + 3], 10, -1894986606);
-      c = md5ii(c, d, a, b, x[i + 10], 15, -1051523);
-      b = md5ii(b, c, d, a, x[i + 1], 21, -2054922799);
-      a = md5ii(a, b, c, d, x[i + 8], 6, 1873313359);
-      d = md5ii(d, a, b, c, x[i + 15], 10, -30611744);
-      c = md5ii(c, d, a, b, x[i + 6], 15, -1560198380);
-      b = md5ii(b, c, d, a, x[i + 13], 21, 1309151649);
-      a = md5ii(a, b, c, d, x[i + 4], 6, -145523070);
-      d = md5ii(d, a, b, c, x[i + 11], 10, -1120210379);
-      c = md5ii(c, d, a, b, x[i + 2], 15, 718787259);
-      b = md5ii(b, c, d, a, x[i + 9], 21, -343485551);
-      a = safeAdd(a, olda);
-      b = safeAdd(b, oldb);
-      c = safeAdd(c, oldc);
-      d = safeAdd(d, oldd);
-    }
-    return [a, b, c, d];
-  }
-  function bytesToWords(input) {
-    if (input.length === 0) {
-      return [];
-    }
-    var length8 = input.length * 8;
-    var output = new Uint32Array(getOutputLength(length8));
-    for (var i = 0; i < length8; i += 8) {
-      output[i >> 5] |= (input[i / 8] & 255) << i % 32;
-    }
-    return output;
-  }
-  function safeAdd(x, y) {
-    var lsw = (x & 65535) + (y & 65535);
-    var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
-    return msw << 16 | lsw & 65535;
-  }
-  function bitRotateLeft(num, cnt) {
-    return num << cnt | num >>> 32 - cnt;
-  }
-  function md5cmn(q, a, b, x, s, t) {
-    return safeAdd(bitRotateLeft(safeAdd(safeAdd(a, q), safeAdd(x, t)), s), b);
-  }
-  function md5ff(a, b, c, d, x, s, t) {
-    return md5cmn(b & c | ~b & d, a, b, x, s, t);
-  }
-  function md5gg(a, b, c, d, x, s, t) {
-    return md5cmn(b & d | c & ~d, a, b, x, s, t);
-  }
-  function md5hh(a, b, c, d, x, s, t) {
-    return md5cmn(b ^ c ^ d, a, b, x, s, t);
-  }
-  function md5ii(a, b, c, d, x, s, t) {
-    return md5cmn(c ^ (b | ~d), a, b, x, s, t);
-  }
-  var md5_default;
-  var init_md5 = __esm({
-    "node_modules/uuid/dist/esm-browser/md5.js"() {
-      md5_default = md5;
-    }
   });
 
-  // node_modules/uuid/dist/esm-browser/v3.js
-  var v3, v3_default;
-  var init_v3 = __esm({
-    "node_modules/uuid/dist/esm-browser/v3.js"() {
-      init_v35();
-      init_md5();
-      v3 = v35_default("v3", 48, md5_default);
-      v3_default = v3;
-    }
-  });
-
-  // node_modules/uuid/dist/esm-browser/v4.js
-  function v4(options, buf, offset2) {
-    options = options || {};
-    var rnds = options.random || (options.rng || rng)();
-    rnds[6] = rnds[6] & 15 | 64;
-    rnds[8] = rnds[8] & 63 | 128;
-    if (buf) {
-      offset2 = offset2 || 0;
-      for (var i = 0; i < 16; ++i) {
-        buf[offset2 + i] = rnds[i];
+  // node_modules/uuid/dist/cjs-browser/md5.js
+  var require_md5 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/md5.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      function md5(bytes) {
+        const words = uint8ToUint32(bytes);
+        const md5Bytes = wordsToMd5(words, bytes.length * 8);
+        return uint32ToUint8(md5Bytes);
       }
-      return buf;
-    }
-    return stringify_default(rnds);
-  }
-  var v4_default;
-  var init_v4 = __esm({
-    "node_modules/uuid/dist/esm-browser/v4.js"() {
-      init_rng();
-      init_stringify();
-      v4_default = v4;
+      function uint32ToUint8(input) {
+        const bytes = new Uint8Array(input.length * 4);
+        for (let i = 0; i < input.length * 4; i++) {
+          bytes[i] = input[i >> 2] >>> i % 4 * 8 & 255;
+        }
+        return bytes;
+      }
+      function getOutputLength(inputLength8) {
+        return (inputLength8 + 64 >>> 9 << 4) + 14 + 1;
+      }
+      function wordsToMd5(x, len) {
+        const xpad = new Uint32Array(getOutputLength(len)).fill(0);
+        xpad.set(x);
+        xpad[len >> 5] |= 128 << len % 32;
+        xpad[xpad.length - 1] = len;
+        x = xpad;
+        let a = 1732584193;
+        let b = -271733879;
+        let c = -1732584194;
+        let d = 271733878;
+        for (let i = 0; i < x.length; i += 16) {
+          const olda = a;
+          const oldb = b;
+          const oldc = c;
+          const oldd = d;
+          a = md5ff(a, b, c, d, x[i], 7, -680876936);
+          d = md5ff(d, a, b, c, x[i + 1], 12, -389564586);
+          c = md5ff(c, d, a, b, x[i + 2], 17, 606105819);
+          b = md5ff(b, c, d, a, x[i + 3], 22, -1044525330);
+          a = md5ff(a, b, c, d, x[i + 4], 7, -176418897);
+          d = md5ff(d, a, b, c, x[i + 5], 12, 1200080426);
+          c = md5ff(c, d, a, b, x[i + 6], 17, -1473231341);
+          b = md5ff(b, c, d, a, x[i + 7], 22, -45705983);
+          a = md5ff(a, b, c, d, x[i + 8], 7, 1770035416);
+          d = md5ff(d, a, b, c, x[i + 9], 12, -1958414417);
+          c = md5ff(c, d, a, b, x[i + 10], 17, -42063);
+          b = md5ff(b, c, d, a, x[i + 11], 22, -1990404162);
+          a = md5ff(a, b, c, d, x[i + 12], 7, 1804603682);
+          d = md5ff(d, a, b, c, x[i + 13], 12, -40341101);
+          c = md5ff(c, d, a, b, x[i + 14], 17, -1502002290);
+          b = md5ff(b, c, d, a, x[i + 15], 22, 1236535329);
+          a = md5gg(a, b, c, d, x[i + 1], 5, -165796510);
+          d = md5gg(d, a, b, c, x[i + 6], 9, -1069501632);
+          c = md5gg(c, d, a, b, x[i + 11], 14, 643717713);
+          b = md5gg(b, c, d, a, x[i], 20, -373897302);
+          a = md5gg(a, b, c, d, x[i + 5], 5, -701558691);
+          d = md5gg(d, a, b, c, x[i + 10], 9, 38016083);
+          c = md5gg(c, d, a, b, x[i + 15], 14, -660478335);
+          b = md5gg(b, c, d, a, x[i + 4], 20, -405537848);
+          a = md5gg(a, b, c, d, x[i + 9], 5, 568446438);
+          d = md5gg(d, a, b, c, x[i + 14], 9, -1019803690);
+          c = md5gg(c, d, a, b, x[i + 3], 14, -187363961);
+          b = md5gg(b, c, d, a, x[i + 8], 20, 1163531501);
+          a = md5gg(a, b, c, d, x[i + 13], 5, -1444681467);
+          d = md5gg(d, a, b, c, x[i + 2], 9, -51403784);
+          c = md5gg(c, d, a, b, x[i + 7], 14, 1735328473);
+          b = md5gg(b, c, d, a, x[i + 12], 20, -1926607734);
+          a = md5hh(a, b, c, d, x[i + 5], 4, -378558);
+          d = md5hh(d, a, b, c, x[i + 8], 11, -2022574463);
+          c = md5hh(c, d, a, b, x[i + 11], 16, 1839030562);
+          b = md5hh(b, c, d, a, x[i + 14], 23, -35309556);
+          a = md5hh(a, b, c, d, x[i + 1], 4, -1530992060);
+          d = md5hh(d, a, b, c, x[i + 4], 11, 1272893353);
+          c = md5hh(c, d, a, b, x[i + 7], 16, -155497632);
+          b = md5hh(b, c, d, a, x[i + 10], 23, -1094730640);
+          a = md5hh(a, b, c, d, x[i + 13], 4, 681279174);
+          d = md5hh(d, a, b, c, x[i], 11, -358537222);
+          c = md5hh(c, d, a, b, x[i + 3], 16, -722521979);
+          b = md5hh(b, c, d, a, x[i + 6], 23, 76029189);
+          a = md5hh(a, b, c, d, x[i + 9], 4, -640364487);
+          d = md5hh(d, a, b, c, x[i + 12], 11, -421815835);
+          c = md5hh(c, d, a, b, x[i + 15], 16, 530742520);
+          b = md5hh(b, c, d, a, x[i + 2], 23, -995338651);
+          a = md5ii(a, b, c, d, x[i], 6, -198630844);
+          d = md5ii(d, a, b, c, x[i + 7], 10, 1126891415);
+          c = md5ii(c, d, a, b, x[i + 14], 15, -1416354905);
+          b = md5ii(b, c, d, a, x[i + 5], 21, -57434055);
+          a = md5ii(a, b, c, d, x[i + 12], 6, 1700485571);
+          d = md5ii(d, a, b, c, x[i + 3], 10, -1894986606);
+          c = md5ii(c, d, a, b, x[i + 10], 15, -1051523);
+          b = md5ii(b, c, d, a, x[i + 1], 21, -2054922799);
+          a = md5ii(a, b, c, d, x[i + 8], 6, 1873313359);
+          d = md5ii(d, a, b, c, x[i + 15], 10, -30611744);
+          c = md5ii(c, d, a, b, x[i + 6], 15, -1560198380);
+          b = md5ii(b, c, d, a, x[i + 13], 21, 1309151649);
+          a = md5ii(a, b, c, d, x[i + 4], 6, -145523070);
+          d = md5ii(d, a, b, c, x[i + 11], 10, -1120210379);
+          c = md5ii(c, d, a, b, x[i + 2], 15, 718787259);
+          b = md5ii(b, c, d, a, x[i + 9], 21, -343485551);
+          a = safeAdd(a, olda);
+          b = safeAdd(b, oldb);
+          c = safeAdd(c, oldc);
+          d = safeAdd(d, oldd);
+        }
+        return Uint32Array.of(a, b, c, d);
+      }
+      function uint8ToUint32(input) {
+        if (input.length === 0) {
+          return new Uint32Array();
+        }
+        const output = new Uint32Array(getOutputLength(input.length * 8)).fill(0);
+        for (let i = 0; i < input.length; i++) {
+          output[i >> 2] |= (input[i] & 255) << i % 4 * 8;
+        }
+        return output;
+      }
+      function safeAdd(x, y) {
+        const lsw = (x & 65535) + (y & 65535);
+        const msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+        return msw << 16 | lsw & 65535;
+      }
+      function bitRotateLeft(num, cnt) {
+        return num << cnt | num >>> 32 - cnt;
+      }
+      function md5cmn(q, a, b, x, s, t) {
+        return safeAdd(bitRotateLeft(safeAdd(safeAdd(a, q), safeAdd(x, t)), s), b);
+      }
+      function md5ff(a, b, c, d, x, s, t) {
+        return md5cmn(b & c | ~b & d, a, b, x, s, t);
+      }
+      function md5gg(a, b, c, d, x, s, t) {
+        return md5cmn(b & d | c & ~d, a, b, x, s, t);
+      }
+      function md5hh(a, b, c, d, x, s, t) {
+        return md5cmn(b ^ c ^ d, a, b, x, s, t);
+      }
+      function md5ii(a, b, c, d, x, s, t) {
+        return md5cmn(c ^ (b | ~d), a, b, x, s, t);
+      }
+      exports.default = md5;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/sha1.js
-  function f(s, x, y, z) {
-    switch (s) {
-      case 0:
-        return x & y ^ ~x & z;
-      case 1:
-        return x ^ y ^ z;
-      case 2:
-        return x & y ^ x & z ^ y & z;
-      case 3:
-        return x ^ y ^ z;
-    }
-  }
-  function ROTL(x, n) {
-    return x << n | x >>> 32 - n;
-  }
-  function sha1(bytes) {
-    var K = [1518500249, 1859775393, 2400959708, 3395469782];
-    var H = [1732584193, 4023233417, 2562383102, 271733878, 3285377520];
-    if (typeof bytes === "string") {
-      var msg = unescape(encodeURIComponent(bytes));
-      bytes = [];
-      for (var i = 0; i < msg.length; ++i) {
-        bytes.push(msg.charCodeAt(i));
+  // node_modules/uuid/dist/cjs-browser/v35.js
+  var require_v35 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v35.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.URL = exports.DNS = exports.stringToBytes = void 0;
+      var parse_js_1 = require_parse();
+      var stringify_js_1 = require_stringify();
+      function stringToBytes(str2) {
+        str2 = unescape(encodeURIComponent(str2));
+        const bytes = new Uint8Array(str2.length);
+        for (let i = 0; i < str2.length; ++i) {
+          bytes[i] = str2.charCodeAt(i);
+        }
+        return bytes;
       }
-    } else if (!Array.isArray(bytes)) {
-      bytes = Array.prototype.slice.call(bytes);
-    }
-    bytes.push(128);
-    var l = bytes.length / 4 + 2;
-    var N = Math.ceil(l / 16);
-    var M = new Array(N);
-    for (var _i = 0; _i < N; ++_i) {
-      var arr = new Uint32Array(16);
-      for (var j = 0; j < 16; ++j) {
-        arr[j] = bytes[_i * 64 + j * 4] << 24 | bytes[_i * 64 + j * 4 + 1] << 16 | bytes[_i * 64 + j * 4 + 2] << 8 | bytes[_i * 64 + j * 4 + 3];
+      exports.stringToBytes = stringToBytes;
+      exports.DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+      exports.URL = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
+      function v35(version, hash, value, namespace, buf, offset2) {
+        const valueBytes = typeof value === "string" ? stringToBytes(value) : value;
+        const namespaceBytes = typeof namespace === "string" ? (0, parse_js_1.default)(namespace) : namespace;
+        if (typeof namespace === "string") {
+          namespace = (0, parse_js_1.default)(namespace);
+        }
+        if (namespace?.length !== 16) {
+          throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
+        }
+        let bytes = new Uint8Array(16 + valueBytes.length);
+        bytes.set(namespaceBytes);
+        bytes.set(valueBytes, namespaceBytes.length);
+        bytes = hash(bytes);
+        bytes[6] = bytes[6] & 15 | version;
+        bytes[8] = bytes[8] & 63 | 128;
+        if (buf) {
+          offset2 = offset2 || 0;
+          if (offset2 < 0 || offset2 + 16 > buf.length) {
+            throw new RangeError(`UUID byte range ${offset2}:${offset2 + 15} is out of buffer bounds`);
+          }
+          for (let i = 0; i < 16; ++i) {
+            buf[offset2 + i] = bytes[i];
+          }
+          return buf;
+        }
+        return (0, stringify_js_1.unsafeStringify)(bytes);
       }
-      M[_i] = arr;
-    }
-    M[N - 1][14] = (bytes.length - 1) * 8 / Math.pow(2, 32);
-    M[N - 1][14] = Math.floor(M[N - 1][14]);
-    M[N - 1][15] = (bytes.length - 1) * 8 & 4294967295;
-    for (var _i2 = 0; _i2 < N; ++_i2) {
-      var W = new Uint32Array(80);
-      for (var t = 0; t < 16; ++t) {
-        W[t] = M[_i2][t];
-      }
-      for (var _t = 16; _t < 80; ++_t) {
-        W[_t] = ROTL(W[_t - 3] ^ W[_t - 8] ^ W[_t - 14] ^ W[_t - 16], 1);
-      }
-      var a = H[0];
-      var b = H[1];
-      var c = H[2];
-      var d = H[3];
-      var e = H[4];
-      for (var _t2 = 0; _t2 < 80; ++_t2) {
-        var s = Math.floor(_t2 / 20);
-        var T = ROTL(a, 5) + f(s, b, c, d) + e + K[s] + W[_t2] >>> 0;
-        e = d;
-        d = c;
-        c = ROTL(b, 30) >>> 0;
-        b = a;
-        a = T;
-      }
-      H[0] = H[0] + a >>> 0;
-      H[1] = H[1] + b >>> 0;
-      H[2] = H[2] + c >>> 0;
-      H[3] = H[3] + d >>> 0;
-      H[4] = H[4] + e >>> 0;
-    }
-    return [H[0] >> 24 & 255, H[0] >> 16 & 255, H[0] >> 8 & 255, H[0] & 255, H[1] >> 24 & 255, H[1] >> 16 & 255, H[1] >> 8 & 255, H[1] & 255, H[2] >> 24 & 255, H[2] >> 16 & 255, H[2] >> 8 & 255, H[2] & 255, H[3] >> 24 & 255, H[3] >> 16 & 255, H[3] >> 8 & 255, H[3] & 255, H[4] >> 24 & 255, H[4] >> 16 & 255, H[4] >> 8 & 255, H[4] & 255];
-  }
-  var sha1_default;
-  var init_sha1 = __esm({
-    "node_modules/uuid/dist/esm-browser/sha1.js"() {
-      sha1_default = sha1;
+      exports.default = v35;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/v5.js
-  var v5, v5_default;
-  var init_v5 = __esm({
-    "node_modules/uuid/dist/esm-browser/v5.js"() {
-      init_v35();
-      init_sha1();
-      v5 = v35_default("v5", 80, sha1_default);
-      v5_default = v5;
+  // node_modules/uuid/dist/cjs-browser/v3.js
+  var require_v3 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v3.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.URL = exports.DNS = void 0;
+      var md5_js_1 = require_md5();
+      var v35_js_1 = require_v35();
+      var v35_js_2 = require_v35();
+      Object.defineProperty(exports, "DNS", { enumerable: true, get: function() {
+        return v35_js_2.DNS;
+      } });
+      Object.defineProperty(exports, "URL", { enumerable: true, get: function() {
+        return v35_js_2.URL;
+      } });
+      function v3(value, namespace, buf, offset2) {
+        return (0, v35_js_1.default)(48, md5_js_1.default, value, namespace, buf, offset2);
+      }
+      v3.DNS = v35_js_1.DNS;
+      v3.URL = v35_js_1.URL;
+      exports.default = v3;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/nil.js
-  var nil_default;
-  var init_nil = __esm({
-    "node_modules/uuid/dist/esm-browser/nil.js"() {
-      nil_default = "00000000-0000-0000-0000-000000000000";
+  // node_modules/uuid/dist/cjs-browser/native.js
+  var require_native = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/native.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var randomUUID = typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID.bind(crypto);
+      exports.default = { randomUUID };
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/version.js
-  function version(uuid) {
-    if (!validate_default(uuid)) {
-      throw TypeError("Invalid UUID");
-    }
-    return parseInt(uuid.substr(14, 1), 16);
-  }
-  var version_default;
-  var init_version = __esm({
-    "node_modules/uuid/dist/esm-browser/version.js"() {
-      init_validate();
-      version_default = version;
+  // node_modules/uuid/dist/cjs-browser/v4.js
+  var require_v4 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v4.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var native_js_1 = require_native();
+      var rng_js_1 = require_rng();
+      var stringify_js_1 = require_stringify();
+      function v4(options, buf, offset2) {
+        if (native_js_1.default.randomUUID && !buf && !options) {
+          return native_js_1.default.randomUUID();
+        }
+        options = options || {};
+        const rnds = options.random ?? options.rng?.() ?? (0, rng_js_1.default)();
+        if (rnds.length < 16) {
+          throw new Error("Random bytes length must be >= 16");
+        }
+        rnds[6] = rnds[6] & 15 | 64;
+        rnds[8] = rnds[8] & 63 | 128;
+        if (buf) {
+          offset2 = offset2 || 0;
+          if (offset2 < 0 || offset2 + 16 > buf.length) {
+            throw new RangeError(`UUID byte range ${offset2}:${offset2 + 15} is out of buffer bounds`);
+          }
+          for (let i = 0; i < 16; ++i) {
+            buf[offset2 + i] = rnds[i];
+          }
+          return buf;
+        }
+        return (0, stringify_js_1.unsafeStringify)(rnds);
+      }
+      exports.default = v4;
     }
   });
 
-  // node_modules/uuid/dist/esm-browser/index.js
-  var esm_browser_exports = {};
-  __export(esm_browser_exports, {
-    NIL: () => nil_default,
-    parse: () => parse_default,
-    stringify: () => stringify_default,
-    v1: () => v1_default,
-    v3: () => v3_default,
-    v4: () => v4_default,
-    v5: () => v5_default,
-    validate: () => validate_default,
-    version: () => version_default
+  // node_modules/uuid/dist/cjs-browser/sha1.js
+  var require_sha1 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/sha1.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      function f(s, x, y, z) {
+        switch (s) {
+          case 0:
+            return x & y ^ ~x & z;
+          case 1:
+            return x ^ y ^ z;
+          case 2:
+            return x & y ^ x & z ^ y & z;
+          case 3:
+            return x ^ y ^ z;
+        }
+      }
+      function ROTL(x, n) {
+        return x << n | x >>> 32 - n;
+      }
+      function sha1(bytes) {
+        const K = [1518500249, 1859775393, 2400959708, 3395469782];
+        const H = [1732584193, 4023233417, 2562383102, 271733878, 3285377520];
+        const newBytes = new Uint8Array(bytes.length + 1);
+        newBytes.set(bytes);
+        newBytes[bytes.length] = 128;
+        bytes = newBytes;
+        const l = bytes.length / 4 + 2;
+        const N = Math.ceil(l / 16);
+        const M = new Array(N);
+        for (let i = 0; i < N; ++i) {
+          const arr = new Uint32Array(16);
+          for (let j = 0; j < 16; ++j) {
+            arr[j] = bytes[i * 64 + j * 4] << 24 | bytes[i * 64 + j * 4 + 1] << 16 | bytes[i * 64 + j * 4 + 2] << 8 | bytes[i * 64 + j * 4 + 3];
+          }
+          M[i] = arr;
+        }
+        M[N - 1][14] = (bytes.length - 1) * 8 / Math.pow(2, 32);
+        M[N - 1][14] = Math.floor(M[N - 1][14]);
+        M[N - 1][15] = (bytes.length - 1) * 8 & 4294967295;
+        for (let i = 0; i < N; ++i) {
+          const W = new Uint32Array(80);
+          for (let t = 0; t < 16; ++t) {
+            W[t] = M[i][t];
+          }
+          for (let t = 16; t < 80; ++t) {
+            W[t] = ROTL(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
+          }
+          let a = H[0];
+          let b = H[1];
+          let c = H[2];
+          let d = H[3];
+          let e = H[4];
+          for (let t = 0; t < 80; ++t) {
+            const s = Math.floor(t / 20);
+            const T = ROTL(a, 5) + f(s, b, c, d) + e + K[s] + W[t] >>> 0;
+            e = d;
+            d = c;
+            c = ROTL(b, 30) >>> 0;
+            b = a;
+            a = T;
+          }
+          H[0] = H[0] + a >>> 0;
+          H[1] = H[1] + b >>> 0;
+          H[2] = H[2] + c >>> 0;
+          H[3] = H[3] + d >>> 0;
+          H[4] = H[4] + e >>> 0;
+        }
+        return Uint8Array.of(H[0] >> 24, H[0] >> 16, H[0] >> 8, H[0], H[1] >> 24, H[1] >> 16, H[1] >> 8, H[1], H[2] >> 24, H[2] >> 16, H[2] >> 8, H[2], H[3] >> 24, H[3] >> 16, H[3] >> 8, H[3], H[4] >> 24, H[4] >> 16, H[4] >> 8, H[4]);
+      }
+      exports.default = sha1;
+    }
   });
-  var init_esm_browser = __esm({
-    "node_modules/uuid/dist/esm-browser/index.js"() {
-      init_v1();
-      init_v3();
-      init_v4();
-      init_v5();
-      init_nil();
-      init_version();
-      init_validate();
-      init_stringify();
-      init_parse();
+
+  // node_modules/uuid/dist/cjs-browser/v5.js
+  var require_v5 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v5.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.URL = exports.DNS = void 0;
+      var sha1_js_1 = require_sha1();
+      var v35_js_1 = require_v35();
+      var v35_js_2 = require_v35();
+      Object.defineProperty(exports, "DNS", { enumerable: true, get: function() {
+        return v35_js_2.DNS;
+      } });
+      Object.defineProperty(exports, "URL", { enumerable: true, get: function() {
+        return v35_js_2.URL;
+      } });
+      function v5(value, namespace, buf, offset2) {
+        return (0, v35_js_1.default)(80, sha1_js_1.default, value, namespace, buf, offset2);
+      }
+      v5.DNS = v35_js_1.DNS;
+      v5.URL = v35_js_1.URL;
+      exports.default = v5;
+    }
+  });
+
+  // node_modules/uuid/dist/cjs-browser/v6.js
+  var require_v6 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v6.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var stringify_js_1 = require_stringify();
+      var v1_js_1 = require_v1();
+      var v1ToV6_js_1 = require_v1ToV6();
+      function v6(options, buf, offset2) {
+        options ??= {};
+        offset2 ??= 0;
+        let bytes = (0, v1_js_1.default)({ ...options, _v6: true }, new Uint8Array(16));
+        bytes = (0, v1ToV6_js_1.default)(bytes);
+        if (buf) {
+          if (offset2 < 0 || offset2 + 16 > buf.length) {
+            throw new RangeError(`UUID byte range ${offset2}:${offset2 + 15} is out of buffer bounds`);
+          }
+          for (let i = 0; i < 16; i++) {
+            buf[offset2 + i] = bytes[i];
+          }
+          return buf;
+        }
+        return (0, stringify_js_1.unsafeStringify)(bytes);
+      }
+      exports.default = v6;
+    }
+  });
+
+  // node_modules/uuid/dist/cjs-browser/v6ToV1.js
+  var require_v6ToV1 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v6ToV1.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var parse_js_1 = require_parse();
+      var stringify_js_1 = require_stringify();
+      function v6ToV1(uuid) {
+        const v6Bytes = typeof uuid === "string" ? (0, parse_js_1.default)(uuid) : uuid;
+        const v1Bytes = _v6ToV1(v6Bytes);
+        return typeof uuid === "string" ? (0, stringify_js_1.unsafeStringify)(v1Bytes) : v1Bytes;
+      }
+      exports.default = v6ToV1;
+      function _v6ToV1(v6Bytes) {
+        return Uint8Array.of((v6Bytes[3] & 15) << 4 | v6Bytes[4] >> 4 & 15, (v6Bytes[4] & 15) << 4 | (v6Bytes[5] & 240) >> 4, (v6Bytes[5] & 15) << 4 | v6Bytes[6] & 15, v6Bytes[7], (v6Bytes[1] & 15) << 4 | (v6Bytes[2] & 240) >> 4, (v6Bytes[2] & 15) << 4 | (v6Bytes[3] & 240) >> 4, 16 | (v6Bytes[0] & 240) >> 4, (v6Bytes[0] & 15) << 4 | (v6Bytes[1] & 240) >> 4, v6Bytes[8], v6Bytes[9], v6Bytes[10], v6Bytes[11], v6Bytes[12], v6Bytes[13], v6Bytes[14], v6Bytes[15]);
+      }
+    }
+  });
+
+  // node_modules/uuid/dist/cjs-browser/v7.js
+  var require_v7 = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/v7.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.updateV7State = void 0;
+      var rng_js_1 = require_rng();
+      var stringify_js_1 = require_stringify();
+      var _state = {};
+      function v7(options, buf, offset2) {
+        let bytes;
+        if (options) {
+          bytes = v7Bytes(options.random ?? options.rng?.() ?? (0, rng_js_1.default)(), options.msecs, options.seq, buf, offset2);
+        } else {
+          const now = Date.now();
+          const rnds = (0, rng_js_1.default)();
+          updateV7State(_state, now, rnds);
+          bytes = v7Bytes(rnds, _state.msecs, _state.seq, buf, offset2);
+        }
+        return buf ?? (0, stringify_js_1.unsafeStringify)(bytes);
+      }
+      function updateV7State(state, now, rnds) {
+        state.msecs ??= -Infinity;
+        state.seq ??= 0;
+        if (now > state.msecs) {
+          state.seq = rnds[6] << 23 | rnds[7] << 16 | rnds[8] << 8 | rnds[9];
+          state.msecs = now;
+        } else {
+          state.seq = state.seq + 1 | 0;
+          if (state.seq === 0) {
+            state.msecs++;
+          }
+        }
+        return state;
+      }
+      exports.updateV7State = updateV7State;
+      function v7Bytes(rnds, msecs, seq, buf, offset2 = 0) {
+        if (rnds.length < 16) {
+          throw new Error("Random bytes length must be >= 16");
+        }
+        if (!buf) {
+          buf = new Uint8Array(16);
+          offset2 = 0;
+        } else {
+          if (offset2 < 0 || offset2 + 16 > buf.length) {
+            throw new RangeError(`UUID byte range ${offset2}:${offset2 + 15} is out of buffer bounds`);
+          }
+        }
+        msecs ??= Date.now();
+        seq ??= rnds[6] * 127 << 24 | rnds[7] << 16 | rnds[8] << 8 | rnds[9];
+        buf[offset2++] = msecs / 1099511627776 & 255;
+        buf[offset2++] = msecs / 4294967296 & 255;
+        buf[offset2++] = msecs / 16777216 & 255;
+        buf[offset2++] = msecs / 65536 & 255;
+        buf[offset2++] = msecs / 256 & 255;
+        buf[offset2++] = msecs & 255;
+        buf[offset2++] = 112 | seq >>> 28 & 15;
+        buf[offset2++] = seq >>> 20 & 255;
+        buf[offset2++] = 128 | seq >>> 14 & 63;
+        buf[offset2++] = seq >>> 6 & 255;
+        buf[offset2++] = seq << 2 & 255 | rnds[10] & 3;
+        buf[offset2++] = rnds[11];
+        buf[offset2++] = rnds[12];
+        buf[offset2++] = rnds[13];
+        buf[offset2++] = rnds[14];
+        buf[offset2++] = rnds[15];
+        return buf;
+      }
+      exports.default = v7;
+    }
+  });
+
+  // node_modules/uuid/dist/cjs-browser/version.js
+  var require_version = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/version.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var validate_js_1 = require_validate();
+      function version(uuid) {
+        if (!(0, validate_js_1.default)(uuid)) {
+          throw TypeError("Invalid UUID");
+        }
+        return parseInt(uuid.slice(14, 15), 16);
+      }
+      exports.default = version;
+    }
+  });
+
+  // node_modules/uuid/dist/cjs-browser/index.js
+  var require_cjs_browser = __commonJS({
+    "node_modules/uuid/dist/cjs-browser/index.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.version = exports.validate = exports.v7 = exports.v6ToV1 = exports.v6 = exports.v5 = exports.v4 = exports.v3 = exports.v1ToV6 = exports.v1 = exports.stringify = exports.parse = exports.NIL = exports.MAX = void 0;
+      var max_js_1 = require_max();
+      Object.defineProperty(exports, "MAX", { enumerable: true, get: function() {
+        return max_js_1.default;
+      } });
+      var nil_js_1 = require_nil();
+      Object.defineProperty(exports, "NIL", { enumerable: true, get: function() {
+        return nil_js_1.default;
+      } });
+      var parse_js_1 = require_parse();
+      Object.defineProperty(exports, "parse", { enumerable: true, get: function() {
+        return parse_js_1.default;
+      } });
+      var stringify_js_1 = require_stringify();
+      Object.defineProperty(exports, "stringify", { enumerable: true, get: function() {
+        return stringify_js_1.default;
+      } });
+      var v1_js_1 = require_v1();
+      Object.defineProperty(exports, "v1", { enumerable: true, get: function() {
+        return v1_js_1.default;
+      } });
+      var v1ToV6_js_1 = require_v1ToV6();
+      Object.defineProperty(exports, "v1ToV6", { enumerable: true, get: function() {
+        return v1ToV6_js_1.default;
+      } });
+      var v3_js_1 = require_v3();
+      Object.defineProperty(exports, "v3", { enumerable: true, get: function() {
+        return v3_js_1.default;
+      } });
+      var v4_js_1 = require_v4();
+      Object.defineProperty(exports, "v4", { enumerable: true, get: function() {
+        return v4_js_1.default;
+      } });
+      var v5_js_1 = require_v5();
+      Object.defineProperty(exports, "v5", { enumerable: true, get: function() {
+        return v5_js_1.default;
+      } });
+      var v6_js_1 = require_v6();
+      Object.defineProperty(exports, "v6", { enumerable: true, get: function() {
+        return v6_js_1.default;
+      } });
+      var v6ToV1_js_1 = require_v6ToV1();
+      Object.defineProperty(exports, "v6ToV1", { enumerable: true, get: function() {
+        return v6ToV1_js_1.default;
+      } });
+      var v7_js_1 = require_v7();
+      Object.defineProperty(exports, "v7", { enumerable: true, get: function() {
+        return v7_js_1.default;
+      } });
+      var validate_js_1 = require_validate();
+      Object.defineProperty(exports, "validate", { enumerable: true, get: function() {
+        return validate_js_1.default;
+      } });
+      var version_js_1 = require_version();
+      Object.defineProperty(exports, "version", { enumerable: true, get: function() {
+        return version_js_1.default;
+      } });
     }
   });
 
@@ -13717,20 +13951,20 @@
   var require_generateRequest = __commonJS({
     "node_modules/jayson/lib/generateRequest.js"(exports, module) {
       "use strict";
-      var uuid = (init_esm_browser(), __toCommonJS(esm_browser_exports)).v4;
+      var uuid = require_cjs_browser().v4;
       var generateRequest = function(method, params, id, options) {
         if (typeof method !== "string") {
           throw new TypeError(method + " must be a string");
         }
         options = options || {};
-        const version2 = typeof options.version === "number" ? options.version : 2;
-        if (version2 !== 1 && version2 !== 2) {
-          throw new TypeError(version2 + " must be 1 or 2");
+        const version = typeof options.version === "number" ? options.version : 2;
+        if (version !== 1 && version !== 2) {
+          throw new TypeError(version + " must be 1 or 2");
         }
         const request = {
           method
         };
-        if (version2 === 2) {
+        if (version === 2) {
           request.jsonrpc = "2.0";
         }
         if (params) {
@@ -13744,7 +13978,7 @@
             return uuid();
           };
           request.id = generator(request, options);
-        } else if (version2 === 2 && id === null) {
+        } else if (version === 2 && id === null) {
           if (options.notificationIdNull) {
             request.id = null;
           }
@@ -13761,7 +13995,7 @@
   var require_browser = __commonJS({
     "node_modules/jayson/lib/client/browser/index.js"(exports, module) {
       "use strict";
-      var uuid = (init_esm_browser(), __toCommonJS(esm_browser_exports)).v4;
+      var uuid = require_cjs_browser().v4;
       var generateRequest = require_generateRequest();
       var ClientBrowser = function(callServer, options) {
         if (!(this instanceof ClientBrowser)) {
@@ -15245,9 +15479,9 @@
               fake = k1f.add(k2f);
               point = finishEndo(endo2.beta, k1p, k2p, k1neg, k2neg);
             } else {
-              const { p, f: f2 } = mul2(scalar);
+              const { p, f } = mul2(scalar);
               point = p;
-              fake = f2;
+              fake = f;
             }
             return (0, curve_ts_1.normalizeZ)(Point, [point, fake])[0];
           }
@@ -17080,8 +17314,8 @@
           const prefix = guardedShift(byteArray);
           const maskedPrefix = prefix & VERSION_PREFIX_MASK;
           assert2(prefix !== maskedPrefix, `Expected versioned message but received legacy message`);
-          const version2 = maskedPrefix;
-          assert2(version2 === 0, `Expected versioned message with version 0 but found version ${version2}`);
+          const version = maskedPrefix;
+          assert2(version === 0, `Expected versioned message with version 0 but found version ${version}`);
           const header = {
             numRequiredSignatures: guardedShift(byteArray),
             numReadonlySignedAccounts: guardedShift(byteArray),
@@ -17140,14 +17374,14 @@
           return maskedPrefix;
         },
         deserialize: (serializedMessage) => {
-          const version2 = VersionedMessage.deserializeMessageVersion(serializedMessage);
-          if (version2 === "legacy") {
+          const version = VersionedMessage.deserializeMessageVersion(serializedMessage);
+          if (version === "legacy") {
             return Message.from(serializedMessage);
           }
-          if (version2 === 0) {
+          if (version === 0) {
             return MessageV0.deserialize(serializedMessage);
           } else {
-            throw new Error(`Transaction message version ${version2} deserialization is not supported`);
+            throw new Error(`Transaction message version ${version} deserialization is not supported`);
           }
         }
       };
@@ -19003,7 +19237,7 @@ Message: ${transactionMessage}.
           }
           return keys;
         };
-        function stringify2(val, isArrayProp) {
+        function stringify(val, isArrayProp) {
           var i, max3, str2, keys, key, propVal, toStr;
           if (val === true) {
             return "true";
@@ -19016,17 +19250,17 @@ Message: ${transactionMessage}.
               if (val === null) {
                 return null;
               } else if (val.toJSON && typeof val.toJSON === "function") {
-                return stringify2(val.toJSON(), isArrayProp);
+                return stringify(val.toJSON(), isArrayProp);
               } else {
                 toStr = objToString.call(val);
                 if (toStr === "[object Array]") {
                   str2 = "[";
                   max3 = val.length - 1;
                   for (i = 0; i < max3; i++) {
-                    str2 += stringify2(val[i], true) + ",";
+                    str2 += stringify(val[i], true) + ",";
                   }
                   if (max3 > -1) {
-                    str2 += stringify2(val[i], true);
+                    str2 += stringify(val[i], true);
                   }
                   return str2 + "]";
                 } else if (toStr === "[object Object]") {
@@ -19036,7 +19270,7 @@ Message: ${transactionMessage}.
                   i = 0;
                   while (i < max3) {
                     key = keys[i];
-                    propVal = stringify2(val[key], false);
+                    propVal = stringify(val[key], false);
                     if (propVal !== void 0) {
                       if (str2) {
                         str2 += ",";
@@ -19060,7 +19294,7 @@ Message: ${transactionMessage}.
           }
         }
         fastStableStringify$1 = function(val) {
-          var returnVal = stringify2(val, false);
+          var returnVal = stringify(val, false);
           if (returnVal !== void 0) {
             return "" + returnVal;
           }
@@ -19334,8 +19568,8 @@ Message: ${transactionMessage}.
           value
         });
       }
-      function versionedMessageFromResponse(version2, response) {
-        if (version2 === 0) {
+      function versionedMessageFromResponse(version, response) {
+        if (version === 0) {
           return new MessageV0({
             header: response.header,
             staticAccountKeys: response.accountKeys.map((accountKey) => new PublicKey8(accountKey)),
@@ -21256,14 +21490,14 @@ Message: ${transactionMessage}.
                   transactions: result.transactions.map(({
                     transaction,
                     meta,
-                    version: version2
+                    version
                   }) => ({
                     meta,
                     transaction: {
                       ...transaction,
-                      message: versionedMessageFromResponse(version2, transaction.message)
+                      message: versionedMessageFromResponse(version, transaction.message)
                     },
-                    version: version2
+                    version
                   }))
                 } : null;
               }
@@ -26928,7 +27162,7 @@ Message: ${transactionMessage}.
   var require_browser3 = __commonJS({
     "node_modules/invariant/browser.js"(exports, module) {
       "use strict";
-      var invariant2 = function(condition, format, a, b, c, d, e, f2) {
+      var invariant2 = function(condition, format, a, b, c, d, e, f) {
         if (true) {
           if (format === void 0) {
             throw new Error("invariant requires an error message argument");
@@ -26941,7 +27175,7 @@ Message: ${transactionMessage}.
               "Minified exception occurred; use the non-minified dev environment for the full error message and additional helpful warnings."
             );
           } else {
-            var args = [a, b, c, d, e, f2];
+            var args = [a, b, c, d, e, f];
             var argIndex = 0;
             error = new Error(
               format.replace(/%s/g, function() {
@@ -27151,7 +27385,7 @@ Message: ${transactionMessage}.
   });
 
   // node_modules/math-intrinsics/max.js
-  var require_max = __commonJS({
+  var require_max2 = __commonJS({
     "node_modules/math-intrinsics/max.js"(exports, module) {
       "use strict";
       module.exports = Math.max;
@@ -27502,7 +27736,7 @@ Message: ${transactionMessage}.
       var $URIError = require_uri();
       var abs2 = require_abs();
       var floor2 = require_floor();
-      var max3 = require_max();
+      var max3 = require_max2();
       var min3 = require_min();
       var pow3 = require_pow();
       var round2 = require_round();
@@ -28519,8 +28753,8 @@ Message: ${transactionMessage}.
       var isGeneratorFunction = require_is_generator_function();
       var whichTypedArray = require_which_typed_array();
       var isTypedArray = require_is_typed_array();
-      function uncurryThis(f2) {
-        return f2.call.bind(f2);
+      function uncurryThis(f) {
+        return f.call.bind(f);
       }
       var BigIntSupported = typeof BigInt !== "undefined";
       var SymbolSupported = typeof Symbol !== "undefined";
@@ -28794,8 +29028,8 @@ Message: ${transactionMessage}.
         return descriptors;
       };
       var formatRegExp = /%[sdj%]/g;
-      exports.format = function(f2) {
-        if (!isString(f2)) {
+      exports.format = function(f) {
+        if (!isString(f)) {
           var objects = [];
           for (var i = 0; i < arguments.length; i++) {
             objects.push(inspect(arguments[i]));
@@ -28805,7 +29039,7 @@ Message: ${transactionMessage}.
         var i = 1;
         var args = arguments;
         var len = args.length;
-        var str2 = String(f2).replace(formatRegExp, function(x2) {
+        var str2 = String(f).replace(formatRegExp, function(x2) {
           if (x2 === "%%") return "%";
           if (i >= len) return x2;
           switch (x2) {
@@ -29576,7 +29810,7 @@ Message: ${transactionMessage}.
     let n, m;
     let bits;
     let xbits;
-    let f2;
+    let f;
     let overflow = 0;
     for (bits = 0; bits <= MAX_BITS$1; bits++) {
       s.bl_count[bits] = 0;
@@ -29598,10 +29832,10 @@ Message: ${transactionMessage}.
       if (n >= base) {
         xbits = extra[n - base];
       }
-      f2 = tree[n * 2];
-      s.opt_len += f2 * (bits + xbits);
+      f = tree[n * 2];
+      s.opt_len += f * (bits + xbits);
       if (has_stree) {
-        s.static_len += f2 * (stree[n * 2 + 1] + xbits);
+        s.static_len += f * (stree[n * 2 + 1] + xbits);
       }
     }
     if (overflow === 0) {
@@ -30235,8 +30469,8 @@ Message: ${transactionMessage}.
     strm.msg = messages[errorCode];
     return errorCode;
   };
-  var rank = (f2) => {
-    return f2 * 2 - (f2 > 4 ? 9 : 0);
+  var rank = (f) => {
+    return f * 2 - (f > 4 ? 9 : 0);
   };
   var zero = (buf) => {
     let len = buf.length;
@@ -33944,17 +34178,17 @@ Message: ${transactionMessage}.
       if (options === void 0) {
         options = {};
       }
-      return validate2(value, this, options);
+      return validate(value, this, options);
     }
   };
   function assert(value, struct7) {
-    const result = validate2(value, struct7);
+    const result = validate(value, struct7);
     if (result[0]) {
       throw result[0];
     }
   }
   function create(value, struct7) {
-    const result = validate2(value, struct7, {
+    const result = validate(value, struct7, {
       coerce: true
     });
     if (result[0]) {
@@ -33964,7 +34198,7 @@ Message: ${transactionMessage}.
     }
   }
   function mask(value, struct7) {
-    const result = validate2(value, struct7, {
+    const result = validate(value, struct7, {
       coerce: true,
       mask: true
     });
@@ -33975,10 +34209,10 @@ Message: ${transactionMessage}.
     }
   }
   function is(value, struct7) {
-    const result = validate2(value, struct7);
+    const result = validate(value, struct7);
     return !result[0];
   }
-  function validate2(value, struct7, options) {
+  function validate(value, struct7, options) {
     if (options === void 0) {
       options = {};
     }
@@ -35192,39 +35426,39 @@ Message: ${transactionMessage}.
     static typeDefLayout({ typeDef, types, name, genericArgs }) {
       switch (typeDef.type.kind) {
         case "struct": {
-          const fieldLayouts = handleDefinedFields(typeDef.type.fields, () => [], (fields) => fields.map((f2) => {
+          const fieldLayouts = handleDefinedFields(typeDef.type.fields, () => [], (fields) => fields.map((f) => {
             const genArgs = genericArgs ? _IdlCoder.resolveGenericArgs({
-              type: f2.type,
+              type: f.type,
               typeDef,
               genericArgs
             }) : genericArgs;
-            return _IdlCoder.fieldLayout(f2, types, genArgs);
-          }), (fields) => fields.map((f2, i) => {
+            return _IdlCoder.fieldLayout(f, types, genArgs);
+          }), (fields) => fields.map((f, i) => {
             const genArgs = genericArgs ? _IdlCoder.resolveGenericArgs({
-              type: f2,
+              type: f,
               typeDef,
               genericArgs
             }) : genericArgs;
-            return _IdlCoder.fieldLayout({ name: i.toString(), type: f2 }, types, genArgs);
+            return _IdlCoder.fieldLayout({ name: i.toString(), type: f }, types, genArgs);
           }));
           return borsh.struct(fieldLayouts, name);
         }
         case "enum": {
           const variants = typeDef.type.variants.map((variant) => {
-            const fieldLayouts = handleDefinedFields(variant.fields, () => [], (fields) => fields.map((f2) => {
+            const fieldLayouts = handleDefinedFields(variant.fields, () => [], (fields) => fields.map((f) => {
               const genArgs = genericArgs ? _IdlCoder.resolveGenericArgs({
-                type: f2.type,
+                type: f.type,
                 typeDef,
                 genericArgs
               }) : genericArgs;
-              return _IdlCoder.fieldLayout(f2, types, genArgs);
-            }), (fields) => fields.map((f2, i) => {
+              return _IdlCoder.fieldLayout(f, types, genArgs);
+            }), (fields) => fields.map((f, i) => {
               const genArgs = genericArgs ? _IdlCoder.resolveGenericArgs({
-                type: f2,
+                type: f,
                 typeDef,
                 genericArgs
               }) : genericArgs;
-              return _IdlCoder.fieldLayout({ name: i.toString(), type: f2 }, types, genArgs);
+              return _IdlCoder.fieldLayout({ name: i.toString(), type: f }, types, genArgs);
             }));
             return borsh.struct(fieldLayouts, variant.name);
           });
@@ -35311,11 +35545,11 @@ Message: ${transactionMessage}.
             };
             switch (typeDef.type.kind) {
               case "struct": {
-                return handleDefinedFields(typeDef.type.fields, () => [0], (fields) => fields.map((f2) => typeSize(f2.type)), (fields) => fields.map((f2) => typeSize(f2))).reduce((acc, size) => acc + size, 0);
+                return handleDefinedFields(typeDef.type.fields, () => [0], (fields) => fields.map((f) => typeSize(f.type)), (fields) => fields.map((f) => typeSize(f))).reduce((acc, size) => acc + size, 0);
               }
               case "enum": {
                 const variantSizes = typeDef.type.variants.map((variant) => {
-                  return handleDefinedFields(variant.fields, () => [0], (fields) => fields.map((f2) => typeSize(f2.type)), (fields) => fields.map((f2) => typeSize(f2))).reduce((acc, size) => acc + size, 0);
+                  return handleDefinedFields(variant.fields, () => [0], (fields) => fields.map((f) => typeSize(f.type)), (fields) => fields.map((f) => typeSize(f))).reduce((acc, size) => acc + size, 0);
                 });
                 return Math.max(...variantSizes) + 1;
               }
@@ -35604,7 +35838,7 @@ Message: ${transactionMessage}.
         case "struct": {
           return "{ " + handleDefinedFields(typeDef.type.fields, () => "", (fields) => {
             return Object.entries(data).map(([key, val]) => {
-              const field = fields.find((f2) => f2.name === key);
+              const field = fields.find((f) => f.name === key);
               if (!field) {
                 throw new Error(`Field not found: ${key}`);
               }
@@ -35624,13 +35858,13 @@ Message: ${transactionMessage}.
           }
           const enumValue = data[variantName];
           return handleDefinedFields(variant.fields, () => variantName, (fields) => {
-            const namedFields = Object.keys(enumValue).map((f2) => {
-              const fieldData = enumValue[f2];
-              const idlField = fields.find((v) => v.name === f2);
+            const namedFields = Object.keys(enumValue).map((f) => {
+              const fieldData = enumValue[f];
+              const idlField = fields.find((v) => v.name === f);
               if (!idlField) {
-                throw new Error(`Field not found: ${f2}`);
+                throw new Error(`Field not found: ${f}`);
               }
-              return f2 + ": " + _InstructionFormatter.formatIdlData(idlField, fieldData, types);
+              return f + ": " + _InstructionFormatter.formatIdlData(idlField, fieldData, types);
             }).join(", ");
             return `${variantName} { ${namedFields} }`;
           }, (fields) => {

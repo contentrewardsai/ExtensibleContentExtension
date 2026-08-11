@@ -1,0 +1,53 @@
+{
+  "id": "bindAlwaysOnBoundRow",
+  "label": "Bind always-on boundRow",
+  "category": "data",
+  "description": "Merge selected row fields into another workflow's alwaysOn.boundRow (e.g. after V3 mint, copy v3PositionTokenId into wf-bsc-v3-monitor). Uses CFS_ALWAYS_ON_MERGE_BOUND_ROW. Optional: enable priceRangeWatch scope and set pollIntervalMs.",
+  "defaultAction": {
+    "type": "bindAlwaysOnBoundRow",
+    "runIf": "",
+    "targetWorkflowId": "wf-bsc-v3-monitor",
+    "fieldMap": {
+      "v3PositionTokenId": "{{v3PositionTokenId}}",
+      "v3Pool": "{{v3Pool}}",
+      "token0": "{{token0}}",
+      "token1": "{{token1}}",
+      "tokenA": "{{tokenA}}",
+      "tokenB": "{{tokenB}}",
+      "v3Fee": "{{v3Fee}}",
+      "rangePercent": "{{rangePercent}}",
+      "exitBelowPolicy": "{{exitBelowPolicy}}",
+      "exitAbovePolicy": "{{exitAbovePolicy}}",
+      "stableToken": "{{stableToken}}",
+      "minPrice": "{{minPrice}}",
+      "maxPrice": "{{maxPrice}}",
+      "tickLower": "{{tickLower}}",
+      "tickUpper": "{{tickUpper}}"
+    },
+    "enablePriceRangeWatch": true,
+    "pollIntervalMs": "30000",
+    "saveBoundRowVariable": "alwaysOnBoundRow"
+  },
+  "inputs": [
+    { "key": "targetWorkflowId", "description": "Library workflow id whose alwaysOn.boundRow will be updated." },
+    { "key": "fieldMap", "description": "Object: boundRowKey → template string from current row." },
+    { "key": "enablePriceRangeWatch", "description": "When true, enable alwaysOn + scopes.priceRangeWatch on the target." },
+    { "key": "pollIntervalMs", "description": "Optional alwaysOn.pollIntervalMs (ms)." }
+  ],
+  "outputs": [
+    { "key": "saveBoundRowVariable", "description": "Row variable for JSON of merged boundRow." }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "targetWorkflowId", "label": "Target workflow id", "inputType": "text", "placeholder": "wf-bsc-v3-monitor" },
+    {
+      "key": "fieldMap",
+      "label": "fieldMap (JSON: boundRow key → {{rowVar}} or literal)",
+      "inputType": "textarea",
+      "placeholder": "{\"v3PositionTokenId\":\"{{v3PositionTokenId}}\"}"
+    },
+    { "key": "enablePriceRangeWatch", "label": "Enable priceRangeWatch on target", "inputType": "checkbox" },
+    { "key": "pollIntervalMs", "label": "pollIntervalMs (optional)", "inputType": "text", "placeholder": "30000" },
+    { "key": "saveBoundRowVariable", "label": "Save merged boundRow JSON to variable", "inputType": "text" }
+  ]
+}

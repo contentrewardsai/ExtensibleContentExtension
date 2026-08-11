@@ -1,6 +1,6 @@
 /**
- * Default Whop OAuth URLs for the extension (committed). Copy to whop-auth.js to override locally.
- * Side panel loads this file first, then optional whop-auth.js (gitignored) if present.
+ * Default Whop OAuth URLs for the extension (committed). Edit config/whop-auth.js to override locally.
+ * Side panel / Settings load this file first, then config/whop-auth.js (external script tags; MV3 CSP).
  * APP_ORIGIN: backend base URL. For dev, use http://localhost:3000; for prod, https://www.extensiblecontent.com
  * The /extension/login page is served by the same app on both extensiblecontent.com and
  * contentrewardsai.com and now uses the Content Rewards AI design. We keep the OAuth flow on
@@ -8,7 +8,7 @@
  * getLoginUrl(code, extId): the side panel generates a one-time nonce and passes it as ?code=<nonce>,
  * plus the extension id as ?ext_id=<chrome.runtime.id>. The login page must carry the code through the
  * OAuth round-trip (e.g. in `state`) and echo it back with the tokens (postMessage `code` /
- * STORE_TOKENS `code`) so the service worker can verify the response matches the login it started.
+ * STORE_TOKENS `code` / `nonce` / `loginNonce` / `state`) so the service worker can verify the response matches the login it started.
  * The ext_id lets the page deliver tokens directly via chrome.runtime.sendMessage(ext_id, { type:
  * 'STORE_TOKENS', ... }) through externally_connectable, in addition to the postMessage bridge.
  */

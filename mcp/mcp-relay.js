@@ -53,10 +53,14 @@
     if (reqType === 'STORAGE_READ') {
       /* Direct chrome.storage.local.get — secret keys denied */
       var keys = Array.isArray(payload.keys) ? payload.keys : [payload.keys];
-      var filtered =
-        typeof cfsFilterStorageKeys === 'function'
-          ? cfsFilterStorageKeys(keys)
-          : { allowed: keys, denied: [] };
+      if (typeof cfsFilterStorageKeys !== 'function') {
+        sendWs({
+          id: id,
+          response: { ok: false, error: 'Storage secret filter unavailable', denied: keys },
+        });
+        return;
+      }
+      var filtered = cfsFilterStorageKeys(keys);
       if (!filtered.allowed.length) {
         sendWs({
           id: id,
@@ -65,6 +69,10 @@
         return;
       }
       chrome.storage.local.get(filtered.allowed, function (result) {
+        if (chrome.runtime.lastError) {
+          sendWs({ id: id, response: { ok: false, error: chrome.runtime.lastError.message || 'STORAGE_READ failed' } });
+          return;
+        }
         sendWs({
           id: id,
           response: {
@@ -85,10 +93,18 @@
       } else if (payload.data && typeof payload.data === 'object') {
         writeData = payload.data;
       }
-      var stripped =
-        typeof cfsStripSecretKeysFromObject === 'function'
-          ? cfsStripSecretKeysFromObject(writeData)
-          : { data: writeData, denied: [] };
+      if (typeof cfsStripSecretKeysFromObject !== 'function') {
+        sendWs({
+          id: id,
+          response: {
+            ok: false,
+            error: 'Storage secret filter unavailable',
+            denied: Object.keys(writeData),
+          },
+        });
+        return;
+      }
+      var stripped = cfsStripSecretKeysFromObject(writeData);
       if (!Object.keys(stripped.data).length) {
         sendWs({
           id: id,

@@ -1,5 +1,6 @@
 /**
  * Rugcheck public API (Solana mint). Fetches via service worker (resilient GET) so playback matches Following automation headless rate limits.
+ * Honors maxScoreNormalised / failOnError the same way Following automation does.
  */
 (function () {
   'use strict';
@@ -32,13 +33,28 @@
       var mint = trimResolved(row, getRowValue, action, action.mint);
       if (!mint) throw new Error('rugcheckToken: set mint or template');
 
+      var maxStr = trimResolved(row, getRowValue, action, action.maxScoreNormalised);
+      var maxN = maxStr ? Number(maxStr) : null;
+      var failOnError = action.failOnError === true;
+
       var rpcRes = await sendMessage({ type: 'CFS_RUGCHECK_TOKEN_REPORT', mint: mint });
       if (!rpcRes || !rpcRes.ok) {
-        throw new Error((rpcRes && rpcRes.error) || 'rugcheckToken: request failed');
+        if (failOnError) {
+          throw new Error((rpcRes && rpcRes.error) || 'rugcheckToken: request failed');
+        }
+        return { ok: true, skipped: true, reason: 'rugcheck_fetch_failed' };
       }
       var json = rpcRes.report;
       if (!json || typeof json !== 'object') {
-        throw new Error('rugcheckToken: invalid response');
+        if (failOnError) throw new Error('rugcheckToken: invalid response');
+        return { ok: true, skipped: true, reason: 'rugcheck_invalid_response' };
+      }
+
+      var sn = json.score_normalised != null ? Number(json.score_normalised) : null;
+      if (maxN != null && Number.isFinite(maxN) && sn != null && Number.isFinite(sn) && sn > maxN) {
+        throw new Error(
+          'rugcheckToken: score_normalised ' + sn + ' exceeds max ' + maxN
+        );
       }
 
       var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
@@ -49,6 +65,7 @@
           row[keyVar] = String(json);
         }
       }
+      return { ok: true, score_normalised: sn };
     },
     { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false },
   );

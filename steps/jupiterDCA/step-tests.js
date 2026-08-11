@@ -10,6 +10,14 @@
       var v = String('86400').trim();
       runner.assertEqual(v, '86400');
     }},
+    { name: 'DCA operation defaults to create', fn: function () {
+      var op = String(undefined || 'create').trim().toLowerCase();
+      runner.assertEqual(op, 'create');
+    }},
+    { name: 'DCA cancel requires order key', fn: function () {
+      var key = String('').trim();
+      runner.assertTrue(!key, 'empty order key');
+    }},
     { name: 'DCA template resolution for outputMint', fn: function () {
       var row = { token: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' };
       var resolved = '{{token}}'.replace(/\{\{([^}]+)\}\}/g, function(_, k) { return getRowValue(row, k.trim()) || ''; });

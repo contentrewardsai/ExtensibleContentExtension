@@ -1,8 +1,8 @@
 /**
  * detectMediaType handler: classify file MIME type and extract metadata.
  * Reads a data URL from a row variable, detects MIME from the header,
- * categorizes as image/video/audio/text/other, and optionally uses
- * FFmpeg probe for duration on audio/video.
+ * categorizes as image/video/audio/text/other, and probes duration via
+ * HTMLMediaElement (with optional SW FFMPEG_PROBE_DURATION fallback).
  */
 (function() {
   'use strict';
@@ -45,6 +45,43 @@
     }
   }
 
+  function probeDurationFromDataUrl(dataUrl, category) {
+    return new Promise(function (resolve) {
+      if (!dataUrl || (category !== 'video' && category !== 'audio')) {
+        resolve(0);
+        return;
+      }
+      var el = document.createElement(category === 'audio' ? 'audio' : 'video');
+      var done = false;
+      function finish(v) {
+        if (done) return;
+        done = true;
+        try {
+          el.removeAttribute('src');
+          el.load();
+        } catch (_) {}
+        resolve(v);
+      }
+      var timer = setTimeout(function () { finish(0); }, 8000);
+      el.preload = 'metadata';
+      el.onloadedmetadata = function () {
+        clearTimeout(timer);
+        var d = el.duration;
+        finish(Number.isFinite(d) && d > 0 ? d : 0);
+      };
+      el.onerror = function () {
+        clearTimeout(timer);
+        finish(0);
+      };
+      try {
+        el.src = dataUrl;
+      } catch (_) {
+        clearTimeout(timer);
+        finish(0);
+      }
+    });
+  }
+
   window.__CFS_registerStepHandler('detectMediaType', async function(action, opts) {
     var ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (detectMediaType)');
@@ -55,20 +92,25 @@
     var dataUrl = getRowValue(row, fileVar) || '';
     var filename = getRowValue(row, filenameVar) || '';
 
-    // Detect MIME
     var mime = mimeFromDataUrl(dataUrl) || mimeFromFilename(filename);
     var category = categoryFromMime(mime);
     var sizeBytes = dataUrl ? dataUrlByteSize(dataUrl) : 0;
     var duration = 0;
 
-    // Try FFmpeg probe for duration on audio/video
-    if ((category === 'video' || category === 'audio') && dataUrl && typeof ctx.sendMessage === 'function') {
+    if ((category === 'video' || category === 'audio') && dataUrl) {
       try {
-        var probeResp = await ctx.sendMessage({ type: 'FFMPEG_PROBE_DURATION', dataUrl: dataUrl });
-        if (probeResp && probeResp.ok && probeResp.durationSeconds > 0) {
-          duration = probeResp.durationSeconds;
-        }
-      } catch (_) { /* probe is best-effort */ }
+        duration = await probeDurationFromDataUrl(dataUrl, category);
+      } catch (_) {
+        duration = 0;
+      }
+      if (!(duration > 0) && typeof ctx.sendMessage === 'function') {
+        try {
+          var probeResp = await ctx.sendMessage({ type: 'FFMPEG_PROBE_DURATION', dataUrl: dataUrl });
+          if (probeResp && probeResp.ok && probeResp.durationSeconds > 0) {
+            duration = probeResp.durationSeconds;
+          }
+        } catch (_) { /* probe is best-effort */ }
+      }
     }
 
     row[action.saveTypeVariable || 'mediaType'] = category;

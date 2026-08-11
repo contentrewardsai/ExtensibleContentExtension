@@ -15,7 +15,9 @@ Use after releases or infra changes. **Tiny notionals**; **dedicated wallet**; r
 - [ ] Settings: RPC + chain ID 56; wallet unlocked.
 - [ ] **Read-only:** `bscQuery` or balance read if exposed in UI.
 - [ ] **One `bscPancake` or `bscTransferBep20`** minimal path on fork first, then mainnet if required.
-- [ ] **BscScan / watch:** `bscWatchRefresh` + read activity (API key present).
+- [ ] **BSC Following indexer / watch:** `bscWatchRefresh` + read activity (QuickNode / Etherscan / Ankr / Covalent credential present).
+- [ ] **QuickNode BSC smokes (local):** `npm run test:quicknode-bsc-smokes` with `cfs_bsc_quicknode_rpc_url` in `config/crypto-keys.local.json`.
+- [ ] **QuickNode Pancake farm smokes (local):** `npm run test:quicknode-pancake-farm-smokes` (read-only by default; signed stake/unstake only with `CFS_PANCAKE_FARM_SIGNED=1`).
 
 ## Aster
 

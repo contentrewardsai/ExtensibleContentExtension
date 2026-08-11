@@ -6,10 +6,10 @@
  * Enable (any of):
  *   CRYPTO_HTTP_SMOKE_RUN        — non-empty (e.g. CI secret "1") → Rugcheck + Aster + Jupiter quote
  *   CRYPTO_HTTP_SMOKE=1          — same as local convenience
- *   CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY — BscScan proxy eth_blockNumber (mainnet API by default)
+ *   CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY — Etherscan Multichain V2 key; proxy eth_blockNumber (BSC 56 by default)
  *
  * Optional:
- *   CRYPTO_HTTP_SMOKE_BSCSCAN_NETWORK=chapel — use api-testnet.bscscan.com
+ *   CRYPTO_HTTP_SMOKE_BSCSCAN_NETWORK=chapel — use chainid=97 (Chapel) instead of 56
  *   CRYPTO_HTTP_SMOKE_RUGCHECK_MINT — override default wrapped-SOL mint for Rugcheck GET
  *   CRYPTO_HTTP_SMOKE_JUPITER_API_KEY — x-api-key header for Jupiter quote-api (same as extension storage)
  *   CRYPTO_HTTP_SMOKE_JUPITER_INPUT_MINT / OUTPUT_MINT / AMOUNT_RAW / SLIPPAGE_BPS — quote params (defaults: SOL→USDC, 1e6 lamports, 50 bps)
@@ -64,51 +64,77 @@ async function checkRugcheck() {
 }
 
 async function checkJupiterQuote() {
-  const u = new URL('https://quote-api.jup.ag/v6/quote');
-  u.searchParams.set('inputMint', jupInput);
-  u.searchParams.set('outputMint', jupOutput);
-  u.searchParams.set('amount', jupAmount);
-  u.searchParams.set('slippageBps', String(jupSlippage));
-
   const headers = { accept: 'application/json' };
   if (jupKey) headers['x-api-key'] = jupKey;
 
-  let res;
-  try {
-    res = await fetch(u.toString(), {
-      method: 'GET',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers,
-    });
-  } catch (e) {
-    throw new Error(`Jupiter quote: fetch failed (${e.message || e})`);
+  const bases = ['https://quote-api.jup.ag/v6/quote', 'https://lite-api.jup.ag/swap/v1/quote'];
+  let lastErr = '';
+  let j = null;
+  let usedBase = bases[0];
+
+  for (let i = 0; i < bases.length; i++) {
+    const u = new URL(bases[i]);
+    u.searchParams.set('inputMint', jupInput);
+    u.searchParams.set('outputMint', jupOutput);
+    u.searchParams.set('amount', jupAmount);
+    u.searchParams.set('slippageBps', String(jupSlippage));
+    usedBase = bases[i];
+    let res;
+    try {
+      res = await fetch(u.toString(), {
+        method: 'GET',
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        headers,
+      });
+    } catch (e) {
+      lastErr = `fetch failed (${e.message || e})`;
+      continue;
+    }
+    const text = await res.text();
+    if (!res.ok) {
+      lastErr = `HTTP ${res.status} ${text.slice(0, 240)}`;
+      continue;
+    }
+    try {
+      j = JSON.parse(text);
+    } catch {
+      lastErr = `non-JSON ${text.slice(0, 200)}`;
+      continue;
+    }
+    if (j == null || typeof j !== 'object') {
+      lastErr = `unexpected ${JSON.stringify(j)}`;
+      j = null;
+      continue;
+    }
+    if (j.error != null && j.error !== '') {
+      lastErr = `API error ${JSON.stringify(j.error)}`;
+      j = null;
+      continue;
+    }
+    const hasRoute = Array.isArray(j.routePlan) && j.routePlan.length > 0;
+    const hasAmounts =
+      typeof j.inAmount === 'string' &&
+      typeof j.outAmount === 'string' &&
+      j.inAmount.length > 0 &&
+      j.outAmount.length > 0;
+    if (!hasRoute && !hasAmounts) {
+      lastErr = `missing routePlan/inAmount/outAmount ${text.slice(0, 200)}`;
+      j = null;
+      continue;
+    }
+    break;
   }
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Jupiter quote: HTTP ${res.status} ${text.slice(0, 240)}`);
+
+  if (!j) {
+    throw new Error(`Jupiter quote: ${lastErr || 'all endpoints failed'}`);
   }
-  let j;
-  try {
-    j = JSON.parse(text);
-  } catch {
-    throw new Error(`Jupiter quote: non-JSON ${text.slice(0, 200)}`);
-  }
-  if (j == null || typeof j !== 'object') {
-    throw new Error(`Jupiter quote: unexpected ${JSON.stringify(j)}`);
-  }
-  if (j.error != null && j.error !== '') {
-    throw new Error(`Jupiter quote: API error ${JSON.stringify(j.error)}`);
-  }
-  const hasRoute = Array.isArray(j.routePlan) && j.routePlan.length > 0;
-  const hasAmounts =
-    typeof j.inAmount === 'string' &&
-    typeof j.outAmount === 'string' &&
-    j.inAmount.length > 0 &&
-    j.outAmount.length > 0;
-  if (!hasRoute && !hasAmounts) {
-    throw new Error(`Jupiter quote: missing routePlan/inAmount/outAmount ${text.slice(0, 200)}`);
-  }
-  console.log('[crypto-http-smoke] Jupiter v6 quote ok (', jupInput.slice(0, 4) + '… → ' + jupOutput.slice(0, 4) + '…)');
+  const host = usedBase.includes('lite-api') ? 'lite-api' : 'quote-api';
+  console.log(
+    '[crypto-http-smoke] Jupiter quote ok via',
+    host,
+    '(',
+    jupInput.slice(0, 4) + '… → ' + jupOutput.slice(0, 4) + '…)',
+  );
 }
 
 async function checkAster() {
@@ -141,21 +167,48 @@ async function checkAster() {
 }
 
 async function checkBscScan(apiKey) {
-  const base =
-    bscNet === 'chapel' || bscNet === 'testnet' || bscNet === '97'
-      ? 'https://api-testnet.bscscan.com/api'
-      : 'https://api.bscscan.com/api';
-  const u = new URL(base);
+  const chainId =
+    bscNet === 'chapel' || bscNet === 'testnet' || bscNet === '97' ? '97' : '56';
+  const u = new URL('https://api.etherscan.io/v2/api');
+  u.searchParams.set('chainid', chainId);
   u.searchParams.set('module', 'proxy');
   u.searchParams.set('action', 'eth_blockNumber');
   u.searchParams.set('apikey', apiKey);
-  const j = await fetchJson(u.toString(), 'BscScan eth_blockNumber');
-  const status = j && j.status;
+  const j = await fetchJson(u.toString(), 'Etherscan V2 eth_blockNumber');
   const result = j && j.result;
-  if (String(status) !== '1' || typeof result !== 'string' || !/^0x[0-9a-fA-F]+$/.test(result)) {
-    throw new Error(`BscScan: unexpected ${JSON.stringify(j)}`);
+  const status = j && j.status;
+  if (String(status) === '0') {
+    const detail =
+      (typeof result === 'string' && result) || j.message || JSON.stringify(j);
+    // Free Multichain keys often accept Ethereum only — treat as soft skip, not hard fail.
+    if (
+      /Free API access is not supported for this chain/i.test(detail) ||
+      /upgrade your api plan for full chain coverage/i.test(detail)
+    ) {
+      console.log(
+        '[crypto-http-smoke] skip Etherscan V2 BSC: key accepted but plan lacks chainid=' +
+          chainId +
+          ' coverage —',
+        String(detail).slice(0, 160),
+      );
+      return;
+    }
+    throw new Error(`Etherscan V2 (chainid=${chainId}): ${detail}`);
   }
-  console.log('[crypto-http-smoke] BscScan proxy eth_blockNumber:', result, '(' + base + ')');
+  const okClassic = String(status) === '1' && typeof result === 'string' && /^0x[0-9a-fA-F]+$/.test(result);
+  const okJsonRpc =
+    j &&
+    j.jsonrpc &&
+    typeof result === 'string' &&
+    /^0x[0-9a-fA-F]+$/.test(result);
+  if (!okClassic && !okJsonRpc) {
+    throw new Error(`Etherscan V2: unexpected ${JSON.stringify(j)}`);
+  }
+  console.log(
+    '[crypto-http-smoke] Etherscan V2 proxy eth_blockNumber:',
+    result,
+    `(chainid=${chainId})`,
+  );
 }
 
 async function main() {

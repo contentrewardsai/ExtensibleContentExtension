@@ -4,6 +4,29 @@
  * Payload: segments (or legacy urls), overlays?, audioTracks?, width, height, fps, mismatchStrategy.
  */
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'FFMPEG_PROBE_DURATION_PAYLOAD') {
+    (async () => {
+      try {
+        var dataUrl = msg.dataUrl;
+        if (!dataUrl || typeof dataUrl !== 'string' || dataUrl.indexOf('data:') !== 0) {
+          sendResponse({ ok: false, error: 'dataUrl required' });
+          return;
+        }
+        var res = await fetch(dataUrl);
+        var blob = await res.blob();
+        var FL = typeof FFmpegLocal !== 'undefined' ? FFmpegLocal : self.FFmpegLocal;
+        if (!FL || typeof FL.probeDurationSeconds !== 'function') {
+          sendResponse({ ok: false, error: 'FFmpegLocal.probeDurationSeconds not available' });
+          return;
+        }
+        var durationSeconds = await FL.probeDurationSeconds(blob);
+        sendResponse({ ok: true, durationSeconds: durationSeconds || 0 });
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  }
   if (msg.type === 'EXTRACT_AUDIO_FROM_VIDEO_PAYLOAD') {
     (async () => {
       try {

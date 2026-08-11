@@ -51,5 +51,9 @@
       "placeholder": "e.g. explorerUrl"
     }
   ],
-  "serviceWorkerMessages": []
+  "serviceWorkerMessages": [
+    "CFS_WALLET_ENABLE_AUTO_APPROVE",
+    "CFS_WALLET_SIGN_COMPLETE",
+    "CFS_WALLET_SIGN_AND_SEND_COMPLETE"
+  ]
 }

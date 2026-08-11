@@ -40,6 +40,10 @@
   var PANCAKE_SWAP_ROUTER_V3 = '0x1b81D678ffb9C0263b24A97847620C99d213eB14';
   /** PancakeSwap V3 NonfungiblePositionManager — same deployment manifest. */
   var PANCAKE_NPM_V3 = '0x46A15B0b27311cedF172AB29E4f4766fbE7F4364';
+  /** Pancake V3 TickLens — populated ticks per bitmap word (liquidity depth). */
+  var PANCAKE_TICK_LENS_V3 = '0x9a489505a00cE272eAa5e07Dba6491314CaE3796';
+  /** Multicall3 (same address on BSC as Ethereum). */
+  var MULTICALL3_BSC = '0xcA11bde05977b3631167028862bE2a173976CA11';
   var WBNB_BSC = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
   /** MasterChef v1 (legacy — enterStaking / leaveStaking). BSC mainnet; verify in official PancakeSwap docs before upgrades. */
   var MASTER_CHEF_V1 = '0x73feaa1eE314F8c655E354234017bE2193C9E24E';
@@ -150,6 +154,12 @@
     'function token0() view returns (address)',
     'function token1() view returns (address)',
     'function fee() view returns (uint24)',
+    'function tickSpacing() view returns (int24)',
+    'function feeGrowthGlobal0X128() view returns (uint256)',
+    'function feeGrowthGlobal1X128() view returns (uint256)',
+  ];
+  var TICK_LENS_V3_ABI = [
+    'function getPopulatedTicksInWord(address pool, int16 tickBitmapIndex) view returns (tuple(int24 tick, int128 liquidityNet, uint128 liquidityGross)[])',
   ];
   var QUOTER_V2_ABI = [
     'function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)',
@@ -169,6 +179,14 @@
     'function poolInfo(uint256 pid) view returns (address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accCakePerShare)',
     'function poolLength() view returns (uint256)',
   ];
+  /** MasterChef v2: poolInfo has no lpToken; use lpToken(pid) mapping. */
+  var MC_V2_VIEW_ABI = [
+    'function pendingCake(uint256 pid, address user) view returns (uint256)',
+    'function userInfo(uint256 pid, address user) view returns (uint256 amount, uint256 rewardDebt, uint256 boostMultiplier)',
+    'function poolInfo(uint256 pid) view returns (uint256 accCakePerShare, uint256 lastRewardBlock, uint256 allocPoint, uint256 totalBoostShare, bool isRegular)',
+    'function lpToken(uint256 pid) view returns (address)',
+    'function poolLength() view returns (uint256)',
+  ];
   var SWAP_ROUTER_V3_ABI = [
     'function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) payable returns (uint256 amountOut)',
     'function exactOutputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountOut,uint256 amountInMaximum,uint160 sqrtPriceLimitX96)) payable returns (uint256 amountIn)',
@@ -183,6 +201,11 @@
     'function burn(uint256 tokenId) payable',
     'function positions(uint256 tokenId) view returns (uint96 nonce,address operator,address token0,address token1,uint24 fee,int24 tickLower,int24 tickUpper,uint128 liquidity,uint256 feeGrowthInside0LastX128,uint256 feeGrowthInside1LastX128,uint128 tokensOwed0,uint128 tokensOwed1)',
     'function ownerOf(uint256 tokenId) view returns (address)',
+    'function balanceOf(address owner) view returns (uint256)',
+    'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
+  ];
+  var MULTICALL3_ABI = [
+    'function aggregate3((address target,bool allowFailure,bytes callData)[] calls) payable returns ((bool success,bytes returnData)[] returnData)',
   ];
   var BIN_POOL_MANAGER_VIEW_ABI = [
     'function getSlot0(bytes32 id) view returns (uint24 activeId, uint24 protocolFee, uint24 lpFee)',
@@ -341,8 +364,16 @@
     throw new Error('Invalid BSC wallet entry');
   }
 
+  /** BIP39 phrases: collapse whitespace/newlines so paste + generate round-trips match. */
+  function normalizeBscMnemonic(phrase) {
+    return String(phrase || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s\u00a0]+/g, ' ');
+  }
+
   function walletFromSecretAndType(ethers, secret, secretType) {
-    if (secretType === 'mnemonic') return ethers.Wallet.fromPhrase(String(secret).trim());
+    if (secretType === 'mnemonic') return ethers.Wallet.fromPhrase(normalizeBscMnemonic(secret));
     var pk = String(secret).trim();
     if (!pk.startsWith('0x') && /^[0-9a-fA-F]{64}$/.test(pk)) pk = '0x' + pk;
     return new ethers.Wallet(pk);
@@ -688,6 +719,43 @@
     return normalizeAddr(ethers, m);
   }
 
+  function isMasterChefV2Addr(addr) {
+    return String(addr || '').toLowerCase() === MASTER_CHEF_V2.toLowerCase();
+  }
+
+  function masterChefViewContract(ethers, provider, mcAddr) {
+    var abi = isMasterChefV2Addr(mcAddr) ? MC_V2_VIEW_ABI : MC_VIEW_ABI;
+    return new ethers.Contract(mcAddr, abi, provider);
+  }
+
+  /**
+   * Unified farm pool snapshot. MC v2 returns lpToken via lpToken(pid), not poolInfo.
+   */
+  async function readMasterChefPoolInfo(ethers, provider, mcAddr, pidBn) {
+    var c = masterChefViewContract(ethers, provider, mcAddr);
+    if (isMasterChefV2Addr(mcAddr)) {
+      var poolV2 = await c.poolInfo(pidBn);
+      var lpV2 = await c.lpToken(pidBn);
+      return {
+        lpToken: normalizeAddr(ethers, lpV2),
+        allocPoint: poolV2.allocPoint.toString(),
+        lastRewardBlock: poolV2.lastRewardBlock.toString(),
+        accCakePerShare: poolV2.accCakePerShare.toString(),
+        isRegular: !!poolV2.isRegular,
+        totalBoostShare: poolV2.totalBoostShare.toString(),
+        masterChefVersion: 2,
+      };
+    }
+    var poolV1 = await c.poolInfo(pidBn);
+    return {
+      lpToken: normalizeAddr(ethers, poolV1.lpToken),
+      allocPoint: poolV1.allocPoint.toString(),
+      lastRewardBlock: poolV1.lastRewardBlock.toString(),
+      accCakePerShare: poolV1.accCakePerShare.toString(),
+      masterChefVersion: 1,
+    };
+  }
+
   function allowedSwapRouterV3(addr) {
     return String(addr).toLowerCase() === PANCAKE_SWAP_ROUTER_V3.toLowerCase();
   }
@@ -733,6 +801,41 @@
     };
   }
 
+  function pancakeV3Helpers() {
+    return globalThis.CFS_PANCAKE_V3 || globalThis.__CFS_pancakeV3PriceTicks || null;
+  }
+
+  function pancakeV3LpHelpers() {
+    return globalThis.CFS_PANCAKE_V3_LP || globalThis.__CFS_pancakeV3LpAmounts || null;
+  }
+
+  async function multicall3Aggregate(ethers, provider, calls) {
+    var c = new ethers.Contract(MULTICALL3_BSC, MULTICALL3_ABI, provider);
+    var packed = (calls || []).map(function (x) {
+      return {
+        target: x.target,
+        allowFailure: x.allowFailure !== false,
+        callData: x.callData,
+      };
+    });
+    if (!packed.length) return [];
+    try {
+      return await c.aggregate3.staticCall(packed);
+    } catch (e) {
+      // Fallback: sequential eth_calls when Multicall3 is unavailable
+      var out = [];
+      for (var i = 0; i < packed.length; i++) {
+        try {
+          var data = await provider.call({ to: packed[i].target, data: packed[i].callData });
+          out.push({ success: true, returnData: data });
+        } catch (_) {
+          out.push({ success: false, returnData: '0x' });
+        }
+      }
+      return out;
+    }
+  }
+
   function parseTickInt24(raw, label) {
     var s = String(raw == null ? '' : raw).trim();
     if (!s) throw new Error(label + ' required (int24 tick)');
@@ -740,6 +843,117 @@
     if (!isFinite(n) || Math.floor(n) !== n) throw new Error(label + ' must be an integer (int24)');
     if (n < -8388608 || n > 8388607) throw new Error(label + ' out of int24 range');
     return n;
+  }
+
+  async function readErc20Decimals(ethers, provider, token) {
+    var c = new ethers.Contract(token, ERC20_ABI, provider);
+    var d = await c.decimals();
+    return Number(d);
+  }
+
+  /**
+   * Resolve mint tickLower/tickUpper from ticks and/or minPrice/maxPrice (token1 per token0 by default).
+   */
+  async function resolveV3MintTicks(ethers, provider, msg, sortedTokens, fee) {
+    var helpers = pancakeV3Helpers();
+    var hasLo = msg.tickLower != null && String(msg.tickLower).trim() !== '';
+    var hasHi = msg.tickUpper != null && String(msg.tickUpper).trim() !== '';
+    var hasMinP = msg.minPrice != null && String(msg.minPrice).trim() !== '';
+    var hasMaxP = msg.maxPrice != null && String(msg.maxPrice).trim() !== '';
+    if (hasMinP || hasMaxP) {
+      if (!hasMinP || !hasMaxP) throw new Error('v3PositionMint: minPrice and maxPrice are both required when using prices');
+      if (!helpers) throw new Error('v3PositionMint: price helpers not loaded');
+      var fac = new ethers.Contract(resolveFactoryV3(msg), FACTORY_V3_ABI, provider);
+      var poolAddr = await fac.getPool(sortedTokens.token0, sortedTokens.token1, fee);
+      if (!poolAddr || poolAddr === ethers.ZeroAddress) {
+        throw new Error('v3PositionMint: V3 pool not found for tokenA/tokenB/fee');
+      }
+      var poolC = new ethers.Contract(poolAddr, POOL_V3_READ_ABI, provider);
+      var spacing = Number(await poolC.tickSpacing());
+      var dec0 = await readErc20Decimals(ethers, provider, sortedTokens.token0);
+      var dec1 = await readErc20Decimals(ethers, provider, sortedTokens.token1);
+      var range = helpers.pricesToTickRange({
+        minPrice: String(msg.minPrice).trim(),
+        maxPrice: String(msg.maxPrice).trim(),
+        decimals0: dec0,
+        decimals1: dec1,
+        tickSpacing: spacing,
+        priceDenomination: msg.priceDenomination || 'token1PerToken0',
+      });
+      return {
+        tickLower: range.tickLower,
+        tickUpper: range.tickUpper,
+        fromPrice: true,
+        pool: normalizeAddr(ethers, poolAddr),
+        tickSpacing: spacing,
+        decimals0: dec0,
+        decimals1: dec1,
+        minPriceToken1PerToken0: range.minPriceToken1PerToken0,
+        maxPriceToken1PerToken0: range.maxPriceToken1PerToken0,
+      };
+    }
+    if (!hasLo || !hasHi) {
+      throw new Error('v3PositionMint: tickLower/tickUpper or minPrice/maxPrice required');
+    }
+    var tLo = parseTickInt24(msg.tickLower, 'tickLower');
+    var tHi = parseTickInt24(msg.tickUpper, 'tickUpper');
+    if (tLo >= tHi) throw new Error('v3PositionMint: tickLower must be < tickUpper');
+    if (helpers) {
+      try {
+        var fac2 = new ethers.Contract(resolveFactoryV3(msg), FACTORY_V3_ABI, provider);
+        var pool2 = await fac2.getPool(sortedTokens.token0, sortedTokens.token1, fee);
+        if (pool2 && pool2 !== ethers.ZeroAddress) {
+          var spacing2 = Number(await new ethers.Contract(pool2, POOL_V3_READ_ABI, provider).tickSpacing());
+          tLo = helpers.nearestUsableTick(tLo, spacing2);
+          tHi = helpers.nearestUsableTick(tHi, spacing2);
+          if (tLo >= tHi) throw new Error('v3PositionMint: ticks collapse after spacing snap; widen range');
+          return { tickLower: tLo, tickUpper: tHi, fromPrice: false, pool: normalizeAddr(ethers, pool2), tickSpacing: spacing2 };
+        }
+      } catch (e) {
+        if (String(e && e.message || '').indexOf('collapse') >= 0) throw e;
+      }
+    }
+    return { tickLower: tLo, tickUpper: tHi, fromPrice: false };
+  }
+
+  function buildActiveLiquiditySeries(helpers, populated, currentTick, currentLiquidity, decimals0, decimals1) {
+    var rows = (populated || []).map(function (t) {
+      return {
+        tick: Number(t.tick),
+        liquidityNet: t.liquidityNet.toString(),
+        liquidityGross: t.liquidityGross.toString(),
+      };
+    });
+    rows.sort(function (a, b) {
+      return a.tick - b.tick;
+    });
+    var L = BigInt(currentLiquidity);
+    var below = rows.filter(function (r) {
+      return r.tick <= currentTick;
+    });
+    below.sort(function (a, b) {
+      return b.tick - a.tick;
+    });
+    var i;
+    for (i = 0; i < below.length; i++) {
+      L = L - BigInt(below[i].liquidityNet);
+    }
+    var out = [];
+    for (i = 0; i < rows.length; i++) {
+      L = L + BigInt(rows[i].liquidityNet);
+      var price =
+        helpers && decimals0 != null && decimals1 != null
+          ? helpers.tickToPriceToken1PerToken0(rows[i].tick, decimals0, decimals1)
+          : null;
+      out.push({
+        tick: rows[i].tick,
+        liquidityNet: rows[i].liquidityNet,
+        liquidityGross: rows[i].liquidityGross,
+        activeLiquidityAbove: L.toString(),
+        priceToken1PerToken0: price != null ? String(price) : undefined,
+      });
+    }
+    return out;
   }
 
   function extractMintedV3TokenIdFromReceipt(ethers, receipt, npmAddr) {
@@ -1409,7 +1623,7 @@
         var whoPend = (msg.address && String(msg.address).trim()) || '';
         if (!whoPend) whoPend = await getAutomationAddressHintOrThrow();
         whoPend = normalizeAddr(ethers, whoPend);
-        var cPend = new ethers.Contract(mcPend, MC_VIEW_ABI, provider);
+        var cPend = masterChefViewContract(ethers, provider, mcPend);
         var cakePend = await cPend.pendingCake(pidPend, whoPend);
         return {
           ok: true,
@@ -1427,39 +1641,42 @@
         var whoUi = (msg.address && String(msg.address).trim()) || '';
         if (!whoUi) whoUi = await getAutomationAddressHintOrThrow();
         whoUi = normalizeAddr(ethers, whoUi);
-        var cUi = new ethers.Contract(mcUi, MC_VIEW_ABI, provider);
+        var cUi = masterChefViewContract(ethers, provider, mcUi);
         var infoUi = await cUi.userInfo(pidUi, whoUi);
-        return {
-          ok: true,
-          result: {
-            masterChef: mcUi,
-            pid: pidUi.toString(),
-            user: whoUi,
-            stakedAmount: infoUi.amount.toString(),
-            rewardDebt: infoUi.rewardDebt.toString(),
-          },
+        var uiOut = {
+          masterChef: mcUi,
+          pid: pidUi.toString(),
+          user: whoUi,
+          stakedAmount: infoUi.amount.toString(),
+          rewardDebt: infoUi.rewardDebt.toString(),
         };
+        if (infoUi.boostMultiplier != null) {
+          uiOut.boostMultiplier = infoUi.boostMultiplier.toString();
+        }
+        return { ok: true, result: uiOut };
       }
       if (op === 'farmPoolInfo') {
         var mcPi = resolveMasterChefForQuery(ethers, msg);
         var pidPi = ethers.toBigInt(String(msg.pid).trim());
-        var cPi = new ethers.Contract(mcPi, MC_VIEW_ABI, provider);
-        var poolPi = await cPi.poolInfo(pidPi);
-        return {
-          ok: true,
-          result: {
-            masterChef: mcPi,
-            pid: pidPi.toString(),
-            lpToken: normalizeAddr(ethers, poolPi.lpToken),
-            allocPoint: poolPi.allocPoint.toString(),
-            lastRewardBlock: poolPi.lastRewardBlock.toString(),
-            accCakePerShare: poolPi.accCakePerShare.toString(),
-          },
+        var poolPi = await readMasterChefPoolInfo(ethers, provider, mcPi, pidPi);
+        var piOut = {
+          masterChef: mcPi,
+          pid: pidPi.toString(),
+          lpToken: poolPi.lpToken,
+          allocPoint: poolPi.allocPoint,
+          lastRewardBlock: poolPi.lastRewardBlock,
+          accCakePerShare: poolPi.accCakePerShare,
+          masterChefVersion: poolPi.masterChefVersion,
         };
+        if (poolPi.masterChefVersion === 2) {
+          piOut.isRegular = poolPi.isRegular;
+          piOut.totalBoostShare = poolPi.totalBoostShare;
+        }
+        return { ok: true, result: piOut };
       }
       if (op === 'farmPoolLength') {
         var mcLen = resolveMasterChefForQuery(ethers, msg);
-        var cLen = new ethers.Contract(mcLen, MC_VIEW_ABI, provider);
+        var cLen = masterChefViewContract(ethers, provider, mcLen);
         var nLen = await cLen.poolLength();
         return {
           ok: true,
@@ -1513,21 +1730,612 @@
         } catch (_) {
           feePs = '';
         }
+        var tickSpacingPs = '';
+        try {
+          tickSpacingPs = (await cPs.tickSpacing()).toString();
+        } catch (_) {
+          tickSpacingPs = '';
+        }
+        var feeG0 = '';
+        var feeG1 = '';
+        try {
+          feeG0 = (await cPs.feeGrowthGlobal0X128()).toString();
+          feeG1 = (await cPs.feeGrowthGlobal1X128()).toString();
+        } catch (_) {}
+        var dec0ps = await readErc20Decimals(ethers, provider, t0ps);
+        var dec1ps = await readErc20Decimals(ethers, provider, t1ps);
+        var helpersPs = pancakeV3Helpers();
+        var price10 = helpersPs
+          ? helpersPs.tickToPriceToken1PerToken0(Number(s0.tick), dec0ps, dec1ps)
+          : null;
+        var price01 = price10 != null && price10 > 0 ? 1 / price10 : null;
         return {
           ok: true,
           result: {
             pool: poolPs,
             token0: normalizeAddr(ethers, t0ps),
             token1: normalizeAddr(ethers, t1ps),
+            token0Decimals: dec0ps,
+            token1Decimals: dec1ps,
             fee: feePs,
+            tickSpacing: tickSpacingPs,
             liquidity: liqPs.toString(),
             sqrtPriceX96: s0.sqrtPriceX96.toString(),
             tick: String(s0.tick),
+            priceToken1PerToken0: price10 != null ? String(price10) : undefined,
+            priceToken0PerToken1: price01 != null ? String(price01) : undefined,
+            feeGrowthGlobal0X128: feeG0,
+            feeGrowthGlobal1X128: feeG1,
             observationIndex: String(s0.observationIndex),
             observationCardinality: String(s0.observationCardinality),
             observationCardinalityNext: String(s0.observationCardinalityNext),
             feeProtocol: String(s0.feeProtocol),
             unlocked: Boolean(s0.unlocked),
+          },
+        };
+      }
+      if (op === 'v3PriceTicks') {
+        var helpersPt = pancakeV3Helpers();
+        if (!helpersPt) throw new Error('v3PriceTicks: price helpers not loaded');
+        var poolPt = msg.v3Pool ? normalizeAddr(ethers, msg.v3Pool) : '';
+        var dec0Pt;
+        var dec1Pt;
+        var spacingPt;
+        var curTickPt = null;
+        var curPricePt = null;
+        if (poolPt) {
+          var cPt = new ethers.Contract(poolPt, POOL_V3_READ_ABI, provider);
+          var t0Pt = await cPt.token0();
+          var t1Pt = await cPt.token1();
+          dec0Pt = await readErc20Decimals(ethers, provider, t0Pt);
+          dec1Pt = await readErc20Decimals(ethers, provider, t1Pt);
+          spacingPt = Number(await cPt.tickSpacing());
+          var s0Pt = await cPt.slot0();
+          curTickPt = Number(s0Pt.tick);
+          curPricePt = helpersPt.tickToPriceToken1PerToken0(curTickPt, dec0Pt, dec1Pt);
+        } else {
+          if (msg.decimals0 == null || msg.decimals1 == null || msg.tickSpacing == null) {
+            throw new Error('v3PriceTicks: v3Pool or decimals0/decimals1/tickSpacing required');
+          }
+          dec0Pt = Number(msg.decimals0);
+          dec1Pt = Number(msg.decimals1);
+          spacingPt = Number(msg.tickSpacing);
+        }
+        var hasMin = msg.minPrice != null && String(msg.minPrice).trim() !== '';
+        var hasMax = msg.maxPrice != null && String(msg.maxPrice).trim() !== '';
+        var hasTick = msg.tick != null && String(msg.tick).trim() !== '';
+        var outPt = {
+          decimals0: dec0Pt,
+          decimals1: dec1Pt,
+          tickSpacing: spacingPt,
+          currentTick: curTickPt,
+          currentPriceToken1PerToken0: curPricePt != null ? String(curPricePt) : undefined,
+          pool: poolPt || undefined,
+        };
+        if (hasMin && hasMax) {
+          var rangePt = helpersPt.pricesToTickRange({
+            minPrice: String(msg.minPrice).trim(),
+            maxPrice: String(msg.maxPrice).trim(),
+            decimals0: dec0Pt,
+            decimals1: dec1Pt,
+            tickSpacing: spacingPt,
+            priceDenomination: msg.priceDenomination || 'token1PerToken0',
+          });
+          outPt.tickLower = rangePt.tickLower;
+          outPt.tickUpper = rangePt.tickUpper;
+          outPt.minPriceToken1PerToken0 = String(rangePt.minPriceToken1PerToken0);
+          outPt.maxPriceToken1PerToken0 = String(rangePt.maxPriceToken1PerToken0);
+          outPt.priceDenomination = rangePt.priceDenomination;
+        } else if (hasTick) {
+          var tk = parseTickInt24(msg.tick, 'tick');
+          outPt.tick = tk;
+          outPt.priceToken1PerToken0 = String(helpersPt.tickToPriceToken1PerToken0(tk, dec0Pt, dec1Pt));
+          outPt.priceToken0PerToken1 = String(helpersPt.tickToPriceToken0PerToken1(tk, dec0Pt, dec1Pt));
+          outPt.nearestUsableTick = helpersPt.nearestUsableTick(tk, spacingPt);
+        } else if (msg.price != null && String(msg.price).trim() !== '') {
+          var denomPt = String(msg.priceDenomination || 'token1PerToken0').trim();
+          var rawTk =
+            denomPt === 'token0PerToken1'
+              ? helpersPt.priceToken0PerToken1ToTick(String(msg.price).trim(), dec0Pt, dec1Pt)
+              : helpersPt.priceToken1PerToken0ToTick(String(msg.price).trim(), dec0Pt, dec1Pt);
+          outPt.rawTick = rawTk;
+          outPt.nearestUsableTick = helpersPt.nearestUsableTick(rawTk, spacingPt);
+          outPt.priceToken1PerToken0 = String(
+            helpersPt.tickToPriceToken1PerToken0(outPt.nearestUsableTick, dec0Pt, dec1Pt),
+          );
+        } else {
+          throw new Error('v3PriceTicks: provide minPrice+maxPrice, or price, or tick');
+        }
+        return { ok: true, result: outPt };
+      }
+      if (op === 'v3LiquidityDepth') {
+        var helpersLd = pancakeV3Helpers();
+        if (!helpersLd) throw new Error('v3LiquidityDepth: price helpers not loaded');
+        var poolLd = normalizeAddr(ethers, msg.v3Pool);
+        var cLd = new ethers.Contract(poolLd, POOL_V3_READ_ABI, provider);
+        var s0Ld = await cLd.slot0();
+        var liqLd = await cLd.liquidity();
+        var spacingLd = Number(await cLd.tickSpacing());
+        var t0Ld = await cLd.token0();
+        var t1Ld = await cLd.token1();
+        var feeLd = (await cLd.fee()).toString();
+        var dec0Ld = await readErc20Decimals(ethers, provider, t0Ld);
+        var dec1Ld = await readErc20Decimals(ethers, provider, t1Ld);
+        var curTickLd = Number(s0Ld.tick);
+        var curPriceLd = helpersLd.tickToPriceToken1PerToken0(curTickLd, dec0Ld, dec1Ld);
+        var wordCenter = helpersLd.tickToBitmapWord(curTickLd, spacingLd);
+        var wordRange = Math.min(4, Math.max(0, parseInt(msg.wordRange, 10) || 1));
+        var maxTicks = Math.min(800, Math.max(1, parseInt(msg.maxTicks, 10) || 400));
+        var lensAddr =
+          (msg.tickLensAddress && String(msg.tickLensAddress).trim()) || PANCAKE_TICK_LENS_V3;
+        if (String(lensAddr).toLowerCase() !== PANCAKE_TICK_LENS_V3.toLowerCase()) {
+          throw new Error('tickLensAddress must be the pinned Pancake V3 TickLens');
+        }
+        var lens = new ethers.Contract(lensAddr, TICK_LENS_V3_ABI, provider);
+        var populated = [];
+        var w;
+        for (w = wordCenter - wordRange; w <= wordCenter + wordRange; w++) {
+          if (w < -32768 || w > 32767) continue;
+          var chunk = await lens.getPopulatedTicksInWord(poolLd, w);
+          var ci;
+          for (ci = 0; ci < chunk.length; ci++) populated.push(chunk[ci]);
+        }
+        populated.sort(function (a, b) {
+          return Number(a.tick) - Number(b.tick);
+        });
+        if (populated.length > maxTicks) {
+          var mid = 0;
+          for (mid = 0; mid < populated.length; mid++) {
+            if (Number(populated[mid].tick) >= curTickLd) break;
+          }
+          var half = Math.floor(maxTicks / 2);
+          var start = Math.max(0, mid - half);
+          var end = Math.min(populated.length, start + maxTicks);
+          start = Math.max(0, end - maxTicks);
+          populated = populated.slice(start, end);
+        }
+        var series = buildActiveLiquiditySeries(
+          helpersLd,
+          populated,
+          curTickLd,
+          liqLd.toString(),
+          dec0Ld,
+          dec1Ld,
+        );
+        var subgraphMeta = null;
+        try {
+          var sg = globalThis.CFS_PANCAKE_V3_SUBGRAPH || globalThis.__CFS_pancakeV3Subgraph;
+          if (sg && typeof sg.fetchPoolTicks === 'function') {
+            var keyBag = await storageLocalGet(['cfs_thegraph_api_key']);
+            var apiKey = keyBag.cfs_thegraph_api_key || '';
+            var sgR = await sg.fetchPoolTicks(apiKey, poolLd, {
+              first: 5,
+              tickLower: curTickLd - spacingLd * 20,
+              tickUpper: curTickLd + spacingLd * 20,
+            });
+            if (sgR && sgR.ok && sgR.pool) {
+              subgraphMeta = {
+                endpoint: sgR.endpoint,
+                volumeUSD: sgR.pool.volumeUSD != null ? String(sgR.pool.volumeUSD) : undefined,
+                totalValueLockedUSD:
+                  sgR.pool.totalValueLockedUSD != null ? String(sgR.pool.totalValueLockedUSD) : undefined,
+              };
+            }
+          }
+        } catch (_) {
+          subgraphMeta = null;
+        }
+        return {
+          ok: true,
+          result: {
+            pool: poolLd,
+            token0: normalizeAddr(ethers, t0Ld),
+            token1: normalizeAddr(ethers, t1Ld),
+            token0Decimals: dec0Ld,
+            token1Decimals: dec1Ld,
+            fee: feeLd,
+            tickSpacing: spacingLd,
+            currentTick: curTickLd,
+            currentLiquidity: liqLd.toString(),
+            priceToken1PerToken0: String(curPriceLd),
+            priceToken0PerToken1: String(1 / curPriceLd),
+            tickLens: lensAddr,
+            bitmapWordCenter: wordCenter,
+            wordRange: wordRange,
+            ticks: series,
+            tickCount: series.length,
+            source: 'tickLens',
+            subgraph: subgraphMeta,
+          },
+        };
+      }
+      if (op === 'v3RangeFromPercent') {
+        var pv3R = pancakeV3Helpers();
+        var lpR = pancakeV3LpHelpers();
+        if (!pv3R || !lpR) throw new Error('v3RangeFromPercent: pancake V3 helpers not loaded');
+        var poolRf = normalizeAddr(ethers, msg.v3Pool || msg.pool);
+        var cRf = new ethers.Contract(poolRf, POOL_V3_READ_ABI, provider);
+        var slotRf = await cRf.slot0();
+        var spRf = Number(await cRf.tickSpacing());
+        var t0Rf = await cRf.token0();
+        var t1Rf = await cRf.token1();
+        var feeRf = await cRf.fee();
+        var d0Rf = await readErc20Decimals(ethers, provider, t0Rf);
+        var d1Rf = await readErc20Decimals(ethers, provider, t1Rf);
+        var midRf = pv3R.tickToPriceToken1PerToken0(Number(slotRf.tick), d0Rf, d1Rf);
+        var pctRf = msg.rangePercent != null && String(msg.rangePercent).trim() !== '' ? String(msg.rangePercent) : '1';
+        var ranged = lpR.rangeFromPercent({
+          currentPriceToken1PerToken0: midRf,
+          rangePercent: pctRf,
+          rangePercentBelow: msg.rangePercentBelow,
+          rangePercentAbove: msg.rangePercentAbove,
+          tickSpacing: spRf,
+          decimals0: d0Rf,
+          decimals1: d1Rf,
+        });
+        return {
+          ok: true,
+          result: {
+            pool: poolRf,
+            token0: normalizeAddr(ethers, t0Rf),
+            token1: normalizeAddr(ethers, t1Rf),
+            fee: String(feeRf),
+            tickSpacing: spRf,
+            currentTick: Number(slotRf.tick),
+            midPrice: String(midRf),
+            rangePercent: ranged.rangePercent != null && ranged.rangePercent !== '' ? String(ranged.rangePercent) : pctRf,
+            rangePercentBelow: String(ranged.rangePercentBelow),
+            rangePercentAbove: String(ranged.rangePercentAbove),
+            minPrice: ranged.minPrice,
+            maxPrice: ranged.maxPrice,
+            tickLower: ranged.tickLower,
+            tickUpper: ranged.tickUpper,
+          },
+        };
+      }
+      if (op === 'v3RestakeRange') {
+        var pv3Rs = pancakeV3Helpers();
+        var lpRs = pancakeV3LpHelpers();
+        if (!pv3Rs || !lpRs) throw new Error('v3RestakeRange: pancake V3 helpers not loaded');
+        var poolRs = normalizeAddr(ethers, msg.v3Pool || msg.pool);
+        var cRs = new ethers.Contract(poolRs, POOL_V3_READ_ABI, provider);
+        var slotRs = await cRs.slot0();
+        var spRs = Number(await cRs.tickSpacing());
+        var t0Rs = await cRs.token0();
+        var t1Rs = await cRs.token1();
+        var d0Rs = await readErc20Decimals(ethers, provider, t0Rs);
+        var d1Rs = await readErc20Decimals(ethers, provider, t1Rs);
+        var midRs = pv3Rs.tickToPriceToken1PerToken0(Number(slotRs.tick), d0Rs, d1Rs);
+        var pctRs = msg.rangePercent != null && String(msg.rangePercent).trim() !== '' ? String(msg.rangePercent) : '1';
+        var dirRs = String(msg.driftDirection || msg.direction || 'above').toLowerCase();
+        var restaked = lpRs.restakeRange({
+          currentPriceToken1PerToken0: midRs,
+          rangePercent: pctRs,
+          rangePercentBelow: msg.rangePercentBelow,
+          rangePercentAbove: msg.rangePercentAbove,
+          driftDirection: dirRs,
+          tickSpacing: spRs,
+          decimals0: d0Rs,
+          decimals1: d1Rs,
+        });
+        return {
+          ok: true,
+          result: {
+            pool: poolRs,
+            midPrice: String(midRs),
+            driftDirection: dirRs === 'below' ? 'below' : 'above',
+            rangePercent: restaked.rangePercent != null && restaked.rangePercent !== '' ? String(restaked.rangePercent) : pctRs,
+            rangePercentBelow: String(restaked.rangePercentBelow),
+            rangePercentAbove: String(restaked.rangePercentAbove),
+            minPrice: restaked.minPrice,
+            maxPrice: restaked.maxPrice,
+            tickLower: restaked.tickLower,
+            tickUpper: restaked.tickUpper,
+          },
+        };
+      }
+      if (op === 'v3LpAmountsFromBnb') {
+        var pv3A = pancakeV3Helpers();
+        var lpA = pancakeV3LpHelpers();
+        if (!pv3A || !lpA) throw new Error('v3LpAmountsFromBnb: pancake V3 helpers not loaded');
+        var poolAm = normalizeAddr(ethers, msg.v3Pool || msg.pool);
+        var cAm = new ethers.Contract(poolAm, POOL_V3_READ_ABI, provider);
+        var slotAm = await cAm.slot0();
+        var spAm = Number(await cAm.tickSpacing());
+        var t0Am = await cAm.token0();
+        var t1Am = await cAm.token1();
+        var feeAm = Number(await cAm.fee());
+        var d0Am = await readErc20Decimals(ethers, provider, t0Am);
+        var d1Am = await readErc20Decimals(ethers, provider, t1Am);
+        var sqrtAm = slotAm.sqrtPriceX96.toString();
+        var midAm = pv3A.tickToPriceToken1PerToken0(Number(slotAm.tick), d0Am, d1Am);
+        var tickLowerAm;
+        var tickUpperAm;
+        var minPAm = msg.minPrice != null && String(msg.minPrice).trim() !== '' ? String(msg.minPrice).trim() : '';
+        var maxPAm = msg.maxPrice != null && String(msg.maxPrice).trim() !== '' ? String(msg.maxPrice).trim() : '';
+        if (minPAm && maxPAm) {
+          var rangeExpl = pv3A.pricesToTickRange({
+            minPrice: minPAm,
+            maxPrice: maxPAm,
+            decimals0: d0Am,
+            decimals1: d1Am,
+            tickSpacing: spAm,
+            priceDenomination: 'token1PerToken0',
+          });
+          tickLowerAm = rangeExpl.tickLower;
+          tickUpperAm = rangeExpl.tickUpper;
+          minPAm = String(rangeExpl.minPriceToken1PerToken0);
+          maxPAm = String(rangeExpl.maxPriceToken1PerToken0);
+        } else {
+          var pctAm = msg.rangePercent != null && String(msg.rangePercent).trim() !== '' ? String(msg.rangePercent) : '1';
+          var rangedAm = lpA.rangeFromPercent({
+            currentPriceToken1PerToken0: midAm,
+            rangePercent: pctAm,
+            rangePercentBelow: msg.rangePercentBelow,
+            rangePercentAbove: msg.rangePercentAbove,
+            tickSpacing: spAm,
+            decimals0: d0Am,
+            decimals1: d1Am,
+          });
+          tickLowerAm = rangedAm.tickLower;
+          tickUpperAm = rangedAm.tickUpper;
+          minPAm = rangedAm.minPrice;
+          maxPAm = rangedAm.maxPrice;
+        }
+        var gasReserveWei =
+          msg.gasReserveWei != null && String(msg.gasReserveWei).trim() !== ''
+            ? String(msg.gasReserveWei).trim()
+            : ethers.parseEther('0.002').toString();
+        var budgetMode = String(msg.bnbBudget || msg.bnbBudgetWei || 'max').trim();
+        var holderAm =
+          (msg.from && String(msg.from).trim()) ||
+          (msg.holder && String(msg.holder).trim()) ||
+          (await getAutomationAddressHintOrThrow());
+        var balNative = await provider.getBalance(normalizeAddr(ethers, holderAm));
+        var budgetWei;
+        if (budgetMode.toLowerCase() === 'max') {
+          budgetWei = balNative > BigInt(gasReserveWei) ? balNative - BigInt(gasReserveWei) : 0n;
+        } else {
+          budgetWei = BigInt(String(budgetMode));
+          if (budgetWei + BigInt(gasReserveWei) > balNative) {
+            budgetWei = balNative > BigInt(gasReserveWei) ? balNative - BigInt(gasReserveWei) : 0n;
+          }
+        }
+        if (budgetWei <= 0n) throw new Error('v3LpAmountsFromBnb: insufficient BNB after gas reserve');
+        var probeWei = budgetWei / 100n;
+        if (probeWei <= 0n) probeWei = budgetWei;
+        var routerAm = resolveRouter(msg);
+        var cRouterAm = new ethers.Contract(routerAm, ROUTER_V2_VIEW_ABI, provider);
+        async function quoteBnbToToken(tokenAddr, amountInWei) {
+          var tok = normalizeAddr(ethers, tokenAddr);
+          if (tok.toLowerCase() === WBNB_BSC.toLowerCase()) {
+            return { amountOut: amountInWei.toString(), path: [WBNB_BSC], bnbPerTokenWei: '1' };
+          }
+          var pathQ = [WBNB_BSC, tok];
+          var outs = await cRouterAm.getAmountsOut(amountInWei, pathQ);
+          var outAmt = outs[outs.length - 1];
+          if (outAmt <= 0n) throw new Error('v3LpAmountsFromBnb: zero quote for ' + tok);
+          var bnbPer = Number(amountInWei) / Number(outAmt);
+          return { amountOut: outAmt.toString(), path: pathQ, bnbPerTokenWei: String(bnbPer) };
+        }
+        var q0 = await quoteBnbToToken(t0Am, probeWei);
+        var q1 = await quoteBnbToToken(t1Am, probeWei);
+        var scaled = lpA.amountsFromBnbBudget({
+          sqrtPriceX96: sqrtAm,
+          tickLower: tickLowerAm,
+          tickUpper: tickUpperAm,
+          bnbBudgetWei: budgetWei.toString(),
+          bnbPerToken0Wei: q0.bnbPerTokenWei,
+          bnbPerToken1Wei: q1.bnbPerTokenWei,
+        });
+        return {
+          ok: true,
+          result: {
+            pool: poolAm,
+            token0: normalizeAddr(ethers, t0Am),
+            token1: normalizeAddr(ethers, t1Am),
+            fee: String(feeAm),
+            tickSpacing: spAm,
+            currentTick: Number(slotAm.tick),
+            midPrice: String(midAm),
+            minPrice: minPAm,
+            maxPrice: maxPAm,
+            tickLower: tickLowerAm,
+            tickUpper: tickUpperAm,
+            bnbBudgetWei: budgetWei.toString(),
+            gasReserveWei: gasReserveWei,
+            holder: normalizeAddr(ethers, holderAm),
+            amount0Desired: scaled.amount0Desired,
+            amount1Desired: scaled.amount1Desired,
+            bnbFor0Wei: scaled.bnbFor0Wei,
+            bnbFor1Wei: scaled.bnbFor1Wei,
+            quotePath0: q0.path,
+            quotePath1: q1.path,
+            note: 'BNB budget sized to V3 in-range token ratio via V2 WBNB→token probe quotes',
+          },
+        };
+      }
+      if (op === 'v3LpAmountsFromStable') {
+        var pv3S = pancakeV3Helpers();
+        var lpS = pancakeV3LpHelpers();
+        if (!pv3S || !lpS) throw new Error('v3LpAmountsFromStable: pancake V3 helpers not loaded');
+        var poolSt = normalizeAddr(ethers, msg.v3Pool || msg.pool);
+        var cSt = new ethers.Contract(poolSt, POOL_V3_READ_ABI, provider);
+        var slotSt = await cSt.slot0();
+        var spSt = Number(await cSt.tickSpacing());
+        var t0St = await cSt.token0();
+        var t1St = await cSt.token1();
+        var feeSt = Number(await cSt.fee());
+        var d0St = await readErc20Decimals(ethers, provider, t0St);
+        var d1St = await readErc20Decimals(ethers, provider, t1St);
+        var sqrtSt = slotSt.sqrtPriceX96.toString();
+        var midSt = pv3S.tickToPriceToken1PerToken0(Number(slotSt.tick), d0St, d1St);
+        var tickLowerSt;
+        var tickUpperSt;
+        var minPSt = msg.minPrice != null && String(msg.minPrice).trim() !== '' ? String(msg.minPrice).trim() : '';
+        var maxPSt = msg.maxPrice != null && String(msg.maxPrice).trim() !== '' ? String(msg.maxPrice).trim() : '';
+        var pctBelowSt = '';
+        var pctAboveSt = '';
+        if (minPSt && maxPSt) {
+          var rangeExplSt = pv3S.pricesToTickRange({
+            minPrice: minPSt,
+            maxPrice: maxPSt,
+            decimals0: d0St,
+            decimals1: d1St,
+            tickSpacing: spSt,
+            priceDenomination: 'token1PerToken0',
+          });
+          tickLowerSt = rangeExplSt.tickLower;
+          tickUpperSt = rangeExplSt.tickUpper;
+          minPSt = String(rangeExplSt.minPriceToken1PerToken0);
+          maxPSt = String(rangeExplSt.maxPriceToken1PerToken0);
+        } else {
+          var pctSt = msg.rangePercent != null && String(msg.rangePercent).trim() !== '' ? String(msg.rangePercent) : '1';
+          var rangedSt = lpS.rangeFromPercent({
+            currentPriceToken1PerToken0: midSt,
+            rangePercent: pctSt,
+            rangePercentBelow: msg.rangePercentBelow,
+            rangePercentAbove: msg.rangePercentAbove,
+            tickSpacing: spSt,
+            decimals0: d0St,
+            decimals1: d1St,
+          });
+          tickLowerSt = rangedSt.tickLower;
+          tickUpperSt = rangedSt.tickUpper;
+          minPSt = rangedSt.minPrice;
+          maxPSt = rangedSt.maxPrice;
+          pctBelowSt = String(rangedSt.rangePercentBelow);
+          pctAboveSt = String(rangedSt.rangePercentAbove);
+        }
+        var stableSt = normalizeAddr(
+          ethers,
+          msg.stableToken || msg.stable || '0x55d398326f99059fF775485246999027B3197955'
+        );
+        var t0N = normalizeAddr(ethers, t0St);
+        var t1N = normalizeAddr(ethers, t1St);
+        if (stableSt.toLowerCase() !== t0N.toLowerCase() && stableSt.toLowerCase() !== t1N.toLowerCase()) {
+          throw new Error('v3LpAmountsFromStable: stableToken must be token0 or token1 of the pool');
+        }
+        var holderSt =
+          (msg.from && String(msg.from).trim()) ||
+          (msg.holder && String(msg.holder).trim()) ||
+          (await getAutomationAddressHintOrThrow());
+        var holderAddrSt = normalizeAddr(ethers, holderSt);
+        var ercStableSt = new ethers.Contract(stableSt, ERC20_ABI, provider);
+        var stableBal = await ercStableSt.balanceOf(holderAddrSt);
+        var dustReserve =
+          msg.stableReserveWei != null && String(msg.stableReserveWei).trim() !== ''
+            ? BigInt(String(msg.stableReserveWei).trim())
+            : 0n;
+        var budgetModeSt = String(msg.stableBudget || msg.stableBudgetWei || 'max').trim();
+        var budgetSt;
+        if (budgetModeSt.toLowerCase() === 'max') {
+          budgetSt = stableBal > dustReserve ? stableBal - dustReserve : 0n;
+        } else {
+          budgetSt = BigInt(String(budgetModeSt));
+          if (budgetSt > stableBal - dustReserve) {
+            budgetSt = stableBal > dustReserve ? stableBal - dustReserve : 0n;
+          }
+        }
+        if (budgetSt <= 0n) throw new Error('v3LpAmountsFromStable: insufficient stable balance after reserve');
+        // Price each raw wei in stable wei using pool mid (token1 per token0).
+        var midNum = Number(midSt);
+        if (!(midNum > 0) || !Number.isFinite(midNum)) throw new Error('v3LpAmountsFromStable: invalid mid price');
+        var decPow = Math.pow(10, d1St - d0St);
+        var stablePer0;
+        var stablePer1;
+        if (stableSt.toLowerCase() === t1N.toLowerCase()) {
+          // 1 wei token0 costs mid * 10^(d1-d0) wei stable; 1 wei token1 costs 1 wei stable
+          stablePer0 = midNum * decPow;
+          stablePer1 = 1;
+        } else {
+          // stable is token0: 1 wei token1 costs (1/mid) * 10^(d0-d1) wei stable
+          stablePer0 = 1;
+          stablePer1 = (1 / midNum) * Math.pow(10, d0St - d1St);
+        }
+        var scaledSt = lpS.amountsFromStableBudget({
+          sqrtPriceX96: sqrtSt,
+          tickLower: tickLowerSt,
+          tickUpper: tickUpperSt,
+          stableBudgetWei: budgetSt.toString(),
+          stablePerToken0Wei: String(stablePer0),
+          stablePerToken1Wei: String(stablePer1),
+        });
+        var amt0Need = BigInt(scaledSt.amount0Desired || '0');
+        var amt1Need = BigInt(scaledSt.amount1Desired || '0');
+        var slipBpsSt = Math.min(10000, Math.max(0, parseInt(String(msg.slippageBps != null ? msg.slippageBps : '100'), 10) || 100));
+        var quoterSt = resolveQuoterV2(msg);
+        var cQuoterSt = new ethers.Contract(quoterSt, QUOTER_V2_ABI, provider);
+        async function quoteStableInForExactOut(tokenOut, amountOut) {
+          var tout = normalizeAddr(ethers, tokenOut);
+          if (tout.toLowerCase() === stableSt.toLowerCase()) {
+            return { amountIn: amountOut.toString(), amountInMax: amountOut.toString() };
+          }
+          if (amountOut <= 0n) return { amountIn: '0', amountInMax: '0' };
+          var quoted = await cQuoterSt.quoteExactOutputSingle.staticCall({
+            tokenIn: stableSt,
+            tokenOut: tout,
+            amount: amountOut,
+            fee: feeSt,
+            sqrtPriceLimitX96: 0n,
+          });
+          var ain = BigInt(String(quoted.amountIn));
+          var ainMax = ain + (ain * BigInt(slipBpsSt)) / 10000n;
+          return { amountIn: ain.toString(), amountInMax: ainMax.toString() };
+        }
+        var swap0 = { amountOut: '0', amountIn: '0', amountInMax: '0', needed: false };
+        var swap1 = { amountOut: '0', amountIn: '0', amountInMax: '0', needed: false };
+        if (t0N.toLowerCase() !== stableSt.toLowerCase() && amt0Need > 0n) {
+          var qSwap0 = await quoteStableInForExactOut(t0N, amt0Need);
+          swap0 = {
+            amountOut: amt0Need.toString(),
+            amountIn: qSwap0.amountIn,
+            amountInMax: qSwap0.amountInMax,
+            needed: true,
+            tokenOut: t0N,
+            tokenIn: stableSt,
+          };
+        }
+        if (t1N.toLowerCase() !== stableSt.toLowerCase() && amt1Need > 0n) {
+          var qSwap1 = await quoteStableInForExactOut(t1N, amt1Need);
+          swap1 = {
+            amountOut: amt1Need.toString(),
+            amountIn: qSwap1.amountIn,
+            amountInMax: qSwap1.amountInMax,
+            needed: true,
+            tokenOut: t1N,
+            tokenIn: stableSt,
+          };
+        }
+        return {
+          ok: true,
+          result: {
+            pool: poolSt,
+            token0: t0N,
+            token1: t1N,
+            fee: String(feeSt),
+            tickSpacing: spSt,
+            currentTick: Number(slotSt.tick),
+            midPrice: String(midSt),
+            minPrice: minPSt,
+            maxPrice: maxPSt,
+            tickLower: tickLowerSt,
+            tickUpper: tickUpperSt,
+            rangePercentBelow: pctBelowSt,
+            rangePercentAbove: pctAboveSt,
+            stableToken: stableSt,
+            stableBudgetWei: budgetSt.toString(),
+            stableReserveWei: dustReserve.toString(),
+            holder: holderAddrSt,
+            amount0Desired: scaledSt.amount0Desired,
+            amount1Desired: scaledSt.amount1Desired,
+            stableFor0Wei: scaledSt.stableFor0Wei,
+            stableFor1Wei: scaledSt.stableFor1Wei,
+            swapStableTo0: swap0,
+            swapStableTo1: swap1,
+            slippageBps: String(slipBpsSt),
+            note:
+              'Stable budget sized to V3 in-range token ratio; non-stable legs need exactOutputSingle from stableToken',
           },
         };
       }
@@ -1690,6 +2498,20 @@
             tokensOwed1: posRead.tokensOwed1.toString(),
           },
         };
+      }
+      if (op === 'v3RangeCheckBatch') {
+        var batchRc = await globalThis.__CFS_bsc_v3_range_check_batch(msg);
+        if (!batchRc || batchRc.ok === false) {
+          return { ok: false, error: (batchRc && batchRc.error) || 'v3RangeCheckBatch failed' };
+        }
+        return { ok: true, result: batchRc };
+      }
+      if (op === 'v3NpmPositionsByOwner') {
+        var byOwner = await globalThis.__CFS_bsc_v3_npm_positions_by_owner(msg);
+        if (!byOwner || byOwner.ok === false) {
+          return { ok: false, error: (byOwner && byOwner.error) || 'v3NpmPositionsByOwner failed' };
+        }
+        return byOwner;
       }
       if (op === 'infiBinPoolId') {
         var pinsPid = await getInfinityPinsForProvider(provider);
@@ -2252,13 +3074,13 @@
           var famt;
           var lowFarm = famtStr.toLowerCase();
           if (lowFarm === 'max' || lowFarm === 'balance') {
-            var mcReadFarm = new ethers.Contract(mcAddr, MC_VIEW_ABI, wallet.provider);
+            var mcReadFarm = masterChefViewContract(ethers, wallet.provider, mcAddr);
             if (op === 'farmWithdraw') {
               var uiFarm = await mcReadFarm.userInfo(pid, wallet.address);
               famt = uiFarm.amount;
               if (famt <= 0n) throw new Error('farmWithdraw: staked amount is zero');
             } else {
-              var poolIFarm = await mcReadFarm.poolInfo(pid);
+              var poolIFarm = await readMasterChefPoolInfo(ethers, wallet.provider, mcAddr, pid);
               var lpFarm = poolIFarm.lpToken;
               var ercLpFarm = new ethers.Contract(lpFarm, ERC20_ABI, wallet.provider);
               famt = await ercLpFarm.balanceOf(wallet.address);
@@ -2406,9 +3228,9 @@
         var cMint = new ethers.Contract(npmMint, NPM_V3_ABI, wallet);
         var sortedMint = sortV3Tokens(ethers, msg.tokenA, msg.tokenB);
         var feeMint = parseV3Fee(ethers, msg.v3Fee);
-        var tLo = parseTickInt24(msg.tickLower, 'tickLower');
-        var tHi = parseTickInt24(msg.tickUpper, 'tickUpper');
-        if (tLo >= tHi) throw new Error('v3PositionMint: tickLower must be < tickUpper');
+        var ticksMint = await resolveV3MintTicks(ethers, wallet.provider, msg, sortedMint, feeMint);
+        var tLo = ticksMint.tickLower;
+        var tHi = ticksMint.tickUpper;
         var adMint = await resolveTokenAmountDesired(ethers, wallet, msg.tokenA, msg.amountADesired, 'v3PositionMint: amountADesired');
         var bdMint = await resolveTokenAmountDesired(ethers, wallet, msg.tokenB, msg.amountBDesired, 'v3PositionMint: amountBDesired');
         var amMint = ethers.toBigInt(String(msg.amountAMin));
@@ -2431,6 +3253,7 @@
           },
           { gasLimit: txGas }
         );
+        msg.__cfsV3MintTickMeta = ticksMint;
       } else if (op === 'v3PositionIncreaseLiquidity') {
         var npmInc = resolveNpmV3(msg);
         var cInc = new ethers.Contract(npmInc, NPM_V3_ABI, wallet);
@@ -2985,6 +3808,12 @@
           value: valPs,
           gasLimit: txGas,
         });
+      } else if (op === 'ensureNativeGasFromStable') {
+        var gasRes = await globalThis.__CFS_bsc_ensure_native_gas_from_stable(msg);
+        if (!gasRes || gasRes.ok === false) {
+          throw new Error((gasRes && gasRes.error) || 'ensureNativeGasFromStable failed');
+        }
+        return Object.assign({ ok: true, operation: op }, gasRes);
       } else {
         throw new Error('Unknown BSC pool operation: ' + op);
       }
@@ -3010,6 +3839,15 @@
       var outExec = { ok: true, txHash: hash, blockNumber: blockNumber, explorerUrl: explorer };
       if (v3MintedPositionTokenId != null) outExec.v3MintedPositionTokenId = v3MintedPositionTokenId;
       if (infiMintedPositionTokenId != null) outExec.infiMintedPositionTokenId = infiMintedPositionTokenId;
+      if (msg.__cfsV3MintTickMeta) {
+        outExec.tickLower = msg.__cfsV3MintTickMeta.tickLower;
+        outExec.tickUpper = msg.__cfsV3MintTickMeta.tickUpper;
+        outExec.ticksFromPrice = !!msg.__cfsV3MintTickMeta.fromPrice;
+        if (msg.__cfsV3MintTickMeta.minPriceToken1PerToken0 != null) {
+          outExec.minPriceToken1PerToken0 = String(msg.__cfsV3MintTickMeta.minPriceToken1PerToken0);
+          outExec.maxPriceToken1PerToken0 = String(msg.__cfsV3MintTickMeta.maxPriceToken1PerToken0);
+        }
+      }
       return outExec;
     } catch (e) {
       return { ok: false, error: parseRevertReason(e) };
@@ -3234,17 +4072,20 @@
 
         if (type === 'CFS_BSC_WALLET_GENERATE_MNEMONIC') {
           var nw = ethers.Wallet.createRandom();
+          var mnGen = normalizeBscMnemonic(nw.mnemonic.phrase);
+          /* Same path as IMPORT: m/44'/60'/0'/0/0 (ethers Wallet.fromPhrase default). */
+          var addrGen = ethers.Wallet.fromPhrase(mnGen).address;
           sendResponse({
             ok: true,
-            mnemonic: nw.mnemonic.phrase,
-            address: nw.address,
+            mnemonic: mnGen,
+            address: addrGen,
           });
           return;
         }
 
         if (type === 'CFS_BSC_WALLET_VALIDATE_PREVIEW') {
           var pk = msg.privateKey != null ? String(msg.privateKey).trim() : '';
-          var mn = msg.mnemonic != null ? String(msg.mnemonic).trim() : '';
+          var mn = msg.mnemonic != null ? normalizeBscMnemonic(msg.mnemonic) : '';
           if (!pk && !mn) {
             sendResponse({ ok: false, error: 'privateKey or mnemonic required' });
             return;
@@ -3274,7 +4115,7 @@
           }
           var chainI = msg.chainId != null ? Number(msg.chainId) : 56;
           var pkI = msg.privateKey != null ? String(msg.privateKey).trim() : '';
-          var mnI = msg.mnemonic != null ? String(msg.mnemonic).trim() : '';
+          var mnI = msg.mnemonic != null ? normalizeBscMnemonic(msg.mnemonic) : '';
           if (!pkI && !mnI) {
             sendResponse({ ok: false, error: 'privateKey or mnemonic required' });
             return;
@@ -3284,12 +4125,13 @@
           }
           var stI = pkI ? 'privateKey' : 'mnemonic';
           var secI = pkI || mnI;
+          var previewAddrI = '';
           try {
             if (pkI) {
               var wpk = new ethers.Wallet(pkI);
-              void wpk.address;
+              previewAddrI = wpk.address;
             } else {
-              ethers.Wallet.fromPhrase(mnI);
+              previewAddrI = ethers.Wallet.fromPhrase(mnI).address;
             }
           } catch (e) {
             sendResponse({ ok: false, error: e && e.message ? e.message : 'Invalid key' });
@@ -3297,8 +4139,9 @@
           }
           var encI = msg.encryptWithPassword === true;
           var wpI = msg.walletPassword != null ? String(msg.walletPassword) : '';
+          var appendedI;
           try {
-            await appendBscWallet(ethers, rpcI, chainI, Date.now(), stI, secI, encI, wpI, {
+            appendedI = await appendBscWallet(ethers, rpcI, chainI, Date.now(), stI, secI, encI, wpI, {
               setAsPrimary: msg.setAsPrimary === true,
               label: msg.label != null ? String(msg.label) : '',
             });
@@ -3306,7 +4149,20 @@
             sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
             return;
           }
-          sendResponse({ ok: true, encrypted: encI });
+          var isPrimaryI = appendedI && appendedI.primaryWalletId === appendedI.walletId;
+          var primEntryI = null;
+          try {
+            var v2afterI = await loadBscV2Raw();
+            primEntryI = v2afterI ? findBscWalletEntry(v2afterI, v2afterI.primaryWalletId) : null;
+          } catch (_) {}
+          sendResponse({
+            ok: true,
+            encrypted: encI,
+            address: previewAddrI,
+            walletId: appendedI ? appendedI.walletId : '',
+            isPrimary: !!isPrimaryI,
+            primaryAddress: primEntryI && primEntryI.address ? primEntryI.address : '',
+          });
           return;
         }
 
@@ -3366,50 +4222,364 @@
   };
 
 
-  globalThis.__CFS_bsc_v3_range_check = async function (msg) {
+  function v3MissingPositionHint(chainIdRc, rpcRc, rpcHostRc) {
+    var hostLow = String(rpcHostRc || '').toLowerCase();
+    var rpcLooksChapel =
+      /prebsc|chapel|data-seed-prebsc|testnet/i.test(hostLow) ||
+      /prebsc|chapel|testnet/i.test(String(rpcRc || '').toLowerCase());
+    if (rpcLooksChapel && chainIdRc === 56) {
+      return (
+        'Chain ID is 56 but RPC is Chapel/testnet (' +
+        (rpcHostRc || 'unknown') +
+        '). Set Settings → BSC RPC to a mainnet URL (e.g. https://bsc-dataseed.binance.org) and Save.'
+      );
+    }
+    if (chainIdRc === 56) {
+      return 'Confirm the NFT id is a Pancake V3 position on BSC mainnet, and that Settings RPC is a mainnet endpoint (not Chapel).';
+    }
+    return 'Mainnet Pancake V3 NFTs require chainId 56 and a mainnet RPC (Settings → BSC). Chapel/testnet (97) cannot see mainnet positions.';
+  }
+
+  /**
+   * Batch V3 range check via Multicall3 (positions → getPool → slot0).
+   * msg.positions: [{ v3PositionTokenId, v3Pool? }]
+   */
+  globalThis.__CFS_bsc_v3_range_check_batch = async function (msg) {
     var ethers = getEthers();
+    await ensureBscWalletsMigrated();
+    var globRc = await loadBscGlobalRaw();
+    var chainIdRc = globRc && globRc.chainId != null ? Number(globRc.chainId) || 56 : 56;
+    var rpcRc = globRc && globRc.rpcUrl ? String(globRc.rpcUrl).trim() : '';
+    var rpcHostRc = '';
+    try {
+      rpcHostRc = rpcRc ? new URL(rpcRc).hostname : '';
+    } catch (_) {
+      rpcHostRc = rpcRc ? rpcRc.slice(0, 48) : '';
+    }
     var provider = await getReadOnlyProvider();
-
-    var tidStr = String(msg.v3PositionTokenId || '').trim();
-    if (!tidStr) return { ok: false, error: 'v3PositionTokenId required' };
-    var tid = ethers.toBigInt(tidStr);
-
-    // Read position NFT
-    var npm = PANCAKE_NPM_V3;
-    var cNpm = new ethers.Contract(npm, NPM_V3_ABI, provider);
-    var pos = await cNpm.positions(tid);
-
-    var tkLower = Number(pos.tickLower);
-    var tkUpper = Number(pos.tickUpper);
-    var token0 = pos.token0;
-    var token1 = pos.token1;
-    var fee = Number(pos.fee);
-
-    // Derive pool address from factory
-    var cFactory = new ethers.Contract(PANCAKE_FACTORY_V3, FACTORY_V3_ABI, provider);
-    var poolAddr = await cFactory.getPool(token0, token1, fee);
-    if (!poolAddr || poolAddr === ethers.ZeroAddress) {
-      return { ok: false, error: 'V3 pool not found for token0=' + token0 + ' token1=' + token1 + ' fee=' + fee };
+    var list = Array.isArray(msg.positions) ? msg.positions : [];
+    if (!list.length && msg.v3PositionTokenId != null && String(msg.v3PositionTokenId).trim()) {
+      list = [{ v3PositionTokenId: msg.v3PositionTokenId, v3Pool: msg.v3Pool }];
+    }
+    if (!list.length) {
+      return { ok: true, results: [], chainId: chainIdRc, rpcHost: rpcHostRc, note: 'no positions' };
     }
 
-    // Read slot0 for current tick
-    var cPool = new ethers.Contract(poolAddr, POOL_V3_READ_ABI, provider);
-    var s0 = await cPool.slot0();
-    var currentTick = Number(s0.tick);
-    var inRange = currentTick >= tkLower && currentTick <= tkUpper;
+    var npmIface = new ethers.Interface(NPM_V3_ABI);
+    var facIface = new ethers.Interface(FACTORY_V3_ABI);
+    var poolIface = new ethers.Interface(POOL_V3_READ_ABI);
+    var npm = PANCAKE_NPM_V3;
 
+    var posCalls = [];
+    var meta = [];
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i] || {};
+      var tidStr = String(item.v3PositionTokenId || item.tokenId || '').trim();
+      if (!tidStr) {
+        meta.push({ tidStr: '', hintPool: '', skip: true, error: 'v3PositionTokenId required' });
+        continue;
+      }
+      meta.push({ tidStr: tidStr, hintPool: String(item.v3Pool || item.pool || '').trim(), skip: false });
+      posCalls.push({
+        target: npm,
+        allowFailure: true,
+        callData: npmIface.encodeFunctionData('positions', [ethers.toBigInt(tidStr)]),
+      });
+    }
+
+    var posResults = posCalls.length ? await multicall3Aggregate(ethers, provider, posCalls) : [];
+    var decoded = [];
+    var poolNeedCalls = [];
+    var poolNeedIndex = [];
+    var pi = 0;
+    for (var mi = 0; mi < meta.length; mi++) {
+      if (meta[mi].skip) {
+        decoded.push({
+          ok: false,
+          error: meta[mi].error,
+          v3PositionTokenId: '',
+          missing: false,
+          chainId: chainIdRc,
+          rpcHost: rpcHostRc,
+        });
+        continue;
+      }
+      var pr = posResults[pi++];
+      if (!pr || !pr.success || !pr.returnData || pr.returnData === '0x') {
+        decoded.push({
+          ok: false,
+          error:
+            'V3 position #' +
+            meta[mi].tidStr +
+            ' not found on chain ' +
+            chainIdRc +
+            (rpcHostRc ? ' (RPC ' + rpcHostRc + ')' : '') +
+            '. ' +
+            v3MissingPositionHint(chainIdRc, rpcRc, rpcHostRc),
+          v3PositionTokenId: meta[mi].tidStr,
+          missing: true,
+          chainId: chainIdRc,
+          rpcHost: rpcHostRc,
+        });
+        continue;
+      }
+      var pos;
+      try {
+        pos = npmIface.decodeFunctionResult('positions', pr.returnData);
+      } catch (_) {
+        decoded.push({
+          ok: false,
+          error: 'Failed to decode positions for #' + meta[mi].tidStr,
+          v3PositionTokenId: meta[mi].tidStr,
+          missing: true,
+          chainId: chainIdRc,
+          rpcHost: rpcHostRc,
+        });
+        continue;
+      }
+      var entry = {
+        ok: true,
+        v3PositionTokenId: meta[mi].tidStr,
+        tickLower: Number(pos.tickLower),
+        tickUpper: Number(pos.tickUpper),
+        token0: normalizeAddr(ethers, pos.token0),
+        token1: normalizeAddr(ethers, pos.token1),
+        fee: String(pos.fee),
+        liquidity: pos.liquidity.toString(),
+        pool: meta[mi].hintPool || '',
+        chainId: chainIdRc,
+        rpcHost: rpcHostRc,
+      };
+      decoded.push(entry);
+      if (!entry.pool) {
+        poolNeedIndex.push(decoded.length - 1);
+        poolNeedCalls.push({
+          target: PANCAKE_FACTORY_V3,
+          allowFailure: true,
+          callData: facIface.encodeFunctionData('getPool', [entry.token0, entry.token1, Number(entry.fee)]),
+        });
+      }
+    }
+
+    if (poolNeedCalls.length) {
+      var poolRes = await multicall3Aggregate(ethers, provider, poolNeedCalls);
+      for (var pj = 0; pj < poolRes.length; pj++) {
+        var di = poolNeedIndex[pj];
+        if (!decoded[di] || !decoded[di].ok) continue;
+        if (!poolRes[pj] || !poolRes[pj].success) {
+          decoded[di] = {
+            ok: false,
+            error: 'V3 pool not found for #' + decoded[di].v3PositionTokenId,
+            v3PositionTokenId: decoded[di].v3PositionTokenId,
+            missing: false,
+            chainId: chainIdRc,
+            rpcHost: rpcHostRc,
+          };
+          continue;
+        }
+        try {
+          var poolAddr = facIface.decodeFunctionResult('getPool', poolRes[pj].returnData)[0];
+          if (!poolAddr || poolAddr === ethers.ZeroAddress) {
+            decoded[di] = {
+              ok: false,
+              error: 'V3 pool not found for #' + decoded[di].v3PositionTokenId,
+              v3PositionTokenId: decoded[di].v3PositionTokenId,
+              missing: false,
+              chainId: chainIdRc,
+              rpcHost: rpcHostRc,
+            };
+          } else {
+            decoded[di].pool = normalizeAddr(ethers, poolAddr);
+          }
+        } catch (_) {
+          decoded[di] = {
+            ok: false,
+            error: 'V3 pool decode failed for #' + decoded[di].v3PositionTokenId,
+            v3PositionTokenId: decoded[di].v3PositionTokenId,
+            missing: false,
+            chainId: chainIdRc,
+            rpcHost: rpcHostRc,
+          };
+        }
+      }
+    }
+
+    var uniquePools = [];
+    var poolToIdx = Object.create(null);
+    for (var d = 0; d < decoded.length; d++) {
+      if (!decoded[d] || !decoded[d].ok || !decoded[d].pool) continue;
+      var pkey = String(decoded[d].pool).toLowerCase();
+      if (poolToIdx[pkey] == null) {
+        poolToIdx[pkey] = uniquePools.length;
+        uniquePools.push(decoded[d].pool);
+      }
+    }
+
+    var slotCalls = uniquePools.map(function (p) {
+      return {
+        target: p,
+        allowFailure: true,
+        callData: poolIface.encodeFunctionData('slot0', []),
+      };
+    });
+    var slotRes = slotCalls.length ? await multicall3Aggregate(ethers, provider, slotCalls) : [];
+    var slotByPool = Object.create(null);
+    for (var s = 0; s < uniquePools.length; s++) {
+      var sr = slotRes[s];
+      if (!sr || !sr.success) continue;
+      try {
+        var slot = poolIface.decodeFunctionResult('slot0', sr.returnData);
+        slotByPool[String(uniquePools[s]).toLowerCase()] = {
+          currentTick: Number(slot.tick),
+          sqrtPriceX96: slot.sqrtPriceX96.toString(),
+        };
+      } catch (_) {}
+    }
+
+    for (var r = 0; r < decoded.length; r++) {
+      var row = decoded[r];
+      if (!row || !row.ok) continue;
+      var slotInfo = slotByPool[String(row.pool).toLowerCase()];
+      if (!slotInfo) {
+        decoded[r] = {
+          ok: false,
+          error: 'slot0 failed for pool ' + row.pool,
+          v3PositionTokenId: row.v3PositionTokenId,
+          missing: false,
+          chainId: chainIdRc,
+          rpcHost: rpcHostRc,
+        };
+        continue;
+      }
+      var inRange = slotInfo.currentTick >= row.tickLower && slotInfo.currentTick <= row.tickUpper;
+      var liqZero = false;
+      try {
+        liqZero = BigInt(row.liquidity || '0') <= 0n;
+      } catch (_) {
+        liqZero = !(Number(row.liquidity) > 0);
+      }
+      var edge = null;
+      try {
+        var lpApi = globalThis.CFS_PANCAKE_V3_LP || globalThis.__CFS_pancakeV3LpAmounts;
+        if (lpApi && typeof lpApi.edgeProximity === 'function') {
+          edge = lpApi.edgeProximity({
+            currentTick: slotInfo.currentTick,
+            tickLower: row.tickLower,
+            tickUpper: row.tickUpper,
+            sqrtPriceX96: slotInfo.sqrtPriceX96,
+            liquidity: row.liquidity,
+          });
+        }
+      } catch (_) {
+        edge = null;
+      }
+      var driftDirection = '';
+      if (slotInfo.currentTick < row.tickLower) driftDirection = 'below';
+      else if (slotInfo.currentTick > row.tickUpper) driftDirection = 'above';
+      decoded[r] = {
+        ok: true,
+        v3PositionTokenId: row.v3PositionTokenId,
+        currentTick: slotInfo.currentTick,
+        tickLower: row.tickLower,
+        tickUpper: row.tickUpper,
+        inRange: inRange,
+        inactive: !inRange,
+        driftDirection: driftDirection,
+        pctToLower: edge && edge.pctToLower != null ? edge.pctToLower : null,
+        pctToUpper: edge && edge.pctToUpper != null ? edge.pctToUpper : null,
+        composition0: edge && edge.composition0 != null ? edge.composition0 : null,
+        composition1: edge && edge.composition1 != null ? edge.composition1 : null,
+        pool: row.pool,
+        token0: row.token0,
+        token1: row.token1,
+        fee: row.fee,
+        sqrtPriceX96: slotInfo.sqrtPriceX96,
+        liquidity: row.liquidity,
+        zeroLiquidity: liqZero,
+        missing: false,
+        chainId: chainIdRc,
+        rpcHost: rpcHostRc,
+      };
+    }
+
+    return { ok: true, results: decoded, chainId: chainIdRc, rpcHost: rpcHostRc };
+  };
+
+  globalThis.__CFS_bsc_v3_range_check = async function (msg) {
+    var batch = await globalThis.__CFS_bsc_v3_range_check_batch(msg);
+    if (!batch || !batch.ok) return batch || { ok: false, error: 'batch range check failed' };
+    var results = batch.results || [];
+    if (!results.length) return { ok: false, error: 'v3PositionTokenId required' };
+    var first = results[0];
+    if (!first) return { ok: false, error: 'v3PositionTokenId required' };
+    return first;
+  };
+
+  /** Enumerate NPM V3 NFTs owned by an address (Multicall3). */
+  globalThis.__CFS_bsc_v3_npm_positions_by_owner = async function (msg) {
+    var ethers = getEthers();
+    await ensureBscWalletsMigrated();
+    var provider = await getReadOnlyProvider();
+    var owner =
+      (msg.owner && String(msg.owner).trim()) ||
+      (msg.holder && String(msg.holder).trim()) ||
+      (await getAutomationAddressHintOrThrow());
+    owner = normalizeAddr(ethers, owner);
+    var npm = PANCAKE_NPM_V3;
+    var cNpm = new ethers.Contract(npm, NPM_V3_ABI, provider);
+    var bal = await cNpm.balanceOf(owner);
+    var n = Number(bal);
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    if (n === 0) {
+      return { ok: true, result: { owner: owner, positionManager: npm, count: 0, positions: [] } };
+    }
+    var npmIface = new ethers.Interface(NPM_V3_ABI);
+    var idCalls = [];
+    for (var i = 0; i < n; i++) {
+      idCalls.push({
+        target: npm,
+        allowFailure: true,
+        callData: npmIface.encodeFunctionData('tokenOfOwnerByIndex', [owner, i]),
+      });
+    }
+    var idRes = await multicall3Aggregate(ethers, provider, idCalls);
+    var tokenIds = [];
+    for (var j = 0; j < idRes.length; j++) {
+      if (!idRes[j] || !idRes[j].success) continue;
+      try {
+        var tid = npmIface.decodeFunctionResult('tokenOfOwnerByIndex', idRes[j].returnData)[0];
+        tokenIds.push(tid.toString());
+      } catch (_) {}
+    }
+    var batch = await globalThis.__CFS_bsc_v3_range_check_batch({
+      positions: tokenIds.map(function (id) {
+        return { v3PositionTokenId: id };
+      }),
+    });
+    var byId = Object.create(null);
+    var batchResults = (batch && batch.results) || [];
+    for (var bi = 0; bi < batchResults.length; bi++) {
+      var br = batchResults[bi];
+      if (br && br.v3PositionTokenId) byId[String(br.v3PositionTokenId)] = br;
+    }
+    // Always surface owner-enumerated token ids even when positions() decode fails (bad RPC).
+    var positions = [];
+    for (var ti = 0; ti < tokenIds.length; ti++) {
+      var id = String(tokenIds[ti]);
+      if (byId[id]) positions.push(byId[id]);
+      else positions.push({ ok: true, v3PositionTokenId: id, liquidity: '1', enumeratedOnly: true });
+    }
     return {
       ok: true,
-      currentTick: currentTick,
-      tickLower: tkLower,
-      tickUpper: tkUpper,
-      inRange: inRange,
-      pool: poolAddr,
-      token0: token0,
-      token1: token1,
-      fee: String(fee),
-      sqrtPriceX96: s0.sqrtPriceX96.toString(),
-      liquidity: pos.liquidity.toString(),
+      result: {
+        owner: owner,
+        positionManager: npm,
+        count: positions.length,
+        tokenIds: tokenIds,
+        positions: positions,
+        chainId: batch && batch.chainId,
+        rpcHost: batch && batch.rpcHost,
+      },
     };
   };
 
@@ -3523,9 +4693,123 @@
     };
   };
 
+  /**
+   * If native BNB < belowWei, sell stable for exact ETH until balance >= targetWei.
+   * No-op when gasReloadEnabled is false or thresholds missing/invalid.
+   */
+  globalThis.__CFS_bsc_ensure_native_gas_from_stable = async function (msg) {
+    var ethers = getEthers();
+    if (msg.gasReloadEnabled === false || msg.gasReloadEnabled === 'false' || msg.gasReloadEnabled === 0 || msg.gasReloadEnabled === '0') {
+      return { ok: true, skipped: true, reason: 'gas_reload_disabled' };
+    }
+    var belowRaw = msg.gasReloadBelowWei != null ? String(msg.gasReloadBelowWei).trim() : '';
+    var targetRaw = msg.gasReloadTargetWei != null ? String(msg.gasReloadTargetWei).trim() : '';
+    if (!belowRaw || !targetRaw) {
+      return { ok: true, skipped: true, reason: 'thresholds_not_set' };
+    }
+    var belowWei;
+    var targetWei;
+    try {
+      belowWei = ethers.toBigInt(belowRaw);
+      targetWei = ethers.toBigInt(targetRaw);
+    } catch (_) {
+      return { ok: false, error: 'gasReloadBelowWei/gasReloadTargetWei must be uint256 wei' };
+    }
+    if (targetWei < belowWei) {
+      return { ok: false, error: 'gasReloadTargetWei must be >= gasReloadBelowWei' };
+    }
+    var wallet = await globalThis.__CFS_bsc_getConnectedWallet();
+    var bal = await wallet.provider.getBalance(wallet.address);
+    if (bal >= belowWei) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: 'above_floor',
+        balanceWei: bal.toString(),
+        belowWei: belowWei.toString(),
+        targetWei: targetWei.toString(),
+      };
+    }
+    var need = targetWei - bal;
+    // Extra buffer for the top-up tx itself (~0.0003 BNB)
+    var buffer = ethers.parseEther('0.0003');
+    var amountOut = need + buffer;
+    var stable = normalizeAddr(
+      ethers,
+      msg.gasReloadStableToken || msg.stableToken || '0x55d398326f99059fF775485246999027B3197955'
+    );
+    var reserve =
+      msg.stableReserveWei != null && String(msg.stableReserveWei).trim() !== ''
+        ? ethers.toBigInt(String(msg.stableReserveWei).trim())
+        : 0n;
+    var erc = new ethers.Contract(stable, ERC20_ABI, wallet);
+    var stableBal = await erc.balanceOf(wallet.address);
+    if (stableBal <= reserve) {
+      return {
+        ok: false,
+        error: 'insufficient stable for gas top-up after reserve',
+        stableBalance: stableBal.toString(),
+        stableReserveWei: reserve.toString(),
+      };
+    }
+    var spendable = stableBal - reserve;
+    var routerAddr = resolveRouter(msg);
+    var router = new ethers.Contract(routerAddr, ROUTER_ABI, wallet);
+    var path = [stable, WBNB_BSC];
+    var amountsIn = await router.getAmountsIn(amountOut, path);
+    var amountInMax = amountsIn[0];
+    // +2% slippage headroom
+    amountInMax = amountInMax + (amountInMax * 200n) / 10000n;
+    if (amountInMax > spendable) {
+      // Buy as much BNB as spendable allows (exact-in)
+      var outs = await router.getAmountsOut(spendable, path);
+      var outMin = outs[outs.length - 1];
+      outMin = outMin - (outMin * 200n) / 10000n;
+      var alw = await erc.allowance(wallet.address, routerAddr);
+      if (alw < spendable) {
+        var txA = await erc.approve(routerAddr, ethers.MaxUint256);
+        await txA.wait(1);
+      }
+      var dl = Math.floor(Date.now() / 1000) + 1200;
+      var txIn = await router.swapExactTokensForETH(spendable, outMin, path, wallet.address, dl);
+      var rcIn = await txIn.wait(1);
+      var balAfterIn = await wallet.provider.getBalance(wallet.address);
+      return {
+        ok: true,
+        mode: 'exactIn_capped',
+        txHash: txIn.hash,
+        balanceBeforeWei: bal.toString(),
+        balanceAfterWei: balAfterIn.toString(),
+        amountIn: spendable.toString(),
+        status: rcIn.status,
+      };
+    }
+    var alw2 = await erc.allowance(wallet.address, routerAddr);
+    if (alw2 < amountInMax) {
+      var txA2 = await erc.approve(routerAddr, ethers.MaxUint256);
+      await txA2.wait(1);
+    }
+    var dl2 = Math.floor(Date.now() / 1000) + 1200;
+    var tx = await router.swapTokensForExactETH(amountOut, amountInMax, path, wallet.address, dl2);
+    var rc = await tx.wait(1);
+    var balAfter = await wallet.provider.getBalance(wallet.address);
+    return {
+      ok: true,
+      mode: 'exactOut',
+      txHash: tx.hash,
+      balanceBeforeWei: bal.toString(),
+      balanceAfterWei: balAfter.toString(),
+      amountOutWei: amountOut.toString(),
+      amountInMax: amountInMax.toString(),
+      status: rc.status,
+    };
+  };
+
   globalThis.__CFS_bsc_constants = {
     PANCAKE_ROUTER_V2: PANCAKE_ROUTER_V2,
     PANCAKE_SWAP_ROUTER_V3: PANCAKE_SWAP_ROUTER_V3,
+    PANCAKE_TICK_LENS_V3: PANCAKE_TICK_LENS_V3,
+    MULTICALL3_BSC: MULTICALL3_BSC,
     WBNB_BSC: WBNB_BSC,
     MASTER_CHEF_V1: MASTER_CHEF_V1,
     MASTER_CHEF_V2: MASTER_CHEF_V2,

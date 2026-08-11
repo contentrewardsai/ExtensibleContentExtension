@@ -1,0 +1,27 @@
+{
+  "id": "bscV3AutoApprove",
+  "label": "BSC V3 auto-approve",
+  "category": "data",
+  "description": "For tokenA and tokenB, check ERC-20 allowance to the pinned PancakeSwap V3 SwapRouter and NonfungiblePositionManager; approve max when below threshold. Saves a JSON array of {token, spender, skipped, txHash?} to a row variable. Uses CFS_BSC_QUERY (automationWalletAddress, allowance) and CFS_BSC_POOL_EXECUTE (approve).",
+  "defaultAction": {
+    "type": "bscV3AutoApprove",
+    "runIf": "",
+    "tokenA": "",
+    "tokenB": "",
+    "swapRouterV3Address": "",
+    "positionManagerAddress": "",
+    "amount": "max",
+    "gasLimit": "",
+    "saveApproveResultsVariable": "v3ApproveResults"
+  },
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "tokenA", "label": "tokenA (0x…)", "inputType": "text" },
+    { "key": "tokenB", "label": "tokenB (0x…)", "inputType": "text" },
+    { "key": "swapRouterV3Address", "label": "V3 SwapRouter override (optional)", "inputType": "text", "placeholder": "0x1b81D678ffb9C0263b24A97847620C99d213eB14" },
+    { "key": "positionManagerAddress", "label": "V3 NPM override (optional)", "inputType": "text", "placeholder": "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364" },
+    { "key": "amount", "label": "Approve amount (max recommended)", "inputType": "text", "placeholder": "max" },
+    { "key": "gasLimit", "label": "gasLimit (optional)", "inputType": "text" },
+    { "key": "saveApproveResultsVariable", "label": "Save approve results JSON to variable", "inputType": "text" }
+  ]
+}

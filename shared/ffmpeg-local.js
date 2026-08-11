@@ -363,11 +363,9 @@
   }
 
   global.FFmpegLocal = {
-    convertToMp4: convertToMp4,
     convertToM4a: convertToM4a,
     probeDurationSeconds: probeDurationSeconds,
     extractSegment: extractSegment,
     extractAudioFromVideo: extractAudioFromVideo,
-    isLoaded: function () { return !!(ffmpegInstance && ffmpegInstance.loaded); },
   };
 })(typeof window !== 'undefined' ? window : self);

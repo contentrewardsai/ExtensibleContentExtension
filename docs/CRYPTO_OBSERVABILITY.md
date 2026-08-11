@@ -12,7 +12,7 @@ Subsystems include:
 |------------|------------------|
 | `fetch`    | HTTP **429** from generic `fetchWith429Backoff` (JSON-RPC POSTs, tiered GETs). |
 | `solana_rpc` | HTTP **429** from Solana JSON-RPC before retry (**`background/solana-watch.js`**). |
-| `bscscan`  | HTTP **429** (or other non-OK) from BscScan HTTP API (**`background/bsc-watch.js`**). |
+| `bscscan` / `bsc_indexer` | HTTP **429** (or other non-OK) from Following BSC indexers (**`background/bsc-indexer-transports.js`**). |
 | `aster`    | HTTP **429** backoff loop on Aster **fapi/sapi** (**`background/aster-futures.js`**). |
 
 ## Optional verbose mode
@@ -36,7 +36,7 @@ chrome.storage.local.remove('cfs_crypto_debug_verbose');
 ## Interpreting issues
 
 - **429 + `fetch` / `solana_rpc`:** RPC or HTTP provider rate limit — try a dedicated API key, fewer watched addresses, or higher poll interval.
-- **429 + `bscscan`:** BscScan free-tier limits — reduce watched addresses or upgrade key tier.
+- **429 + `bscscan` / `bsc_indexer`:** Indexer rate limits — reduce watched addresses, lengthen poll interval (QuickNode ≥2 min), or upgrade plan.
 - **429 + `aster`:** Aster weight / order caps — increase poll intervals on wait steps; prefer WebSocket user stream where documented (**docs/INTEGRATIONS.md**).
 
 ## Related

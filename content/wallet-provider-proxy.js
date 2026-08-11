@@ -60,6 +60,25 @@
   let _connected = false;
   let _publicKey = null; /* Will be set as a plain object { toBase58, toBytes, toString, equals } */
   let _autoApprove = false; /* Set by relay when workflow is running */
+  /* Explicit false in Settings requires confirm(); undefined/true keep legacy silent sign. */
+  let _settingsRequireConfirm = false;
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['cfs_wallet_injection_auto_approve'], function (d) {
+        _settingsRequireConfirm = !!(d && d.cfs_wallet_injection_auto_approve === false);
+      });
+    }
+  } catch (_) {}
+
+  async function maybeConfirmSign(label) {
+    if (_autoApprove) return true;
+    if (!_settingsRequireConfirm) return true;
+    try {
+      return window.confirm('CFS Wallet: ' + (label || 'approve transaction') + ' from ' + location.origin + '?');
+    } catch (_) {
+      return false;
+    }
+  }
 
   function makePublicKeyProxy(b58) {
     /* Lightweight PublicKey-like object that works with most dApps.
@@ -118,6 +137,7 @@
 
     signTransaction: async function (tx) {
       if (!_connected) throw new Error('Wallet not connected');
+      if (!(await maybeConfirmSign('sign transaction'))) throw new Error('User rejected the request');
       /* Serialize the transaction — support both legacy and versioned */
       let txBytes;
       if (typeof tx.serialize === 'function') {
@@ -167,6 +187,7 @@
 
     signMessage: async function (message, display) {
       if (!_connected) throw new Error('Wallet not connected');
+      if (!(await maybeConfirmSign('sign message'))) throw new Error('User rejected the request');
       const msgBytes = message instanceof Uint8Array ? Array.from(message) : Array.from(new TextEncoder().encode(String(message)));
       const r = await relayRequest('signMessage', { chain: 'solana', messageBytes: msgBytes });
       if (!r.signature) throw new Error(r.error || 'Sign message failed');
@@ -176,6 +197,7 @@
     signAndSendTransaction: async function (tx, opts) {
       /* Some dApps use this instead of signTransaction + sendTransaction */
       if (!_connected) throw new Error('Wallet not connected');
+      if (!(await maybeConfirmSign('sign and send transaction'))) throw new Error('User rejected the request');
       let txBytes;
       if (typeof tx.serialize === 'function') {
         try { txBytes = Array.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false })); }
@@ -192,9 +214,22 @@
     },
   };
 
-  /* ── Auto-approve mode (set by relay during workflow playback) ── */
+  /* ── Auto-approve mode (set by relay during workflow playback / Settings) ── */
   window.addEventListener('cfs-wallet-set-auto-approve', function (e) {
-    _autoApprove = !!(e.detail && e.detail.enabled);
+    var enabled = !!(e.detail && e.detail.enabled);
+    _autoApprove = enabled;
+    /* Settings broadcast also clears the require-confirm latch when auto-approve is on. */
+    if (enabled) _settingsRequireConfirm = false;
+    else {
+      /* If Settings turned auto-approve off (not a workflow session flag), require confirm. */
+      try {
+        chrome.storage.local.get(['cfs_wallet_injection_auto_approve'], function (d) {
+          _settingsRequireConfirm = !!(d && d.cfs_wallet_injection_auto_approve === false);
+        });
+      } catch (_) {
+        _settingsRequireConfirm = true;
+      }
+    }
   });
 
   /* ── Install provider ── */
@@ -207,31 +242,30 @@
     window.phantom.solana = solanaProvider;
   }
 
-  /* Always register via Wallet Standard for multi-wallet dApps */
+  /* Always register via Wallet Standard for multi-wallet dApps.
+     Do not gate on registerProtocolHandler — that API is unrelated to Wallet Standard. */
   try {
-    if (window.navigator && typeof window.navigator.registerProtocolHandler === 'function') {
-      /* Wallet Standard registration via window event */
-      window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', {
-        detail: {
-          register: function (registerFn) {
-            if (typeof registerFn === 'function') {
-              registerFn({
-                name: 'Extensible Content',
-                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="%234f46e5"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="16" font-family="sans-serif">E</text></svg>',
-                chains: ['solana:mainnet', 'solana:devnet'],
-                features: {
-                  'standard:connect': { connect: solanaProvider.connect },
-                  'standard:disconnect': { disconnect: solanaProvider.disconnect },
-                  'solana:signTransaction': { signTransaction: solanaProvider.signTransaction },
-                  'solana:signMessage': { signMessage: solanaProvider.signMessage },
-                },
-                accounts: [],
-              });
-            }
-          },
+    window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', {
+      detail: {
+        register: function (registerFn) {
+          if (typeof registerFn !== 'function') return;
+          registerFn({
+            name: 'Extensible Content',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="%234f46e5"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="16" font-family="sans-serif">E</text></svg>',
+            chains: ['solana:mainnet', 'solana:devnet'],
+            features: {
+              'standard:connect': { version: '1.0.0', connect: solanaProvider.connect.bind(solanaProvider) },
+              'standard:disconnect': { version: '1.0.0', disconnect: solanaProvider.disconnect.bind(solanaProvider) },
+              'solana:signTransaction': { version: '1.0.0', signTransaction: solanaProvider.signTransaction.bind(solanaProvider) },
+              'solana:signAllTransactions': { version: '1.0.0', signAllTransactions: solanaProvider.signAllTransactions.bind(solanaProvider) },
+              'solana:signAndSendTransaction': { version: '1.0.0', signAndSendTransaction: solanaProvider.signAndSendTransaction.bind(solanaProvider) },
+              'solana:signMessage': { version: '1.0.0', signMessage: solanaProvider.signMessage.bind(solanaProvider) },
+            },
+            accounts: [],
+          });
         },
-      }));
-    }
+      },
+    }));
   } catch (_) { /* Wallet Standard not available — that's fine */ }
 
   /* Expose for debugging */
@@ -305,6 +339,9 @@
           if (!_evmConnected || _evmAccounts.length === 0) {
             throw { code: 4100, message: 'Wallet not connected' };
           }
+          if (!(await maybeConfirmSign('send transaction'))) {
+            throw { code: 4001, message: 'User rejected the request' };
+          }
           const txParams = params[0] || {};
           const r = await relayRequest('evmSendTransaction', {
             chain: 'bsc',
@@ -317,6 +354,9 @@
         case 'personal_sign':
         case 'eth_sign': {
           if (!_evmConnected) throw { code: 4100, message: 'Wallet not connected' };
+          if (!(await maybeConfirmSign('sign message'))) {
+            throw { code: 4001, message: 'User rejected the request' };
+          }
           const message = method === 'personal_sign' ? params[0] : params[1];
           const r = await relayRequest('evmSignMessage', {
             chain: 'bsc',
@@ -330,6 +370,9 @@
         case 'eth_signTypedData_v3':
         case 'eth_signTypedData': {
           if (!_evmConnected) throw { code: 4100, message: 'Wallet not connected' };
+          if (!(await maybeConfirmSign('sign typed data'))) {
+            throw { code: 4001, message: 'User rejected the request' };
+          }
           const typedData = params[1] || params[0];
           const r = await relayRequest('evmSignTypedData', {
             chain: 'bsc',

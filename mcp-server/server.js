@@ -20,6 +20,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'node:http';
+import { spawn } from 'node:child_process';
 
 /* ── Config: file → env → CLI (later sources override earlier) ── */
 import fs from 'node:fs';
@@ -288,6 +289,186 @@ function fetchExtensionFile(path) {
   return relayRequest('FETCH_URL', { path });
 }
 
+/* ── Chrome wake-up (reopen mcp-relay.html when relay is down) ── */
+
+function getWakeConfig() {
+  const fileCfg = loadConfigFile();
+  const wakeOn =
+    fileCfg.wakeChromeOnDisconnect === undefined ? true : !!fileCfg.wakeChromeOnDisconnect;
+  let intervalMs = Number(fileCfg.wakeChromeIntervalMs);
+  if (!Number.isFinite(intervalMs) || intervalMs < 5000) intervalMs = 30000;
+  let minIntervalMs = Number(fileCfg.wakeChromeMinIntervalMs);
+  if (!Number.isFinite(minIntervalMs) || minIntervalMs < 5000) minIntervalMs = 60000;
+  return {
+    extensionId: fileCfg.extensionId ? String(fileCfg.extensionId).trim() : '',
+    wakeChromeOnDisconnect: wakeOn,
+    wakeChromeIntervalMs: intervalMs,
+    wakeChromeMinIntervalMs: minIntervalMs,
+  };
+}
+
+function fileExists(p) {
+  try {
+    return fs.existsSync(p);
+  } catch (_) {
+    return false;
+  }
+}
+
+function windowsChromeCandidates() {
+  const local = process.env.LOCALAPPDATA || '';
+  const pf = process.env.PROGRAMFILES || 'C:\\Program Files';
+  const pf86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)';
+  return [
+    path.join(local, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(pf, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(pf86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(local, 'Chromium', 'Application', 'chrome.exe'),
+    path.join(pf, 'Chromium', 'Application', 'chrome.exe'),
+  ].filter(Boolean);
+}
+
+function spawnDetached(cmd, args) {
+  const child = spawn(cmd, args, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+  return child;
+}
+
+/**
+ * Launch/activate Chrome and open the extension MCP relay page.
+ * @returns {Promise<{ ok: boolean, attempted: boolean, url?: string, error?: string, method?: string }>}
+ */
+async function wakeExtensionRelay() {
+  const wakeCfg = getWakeConfig();
+  const extId = wakeCfg.extensionId;
+  if (!extId) {
+    return {
+      ok: false,
+      attempted: false,
+      error:
+        'extensionId missing from ec-mcp-config.json. Open Settings → MCP Server → Save MCP settings once so the extension ID is written.',
+    };
+  }
+  const url = 'chrome-extension://' + extId + '/mcp/mcp-relay.html';
+  const platform = process.platform;
+
+  try {
+    if (platform === 'darwin') {
+      const appCandidates = [
+        { name: 'Google Chrome', path: '/Applications/Google Chrome.app' },
+        { name: 'Chromium', path: '/Applications/Chromium.app' },
+        { name: 'Brave Browser', path: '/Applications/Brave Browser.app' },
+        { name: 'Microsoft Edge', path: '/Applications/Microsoft Edge.app' },
+      ];
+      const app = appCandidates.find((a) => fileExists(a.path));
+      if (app) {
+        spawnDetached('open', ['-a', app.name, url]);
+        return { ok: true, attempted: true, url, method: 'open -a ' + app.name };
+      }
+      spawnDetached('open', [url]);
+      return { ok: true, attempted: true, url, method: 'open' };
+    }
+
+    if (platform === 'win32') {
+      const candidates = windowsChromeCandidates();
+      const chromePath = candidates.find(fileExists);
+      if (chromePath) {
+        spawnDetached(chromePath, [url]);
+        return { ok: true, attempted: true, url, method: chromePath };
+      }
+      spawnDetached('cmd', ['/c', 'start', '', url]);
+      return { ok: true, attempted: true, url, method: 'cmd start' };
+    }
+
+    /* linux / other */
+    const bins = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'brave-browser'];
+    for (const bin of bins) {
+      try {
+        spawnDetached(bin, [url]);
+        return { ok: true, attempted: true, url, method: bin };
+      } catch (_) {}
+    }
+    spawnDetached('xdg-open', [url]);
+    return { ok: true, attempted: true, url, method: 'xdg-open' };
+  } catch (e) {
+    return {
+      ok: false,
+      attempted: true,
+      url,
+      error: e && e.message ? e.message : String(e),
+    };
+  }
+}
+
+/** Wait until relay connects or timeout. */
+async function waitForRelayConnected(timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 15000);
+  while (Date.now() < deadline) {
+    if (relaySocket && relaySocket.readyState === 1) return true;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return !!(relaySocket && relaySocket.readyState === 1);
+}
+
+let wakeWatchdogTimer = null;
+let wakeDisconnectedSince = null;
+let lastWakeAttemptAt = 0;
+let wakeFailStreak = 0;
+
+function stopWakeWatchdog() {
+  if (wakeWatchdogTimer) {
+    clearInterval(wakeWatchdogTimer);
+    wakeWatchdogTimer = null;
+  }
+  wakeDisconnectedSince = null;
+  wakeFailStreak = 0;
+}
+
+function startWakeWatchdog() {
+  const wakeCfg = getWakeConfig();
+  if (!wakeCfg.wakeChromeOnDisconnect) return;
+  if (wakeWatchdogTimer) return;
+  if (wakeDisconnectedSince == null) wakeDisconnectedSince = Date.now();
+
+  wakeWatchdogTimer = setInterval(async () => {
+    try {
+      if (relaySocket && relaySocket.readyState === 1) {
+        stopWakeWatchdog();
+        return;
+      }
+      const cfg = getWakeConfig();
+      if (!cfg.wakeChromeOnDisconnect) return;
+      if (!wakeDisconnectedSince) wakeDisconnectedSince = Date.now();
+      const disconnectedFor = Date.now() - wakeDisconnectedSince;
+      if (disconnectedFor < cfg.wakeChromeIntervalMs) return;
+
+      const backoffMs = Math.min(
+        cfg.wakeChromeMinIntervalMs * Math.pow(2, Math.min(wakeFailStreak, 4)),
+        15 * 60 * 1000,
+      );
+      const minGap = Math.max(cfg.wakeChromeMinIntervalMs, backoffMs);
+      if (Date.now() - lastWakeAttemptAt < minGap) return;
+
+      lastWakeAttemptAt = Date.now();
+      const result = await wakeExtensionRelay();
+      if (result.ok) {
+        log('[MCP] Wake Chrome (relay down):', result.method || 'ok', result.url || '');
+        wakeFailStreak = 0;
+      } else {
+        wakeFailStreak += 1;
+        log('[MCP] Wake Chrome failed:', result.error || 'unknown');
+      }
+    } catch (e) {
+      wakeFailStreak += 1;
+      log('[MCP] Wake watchdog error:', e && e.message ? e.message : e);
+    }
+  }, 5000);
+}
+
 /* ── Import tool registrations ── */
 import { registerWorkflowTools } from './tools/workflows.js';
 import { registerSchedulingTools } from './tools/scheduling.js';
@@ -308,6 +489,7 @@ import { createCryptoGate } from './crypto-gate.js';
 import { registerSidebarTools, registerSidebarRoutes } from './tools/sidebar.js';
 import { registerProjectTools } from './tools/project-files.js';
 import { registerExtensionUpdateTools } from './tools/extension-update.js';
+import { createWatchdog } from './watchdog.js';
 
 /* ── MCP Server factory ── */
 
@@ -318,9 +500,24 @@ const ctx = {
   writeStorage,
   fetchExtensionFile,
   isRelayConnected: () => relaySocket && relaySocket.readyState === 1,
+  wakeExtensionRelay,
+  waitForRelayConnected,
   /** Expose relayRequest for sidebar tools to use BACKEND_FETCH reqType. */
   _relayRequest: relayRequest,
+  loadConfigFile,
 };
+
+const lpWatchdog = createWatchdog({
+  loadConfigFile,
+  isRelayConnected: () => relaySocket && relaySocket.readyState === 1,
+  sendMessage: sendExtensionMessage,
+  wakeExtensionRelay,
+  waitForRelayConnected,
+  readStorage,
+  writeStorage,
+  log: (s) => console.log(s),
+});
+ctx.lpWatchdog = lpWatchdog;
 
 /** Crypto gate — checks cfsCryptoWeb3Enabled toggle before crypto tools run. */
 ctx.cryptoGate = createCryptoGate(ctx);
@@ -828,6 +1025,7 @@ wss.on('connection', (socket, req) => {
   }
 
   relaySocket = socket;
+  stopWakeWatchdog();
   console.log('[MCP] Extension relay connected');
 
   socket.on('message', (raw) => {
@@ -855,6 +1053,7 @@ wss.on('connection', (socket, req) => {
     if (relaySocket === socket) {
       relaySocket = null;
       console.log('[MCP] Extension relay disconnected');
+      startWakeWatchdog();
     }
   });
 
@@ -877,6 +1076,16 @@ httpServer.listen(config.port, '127.0.0.1', async () => {
   log('  │  to connect the WebSocket relay.             │');
   log('  └──────────────────────────────────────────────┘');
   log('');
+
+  /* If relay is not already up, start wake watchdog (opens Chrome + relay page). */
+  startWakeWatchdog();
+
+  /* Optional LP monitor watchdog (relay + OOR alerts). Off unless watchdog.enabled. */
+  try {
+    lpWatchdog.start();
+  } catch (e) {
+    console.error('[MCP] LP watchdog start failed:', e && e.message ? e.message : e);
+  }
 
   /* Notify Chrome extension via native messaging that we're up */
   nmSend({ type: 'started', port: config.port });

@@ -1,6 +1,8 @@
 # Solana perps automation status
 
-Read-only: calls **`CFS_PERPS_AUTOMATION_STATUS`**. Perp **execution** remains **`not_implemented`**. Optionally fetches Jupiter **perps markets** JSON via **`CFS_JUPITER_PERPS_MARKETS`** (needs Jupiter **API key** in Settings or **jupiterApiKeyOverride**).
+**Status-only by design.** Calls **`CFS_PERPS_AUTOMATION_STATUS`**, which always reports `raydiumPerps` / `jupiterPerps` as **`not_implemented`**. There is **no** workflow step that opens, closes, or places Raydium/Jupiter perpetual orders. Use spot Jupiter / Raydium / Pump steps for execution.
+
+Optionally fetches read-only Jupiter **perps markets** JSON via **`CFS_JUPITER_PERPS_MARKETS`** (needs Jupiter **API key** in Settings or **jupiterApiKeyOverride**). Markets fetch never signs orders.
 
 ## Configuration
 
@@ -28,4 +30,4 @@ Row variable **names** support `{{column}}` templates like other steps.
 
 ## Testing
 
-No `step-tests.js` for this step yet.
+**steps/solanaPerpsStatus/step-tests.js** — status payload shape / not_implemented constants.

@@ -19,6 +19,9 @@ const checks = [
   [sw, '__CFS_executeBackgroundWorkflow', 'service-worker: background workflow export'],
   [watch, '__CFS_infiBinRangeWatch_tick', 'infi-bin-range-watch: tick'],
   [watch, 'onOutOfRange', 'infi-bin-range-watch: trigger rules'],
+  [watch, 'no_infi_positions', 'infi-bin-range-watch: idle when empty'],
+  [watch, 'activeWatchPositions', 'infi-bin-range-watch: multi-position'],
+  [watch, 'boundRows', 'infi-bin-range-watch: boundRows comments/usage'],
   [steps, 'pancakeInfiBinRangeWatch', 'steps manifest'],
   [ids, 'pancakeInfiBinRangeWatch', 'crypto step ids'],
 ];
