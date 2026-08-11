@@ -32,7 +32,11 @@ Target: **`npm audit`** clean at **`--audit-level=moderate`** after **`npm ci`**
 
 - **`bn.js`**: **`^5.2.3`** — nested **`@pancakeswap/swap-sdk-core`** must not pull vulnerable **bn.js** 5.0.0–5.2.2 ([GHSA-378v-28hj-76wf](https://github.com/advisories/GHSA-378v-28hj-76wf)).
 - **`bigint-buffer`**: **`npm:bigint-buffer-fixed@1.1.6`** — replaces unmaintained **`bigint-buffer@1.1.5`** ([GHSA-3gc7-fjrx-p6mg](https://github.com/advisories/GHSA-3gc7-fjrx-p6mg)). The fixed package lists **node-gyp**; the following overrides pin patched transitive versions so **`npm audit`** stays clean: **`node-gyp`**, **`tar`**, **`cacache`**, **`make-fetch-happen`**, **`http-proxy-agent`**, **`@tootallnate/once`**.
-- **`path-to-regexp`**: Keep **`express@4`**’s dependency at **`^0.1.13`** or newer ([GHSA-37ch-88jc-xwx2](https://github.com/advisories/GHSA-37ch-88jc-xwx2)); **`npm audit fix`** may refresh this under **`@meteora-ag/dlmm`**.
+- **`tar`**: **`^7.5.21`** — nested **node-gyp** / **cacache** must not pull vulnerable **tar** ≤7.5.20.
+- **`ws`**: **`^8.21.3`** — nested **viem** / **ethers** / **jayson** must not pull vulnerable **ws** 8.0.0–8.20.1 ([GHSA-58qx-3vcg-4xpx](https://github.com/advisories/GHSA-58qx-3vcg-4xpx), [GHSA-96hv-2xvq-fx4p](https://github.com/advisories/GHSA-96hv-2xvq-fx4p)).
+- **`uuid`**: **`^11.1.1`** — nested **jayson** (via **`@solana/web3.js`**) must not pull vulnerable **uuid** &lt;11.1.1 ([GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq)).
+- **Leaf HTTP / tooling pins** (keep **`npm audit --audit-level=moderate`** clean without major SDK downgrades): **`axios`**, **`basic-ftp`**, **`brace-expansion`**, **`form-data`**, **`ip-address`**, **`js-yaml`**, **`lodash`**, **`qs`**, **`follow-redirects`**, **`body-parser`**, **`express@^4.22.2`**, **`path-to-regexp`**.
+- After changing overrides, run **`npm install`**, **`npm audit --audit-level=moderate`**, then **`npm run build:chain-bundles`** and commit updated **`background/*.bundle.js`**.
 
 After changing overrides or dependencies, run **`npm run build:chain-bundles`** and commit updated **`background/*.bundle.js`** files.
 

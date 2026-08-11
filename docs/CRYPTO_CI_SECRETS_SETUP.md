@@ -11,6 +11,8 @@ These jobs run on every PR with no configuration needed:
 | `bundle-checks` | Static validation, crypto matrix, BSC genesis sync, step definitions, unit tests (1242+), recorder integration |
 | `e2e-playwright-smoke` | `test:e2e:ci-smoke` + `test:e2e:nav-smoke` + **`test:e2e:crypto-offline`** (message routing, validation, negative paths — no RPC) |
 
+Optional crypto jobs **always appear** in the workflow, but their first step maps repository secrets into env and **skips** the rest when unset. Do **not** put `secrets.*` in job-level `if:` — GitHub rejects that expression context and the whole workflow fails to schedule.
+
 ## Tier 1: Read-Only RPC Smoke (recommended)
 
 **Job:** `optional-crypto-rpc-smoke`

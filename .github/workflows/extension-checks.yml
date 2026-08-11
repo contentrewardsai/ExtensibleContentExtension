@@ -84,17 +84,34 @@ jobs:
           CI: '1'
           PW_WORKERS: '1'
 
+  # Optional jobs cannot use `secrets.*` in job-level `if:` (invalidates the whole workflow).
+  # Gate via a step that maps secrets into env, then skip remaining steps when unset.
   optional-crypto-rpc-smoke:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SOLANA_RPC_SMOKE_URL != '' || secrets.BSC_RPC_SMOKE_URL != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Gate on RPC smoke secrets
+        id: gate
+        env:
+          SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
+          BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
+        run: |
+          if [ -n "$SOLANA_RPC_SMOKE_URL" ] || [ -n "$BSC_RPC_SMOKE_URL" ]; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=0" >> "$GITHUB_OUTPUT"
+            echo "Skipping optional-crypto-rpc-smoke (no SOLANA_RPC_SMOKE_URL / BSC_RPC_SMOKE_URL)."
+          fi
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/checkout@v4
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
+      - if: steps.gate.outputs.run == '1'
+        run: npm ci
       - name: Read-only RPC smoke + optional Solana tx (optional secrets)
+        if: steps.gate.outputs.run == '1'
         env:
           SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
           BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
@@ -105,15 +122,30 @@ jobs:
 
   optional-crypto-http-smoke:
     runs-on: ubuntu-latest
-    if: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN != '' || secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Gate on HTTP smoke secrets
+        id: gate
+        env:
+          CRYPTO_HTTP_SMOKE_RUN: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN }}
+          CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY }}
+        run: |
+          if [ -n "$CRYPTO_HTTP_SMOKE_RUN" ] || [ -n "$CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY" ]; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=0" >> "$GITHUB_OUTPUT"
+            echo "Skipping optional-crypto-http-smoke (no CRYPTO_HTTP_SMOKE_RUN / CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY)."
+          fi
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/checkout@v4
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
+      - if: steps.gate.outputs.run == '1'
+        run: npm ci
       - name: HTTP API smoke (Rugcheck, Aster, Jupiter quote, optional BscScan)
+        if: steps.gate.outputs.run == '1'
         env:
           CRYPTO_HTTP_SMOKE_RUN: ${{ secrets.CRYPTO_HTTP_SMOKE_RUN }}
           CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY: ${{ secrets.CRYPTO_HTTP_SMOKE_BSCSCAN_API_KEY }}
@@ -122,15 +154,29 @@ jobs:
 
   optional-crypto-evm-fork-smoke:
     runs-on: ubuntu-latest
-    if: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Gate on EVM fork smoke secret
+        id: gate
+        env:
+          CRYPTO_EVM_FORK_RPC_URL: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL }}
+        run: |
+          if [ -n "$CRYPTO_EVM_FORK_RPC_URL" ]; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=0" >> "$GITHUB_OUTPUT"
+            echo "Skipping optional-crypto-evm-fork-smoke (no CRYPTO_EVM_FORK_RPC_URL)."
+          fi
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/checkout@v4
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
+      - if: steps.gate.outputs.run == '1'
+        run: npm ci
       - name: EVM JSON-RPC + optional tx smoke (Anvil fork URL or provider)
+        if: steps.gate.outputs.run == '1'
         env:
           CRYPTO_EVM_FORK_RPC_URL: ${{ secrets.CRYPTO_EVM_FORK_RPC_URL }}
         run: |
@@ -139,16 +185,33 @@ jobs:
 
   optional-e2e-crypto-playwright:
     runs-on: ubuntu-latest
-    if: ${{ secrets.E2E_CRYPTO_PLAYWRIGHT != '' && (secrets.SOLANA_RPC_SMOKE_URL != '' || secrets.BSC_RPC_SMOKE_URL != '') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Gate on crypto Playwright E2E secrets
+        id: gate
+        env:
+          E2E_CRYPTO_PLAYWRIGHT: ${{ secrets.E2E_CRYPTO_PLAYWRIGHT }}
+          SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
+          BSC_RPC_SMOKE_URL: ${{ secrets.BSC_RPC_SMOKE_URL }}
+        run: |
+          if [ -n "$E2E_CRYPTO_PLAYWRIGHT" ] && { [ -n "$SOLANA_RPC_SMOKE_URL" ] || [ -n "$BSC_RPC_SMOKE_URL" ]; }; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=0" >> "$GITHUB_OUTPUT"
+            echo "Skipping optional-e2e-crypto-playwright (need E2E_CRYPTO_PLAYWRIGHT and an RPC URL secret)."
+          fi
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/checkout@v4
+      - if: steps.gate.outputs.run == '1'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
-      - run: npx playwright install chromium --with-deps
+      - if: steps.gate.outputs.run == '1'
+        run: npm ci
+      - if: steps.gate.outputs.run == '1'
+        run: npx playwright install chromium --with-deps
       - name: Extension crypto E2E (Playwright + live CFS_* messages)
+        if: steps.gate.outputs.run == '1'
         env:
           CI: '1'
           PW_WORKERS: '1'
@@ -166,11 +229,16 @@ jobs:
           E2E_DEFI_READ_RPC: ${{ secrets.E2E_DEFI_READ_RPC }}
         run: npm run test:e2e:crypto
       - name: DeFi read-only E2E (Playwright — live RPC quotes)
-        if: env.E2E_DEFI_READ_RPC == '1'
+        if: steps.gate.outputs.run == '1'
         env:
           CI: '1'
           PW_WORKERS: '1'
           E2E_DEFI_READ: '1'
-          E2E_DEFI_READ_RPC: '1'
+          E2E_DEFI_READ_RPC: ${{ secrets.E2E_DEFI_READ_RPC }}
           SOLANA_RPC_SMOKE_URL: ${{ secrets.SOLANA_RPC_SMOKE_URL }}
-        run: npm run test:e2e:defi-reads
+        run: |
+          if [ "$E2E_DEFI_READ_RPC" != "1" ]; then
+            echo "Skipping DeFi read E2E (E2E_DEFI_READ_RPC != 1)."
+            exit 0
+          fi
+          npm run test:e2e:defi-reads

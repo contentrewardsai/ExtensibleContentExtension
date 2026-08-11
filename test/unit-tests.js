@@ -4150,8 +4150,8 @@
     var el = document.createElement('div');
     el.textContent = 'failed generation';
     var vid = document.createElement('video');
-    /* data URI — avoids chrome-extension://…/settings/test.mp4 ERR_FILE_NOT_FOUND when suite runs on Settings */
-    vid.setAttribute('src', 'data:video/mp4;base64,AAAA');
+    /* data: URL so file:// unit runner does not request a missing mp4 */
+    vid.setAttribute('src', 'data:video/mp4,');
     el.appendChild(vid);
     assertFalse(qcLastItemHasFailed(el), 'has video → not failed');
   }
@@ -4764,10 +4764,11 @@
     var div = document.createElement('div');
     assertEqual(lastItemVideosRendered(div), 0, 'no videos → 0');
     var v1 = document.createElement('video');
-    v1.setAttribute('src', 'data:video/mp4;base64,AAAA');
+    /* data: URLs so file:// unit runner does not request missing mp4 fixtures */
+    v1.setAttribute('src', 'data:video/mp4,');
     div.appendChild(v1);
     var v2 = document.createElement('video');
-    v2.setAttribute('src', 'data:video/mp4;base64,AAAA');
+    v2.setAttribute('src', 'data:video/mp4,');
     div.appendChild(v2);
     assertEqual(lastItemVideosRendered(div), 2, 'two videos → 2');
     assertEqual(lastItemVideosRendered(null), 0, 'null → 0');
