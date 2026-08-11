@@ -1618,10 +1618,18 @@ async function _cfsCryptoToggleFeatures(enabled) {
   }
 }
 
+function cfsEnsureSidePanelBehavior() {
+  try {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+      .catch((err) => console.error(err));
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extensible Content installed');
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((err) => console.error(err));
+  cfsEnsureSidePanelBehavior();
   scheduleAlarmForNextRun();
   /* Crypto alarms: always create so ticks can self-gate; the tick function reads cfsCryptoWeb3Enabled */
   try {
@@ -1643,6 +1651,13 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   } catch (_) {}
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  cfsEnsureSidePanelBehavior();
+});
+
+/* Re-apply on SW wake (install/startup listeners alone can miss extension reloads). */
+cfsEnsureSidePanelBehavior();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SCHEDULED_ALARM_NAME) runScheduledRuns();
@@ -1846,11 +1861,48 @@ function cfsWhopIsTrustedAuthPageUrl(urlStr) {
 
 /** Session key holding the one-time login nonce the side panel put in /extension/login?code=<nonce>. */
 const CFS_WHOP_LOGIN_NONCE_KEY = 'cfs_whop_login_nonce';
+/** Local key for surfacing STORE_TOKENS failures to the side panel. */
+const CFS_WHOP_LOGIN_LAST_ERROR_KEY = 'cfs_whop_login_last_error';
+/** Treat duplicate STORE_TOKENS (bridge + externally_connectable) as success within this window. */
+const CFS_WHOP_STORE_IDEMPOTENT_MS = 60_000;
+
+/**
+ * Echoed login nonce from STORE_TOKENS / WHOP_AUTH_SUCCESS payloads.
+ * Accepts common field names backends may use.
+ */
+function cfsWhopExtractLoginCode(msg) {
+  if (!msg || typeof msg !== 'object') return '';
+  const candidates = [msg.code, msg.nonce, msg.loginNonce, msg.login_code, msg.state];
+  for (let i = 0; i < candidates.length; i++) {
+    const v = candidates[i];
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+function cfsWhopExtractAccessToken(msg) {
+  if (!msg || typeof msg !== 'object') return '';
+  let rawTokens = msg.tokens;
+  if (rawTokens && typeof rawTokens === 'object' && rawTokens.data && typeof rawTokens.data === 'object') {
+    rawTokens = rawTokens.data;
+  }
+  if (!rawTokens || typeof rawTokens !== 'object') {
+    if (msg.access_token || msg.accessToken) {
+      rawTokens = {
+        access_token: msg.access_token || msg.accessToken,
+      };
+    }
+  }
+  const t = rawTokens && typeof rawTokens === 'object' ? rawTokens : {};
+  return String(t.access_token || t.accessToken || '').trim();
+}
 
 /**
  * Verify the code echoed back by the login page against the stored one-time nonce.
- * Only enforced when a nonce is present (login started from this extension); the nonce is
- * consumed on success. Returns { ok } or { ok:false, error }.
+ * Fail-closed when login was started from this extension. The nonce is consumed on success.
+ * Returns { ok } or { ok:false, error }.
  */
 async function cfsWhopVerifyLoginNonce(code) {
   let stored = '';
@@ -1877,13 +1929,35 @@ async function cfsWhopVerifyLoginNonce(code) {
 
 /**
  * Persist Whop tokens from STORE_TOKENS (nested tokens.data, camelCase, or flat access_token on msg).
- * Verifies the echoed login nonce (msg.code) before storing.
+ * Verifies the echoed login nonce before storing. Duplicate deliveries after a successful store
+ * (bridge + externally_connectable) are treated as success when the same access token is already present.
  * @returns {Promise<void>}
  */
 async function cfsWhopApplyStoreTokens(msg) {
   if (!msg || typeof msg !== 'object') throw new Error('Invalid message');
-  const verify = await cfsWhopVerifyLoginNonce(msg.code);
-  if (!verify.ok) throw new Error(verify.error || 'Login verification failed');
+  const loginCode = cfsWhopExtractLoginCode(msg);
+  const access_token = cfsWhopExtractAccessToken(msg);
+  if (!access_token) throw new Error('No access token in payload');
+
+  const verify = await cfsWhopVerifyLoginNonce(loginCode);
+  if (!verify.ok) {
+    try {
+      const existing = (await chrome.storage.local.get(['whop_auth'])).whop_auth;
+      if (
+        existing &&
+        existing.access_token === access_token &&
+        typeof existing.obtained_at === 'number' &&
+        Date.now() - existing.obtained_at < CFS_WHOP_STORE_IDEMPOTENT_MS
+      ) {
+        try {
+          await chrome.storage.local.remove(CFS_WHOP_LOGIN_LAST_ERROR_KEY);
+        } catch (_) {}
+        return;
+      }
+    } catch (_) {}
+    throw new Error(verify.error || 'Login verification failed');
+  }
+
   let rawTokens = msg.tokens;
   if (rawTokens && typeof rawTokens === 'object' && rawTokens.data && typeof rawTokens.data === 'object') {
     rawTokens = rawTokens.data;
@@ -1898,8 +1972,6 @@ async function cfsWhopApplyStoreTokens(msg) {
     }
   }
   const t = rawTokens && typeof rawTokens === 'object' ? rawTokens : {};
-  const access_token = String(t.access_token || t.accessToken || '').trim();
-  if (!access_token) throw new Error('No access token in payload');
   const refresh_token = t.refresh_token || t.refreshToken || '';
   let expires_in = t.expires_in ?? t.expiresIn;
   if (typeof expires_in !== 'number' || !Number.isFinite(expires_in) || expires_in < 0) expires_in = 3600;
@@ -1909,9 +1981,16 @@ async function cfsWhopApplyStoreTokens(msg) {
     refresh_token,
     expires_in,
     obtained_at: Date.now(),
-    user: { id: u.id ?? '', email: u.email ?? '' },
+    user: {
+      id: u.id ?? '',
+      email: u.email ?? '',
+      username: u.username || u.user_name || u.name || '',
+    },
   };
-  return chrome.storage.local.set({ whop_auth: stored });
+  await chrome.storage.local.set({ whop_auth: stored });
+  try {
+    await chrome.storage.local.remove(CFS_WHOP_LOGIN_LAST_ERROR_KEY);
+  } catch (_) {}
 }
 
 /** Per-handler payload validation. Returns { valid, error } for optional use before processing. */
@@ -6786,8 +6865,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const whopAuth = authData.whop_auth;
         if (whopAuth && (whopAuth.access_token || whopAuth.accessToken)) {
           status.loggedIn = true;
-          status.email = whopAuth.email || null;
-          status.username = whopAuth.username || whopAuth.user_name || null;
+          const user = whopAuth.user && typeof whopAuth.user === 'object' ? whopAuth.user : {};
+          status.email = user.email || whopAuth.email || null;
+          status.username =
+            user.username || user.user_name || user.name || whopAuth.username || whopAuth.user_name || null;
         }
         /* Check upgrade (if ExtensionApi available) */
         try {

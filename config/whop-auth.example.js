@@ -8,7 +8,7 @@
  * getLoginUrl(code, extId): the side panel generates a one-time nonce and passes it as ?code=<nonce>,
  * plus the extension id as ?ext_id=<chrome.runtime.id>. The login page must carry the code through the
  * OAuth round-trip (e.g. in `state`) and echo it back with the tokens (postMessage `code` /
- * STORE_TOKENS `code`) so the service worker can verify the response matches the login it started.
+ * STORE_TOKENS `code` / `nonce` / `loginNonce` / `state`) so the service worker can verify the response matches the login it started.
  * The ext_id lets the page deliver tokens directly via chrome.runtime.sendMessage(ext_id, { type:
  * 'STORE_TOKENS', ... }) through externally_connectable, in addition to the postMessage bridge.
  */

@@ -12,7 +12,7 @@ Default **Extension checks** do **not** call live RPCs or require secrets. This 
 |-----------------------------------------------------|--------------|-------|
 | **`bundle-checks`** | Every PR | Static + unit + recorder; **`check:content-bundle`**. |
 | **`e2e-playwright-smoke`** | Every PR | **`test:e2e:ci-smoke`** then **`test:e2e:nav-smoke`** (extension pages + navigation; no live crypto RPC requirement). |
-| **`optional-crypto-rpc-smoke`**, **`optional-crypto-http-smoke`**, **`optional-crypto-evm-fork-smoke`**, **`optional-e2e-crypto-playwright`** | Only when the matching **repository secrets** are set | Treat as **maintainer / nightly-style** unless you intentionally gate every PR on secrets. |
+| **`optional-crypto-rpc-smoke`**, **`optional-crypto-http-smoke`**, **`optional-crypto-evm-fork-smoke`**, **`optional-e2e-crypto-playwright`** | Always scheduled; first step skips when matching **repository secrets** are unset | Gate via step env (not job-level `if: secrets.*`, which invalidates the workflow). Treat as **maintainer / nightly-style** unless you intentionally configure secrets on every PR. |
 
 ## Script
 
