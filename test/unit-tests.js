@@ -4139,7 +4139,8 @@
     var el = document.createElement('div');
     el.textContent = 'failed generation';
     var vid = document.createElement('video');
-    vid.setAttribute('src', 'test.mp4');
+    /* data: URL so file:// unit runner does not request a missing mp4 */
+    vid.setAttribute('src', 'data:video/mp4,');
     el.appendChild(vid);
     assertFalse(qcLastItemHasFailed(el), 'has video → not failed');
   }
@@ -4752,10 +4753,11 @@
     var div = document.createElement('div');
     assertEqual(lastItemVideosRendered(div), 0, 'no videos → 0');
     var v1 = document.createElement('video');
-    v1.setAttribute('src', 'a.mp4');
+    /* data: URLs so file:// unit runner does not request missing mp4 fixtures */
+    v1.setAttribute('src', 'data:video/mp4,');
     div.appendChild(v1);
     var v2 = document.createElement('video');
-    v2.setAttribute('src', 'b.mp4');
+    v2.setAttribute('src', 'data:video/mp4,');
     div.appendChild(v2);
     assertEqual(lastItemVideosRendered(div), 2, 'two videos → 2');
     assertEqual(lastItemVideosRendered(null), 0, 'null → 0');
