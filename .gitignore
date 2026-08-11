@@ -12,10 +12,13 @@ models/*
 .env
 .env.local
 .env.*.local
-
 # E2E persistent profile (user data dir)
 test/.e2e-user-data*/
 test/.e2e-*-profile/
+
+# Local scratch / agent temp artifacts (profiles, batch dumps, one-off runners)
+.tmp-*
+.tmp-*/
 
 # Build / test artifacts
 # Chain SDK bundles under background/*.bundle.js are committed so `npm ci` alone
@@ -42,6 +45,7 @@ solana-keypair*.json
 config/*
 !config/whop-auth.example.js
 !config/solana-local.example.json
+!config/crypto-keys.local.example.json
 !config/discovery-hints.json
 
 # Editor / IDE (local; keep machine-specific settings out of the repo)
@@ -60,9 +64,10 @@ workflows/qa/**
 !workflows/qa/.gitkeep
 !workflows/e2e-test/
 !workflows/e2e-test/**
-
-# Optional: generated exports / captures
-generator/outputs/*.tmp
+!workflows/bsc-v3-lp/
+!workflows/bsc-v3-lp/**
+!workflows/bsc-infi-lp/
+!workflows/bsc-infi-lp/**
 
 # GitHub incremental sync baseline (written by side panel; see github-sync-state.example.json)
 github-sync-state.json
@@ -73,3 +78,10 @@ coverage-baseline.json
 mcp-server/ec-mcp-server-*
 mcp-server/StartMCPServer*
 ec-mcp-config.json
+
+# One-off Beehiiv / newsletter batch helpers (local agent scratch; not product tooling)
+scripts/beehiiv-*.mjs
+scripts/*beehiiv*.mjs
+scripts/gen-acl-batch*.mjs
+scripts/mcp-apply-svg-*.mjs
+scripts/mcp-save-acl*.mjs

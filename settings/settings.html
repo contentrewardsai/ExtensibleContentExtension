@@ -490,9 +490,76 @@
     </div>
   </div>
 
+  <div class="section" id="asterApiSection">
+    <h2>Aster DEX API</h2>
+    <p class="hint" style="margin-top:0;">
+      Aster moved new API access to <strong>V3 API Wallet / Agent</strong> signing
+      (<a href="https://github.com/asterdex/api-docs/blob/master/Aster%20API%20Overview.md" target="_blank" rel="noopener noreferrer">V1 vs V3 overview</a>).
+      Create an Agent under Aster <strong>Pro API</strong>, then paste main wallet, agent address, and agent private key below.
+      Legacy V1 API key + HMAC secret still work for existing keys and for <strong>spot</strong> signed calls.
+    </p>
+    <p id="asterFuturesKeysStatus" class="status-msg" style="display:none"></p>
+    <p id="asterFuturesRiskStatus" class="status-msg" style="display:none"></p>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">V3 API Wallet (recommended)</h3>
+      <div class="form-row">
+        <label for="asterV3UserInput">Main wallet (user)</label>
+        <input type="text" id="asterV3UserInput" placeholder="0x…" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="asterV3SignerInput">API wallet / agent (signer)</label>
+        <input type="text" id="asterV3SignerInput" placeholder="0x…" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label for="asterV3SignerKeyInput">Agent private key</label>
+        <input type="password" id="asterV3SignerKeyInput" placeholder="0x… or 64-hex" autocomplete="off">
+        <button type="button" id="toggleAsterV3KeyVisibility" class="btn btn-small">Show</button>
+      </div>
+      <div class="form-row">
+        <button type="button" id="saveAsterV3KeysBtn" class="btn btn-primary btn-small">Save Aster V3 credentials</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Legacy V1 API key (HMAC)</h3>
+      <p class="hint">Optional. Required for spot signed endpoints until Aster documents spot V3. Existing V1 futures keys continue to work when V3 fields are empty.</p>
+      <div class="form-row">
+        <label for="asterFuturesApiKeyInput">API key</label>
+        <input type="password" id="asterFuturesApiKeyInput" placeholder="Optional" autocomplete="off">
+        <button type="button" id="toggleAsterFuturesKeyVisibility" class="btn btn-small">Show</button>
+      </div>
+      <div class="form-row">
+        <label for="asterFuturesApiSecretInput">API secret</label>
+        <input type="password" id="asterFuturesApiSecretInput" placeholder="Optional" autocomplete="off">
+        <button type="button" id="toggleAsterFuturesSecretVisibility" class="btn btn-small">Show</button>
+      </div>
+      <div class="form-row">
+        <button type="button" id="saveAsterFuturesKeysBtn" class="btn btn-primary btn-small">Save Aster V1 keys</button>
+      </div>
+    </div>
+
+    <div class="jwt-section">
+      <h3 style="margin-top:0;">Trading risk gates</h3>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="asterFuturesTradingEnabled"> Allow futures trading</label>
+      </div>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="asterSpotTradingEnabled"> Allow spot trading</label>
+      </div>
+      <div class="form-row">
+        <label for="asterFuturesMaxNotionalInput">Max est. notional (USD)</label>
+        <input type="text" id="asterFuturesMaxNotionalInput" placeholder="Empty = no cap" inputmode="decimal" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <button type="button" id="saveAsterFuturesRiskBtn" class="btn btn-primary btn-small">Save Aster risk settings</button>
+      </div>
+    </div>
+  </div>
+
   <div class="section" id="bscWalletSection">
     <h2>BSC / EVM automation wallet</h2>
-    <p class="hint">Hot wallet for BSC workflow steps. Keys stay local; workflows must not contain secrets. <a href="#" id="bscDocLink">BSC wallet storage</a> · <a href="#" id="bscAutomationDocLink">BSC automation</a>.</p>
+    <p class="hint">Hot wallet for BSC workflow steps. Keys stay local; workflows must not contain secrets. <a href="#" id="bscDocLink">BSC wallet storage</a> · <a href="#" id="bscAutomationDocLink">BSC automation</a> · <a href="#" id="bscV3LpDocLink">V3 concentrated LP</a>.</p>
     <p id="bscStatusLine" class="jwt-info" style="margin-bottom:10px;"></p>
     <p id="bscMsg" class="status-msg" style="display:none"></p>
 
@@ -503,7 +570,7 @@
     </div>
 
     <div class="jwt-section">
-      <h3 style="margin-top:0;">RPC and BscScan</h3>
+      <h3 style="margin-top:0;">RPC</h3>
       <div class="form-row">
         <label for="bscRpcUrl">RPC URL</label>
         <input type="text" id="bscRpcUrl" placeholder="https://…" autocomplete="off">
@@ -513,12 +580,55 @@
         <input type="text" id="bscChainId" value="56" inputmode="numeric" autocomplete="off">
       </div>
       <div class="form-row">
-        <label for="bscBscscanApiKey">BscScan API key</label>
-        <input type="password" id="bscBscscanApiKey" placeholder="For Pulse BSC watch" autocomplete="off">
+        <button type="button" id="bscSaveRpcBtn" class="btn btn-primary btn-small">Save RPC / chain</button>
+        <button type="button" id="bscUseMainnetBtn" class="btn btn-small" title="Set chain 56 and https://bsc-dataseed.binance.org">Use BSC mainnet</button>
+      </div>
+    </div>
+
+    <div class="jwt-section" id="bscIndexerSection" data-testid="cfs-settings-bsc-indexer-section">
+      <h3 style="margin-top:0;">BSC Following indexers</h3>
+      <p class="hint" style="margin-top:0;">Pulse Following watch needs <strong>one</strong> of these. Prefer QuickNode free tier (~10M credits/mo): on BSC we scan recent blocks + ERC-20 Transfer logs for watched wallets (no Token API add-on required). Keep the watch list small and polls ≥2 min to stay in free credits.</p>
+      <div class="form-row">
+        <label for="bscQuickNodeRpcUrl">QuickNode BSC HTTPS endpoint (includes API token — recommended free)</label>
+        <input type="password" id="bscQuickNodeRpcUrl" data-testid="cfs-settings-bsc-quicknode-url" placeholder="https://xxxx.bnb.quiknode.pro/YOUR_TOKEN/" autocomplete="off">
+        <button type="button" id="bscClearQuickNodeBtn" data-testid="cfs-settings-bsc-quicknode-clear" class="btn btn-small">Clear</button>
+      </div>
+      <p class="hint" style="margin:0 0 4px 0;">No separate API key field — paste the full <strong>HTTP</strong> Provider URL from the QuickNode dashboard (BNB Smart Chain), e.g. <code>https://….bsc.quiknode.pro/…/</code>. If you paste a <code>wss://</code> URL we convert it to HTTPS automatically. <a href="https://www.quicknode.com/docs/bnb-smart-chain" target="_blank" rel="noopener noreferrer">QuickNode BSC docs</a></p>
+      <p id="bscQuickNodeHint" class="hint" style="margin:0 0 8px 0;"></p>
+      <div class="form-row">
+        <label class="pd-checkbox-label" style="min-width:auto;font-weight:600;"><input type="checkbox" id="bscQuickNodeAggressivePoll"> Allow 1-minute polls (may exceed free credits)</label>
+      </div>
+      <div class="form-row">
+        <label for="bscBscscanApiKey">Etherscan Multichain API key</label>
+        <input type="password" id="bscBscscanApiKey" placeholder="Etherscan key with BSC chain coverage (56/97)" autocomplete="off">
+        <button type="button" id="bscClearEtherscanBtn" class="btn btn-small">Clear</button>
       </div>
       <p id="bscBscscanKeyHint" class="hint" style="margin:0 0 8px 0;"></p>
       <div class="form-row">
-        <button type="button" id="bscSaveRpcBtn" class="btn btn-primary btn-small">Save RPC / chain / BscScan</button>
+        <label for="bscAnkrApiKey">Ankr Advanced API key</label>
+        <input type="password" id="bscAnkrApiKey" placeholder="Ankr multichain query key" autocomplete="off">
+        <button type="button" id="bscClearAnkrBtn" class="btn btn-small">Clear</button>
+      </div>
+      <p id="bscAnkrKeyHint" class="hint" style="margin:0 0 8px 0;"></p>
+      <div class="form-row">
+        <label for="bscCovalentApiKey">Covalent / GoldRush API key</label>
+        <input type="password" id="bscCovalentApiKey" placeholder="GoldRush API key" autocomplete="off">
+        <button type="button" id="bscClearCovalentBtn" class="btn btn-small">Clear</button>
+      </div>
+      <p id="bscCovalentKeyHint" class="hint" style="margin:0 0 8px 0;"></p>
+      <div class="form-row">
+        <label for="bscIndexerPreference">Indexer preference</label>
+        <select id="bscIndexerPreference" data-testid="cfs-settings-bsc-indexer-preference">
+          <option value="auto">Auto (QuickNode → Etherscan → Ankr → Covalent)</option>
+          <option value="quicknode">QuickNode</option>
+          <option value="etherscan">Etherscan</option>
+          <option value="ankr">Ankr</option>
+          <option value="covalent">Covalent</option>
+        </select>
+      </div>
+      <p id="bscIndexerStatusLine" class="hint" style="margin:0 0 8px 0;" data-testid="cfs-settings-bsc-indexer-status"></p>
+      <div class="form-row">
+        <button type="button" id="bscSaveIndexerBtn" data-testid="cfs-settings-bsc-indexer-save" class="btn btn-primary btn-small">Save Following indexers</button>
       </div>
     </div>
 
@@ -567,10 +677,26 @@
         <button type="button" id="bscGenerateMnemonicBtn" class="btn btn-small">Generate mnemonic</button>
         <button type="button" id="bscSaveGeneratedBtn" class="btn btn-primary btn-small">Save generated wallet</button>
       </div>
+      <p class="hint" style="margin:6px 0 0 0;">Generate shows a new phrase below (Ethereum/BSC path m/44'/60'/0'/0/0). Check backup, then Save — Save always makes this wallet Primary. If you already have wallets and use Import mnemonic instead, check “Make new wallet Primary” or the status line will still show the old Primary.</p>
       <div id="bscMnemonicReveal" style="display:none;margin-top:8px;">
-        <p class="hint">Write down the phrase, then save the wallet.</p>
+        <p class="hint">Write down the phrase, check the backup acknowledgment, then save the wallet.</p>
         <textarea id="bscMnemonicRevealText" rows="3" autocomplete="off"></textarea>
+        <p id="bscMnemonicRevealAddress" class="hint" style="margin:6px 0 0 0;word-break:break-all;"></p>
       </div>
+    </div>
+
+    <div class="jwt-section" style="margin-top:12px;">
+      <h3 style="margin-top:0;">V3 LP monitor bind</h3>
+      <p class="hint" style="margin-top:0;">If Activity shows “no position tokenId” or poll errors <code>v3PositionTokenId required</code>, paste the Pancake V3 NFT id here (e.g. <code>7012688</code>). This updates Library workflow <strong>BSC V3 LP monitor (always-on)</strong> and refreshes the 30s range watch.</p>
+      <div class="form-row">
+        <label for="bscV3BindTokenId">V3 position NFT id</label>
+        <input type="text" id="bscV3BindTokenId" placeholder="7012688" autocomplete="off">
+      </div>
+      <div class="form-row" style="flex-wrap:wrap;gap:8px;">
+        <button type="button" id="bscV3BindMonitorBtn" class="btn btn-primary btn-small">Bind to V3 monitor</button>
+        <button type="button" id="bscV3RefreshWatchBtn" class="btn btn-small">Refresh V3 watch now</button>
+      </div>
+      <p id="bscV3BindMsg" class="status-msg" style="display:none"></p>
     </div>
 
     <div class="form-row" style="margin-top:12px;">
@@ -654,10 +780,12 @@
         <button type="button" id="cfsMcpBrowseBinary" class="btn btn-small">📂 Find MCP Server binary</button>
       </div>
       <ol class="hint" style="margin:6px 0 0;padding-left:20px;line-height:1.7;font-size:0.82rem;">
-        <li>Click the button above — a file picker opens in <code>mcp-server/dist/</code></li>
-        <li>Find the binary for your OS: <strong>StartMacMCPServer</strong> (Apple Silicon), <strong>StartMacIntelMCPServer</strong> (Intel Mac), <strong>StartWindowsMCPServer.exe</strong>, or <strong>StartLinuxMCPServer</strong></li>
-        <li>Right-click → <strong>Show in Finder</strong> (or Explorer), then double-click to run</li>
-        <li>macOS first time: right-click → <strong>Open</strong>, then click <strong>Open</strong> in the Gatekeeper dialog</li>
+        <li><strong>▶ Start</strong> launches the binary via Chrome native messaging (after first-time setup below).</li>
+        <li>First time (or if Start fails): click <strong>📂 Find MCP Server binary</strong> — picker opens in <code>mcp-server/dist/</code></li>
+        <li>Select your OS binary: <strong>StartMacMCPServer</strong> (Apple Silicon), <strong>StartMacIntelMCPServer</strong> (Intel), <strong>StartWindowsMCPServer.exe</strong>, or <strong>StartLinuxMCPServer</strong></li>
+        <li>Right-click → <strong>Show in Finder</strong>, then <strong>double-click</strong> to run (registers the host + starts the server)</li>
+        <li>macOS Gatekeeper first time: right-click → <strong>Open</strong>, then <strong>Open</strong> again in the dialog</li>
+        <li>Status should turn green/amber. Later you can use <strong>▶ Start</strong> / <strong>■ Stop</strong> from Settings.</li>
       </ol>
     </div>
 
@@ -856,11 +984,17 @@
   <script src="settings-tabs.js"></script>
 
   <script src="../config/whop-auth.example.js"></script>
+  <!-- Local overrides (committed stub). Must be an external script — MV3 extension CSP blocks inline. -->
   <script src="../config/whop-auth.js"></script>
   <script src="../extension/config.js"></script>
   <script src="../extension/auth-fetch.js"></script>
   <script src="../extension/workflow-normalize.js"></script>
   <script src="../shared/dom-utils.js"></script>
+  <script src="../shared/bsc-indexer-providers.js"></script>
+  <script src="../shared/pancake-v3-price-ticks.js"></script>
+  <script src="../shared/pancake-v3-subgraph.js"></script>
+  <script src="../shared/pancake-v3-lp-amounts.js"></script>
+  <script src="../shared/always-on-bound-positions.js"></script>
   <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
   <script src="../shared/step-validator.js"></script>
@@ -873,12 +1007,15 @@
   <script src="../shared/discovery-selector-filters.js"></script>
   <script src="../shared/discovery-from-analyze.js"></script>
   <script src="../shared/cross-workflow-selectors.js"></script>
+  <script src="../shared/discovery-input-normalize.js"></script>
+  <script src="../shared/playback-error-normalize.js"></script>
   <script src="../shared/walkthrough-export.js"></script>
   <script src="../shared/run-variation.js"></script>
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
+  <script src="../test/tooltip-overlay.js"></script>
+  <script src="../shared/storage-secret-keys.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
-  <script src="../shared/tooltip-overlay.js"></script>
   <script src="../test/unit-test-runner.js"></script>
   <script src="../shared/apify-run-query-validation.js"></script>
   <script src="../shared/apify-extract-run-id.js"></script>
@@ -889,6 +1026,9 @@
   <script src="../shared/defi-action-patterns.js"></script>
   <script src="../shared/data-action-patterns.js"></script>
   <script src="../shared/action-patterns-registry.js"></script>
+  <script src="../shared/workflow-edit-history.js"></script>
+  <script src="../shared/removed-step-types.js"></script>
+  <script src="../shared/workflow-removed-steps-migration.js"></script>
   <script src="../shared/download-xenova-lamini.js"></script>
   <script src="../test/unit-tests.js"></script>
   <script src="../test/tunnel-tests.js"></script>
@@ -1007,6 +1147,11 @@
   <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
   <script src="../steps/bscPancake/handler.js"></script>
   <script src="../steps/pancakeV3RangeWatch/handler.js"></script>
+  <script src="../steps/bscV3LpWizard/handler.js"></script>
+  <script src="../steps/bscV3AutoApprove/handler.js"></script>
+  <script src="../steps/bscV3RebalanceOnce/handler.js"></script>
+  <script src="../steps/bscV3EnterFromStable/handler.js"></script>
+  <script src="../steps/bindAlwaysOnBoundRow/handler.js"></script>
   <script src="../steps/pancakeInfiBinRangeWatch/handler.js"></script>
   <script src="../steps/bscTransferBnb/handler.js"></script>
   <script src="../steps/bscTransferBep20/handler.js"></script>
@@ -1163,6 +1308,11 @@
   <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
   <script src="../steps/bscPancake/step-tests.js"></script>
   <script src="../steps/pancakeV3RangeWatch/step-tests.js"></script>
+  <script src="../steps/bscV3LpWizard/step-tests.js"></script>
+  <script src="../steps/bscV3AutoApprove/step-tests.js"></script>
+  <script src="../steps/bscV3RebalanceOnce/step-tests.js"></script>
+  <script src="../steps/bscV3EnterFromStable/step-tests.js"></script>
+  <script src="../steps/bindAlwaysOnBoundRow/step-tests.js"></script>
   <script src="../steps/pancakeInfiBinRangeWatch/step-tests.js"></script>
   <script src="../steps/bscTransferBnb/step-tests.js"></script>
   <script src="../steps/bscTransferBep20/step-tests.js"></script>

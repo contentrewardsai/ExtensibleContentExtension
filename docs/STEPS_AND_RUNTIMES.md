@@ -157,13 +157,13 @@ During normal playback, `tryResolveWithSelector` uses **`querySelector`** for CS
 
 ## Workflows folder (plugin layout)
 
-**Location:** `workflows/`, `workflows/veo3/`
+**Location:** `workflows/`, `workflows/e2e-test/`
 
 Workflow presets are now **plugins** under `workflows/`:
 
-- `workflows/manifest.json` – top-level **`workflows`** array: plugin folder ids (e.g. `{ "workflows": ["veo3", "e2e-test"] }` — see the real file for the full list).
+- `workflows/manifest.json` – top-level **`workflows`** array: plugin folder ids (see the real file for the full list; currently includes `e2e-test`).
 - `workflows/{id}/workflow.json` – combined plugin file: metadata, `discovery.domains`, and `workflows` (workflow definitions).
-- `workflows/{id}/assets/` – optional static assets for a plugin (images, etc.). Add this folder when needed; e.g. the **veo3** plugin currently ships **without** an `assets/` directory (no bundled logo in-repo). If you add `workflows/veo3/assets/logo.png`, reference it via `chrome.runtime.getURL('workflows/veo3/assets/logo.png')` and add **`workflows/`** (or the specific path) to **`web_accessible_resources`** if the image must load from a web context.
+- `workflows/{id}/assets/` – optional static assets for a plugin (images, etc.). Add this folder when needed. If you add e.g. `workflows/my-plugin/assets/logo.png`, reference it via `chrome.runtime.getURL('workflows/my-plugin/assets/logo.png')` and add **`workflows/`** (or the specific path) to **`web_accessible_resources`** if the image must load from a web context.
 
 The sidepanel loads workflows only from these plugins (and from remote URL, backend, or user import). New or downloaded workflows can be added as new folders under `workflows/` (e.g. `workflows/my-workflow-v1/`) and registered in `workflows/manifest.json`.
 

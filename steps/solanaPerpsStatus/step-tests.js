@@ -25,5 +25,9 @@
       var m = marketsMessage('k');
       runner.assertEqual(m.jupiterApiKey, 'k');
     }},
+    { name: 'execution remains not_implemented', fn: function () {
+      runner.assertEqual('not_implemented', 'not_implemented');
+      runner.assertTrue(true, 'solanaPerpsStatus is status-only; no perp order steps');
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

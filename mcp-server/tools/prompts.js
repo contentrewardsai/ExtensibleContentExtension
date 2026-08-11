@@ -18,19 +18,24 @@ export function registerPrompts(server, ctx) {
       const cryptoCapabilities = cryptoEnabled ? `
 • Crypto/DeFi — Direct on-chain operations:
   - Solana: Jupiter swaps, Pump.fun, Raydium (Standard/CPMM/CLMM), Meteora (DLMM/CPAMM)
-  - BSC: PancakeSwap, ParaSwap aggregator, BEP-20 transfers
+  - BSC: PancakeSwap V2/V3 + Infinity LP, ParaSwap aggregator, BEP-20 transfers
+  - BSC V3 concentrated LP workflows (BNB → mint → 30s range watch → exit/restake): docs/BSC_V3_LP_WORKFLOWS.md
   - Aster: Spot and futures trading via AsterDex` : '';
 
       const cryptoResources = cryptoEnabled ? `
 • extensible://wallets — extension wallets (Solana + BSC)
 • extensible://following/watch/solana — recent Solana watch activity
-• extensible://following/watch/bsc — recent BSC watch activity` : '';
+• extensible://following/watch/bsc — recent BSC watch activity
+• extensible://steps/bscV3LpWizard (and bscV3AutoApprove / bscV3RebalanceOnce / bindAlwaysOnBoundRow) — V3 LP step docs` : '';
 
       const cryptoTools = cryptoEnabled ? `
 • subscribe, unsubscribe, list_subscriptions — real-time data streams (prices, balances, DLMM positions)
 • solana_swap, solana_transfer_*, meteora_*, raydium_* — DeFi operations
-• bsc_query, bsc_execute — BSC operations
-• refresh_solana_watch, refresh_bsc_watch — trigger watch polls` : '';
+• bsc_query, bsc_execute — BSC operations (incl. v3RangeFromPercent, v3LpAmountsFromBnb, v3PositionMint)
+• bsc_v3_range_watch_status, bsc_v3_range_watch_refresh, bsc_v3_reconcile_positions — V3 LP multi-position monitor
+• set_always_on_bound_row (upsert/remove/replace), set_always_on_scope — hand off NFT ids to boundRows
+• monitor_watchdog_status, monitor_watchdog_configure — Bun MCP relay/OOR alerts (default off)
+• refresh_solana_watch, refresh_bsc_watch — trigger Following watch polls` : '';
 
       const cryptoNote = !cryptoEnabled ? `
 
@@ -92,9 +97,9 @@ TOOLS (use these to take action):
 • solana — solanaJupiterSwap, solanaTransferSol/Spl, solanaReadBalances, solanaPumpfunBuy/Sell, solanaPumpOrJupiterBuy/Sell, solanaSellabilityProbe
 • raydium — raydiumClmmSwap, raydiumClmmOpenPosition, raydiumCpmmAddLiquidity, raydiumSwapStandard, and 10+ more
 • meteora — meteoraDlmmAddLiquidity, meteoraDlmmRemoveLiquidity, meteoraCpammSwap, meteoraCpammAddLiquidity, and more
-• bsc — bscPancake, bscQuery, bscAggregatorSwap, bscTransferBnb/Bep20, bscSellabilityProbe
+• bsc — bscPancake, bscQuery, bscAggregatorSwap, bscTransferBnb/Bep20, bscSellabilityProbe, bscV3LpWizard, bscV3AutoApprove, bscV3RebalanceOnce, pancakeV3RangeWatch, bindAlwaysOnBoundRow
 • aster — asterSpotTrade, asterFuturesTrade, asterFuturesAnalysis, asterUserStreamWait
-• watch — solanaWatchRefresh, solanaWatchReadActivity, bscWatchRefresh, bscWatchReadActivity, watchActivityFilterTxAge, watchActivityFilterPriceDrift` : '';
+• watch — solanaWatchRefresh, solanaWatchReadActivity, bscWatchRefresh, bscWatchReadActivity, watchActivityFilterTxAge, watchActivityFilterPriceDrift, pancakeV3RangeWatch, pancakeInfiBinRangeWatch` : '';
 
       const cryptoNote = !cryptoEnabled ? `
 
@@ -186,9 +191,10 @@ Please:
 2. Use bsc_query to check BNB and token balances for BSC wallets
 3. Check for open Raydium CLMM/CPMM positions
 4. Check for open Meteora DLMM/CPAMM positions
-5. Summarize total holdings by chain and token
-6. Identify any positions that may need attention (out-of-range LP, low balances)
-7. Suggest rebalancing or yield optimization opportunities`,
+5. For BSC V3 LP: bsc_query v3NpmPosition / bsc_v3_range_watch_status; see docs/BSC_V3_LP_WORKFLOWS.md
+6. Summarize total holdings by chain and token
+7. Identify any positions that may need attention (out-of-range LP, low balances)
+8. Suggest rebalancing or yield optimization opportunities`,
           },
         }],
       };

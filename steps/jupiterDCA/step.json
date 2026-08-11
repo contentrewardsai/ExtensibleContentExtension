@@ -2,10 +2,11 @@
   "id": "jupiterDCA",
   "label": "Jupiter DCA (Recurring buy)",
   "category": "data",
-  "description": "Create a Dollar-Cost Averaging order via Jupiter Recurring API. Automatically buys outputMint at regular intervals using inputMint. Requires Solana automation wallet. Total amount, per-cycle amount, and cycle interval are configurable.",
+  "description": "Create, list, or cancel Dollar-Cost Averaging orders via Jupiter Recurring API. Create buys outputMint on a schedule using inputMint. List queries getRecurringOrders; cancel closes an order account and reclaim remaining funds. Requires Solana automation wallet.",
   "defaultAction": {
     "type": "jupiterDCA",
     "runIf": "",
+    "dcaOperation": "create",
     "inputMint": "So11111111111111111111111111111111111111112",
     "outputMint": "",
     "inAmount": "",
@@ -14,22 +15,39 @@
     "minOutAmountPerCycle": "",
     "maxOutAmountPerCycle": "",
     "startAt": "",
+    "dcaOrderKey": "",
+    "orderStatus": "active",
+    "recurringType": "time",
+    "page": "",
     "cluster": "mainnet-beta",
     "rpcUrl": "",
     "saveDcaOrderKeyVariable": "dcaOrderKey",
     "saveSignatureVariable": "solanaTxSignature",
-    "saveExplorerUrlVariable": "solanaExplorerUrl"
+    "saveExplorerUrlVariable": "solanaExplorerUrl",
+    "saveOrdersJsonVariable": ""
   },
   "formSchema": [
     { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
-    { "key": "inputMint", "label": "Input mint (spend)", "inputType": "text", "placeholder": "SOL wrapped mint" },
-    { "key": "outputMint", "label": "Output mint (buy)", "inputType": "text" },
-    { "key": "inAmount", "label": "Total amount (raw, smallest units)", "inputType": "text", "placeholder": "Total to invest over all cycles" },
-    { "key": "inAmountPerCycle", "label": "Amount per cycle (raw)", "inputType": "text" },
-    { "key": "cycleSecondsApart", "label": "Seconds between cycles", "inputType": "text", "placeholder": "86400 = daily" },
+    { "key": "dcaOperation", "label": "Operation", "inputType": "select", "options": [
+      { "value": "create", "label": "Create" },
+      { "value": "list", "label": "List orders" },
+      { "value": "cancel", "label": "Cancel order" }
+    ] },
+    { "key": "inputMint", "label": "Input mint (spend / list filter)", "inputType": "text", "placeholder": "SOL wrapped mint" },
+    { "key": "outputMint", "label": "Output mint (buy / list filter)", "inputType": "text" },
+    { "key": "inAmount", "label": "Total amount (raw) — create", "inputType": "text", "placeholder": "Total to invest over all cycles" },
+    { "key": "inAmountPerCycle", "label": "Amount per cycle (raw) — create", "inputType": "text" },
+    { "key": "cycleSecondsApart", "label": "Seconds between cycles — create", "inputType": "text", "placeholder": "86400 = daily" },
     { "key": "minOutAmountPerCycle", "label": "Min output per cycle (optional)", "inputType": "text" },
     { "key": "maxOutAmountPerCycle", "label": "Max output per cycle (optional)", "inputType": "text" },
     { "key": "startAt", "label": "Start at (Unix timestamp, optional)", "inputType": "text" },
+    { "key": "dcaOrderKey", "label": "Order key — cancel", "inputType": "text", "placeholder": "{{dcaOrderKey}}" },
+    { "key": "orderStatus", "label": "List status", "inputType": "select", "options": [
+      { "value": "active", "label": "active" },
+      { "value": "history", "label": "history" }
+    ] },
+    { "key": "recurringType", "label": "Recurring type", "inputType": "text", "placeholder": "time" },
+    { "key": "page", "label": "List page (optional)", "inputType": "text" },
     { "key": "cluster", "label": "Cluster", "inputType": "select", "options": [
       { "value": "mainnet-beta", "label": "mainnet-beta" },
       { "value": "devnet", "label": "devnet" }
@@ -37,6 +55,7 @@
     { "key": "rpcUrl", "label": "RPC URL override (optional)", "inputType": "text" },
     { "key": "saveDcaOrderKeyVariable", "label": "Save DCA order key to variable", "inputType": "text" },
     { "key": "saveSignatureVariable", "label": "Save tx signature to variable", "inputType": "text" },
-    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" }
+    { "key": "saveExplorerUrlVariable", "label": "Save explorer URL to variable", "inputType": "text" },
+    { "key": "saveOrdersJsonVariable", "label": "Save orders JSON (list)", "inputType": "text" }
   ]
 }

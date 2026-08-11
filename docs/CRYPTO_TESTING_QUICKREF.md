@@ -5,7 +5,13 @@
 | `npm run test:crypto` | Static guards: matrix, smoke addrs, BSC genesis in **crypto-constants.json**, Pancake docs, wiring |
 | `npm run test:unit` | Full browser unit suite + `step-tests.js` |
 | `npm run report:crypto-matrix` | After editing `shared/crypto-workflow-step-ids.js` — then commit `docs/CRYPTO_TEST_MATRIX.md` |
-| `CRYPTO_HTTP_SMOKE=1 npm run test:crypto-http-smoke` | Optional — Rugcheck + Aster + Jupiter v6 quote (and BscScan if key set; optional `CRYPTO_HTTP_SMOKE_JUPITER_API_KEY`) |
+| `CRYPTO_HTTP_SMOKE=1 npm run test:crypto-http-smoke` | Optional — Rugcheck + Aster + Jupiter quote (and Etherscan V2 if key set; optional `CRYPTO_HTTP_SMOKE_JUPITER_API_KEY`) |
+| `npm run test:crypto-keyed-api-smokes` | Local — Jupiter + Helius + Etherscan V2 (+ extension paths) from `config/crypto-keys.local.json` (Aster skipped) |
+| `npm run test:quicknode-bsc-smokes` | Local — QuickNode BSC: HTTP tip/block/logs, WSS normalize, Following activity + catch-up span, multi-wallet RPS, `CFS_BSC_QUERY`, failover, classify/enrich, alarm pacing, preference lock, cursor continuity, idle gates; optional Chapel URL (`cfs_bsc_quicknode_chapel_rpc_url`) |
+| `npm run test:quicknode-pancake-farm-smokes` | Local — QuickNode RPC: MasterChef farm reads (poolLength / poolInfo / userInfo / pendingCake) + CAKE/WBNB pair; optional signed CAKE stake/unstake with `CFS_PANCAKE_FARM_SIGNED=1` + `CFS_PANCAKE_FARM_PRIVATE_KEY` |
+| `npm run test:quicknode-v3-liquidity-smokes` | Local — QuickNode: V3 `v3PoolState` / `v3PriceTicks` (min·max price) / `v3LiquidityDepth` (TickLens) on USDT/BTCB 0.05% pool |
+| Playwright `bsc-indexer-settings.spec.mjs` | Settings round-trip for QuickNode URL + preference (needs `cfs_bsc_quicknode_rpc_url`) |
+| Chapel signed crypto E2E | Prefer `E2E_CRYPTO_BSC_CHAPEL_RPC_URL` / `CFS_BSC_QUICKNODE_CHAPEL_RPC_URL` over public Chapel RPC |
 | `npm run test:crypto-rpc-smoke` | Optional URLs — genesis checks; BSC 56: WBNB `decimals`; `SOLANA_EXPECTED_GENESIS_HASH` for custom RPC hosts |
 | `npm run test:crypto-solana-tx-smoke` | Optional: `SOLANA_RPC_SMOKE_URL` + `CRYPTO_SOLANA_TX_SECRET_KEY` (devnet key) — one system createAccount |
 | `CRYPTO_EVM_FORK_RPC_URL=… npm run test:crypto-evm-fork-smoke` | Anvil fork or public BSC/Chapel RPC |

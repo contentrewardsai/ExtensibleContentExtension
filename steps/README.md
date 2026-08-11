@@ -143,7 +143,7 @@ Each step documents its configuration, behavior, and **tests** in `steps/{id}/RE
 | **BSC aggregator swap** | **steps/bscAggregatorSwap** (see step.json) | `CFS_BSC_POOL_EXECUTE` **`paraswapSwap`**; **docs/BSC_AUTOMATION.md**. |
 | **BSC PancakeSwap / pool** | **steps/bscPancake/README.md** | `CFS_BSC_POOL_EXECUTE`; `build:evm`; **docs/BSC_AUTOMATION.md**. |
 | **BSC read-only query** | **steps/bscQuery/README.md** | `CFS_BSC_QUERY`; balances, allowance, pair reserves; **docs/BSC_AUTOMATION.md**. |
-| **BSC watch read / refresh** | **steps/bscWatchReadActivity/README.md**, **steps/bscWatchRefresh/README.md** | BscScan-backed watch buffer; pair with **watch activity filter** steps. |
+| **BSC watch read / refresh** | **steps/bscWatchReadActivity/README.md**, **steps/bscWatchRefresh/README.md** | Multi-indexer Following watch buffer (QuickNode / Etherscan / Ankr / Covalent); pair with **watch activity filter** steps. |
 
 Solana-wide storage, risk, and CI notes: **docs/SOLANA_AUTOMATION.md**. BSC: **docs/BSC_AUTOMATION.md**.
 

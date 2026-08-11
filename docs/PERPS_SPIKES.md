@@ -1,6 +1,6 @@
 # Perpetuals automation — spike notes (Raydium & Jupiter)
 
-Automated **spot** flows are implemented (Jupiter swap, Pump bonding curve, Raydium Standard AMM liquidity, SOL transfer). **Perpetuals are not automated** in this extension yet. This document records the spike outcome and the intended guardrails for any future implementation.
+Automated **spot** flows are implemented (Jupiter swap, Pump bonding curve, Raydium Standard AMM liquidity, SOL transfer). **Perpetuals are not automated** in this extension — by deliberate product decision until a stable IDL/API path exists. The only shipped surface is the read-only status step **`solanaPerpsStatus`** (plus optional market-stats). This document records the spike outcome and the intended guardrails for any future implementation.
 
 ## Raydium perpetuals
 
@@ -20,7 +20,7 @@ Automated **spot** flows are implemented (Jupiter swap, Pump bonding curve, Rayd
 The service worker exposes:
 
 - **`CFS_PERPS_AUTOMATION_STATUS`** (`background/perps-status.js`). Callers receive `raydiumPerps: 'not_implemented'`, `jupiterPerps: 'not_implemented'`, and pointers to this file.
-- **`CFS_JUPITER_PERPS_MARKETS`** — **read-only** `GET` to `https://api.jup.ag/perps/v1/markets` with header **`x-api-key`** (same optional Jupiter key as spot swap: **Settings → Solana automation**, or `jupiterApiKey` on the message). Returns **`marketsJson`** (stringified body) on success; **no signing**, **no orders**. The URL/path may change as Jupiter updates docs — treat as best-effort. When Jupiter changes APIs, follow **docs/CRYPTO_VENDOR_API_DRIFT.md**.
+- **`CFS_JUPITER_PERPS_MARKETS`** — **read-only** `GET` to `https://perps-api.jup.ag/v1/market-stats?mint=…` with header **`x-api-key`** (same optional Jupiter key as spot swap: **Settings → Solana automation**, or `jupiterApiKey` on the message). Optional **`mint`** / **`mints`**; default SOL/ETH/BTC. Returns **`marketsJson`** (stringified `{ markets: [{ mint, stats }] }`) on success; **no signing**, **no orders**. The URL/path may change as Jupiter updates docs — treat as best-effort. When Jupiter changes APIs, follow **docs/CRYPTO_VENDOR_API_DRIFT.md**.
 
 Workflow step **`solanaPerpsStatus`** can optionally call the markets fetch when **Fetch Jupiter perps markets** is enabled and a row variable for the JSON is set.
 

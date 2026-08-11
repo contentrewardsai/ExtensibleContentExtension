@@ -1,6 +1,7 @@
 /**
  * moveProjectFile handler: copies a file from source to dest within the project folder, then deletes source.
  * Creates destination directories. Routes through PROJECT_FOLDER_MOVE_FILE message to service worker / offscreen.
+ * Resolves {{projectId}} via CFS_projectIdResolve (row key / library selection / defaultProjectId).
  */
 (function() {
   'use strict';
@@ -10,8 +11,19 @@
     const { getRowValue, currentRow, sendMessage, resolveTemplate } = ctx;
     const row = currentRow || {};
     const resolve = typeof resolveTemplate === 'function' ? resolveTemplate : function(s) { return s; };
-    const srcPath = resolve(action.sourcePath || '', row);
-    const dstPath = resolve(action.destPath || '', row);
+
+    const pidKey = (action.projectIdVariableKey || '').trim() || 'projectId';
+    let rowForPath = row;
+    if (typeof CFS_projectIdResolve !== 'undefined') {
+      const pr = await CFS_projectIdResolve.resolveProjectIdAsync(row, {
+        projectIdVariableKey: pidKey,
+        defaultProjectId: action.defaultProjectId,
+      });
+      if (pr.ok) rowForPath = Object.assign({}, row, { projectId: pr.projectId });
+    }
+
+    const srcPath = resolve(action.sourcePath || '', rowForPath).trim();
+    const dstPath = resolve(action.destPath || '', rowForPath).trim();
     if (!srcPath) throw new Error('moveProjectFile: sourcePath is required.');
     if (!dstPath) throw new Error('moveProjectFile: destPath is required.');
     const saveVar = action.saveDestVariable || 'movedFilePath';

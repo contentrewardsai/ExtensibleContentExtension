@@ -39,7 +39,7 @@ So:
 
 - **steps/** – Steps are individual step *types* (click, type…). The **player** is the orchestrator that runs those steps; the **recorder** records actions. They don’t belong inside steps/.
 - **shared/** – For code *shared* across contexts (selectors, analyzer, backend). Putting player/recorder/auto-discovery in shared/ would mix “shared libraries” with “tab entry points”; the folder would have two different responsibilities.
-- **lib/** – Third-party libraries only (Sortable, html2canvas, etc.).
+- **lib/** – Third-party libraries only (currently `lib/ffmpeg/*` for local media tooling).
 - The side panel **Reload Extension** button rebuilds manifests from the project folder (no scripts folder).
 
 **Conclusion:** Keeping **content/** is correct and matches the usual Chrome extension layout. The name “content” is the standard term for “scripts injected into web pages.” If you prefer a different name, you could use **tab/** (e.g. `tab/recorder.js`, `tab/player.js`, `tab/auto-discovery.js`) and update the manifest, sidepanel references and docs (extension manifest no longer lists step handlers)—but “content” is more recognizable to anyone who knows Chrome extensions.
@@ -57,7 +57,7 @@ So:
 | **extension/** | Extension API layer for Settings and sidepanel: **`auth-fetch.js`** (Whop token + `apiFetch`), **`workflow-normalize.js`** (import/sync normalize), **`api.js`** (`ExtensionApi`), **`following-sync-core.js`**, **`sidebars-api.js`**. Load order in HTML: `config.js` → `auth-fetch.js` → `workflow-normalize.js` → `dom-utils.js` → `api.js`. | Yes – loaded via script tags, not content scripts. |
 | **shared/apify-*.js** | Apify helpers loaded by the service worker (and mirrored in unit tests): **`shared/apify-dataset-response.js`** (dataset items + pagination headers), **`shared/apify-run-query-validation.js`** (run query param guards), **`shared/apify-extract-run-id.js`** (run id hints for errors). Regression coverage: **`npm run test:apify`** (three verify scripts; also run in **Extension checks** CI). |
 | **shared/infi-bin-path-json-shape.js** | Pancake Infinity multi-hop **`infiBinPathJson`** shape validation (**`CFS_parseInfiBinPathJsonShape`**, **`CFS_infiBinPathCurrencyChainError`**). Loaded before **`background/bsc-evm.js`** in the service worker; **`parseInfiBinPathJson`** delegates here. Regression: **`npm run test:infi-bin-path-json`**. |
-| **lib/** | Third-party libraries (e.g. Sortable, html2canvas). | Yes – vendor code only. |
+| **lib/** | Third-party libraries (e.g. `lib/ffmpeg/*`). | Yes – vendor code only. |
 | **offscreen/** | Offscreen documents: tab audio, video combiner, QC, screen recorder, project folder I/O, **Aster user-stream** WebSocket (**aster-user-stream** for **`CFS_ASTER_USER_STREAM_WAIT`**). | Yes – manifest/background create these. |
 | **sandbox/** | Sandboxed page (e.g. quality-check). | Yes – manifest sandbox.pages. |
 | **workflows/** | Workflow JSON and workflow plugins. | Yes – workflow definitions. |

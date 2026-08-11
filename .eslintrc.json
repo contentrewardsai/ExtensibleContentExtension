@@ -58,7 +58,6 @@
     "background/*.bundle.js",
     "node_modules/",
     "test/",
-    "generator/",
     "steps/",
     "sidepanel/",
     "settings/"

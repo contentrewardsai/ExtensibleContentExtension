@@ -17,7 +17,7 @@
     connect: 'CFS_WALLET_CONNECT',
     disconnect: 'CFS_WALLET_DISCONNECT',
     signTransaction: 'CFS_WALLET_SIGN_TX',
-    signAllTransactions: 'CFS_WALLET_SIGN_ALL_TX',
+    /* signAllTransactions is handled locally in wallet-provider-proxy (loops signTransaction). */
     signMessage: 'CFS_WALLET_SIGN_MESSAGE',
     signAndSendTransaction: 'CFS_WALLET_SIGN_AND_SEND_TX',
     /* EVM */

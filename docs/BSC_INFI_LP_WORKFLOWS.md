@@ -2,7 +2,7 @@
 
 PancakeSwap **Infinity Liquidity Book** bin LP with range monitoring and conditional child workflows (exit to USDC or restake).
 
-Import the example bundle from **`workflows/bsc-infi-lp/workflow.json`** (copy workflows into Library or use project import). Adjust token addresses, bin ids, and amounts for your pool.
+Shipped plugin **`bsc-infi-lp`** loads into Library as the Infinity LP example workflows (initial LP / monitor / exit / restake). Set the project folder and **Reload Extension**, or reopen the side panel. Adjust token addresses, bin ids, and amounts for your pool.
 
 ## 1. Wallet setup
 
@@ -69,11 +69,11 @@ Example **`onOutOfRange`**:
 
 Set **`playbackStartUrl`** to any stable origin (e.g. `https://example.com`) — crypto steps use `needsElement: false`.
 
-Service worker polls via **`chrome.alarms`** (~1 min minimum). Messages: `CFS_INFI_BIN_RANGE_WATCH_GET_STATUS`, `CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW`, `CFS_INFI_BIN_RANGE_WATCH_STOP`.
+Service worker polls via **`chrome.alarms`** (~1 min minimum). Programmatic SW messages (no Settings UI): `CFS_INFI_BIN_RANGE_WATCH_GET_STATUS`, `CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW`, `CFS_INFI_BIN_RANGE_WATCH_STOP`.
 
 ## 4. Range check (not USD price)
 
-Monitoring uses **`CFS_BSC_INFI_BIN_RANGE_CHECK`**: one RPC `getSlot0` **activeId** vs your **`[lowerBinId, upperBinId]`**. Tab step: **`pancakeInfiBinRangeWatch`** (default poll 30s, min 5s).
+Monitoring uses **`alwaysOn.boundRows[]`** (legacy `boundRow` migrates on read). Idle when there are **0** positions (no RPC). Each active row is checked sequentially via **`CFS_BSC_INFI_BIN_RANGE_CHECK`** (`getSlot0` **activeId** vs **`[lowerBinId, upperBinId]`**). Tab step: **`pancakeInfiBinRangeWatch`** (default poll 30s, min 5s). Initial LP upserts into the monitor; exit removes the NFT id; restake gas-preflights then **`replace`**-binds the new position NFT. Optional BNB gas top-up from stable uses the same `gasReload*` fields as V3.
 
 ## 5. Testing
 

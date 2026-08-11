@@ -10,7 +10,7 @@
  * - cfsSolanaWatchActivity — recent rows: ts, signature, address, kind, summary, side, followingAutomationResult?, targetBlockTimeUnix?, and for swap_like: quoteMint, baseMint, targetPrice, quoteSpentRaw, baseSoldRaw
  * - cfsSolanaWatchLastPoll — { ts, ok, idle?, reason?, watchedCount?, error? } last tick summary for Pulse UI
  * - workflows — Library workflows; gate + optional per-workflow alwaysOn scopes via __CFS_evaluateFollowingAutomation (shared/cfs-always-on-automation.js)
- * - cfsPulseBscWatchBundle / cfs_bscscan_api_key — used only for always-on condition evaluation in Solana tick
+ * - cfsPulseBscWatchBundle / BSC indexer creds — used only for always-on condition evaluation in Solana tick
  * - cfsFollowingAutomationGlobal — { watchPaused?, automationPaused?, globalTokenBlocklist?, paperMode?, jupiterWrapAndUnwrapSol? } optional; globalTokenBlocklist.solana / .evm block mints; paperMode / Jupiter wrap when unbound workflow; watchPaused / automationPaused. Bound always-on workflows supply paper/Jupiter via workflow.followingAutomation.
  * - cfs_solana_rpc_url / cfs_solana_cluster / cfs_solana_jupiter_api_key — shared with solana-swap.js
  * - cfs_solana_watch_rpc_url — optional HTTPS RPC used only for Pulse watch (getSignaturesForAddress / getTransaction)
@@ -380,6 +380,10 @@
         WORKFLOWS_KEY,
         BSC_BUNDLE_KEY,
         BSC_API_KEY,
+        'cfs_bsc_quicknode_rpc_url',
+        'cfs_ankr_api_key',
+        'cfs_covalent_api_key',
+        'cfs_bsc_rpc_url',
       ]).then(function (stored) {
         var bundle = stored[BUNDLE_KEY];
         var entry = findEntryForAddress(bundle, addr);
@@ -1141,6 +1145,10 @@
       WORKFLOWS_KEY,
       BSC_BUNDLE_KEY,
       BSC_API_KEY,
+      'cfs_bsc_quicknode_rpc_url',
+      'cfs_ankr_api_key',
+      'cfs_covalent_api_key',
+      'cfs_bsc_rpc_url',
     ])
       .then(function (stored) {
         if (stored.cfsCryptoWeb3Enabled !== true) {

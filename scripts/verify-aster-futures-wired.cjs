@@ -52,6 +52,14 @@ if (!mod.includes('fapi.asterdex.com')) {
   console.error('verify-aster-futures-wired: aster-futures.js missing futures base URL');
   process.exit(1);
 }
+if (!mod.includes('AsterSignTransaction') || !mod.includes('cfsAsterV3SignerPrivateKey')) {
+  console.error('verify-aster-futures-wired: aster-futures.js missing Aster V3 EIP-712 / API Wallet auth');
+  process.exit(1);
+}
+if (!mod.includes('mapFuturesPathToV3') || !mod.includes('/fapi/v3/')) {
+  console.error('verify-aster-futures-wired: aster-futures.js missing V3 path mapping');
+  process.exit(1);
+}
 if (!mod.includes('sapi.asterdex.com')) {
   console.error('verify-aster-futures-wired: aster-futures.js missing spot base URL');
   process.exit(1);

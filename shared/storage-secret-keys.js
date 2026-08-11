@@ -13,16 +13,33 @@
     'cfs_bsc_session_unlocked_map',
     'cfs_solana_jupiter_api_key',
     'cfs_bscscan_api_key',
+    'cfs_bsc_quicknode_rpc_url',
+    'cfs_ankr_api_key',
+    'cfs_covalent_api_key',
+    'cfs_thegraph_api_key',
     'cfs_solana_watch_helius_api_key',
-    'cfs_apify_token',
-    'cfs_llm_api_key',
-    'cfs_openai_api_key',
-    'cfs_anthropic_api_key',
+    'apifyApiToken',
+    'cfsLlmOpenaiKey',
+    'cfsLlmAnthropicKey',
+    'cfsLlmGeminiKey',
+    'cfsLlmGrokKey',
+    'cfsAsterFuturesApiKey',
+    'cfsAsterFuturesApiSecret',
+    'cfsAsterV3User',
+    'cfsAsterV3Signer',
+    'cfsAsterV3SignerPrivateKey',
+    'cfs_solana_automation_secret_b58',
+    'cfs_solana_secret_enc_json',
+    'cfs_bsc_wallet_secret_plain',
+    'cfs_bsc_wallet_secret_enc_json',
+    'cfs_bsc_wallet_session_secret',
     'cfs_crypto_automation_wallets',
+    'cfsMcpBearerToken',
   ];
 
+  /* Match secret-shaped key names without blocking benign keys like discoveryHints. */
   var SECRET_KEY_RE =
-    /(plainSecret|encJson|private[_-]?key|keypair|mnemonic|seedPhrase|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|bearer|_unlocked_map)/i;
+    /(plainSecret|secret_plain|session_secret|enc[_-]?json|private[_-]?key|keypair|mnemonic|seedPhrase|password|passwd|api[_-]?key|api[_-]?token|api[_-]?secret|access[_-]?token|refresh[_-]?token|bearer|_unlocked_map|Llm\w*Key$|automation_secret)/i;
 
   function cfsIsStorageSecretKey(key) {
     var k = String(key || '');
@@ -46,7 +63,7 @@
 
   /** Strip secret keys from an object (for STORAGE_WRITE payloads). */
   function cfsStripSecretKeysFromObject(obj) {
-    if (!obj || typeof obj !== 'object') return {};
+    if (!obj || typeof obj !== 'object') return { data: {}, denied: [] };
     var out = {};
     var denied = [];
     Object.keys(obj).forEach(function (k) {

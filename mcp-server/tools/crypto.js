@@ -95,15 +95,19 @@ export function registerCryptoTools(server, ctx) {
 
   server.tool(
     'jupiter_perps_markets',
-    'Get Jupiter perpetual futures markets data.',
+    'Get Jupiter perpetuals market-stats (read-only). Defaults to SOL/ETH/BTC mints via perps-api.jup.ag.',
     {
       jupiterApiKey: z.string().max(2048).optional().describe('Optional Jupiter API key override'),
+      mint: z.string().optional().describe('Single market mint (overrides default list when set alone)'),
+      mints: z.array(z.string()).max(12).optional().describe('Market mints to fetch (default SOL/ETH/BTC)'),
     },
-    async ({ jupiterApiKey }) => {
+    async ({ jupiterApiKey, mint, mints }) => {
       const gateErr = await ctx.cryptoGate.guard('jupiter_perps_markets');
       if (gateErr) return gateErr;
       const payload = { type: 'CFS_JUPITER_PERPS_MARKETS' };
       if (jupiterApiKey) payload.jupiterApiKey = jupiterApiKey;
+      if (mint) payload.mint = mint;
+      if (mints && mints.length) payload.mints = mints;
       const res = await ctx.sendMessage(payload);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
@@ -506,10 +510,10 @@ export function registerCryptoTools(server, ctx) {
 
   server.tool(
     'bsc_query',
-    'Read-only BSC queries: balances, pool data, V3 positions, Infinity pools, MasterChef farms, etc.',
+    'Read-only BSC queries: balances, pool data, V3 positions/range helpers, Infinity pools, MasterChef farms, etc. V3 LP helpers: v3PoolState, v3RangeFromPercent, v3RestakeRange, v3LpAmountsFromBnb, v3NpmPosition, v3LiquidityDepth. See docs/BSC_V3_LP_WORKFLOWS.md.',
     {
-      operation: z.string().describe('Query operation (e.g. "nativeBalance", "erc20Balance", "v3NpmPosition", "infiBinPoolId", etc.)'),
-      params: z.record(z.string(), z.any()).optional().describe('Operation-specific parameters'),
+      operation: z.string().describe('Query operation (e.g. "nativeBalance", "v3RangeFromPercent", "v3LpAmountsFromBnb", "v3NpmPosition", "infiBinPoolId")'),
+      params: z.record(z.string(), z.any()).optional().describe('Operation-specific parameters (e.g. v3Pool, rangePercent, bnbBudgetWei, v3PositionTokenId)'),
     },
     async ({ operation, params }) => {
       const gateErr = await ctx.cryptoGate.guard('bsc_query');
@@ -523,9 +527,9 @@ export function registerCryptoTools(server, ctx) {
 
   server.tool(
     'bsc_execute',
-    'Execute a BSC transaction (swap, LP add/remove, farm claim, transfer). WARNING: Real transaction. Requires wallet unlock.',
+    'Execute a BSC transaction (swap, LP add/remove, V3 mint/decrease/collect/burn, farm claim, transfer). WARNING: Real transaction. Requires wallet unlock. V3 LP ops: v3PositionMint, v3PositionDecreaseLiquidity, v3PositionCollect, v3PositionBurn, approve. Workflow steps: bscV3LpWizard, bscV3AutoApprove, bscV3RebalanceOnce.',
     {
-      operation: z.string().describe('Execute operation (e.g. "v2SwapExactTokensForTokens", "v3Mint", "infiBinSwapExactIn", etc.)'),
+      operation: z.string().describe('Execute operation (e.g. "v3PositionMint", "approve", "swapExactETHForTokens", "infiBinSwapExactIn")'),
       params: z.record(z.string(), z.any()).optional().describe('Operation-specific parameters'),
       confirm: confirmField,
     },
@@ -534,6 +538,57 @@ export function registerCryptoTools(server, ctx) {
       if (params) { const { type: _drop, operation: _dropOp, ...rest } = params; Object.assign(p, rest); }
       return p;
     }, 'bsc_execute')
+  );
+
+  server.tool(
+    'bsc_v3_range_watch_status',
+    'Get Pancake V3 concentrated-LP always-on range watch status (last poll, jobs, stop flags). Dual-mode priceRangeWatch with Infinity; V3 jobs use v3PositionTokenId. See docs/BSC_V3_LP_WORKFLOWS.md.',
+    {},
+    async () => {
+      const gateErr = await ctx.cryptoGate.guard('bsc_v3_range_watch_status');
+      if (gateErr) return gateErr;
+      const res = await ctx.sendMessage({ type: 'CFS_V3_RANGE_WATCH_GET_STATUS' });
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'bsc_v3_range_watch_refresh',
+    'Trigger one Pancake V3 range-watch poll now (CFS_V3_RANGE_WATCH_REFRESH_NOW). On out-of-range, evaluates onOutOfRange runIf rules (exitBelowPolicy / exitAbovePolicy).',
+    {},
+    async () => {
+      const gateErr = await ctx.cryptoGate.guard('bsc_v3_range_watch_refresh');
+      if (gateErr) return gateErr;
+      const res = await ctx.sendMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' });
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'bsc_v3_reconcile_positions',
+    'Discover automation wallet Pancake V3 NPM NFTs on-chain and reconcile vs alwaysOn.boundRows (drop closed; report untracked). Optional autoTrackNew upserts untracked with primary policies.',
+    {
+      workflowId: z.string().optional().describe('Monitor workflow id (default wf-bsc-v3-monitor)'),
+      autoTrackNew: z.boolean().optional().describe('Upsert untracked active NFTs into boundRows'),
+    },
+    async ({ workflowId, autoTrackNew }) => {
+      const gateErr = await ctx.cryptoGate.guard('bsc_v3_reconcile_positions');
+      if (gateErr) return gateErr;
+      const payload = { type: 'CFS_V3_RECONCILE_POSITIONS' };
+      if (workflowId) payload.workflowId = workflowId;
+      if (autoTrackNew === true) {
+        // Temporarily set flag via merge then reconcile
+        await ctx.sendMessage({
+          type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+          workflowId: workflowId || 'wf-bsc-v3-monitor',
+          mode: 'mergeLegacy',
+          fields: { reconcileAutoTrackNew: 'true' },
+          enablePriceRangeWatch: true,
+        });
+      }
+      const res = await ctx.sendMessage(payload);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
   );
 
   server.tool(

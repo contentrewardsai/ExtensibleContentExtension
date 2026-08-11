@@ -91,6 +91,11 @@
     'jupiterPredictionTrade',
     'jupiterPredictionSearch',
     'pancakeV3RangeWatch',
+    'bscV3LpWizard',
+    'bscV3AutoApprove',
+    'bscV3RebalanceOnce',
+    'bscV3EnterFromStable',
+    'bindAlwaysOnBoundRow',
     'pancakeInfiBinRangeWatch',
     'walletApprove',
   ];

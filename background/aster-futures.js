@@ -9,9 +9,18 @@
   var ASTER_SAPI_BASE = 'https://sapi.asterdex.com';
   var STORAGE_API_KEY = 'cfsAsterFuturesApiKey';
   var STORAGE_API_SECRET = 'cfsAsterFuturesApiSecret';
+  /** Aster API V3 (API Wallet / Agent) — EIP-712 signing; preferred when set. */
+  var STORAGE_V3_USER = 'cfsAsterV3User';
+  var STORAGE_V3_SIGNER = 'cfsAsterV3Signer';
+  var STORAGE_V3_SIGNER_KEY = 'cfsAsterV3SignerPrivateKey';
+  /** EIP-712 domain chainId for mainnet API signing (not a deposit chain). */
+  var ASTER_V3_CHAIN_ID_MAINNET = 1666;
+  var ASTER_V3_CHAIN_ID_TESTNET = 714;
   var STORAGE_TRADING_ENABLED = 'cfsAsterFuturesTradingEnabled';
   var STORAGE_MAX_NOTIONAL = 'cfsAsterFuturesMaxNotionalUsd';
   var STORAGE_SPOT_TRADING_ENABLED = 'cfsAsterSpotTradingEnabled';
+  var _asterV3NonceSec = 0;
+  var _asterV3NonceI = 0;
 
   var EXCHANGE_INFO_TTL_MS = 3600000;
   var TIME_SKEW_TTL_MS = 300000;
@@ -75,11 +84,11 @@
     if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return false;
     try {
       var path = new URL(url).pathname;
-      if (/^\/fapi\/v1\/order$/i.test(path)) return m === 'POST' || m === 'DELETE' || m === 'PUT';
-      if (/^\/fapi\/v1\/batchOrders/i.test(path)) return m === 'POST' || m === 'DELETE' || m === 'PUT';
-      if (/^\/fapi\/v1\/allOpenOrders/i.test(path)) return m === 'DELETE';
-      if (/^\/fapi\/v1\/openOrders$/i.test(path)) return m === 'DELETE';
-      if (/^\/fapi\/v1\/countdownCancelAll/i.test(path)) return m === 'POST';
+      if (/^\/fapi\/v[13]\/order$/i.test(path)) return m === 'POST' || m === 'DELETE' || m === 'PUT';
+      if (/^\/fapi\/v[13]\/batchOrders/i.test(path)) return m === 'POST' || m === 'DELETE' || m === 'PUT';
+      if (/^\/fapi\/v[13]\/allOpenOrders/i.test(path)) return m === 'DELETE';
+      if (/^\/fapi\/v[13]\/openOrders$/i.test(path)) return m === 'DELETE';
+      if (/^\/fapi\/v[13]\/countdownCancelAll/i.test(path)) return m === 'POST';
       if (/^\/api\/v3\/order$/i.test(path)) return m === 'POST' || m === 'DELETE';
       if (/^\/api\/v3\/batchOrders/i.test(path)) return m === 'POST' || m === 'DELETE';
       if (/^\/api\/v3\/openOrders/i.test(path)) return m === 'DELETE';
@@ -748,24 +757,142 @@
     var data = await chrome.storage.local.get([
       STORAGE_API_KEY,
       STORAGE_API_SECRET,
+      STORAGE_V3_USER,
+      STORAGE_V3_SIGNER,
+      STORAGE_V3_SIGNER_KEY,
       STORAGE_TRADING_ENABLED,
       STORAGE_MAX_NOTIONAL,
       STORAGE_SPOT_TRADING_ENABLED,
     ]);
     var key = trimStr(data[STORAGE_API_KEY]);
     var secret = trimStr(data[STORAGE_API_SECRET]);
+    var v3User = trimStr(data[STORAGE_V3_USER]);
+    var v3Signer = trimStr(data[STORAGE_V3_SIGNER]);
+    var v3Key = trimStr(data[STORAGE_V3_SIGNER_KEY]);
+    if (v3Key && !v3Key.startsWith('0x') && /^[0-9a-fA-F]{64}$/.test(v3Key)) {
+      v3Key = '0x' + v3Key;
+    }
+    var hasV3 = !!(v3User && v3Signer && v3Key);
+    var hasV1 = !!(key && secret);
     return {
       apiKey: key,
       apiSecret: secret,
+      v3User: v3User,
+      v3Signer: v3Signer,
+      v3SignerPrivateKey: v3Key,
+      /** Prefer V3 API Wallet auth when configured (new Aster keys are V3-only). */
+      authMode: hasV3 ? 'v3' : hasV1 ? 'v1' : 'none',
       tradingEnabled: data[STORAGE_TRADING_ENABLED] === true,
       spotTradingEnabled: data[STORAGE_SPOT_TRADING_ENABLED] === true,
       maxNotionalUsd: parseFloat(data[STORAGE_MAX_NOTIONAL]) || 0,
     };
   }
 
-  async function asterSignedRequest(method, path, extraParams, apiKey, apiSecret, recvWindow) {
+  function hasFuturesAuth(creds) {
+    return !!(creds && (creds.authMode === 'v3' || creds.authMode === 'v1'));
+  }
+
+  function hasSpotAuth(creds) {
+    return !!(creds && creds.apiKey && creds.apiSecret);
+  }
+
+  function futuresAuthError(creds) {
+    if (creds && creds.authMode === 'none') {
+      return 'Configure Aster V3 API Wallet (user + signer + private key) in Settings → Aster, or legacy V1 API key/secret.';
+    }
+    return 'Configure Aster credentials in Settings → Aster.';
+  }
+
+  function mapFuturesPathToV3(path) {
+    return String(path || '').replace(/^\/fapi\/v[124]\//, '/fapi/v3/');
+  }
+
+  function getAsterV3Nonce() {
+    var sec = Math.floor(Date.now() / 1000);
+    if (sec === _asterV3NonceSec) _asterV3NonceI += 1;
+    else {
+      _asterV3NonceSec = sec;
+      _asterV3NonceI = 0;
+    }
+    return String(sec * 1000000 + _asterV3NonceI);
+  }
+
+  function getEthersWallet() {
+    var E = globalThis.CFS_ETHERS;
+    if (!E || !E.Wallet) throw new Error('EVM library not loaded (CFS_ETHERS)');
+    return E;
+  }
+
+  /** EIP-712 sign param string for Aster V3 (see asterdex API Overview / futures-v3 auth). */
+  async function asterV3SignParamString(paramStr, privateKey, chainId) {
+    var E = getEthersWallet();
+    var wallet = new E.Wallet(privateKey);
+    var domain = {
+      name: 'AsterSignTransaction',
+      version: '1',
+      chainId: chainId || ASTER_V3_CHAIN_ID_MAINNET,
+      verifyingContract: '0x0000000000000000000000000000000000000000',
+    };
+    var types = {
+      Message: [{ name: 'msg', type: 'string' }],
+    };
+    var value = { msg: String(paramStr) };
+    if (typeof wallet.signTypedData !== 'function') {
+      throw new Error('ethers Wallet.signTypedData unavailable');
+    }
+    var sig = await wallet.signTypedData(domain, types, value);
+    return String(sig || '').replace(/^0x/i, '');
+  }
+
+  async function asterSignedRequestV3(method, path, extraParams, creds, recvWindow) {
+    var v3Path = mapFuturesPathToV3(path);
+    var lastOut = null;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var params = Object.assign({}, extraParams || {});
+      params.user = creds.v3User;
+      params.signer = creds.v3Signer;
+      params.nonce = getAsterV3Nonce();
+      params.timestamp = String(await getSigningTimestampMs());
+      if (recvWindow != null && recvWindow !== '' && Number(recvWindow) > 0) {
+        params.recvWindow = String(Math.floor(Number(recvWindow)));
+      }
+      var signPayload = buildSignString(params);
+      var chainId = ASTER_V3_CHAIN_ID_MAINNET;
+      var sig = await asterV3SignParamString(signPayload, creds.v3SignerPrivateKey, chainId);
+      var body = signPayload + '&signature=' + sig;
+      var headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      var url = ASTER_FAPI_BASE + v3Path;
+      var init;
+      if (method === 'GET') {
+        url = url + '?' + body;
+        init = { method: 'GET', headers: {} };
+      } else {
+        init = { method: method, headers: headers, body: body };
+      }
+      lastOut = await fetchWithRetry(url, init, 'signed');
+      if (lastOut.unknownState) return lastOut;
+      if (lastOut.res && lastOut.res.ok) return lastOut;
+      var j = lastOut.json;
+      if (j && (j.code === -1022 || j.code === -1021) && attempt === 0) {
+        _timeSkew.at = 0;
+        continue;
+      }
+      return lastOut;
+    }
+    return lastOut;
+  }
+
+  async function asterSignedRequest(method, path, extraParams, creds, recvWindow) {
+    if (!creds || typeof creds !== 'object') {
+      throw new Error('Aster credentials missing (Settings → Aster).');
+    }
+    if (creds.authMode === 'v3') {
+      return asterSignedRequestV3(method, path, extraParams, creds, recvWindow);
+    }
+    var apiKey = creds.apiKey;
+    var apiSecret = creds.apiSecret;
     if (!apiKey || !apiSecret) {
-      throw new Error('Aster API key/secret not configured (Settings → Aster API).');
+      throw new Error(futuresAuthError(creds));
     }
     var lastOut = null;
     for (var attempt = 0; attempt < 2; attempt++) {
@@ -1056,7 +1183,7 @@
       return { ok: false, error: 'listenKey required when createListenKey is false' };
     }
     if (!lk) {
-      var out = await asterSignedRequest('POST', '/fapi/v1/listenKey', {}, creds.apiKey, creds.apiSecret, msg.recvWindow);
+      var out = await asterSignedRequest('POST', '/fapi/v1/listenKey', {}, creds, msg.recvWindow);
       var r = await readResult(out);
       if (!r.ok) return r;
       lk = r.result && r.result.listenKey ? String(r.result.listenKey) : '';
@@ -1086,11 +1213,7 @@
       var su = await asterSignedSapiRequest(
         'POST',
         '/api/v3/userDataStream',
-        {},
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        {}, creds, msg.recvWindow);
       var sur = await readResult(su);
       if (!sur.ok) return sur;
       lkS = sur.result && sur.result.listenKey ? String(sur.result.listenKey) : '';
@@ -1243,7 +1366,7 @@
     if (operation === 'historicalTrades' && !q.symbol) throw new Error('symbol required');
     if (operation === 'commissionRate' && !q.symbol) throw new Error('symbol required');
     if (operation === 'positionMarginHistory' && !q.symbol) throw new Error('symbol required');
-    var out = await asterSignedRequest('GET', path, q, creds.apiKey, creds.apiSecret, msg.recvWindow);
+    var out = await asterSignedRequest('GET', path, q, creds, msg.recvWindow);
     return readResult(out);
   }
 
@@ -1285,11 +1408,7 @@
       var comm = await asterSignedRequest(
         'GET',
         '/fapi/v1/commissionRate',
-        { symbol: sym },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { symbol: sym }, creds, msg.recvWindow);
       var cr = await readResult(comm);
       if (!cr.ok) return cr;
       return {
@@ -1302,24 +1421,14 @@
       };
     }
     if (operation === 'positionContext') {
-      var pos = await asterSignedRequest(
-        'GET',
+      var pos = await asterSignedRequest('GET',
         '/fapi/v2/positionRisk',
-        { symbol: sym },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { symbol: sym }, creds, msg.recvWindow);
       var posR = await readResult(pos);
       if (!posR.ok) return posR;
-      var oo = await asterSignedRequest(
-        'GET',
+      var oo = await asterSignedRequest('GET',
         '/fapi/v1/openOrders',
-        { symbol: sym },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { symbol: sym }, creds, msg.recvWindow);
       var ooR = await readResult(oo);
       if (!ooR.ok) return ooR;
       var orders = Array.isArray(ooR.result) ? ooR.result : [];
@@ -1361,24 +1470,14 @@
       var bookSnap = await asterPublicGet('/fapi/v1/ticker/bookTicker', { symbol: sym });
       var bookSnapR = await readResult(bookSnap);
       if (!bookSnapR.ok) return bookSnapR;
-      var posSnap = await asterSignedRequest(
-        'GET',
+      var posSnap = await asterSignedRequest('GET',
         '/fapi/v2/positionRisk',
-        { symbol: sym },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { symbol: sym }, creds, msg.recvWindow);
       var posSnapR = await readResult(posSnap);
       if (!posSnapR.ok) return posSnapR;
-      var ooSnap = await asterSignedRequest(
-        'GET',
+      var ooSnap = await asterSignedRequest('GET',
         '/fapi/v1/openOrders',
-        { symbol: sym },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { symbol: sym }, creds, msg.recvWindow);
       var ooSnapR = await readResult(ooSnap);
       if (!ooSnapR.ok) return ooSnapR;
       var ordersSnap = Array.isArray(ooSnapR.result) ? ooSnapR.result : [];
@@ -1408,18 +1507,18 @@
   async function handleTrade(operation, msg, creds) {
     if (operation === 'listenKeyCreate' || operation === 'listenKeyKeepalive' || operation === 'listenKeyClose') {
       if (operation === 'listenKeyCreate') {
-        var c = await asterSignedRequest('POST', '/fapi/v1/listenKey', {}, creds.apiKey, creds.apiSecret, msg.recvWindow);
+        var c = await asterSignedRequest('POST', '/fapi/v1/listenKey', {}, creds, msg.recvWindow);
         return readResult(c);
       }
       if (operation === 'listenKeyKeepalive') {
         var lkK = trimStr(msg.listenKey);
         var kp = lkK ? { listenKey: lkK } : {};
-        var k = await asterSignedRequest('PUT', '/fapi/v1/listenKey', kp, creds.apiKey, creds.apiSecret, msg.recvWindow);
+        var k = await asterSignedRequest('PUT', '/fapi/v1/listenKey', kp, creds, msg.recvWindow);
         return readResult(k);
       }
       var lkC = trimStr(msg.listenKey);
       var cp = lkC ? { listenKey: lkC } : {};
-      var cl = await asterSignedRequest('DELETE', '/fapi/v1/listenKey', cp, creds.apiKey, creds.apiSecret, msg.recvWindow);
+      var cl = await asterSignedRequest('DELETE', '/fapi/v1/listenKey', cp, creds, msg.recvWindow);
       return readResult(cl);
     }
     if (!creds.tradingEnabled) {
@@ -1467,14 +1566,14 @@
       if (msg.dryRun === true || msg.dryRun === 'true') {
         return { ok: true, result: { dryRun: true, placeParams: po } };
       }
-      var out = await asterSignedRequest('POST', '/fapi/v1/order', po, creds.apiKey, creds.apiSecret, msg.recvWindow);
+      var out = await asterSignedRequest('POST', '/fapi/v1/order', po, creds, msg.recvWindow);
       return readResult(out);
     }
     if (operation === 'cancelOrder') {
       var co = pickMsgParams(msg, ['symbol', 'orderId', 'origClientOrderId']);
       if (!co.symbol) throw new Error('symbol required');
       if (!co.orderId && !co.origClientOrderId) throw new Error('orderId or origClientOrderId required');
-      var del = await asterSignedRequest('DELETE', '/fapi/v1/order', co, creds.apiKey, creds.apiSecret, msg.recvWindow);
+      var del = await asterSignedRequest('DELETE', '/fapi/v1/order', co, creds, msg.recvWindow);
       return readResult(del);
     }
     if (operation === 'cancelAllOpen') {
@@ -1483,23 +1582,19 @@
       var delAll = await asterSignedRequest(
         'DELETE',
         '/fapi/v1/allOpenOrders',
-        ca,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        ca, creds, msg.recvWindow);
       return readResult(delAll);
     }
     if (operation === 'setLeverage') {
       var lev = pickMsgParams(msg, ['symbol', 'leverage']);
       if (!lev.symbol || lev.leverage == null) throw new Error('symbol and leverage required');
-      var lo = await asterSignedRequest('POST', '/fapi/v1/leverage', lev, creds.apiKey, creds.apiSecret, msg.recvWindow);
+      var lo = await asterSignedRequest('POST', '/fapi/v1/leverage', lev, creds, msg.recvWindow);
       return readResult(lo);
     }
     if (operation === 'setMarginType') {
       var mt = pickMsgParams(msg, ['symbol', 'marginType']);
       if (!mt.symbol || !mt.marginType) throw new Error('symbol and marginType required');
-      var mo = await asterSignedRequest('POST', '/fapi/v1/marginType', mt, creds.apiKey, creds.apiSecret, msg.recvWindow);
+      var mo = await asterSignedRequest('POST', '/fapi/v1/marginType', mt, creds, msg.recvWindow);
       return readResult(mo);
     }
     if (operation === 'batchOrders') {
@@ -1517,11 +1612,7 @@
       var bo = await asterSignedRequest(
         'POST',
         '/fapi/v1/batchOrders',
-        { batchOrders: JSON.stringify(arr) },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { batchOrders: JSON.stringify(arr) }, creds, msg.recvWindow);
       return readResult(bo);
     }
     if (operation === 'replaceStopLoss' || operation === 'replaceTakeProfit') {
@@ -1530,14 +1621,9 @@
       var cancel = pickMsgParams(msg, ['orderId', 'origClientOrderId']);
       cancel.symbol = sym;
       if (!cancel.orderId && !cancel.origClientOrderId) throw new Error('orderId or origClientOrderId to cancel');
-      var delR = await asterSignedRequest(
-        'DELETE',
+      var delR = await asterSignedRequest('DELETE',
         '/fapi/v1/order',
-        cancel,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        cancel, creds, msg.recvWindow);
       var dr = await readResult(delR);
       if (!dr.ok && !dr.unknownState) return dr;
       var place = pickMsgParams(msg, [
@@ -1566,14 +1652,9 @@
       if (msg.validateExchangeFilters === true || msg.validateExchangeFilters === 'true') {
         await validateOrderAgainstExchangeInfo(msg, place);
       }
-      var po2 = await asterSignedRequest(
-        'POST',
+      var po2 = await asterSignedRequest('POST',
         '/fapi/v1/order',
-        place,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        place, creds, msg.recvWindow);
       var pr = await readResult(po2);
       if (dr.unknownState && pr.ok) {
         return {
@@ -1590,14 +1671,9 @@
       if (!cca.symbol || cca.countdownTime == null || String(cca.countdownTime).trim() === '') {
         throw new Error('symbol and countdownTime required');
       }
-      var ccaOut = await asterSignedRequest(
-        'POST',
+      var ccaOut = await asterSignedRequest('POST',
         '/fapi/v1/countdownCancelAll',
-        cca,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        cca, creds, msg.recvWindow);
       return readResult(ccaOut);
     }
     if (operation === 'cancelBatch') {
@@ -1606,14 +1682,9 @@
       if (!cbat.orderIdList && !cbat.origClientOrderIdList) {
         throw new Error('orderIdList or origClientOrderIdList (JSON array string) required');
       }
-      var cbatOut = await asterSignedRequest(
-        'DELETE',
+      var cbatOut = await asterSignedRequest('DELETE',
         '/fapi/v1/batchOrders',
-        cbat,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        cbat, creds, msg.recvWindow);
       return readResult(cbatOut);
     }
     if (operation === 'setPositionMode') {
@@ -1621,14 +1692,9 @@
       if (dsp == null || dsp === '') throw new Error('dualSidePosition required (true/false)');
       var dualStr =
         dsp === true || String(dsp).toLowerCase() === 'true' ? 'true' : 'false';
-      var spm = await asterSignedRequest(
-        'POST',
+      var spm = await asterSignedRequest('POST',
         '/fapi/v1/positionSide/dual',
-        { dualSidePosition: dualStr },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { dualSidePosition: dualStr }, creds, msg.recvWindow);
       return readResult(spm);
     }
     if (operation === 'setMultiAssetsMargin') {
@@ -1636,14 +1702,9 @@
       if (mam == null || mam === '') throw new Error('multiAssetsMargin required (true/false)');
       var mamStr =
         mam === true || String(mam).toLowerCase() === 'true' ? 'true' : 'false';
-      var smam = await asterSignedRequest(
-        'POST',
+      var smam = await asterSignedRequest('POST',
         '/fapi/v1/multiAssetsMargin',
-        { multiAssetsMargin: mamStr },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { multiAssetsMargin: mamStr }, creds, msg.recvWindow);
       return readResult(smam);
     }
     if (operation === 'positionMargin') {
@@ -1653,27 +1714,17 @@
       if (!pmi.symbol || pmi.amount == null || String(pmi.amount).trim() === '' || pmi.type == null) {
         throw new Error('symbol, amount, positionMarginType required (1=add margin, 2=reduce)');
       }
-      var pmo = await asterSignedRequest(
-        'POST',
+      var pmo = await asterSignedRequest('POST',
         '/fapi/v1/positionMargin',
-        pmi,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        pmi, creds, msg.recvWindow);
       return readResult(pmo);
     }
     if (operation === 'cancelStopLoss' || operation === 'cancelTakeProfit') {
       var symX = trimStr(msg.symbol);
       if (!symX) throw new Error('symbol required');
-      var ooX = await asterSignedRequest(
-        'GET',
+      var ooX = await asterSignedRequest('GET',
         '/fapi/v1/openOrders',
-        { symbol: symX },
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        { symbol: symX }, creds, msg.recvWindow);
       var ooXR = await readResult(ooX);
       if (!ooXR.ok) return ooXR;
       var listX = Array.isArray(ooXR.result) ? ooXR.result : [];
@@ -1687,7 +1738,7 @@
         if (ox.orderId != null) cx.orderId = ox.orderId;
         else if (ox.origClientOrderId) cx.origClientOrderId = ox.origClientOrderId;
         else continue;
-        var dx = await asterSignedRequest('DELETE', '/fapi/v1/order', cx, creds.apiKey, creds.apiSecret, msg.recvWindow);
+        var dx = await asterSignedRequest('DELETE', '/fapi/v1/order', cx, creds, msg.recvWindow);
         return readResult(dx);
       }
       return { ok: false, error: 'No matching open ' + (operation === 'cancelStopLoss' ? 'stop-loss' : 'take-profit') + ' order' };
@@ -1729,11 +1780,7 @@
       var spoOut = await asterSignedSapiRequest(
         'POST',
         '/api/v3/order',
-        spo0,
-        creds.apiKey,
-        creds.apiSecret,
-        msg.recvWindow,
-      );
+        spo0, creds, msg.recvWindow);
       return readResult(spoOut);
     }
     if (operation === 'cancelOrder') {
@@ -1803,8 +1850,8 @@
       }
       var creds = await getCredentials();
       if (category === 'account') {
-        if (!creds.apiKey || !creds.apiSecret) {
-          return { ok: false, error: 'Configure Aster API key and secret in Settings.' };
+        if (!hasFuturesAuth(creds)) {
+          return { ok: false, error: futuresAuthError(creds) };
         }
         if (operation === 'userStreamUrl') {
           return await handleUserStreamUrl(msg, creds);
@@ -1812,8 +1859,8 @@
         return await handleSignedGet(operation, msg, creds);
       }
       if (category === 'analysis') {
-        if (!creds.apiKey || !creds.apiSecret) {
-          return { ok: false, error: 'Configure Aster API key and secret in Settings.' };
+        if (!hasFuturesAuth(creds)) {
+          return { ok: false, error: futuresAuthError(creds) };
         }
         if (operation === 'decisionQuote') {
           return await handleAnalysis('decisionQuote', msg, creds);
@@ -1821,14 +1868,14 @@
         return await handleAnalysis(operation, msg, creds);
       }
       if (category === 'trade') {
-        if (!creds.apiKey || !creds.apiSecret) {
-          return { ok: false, error: 'Configure Aster API key and secret in Settings.' };
+        if (!hasFuturesAuth(creds)) {
+          return { ok: false, error: futuresAuthError(creds) };
         }
         return await handleTrade(operation, msg, creds);
       }
       if (category === 'spotAccount') {
-        if (!creds.apiKey || !creds.apiSecret) {
-          return { ok: false, error: 'Configure Aster API key and secret in Settings.' };
+        if (!hasSpotAuth(creds)) {
+          return { ok: false, error: 'Configure Aster V1 API key/secret for spot (Settings → Aster). Spot still uses HMAC auth.' };
         }
         if (operation === 'futuresTransfer') {
           return await handleSpotFuturesTransfer(msg, creds);
@@ -1836,8 +1883,8 @@
         return await handleSpotSignedGet(operation, msg, creds);
       }
       if (category === 'spotTrade') {
-        if (!creds.apiKey || !creds.apiSecret) {
-          return { ok: false, error: 'Configure Aster API key and secret in Settings.' };
+        if (!hasSpotAuth(creds)) {
+          return { ok: false, error: 'Configure Aster V1 API key/secret for spot (Settings → Aster). Spot still uses HMAC auth.' };
         }
         return await handleSpotTrade(operation, msg, creds);
       }

@@ -31,6 +31,24 @@
     "v3Path": "",
     "v3PositionTokenId": "",
     "positionManagerAddress": "",
+    "minPrice": "",
+    "maxPrice": "",
+    "price": "",
+    "priceDenomination": "token1PerToken0",
+    "tick": "",
+    "tickLower": "",
+    "tickUpper": "",
+    "decimals0": "",
+    "decimals1": "",
+    "tickSpacing": "",
+    "wordRange": "",
+    "maxTicks": "",
+    "rangePercent": "",
+    "bnbBudget": "",
+    "bnbBudgetWei": "",
+    "gasReserveWei": "",
+    "driftDirection": "",
+    "from": "",
     "pid": "",
     "masterChefAddress": "",
     "poolId": "",
@@ -143,7 +161,27 @@
         },
         {
           "value": "v3PoolState",
-          "label": "v3PoolState (Pancake V3 pool: slot0 + liquidity + tokens)"
+          "label": "v3PoolState (Pancake V3 pool: slot0 + liquidity + price + tickSpacing + fee growth)"
+        },
+        {
+          "value": "v3PriceTicks",
+          "label": "v3PriceTicks (convert min/max price ↔ ticks; or single price/tick)"
+        },
+        {
+          "value": "v3LiquidityDepth",
+          "label": "v3LiquidityDepth (TickLens: liquidity by tick + price around current)"
+        },
+        {
+          "value": "v3RangeFromPercent",
+          "label": "v3RangeFromPercent (±% around mid → min/max price + ticks; default 1%)"
+        },
+        {
+          "value": "v3RestakeRange",
+          "label": "v3RestakeRange (next ±% window after drift; driftDirection optional)"
+        },
+        {
+          "value": "v3LpAmountsFromBnb",
+          "label": "v3LpAmountsFromBnb (BNB budget → amount0/1 for V3 range; gas reserve)"
         },
         {
           "value": "v3FactoryGetPool",
@@ -307,7 +345,7 @@
     },
     {
       "key": "v3Pool",
-      "label": "v3Pool (v3PoolState \u2014 pool contract address)",
+      "label": "v3Pool (v3PoolState / depth / range / amounts / priceTicks \u2014 pool contract address)",
       "inputType": "poolSearch",
       "poolSearchMessage": "CFS_BSC_POOL_SEARCH",
       "poolSearchDeps": [
@@ -369,6 +407,66 @@
     {
       "key": "positionManagerAddress",
       "label": "Position manager V3 override (optional; pinned Pancake NPM only, same as bscPancake)",
+      "inputType": "text"
+    },
+    {
+      "key": "minPrice",
+      "label": "minPrice (v3PriceTicks / range convert — human; default token1 per 1 token0)",
+      "inputType": "text"
+    },
+    {
+      "key": "maxPrice",
+      "label": "maxPrice (v3PriceTicks / range convert)",
+      "inputType": "text"
+    },
+    {
+      "key": "price",
+      "label": "price (v3PriceTicks single price → nearest usable tick)",
+      "inputType": "text"
+    },
+    {
+      "key": "priceDenomination",
+      "label": "priceDenomination (token1PerToken0 | token0PerToken1)",
+      "inputType": "text"
+    },
+    {
+      "key": "tick",
+      "label": "tick (v3PriceTicks single tick → price)",
+      "inputType": "text"
+    },
+    {
+      "key": "wordRange",
+      "label": "wordRange (v3LiquidityDepth — bitmap words each side of current; default 1)",
+      "inputType": "text"
+    },
+    {
+      "key": "maxTicks",
+      "label": "maxTicks (v3LiquidityDepth — cap returned ticks; default 400)",
+      "inputType": "text"
+    },
+    {
+      "key": "rangePercent",
+      "label": "rangePercent (v3RangeFromPercent / v3RestakeRange / v3LpAmountsFromBnb — default 1)",
+      "inputType": "text"
+    },
+    {
+      "key": "bnbBudgetWei",
+      "label": "bnbBudgetWei (v3LpAmountsFromBnb — wei or max)",
+      "inputType": "text"
+    },
+    {
+      "key": "gasReserveWei",
+      "label": "gasReserveWei (v3LpAmountsFromBnb — leave for gas; default 0.002 BNB)",
+      "inputType": "text"
+    },
+    {
+      "key": "driftDirection",
+      "label": "driftDirection (v3RestakeRange — above | below)",
+      "inputType": "text"
+    },
+    {
+      "key": "from",
+      "label": "from (v3LpAmountsFromBnb — wallet for BNB budget; default automation)",
       "inputType": "text"
     },
     {

@@ -43,7 +43,7 @@ Explicit **`host_permissions`** entries also list third-party HTTPS origins used
 4. Select the Extensible Content project folder
 5. Click the extension icon to open the **side panel** (stays open during file pickers, etc.)
 
-**Auth / API base URL:** The side panel and settings load [`config/whop-auth.example.js`](config/whop-auth.example.js) (committed defaults pointing at production). To use a local backend, copy that file to `config/whop-auth.js` (gitignored) and set `APP_ORIGIN` to `http://localhost:3000`. The optional second script overrides the example when present.
+**Auth / API base URL:** The side panel and settings load [`config/whop-auth.example.js`](config/whop-auth.example.js) (committed defaults pointing at production), then [`config/whop-auth.js`](config/whop-auth.js) (committed stub for local overrides). Edit `whop-auth.js` to set `APP_ORIGIN` to `http://localhost:3000` for a local backend; avoid committing machine-specific overrides.
 
 **Content script bundle:** If you change the main-frame content script list, edit [`shared/content-script-tab-bundle.js`](shared/content-script-tab-bundle.js) and mirror the same paths in `manifest.json` under `content_scripts[0].js`, then run `npm run check:content-bundle` to verify they match.
 

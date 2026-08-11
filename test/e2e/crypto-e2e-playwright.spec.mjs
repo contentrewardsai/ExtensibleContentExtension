@@ -71,6 +71,12 @@ const E2E_SIGNED_CHAPEL_SMOKE =
 const E2E_BSC_FORK_RPC = (process.env.E2E_CRYPTO_BSC_FORK_RPC_URL || '').trim();
 /** Default public Chapel RPC (same as crypto-test-wallets.js). */
 const CHAPEL_RPC_DEFAULT = 'https://data-seed-prebsc-1-s1.binance.org:8545/';
+/** Prefer QuickNode Chapel HTTPS when provided (env or local keys applied via env). */
+const CHAPEL_RPC = (
+  process.env.E2E_CRYPTO_BSC_CHAPEL_RPC_URL ||
+  process.env.CFS_BSC_QUICKNODE_CHAPEL_RPC_URL ||
+  CHAPEL_RPC_DEFAULT
+).trim();
 
 function parseWalletV2(raw) {
   if (raw == null) return null;
@@ -333,10 +339,13 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
 
     const r = await sendExtensionMessage(extensionContext, extensionId, {
       type: 'CFS_JUPITER_PERPS_MARKETS',
+      jupiterApiKey: JUPITER_KEY_E2E,
+      mint: 'So11111111111111111111111111111111111111112',
     });
 
-    expect(r?.ok).toBe(true);
+    expect(r?.ok, r?.error || JSON.stringify(r)).toBe(true);
     expect(typeof r?.marketsJson === 'string' && r.marketsJson.length > 2).toBe(true);
+    expect(r.marketsJson).toContain('market-stats');
   });
 
   test('CFS_RUGCHECK_TOKEN_REPORT (HTTP via following-automation path)', async ({
@@ -435,7 +444,7 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
     test.skip(!E2E_ENSURE_TEST_WALLETS, 'Set E2E_CRYPTO_ENSURE_TEST_WALLETS=1');
 
     await writeStorage(extensionContext, extensionId, {
-      cfs_bsc_global_settings: JSON.stringify({ v: 1, rpcUrl: CHAPEL_RPC_DEFAULT, chainId: 97 }),
+      cfs_bsc_global_settings: JSON.stringify({ v: 1, rpcUrl: CHAPEL_RPC, chainId: 97 }),
     });
 
     const addr = await readBscPrimaryAddress(extensionContext, extensionId);
@@ -460,7 +469,10 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
     test.skip(!E2E_ENSURE_TEST_WALLETS, 'Set E2E_CRYPTO_ENSURE_TEST_WALLETS=1');
 
     await writeStorage(extensionContext, extensionId, {
-      cfs_bsc_global_settings: JSON.stringify({ v: 1, rpcUrl: CHAPEL_RPC_DEFAULT, chainId: 97 }),
+      cfs_bsc_global_settings: JSON.stringify({ v: 1, rpcUrl: CHAPEL_RPC, chainId: 97 }),
+      ...( /quiknode\.pro|quicknode\.com/i.test(CHAPEL_RPC)
+        ? { cfs_bsc_quicknode_rpc_url: CHAPEL_RPC, cfs_bsc_indexer_preference: 'quicknode' }
+        : {}),
     });
 
     const addr = await readBscPrimaryAddress(extensionContext, extensionId);
@@ -481,7 +493,7 @@ test.describe('extension crypto E2E (live RPC + HTTP via service worker)', () =>
     test.skip(!E2E_SIGNED_CHAPEL_SMOKE, 'Set E2E_CRYPTO_SIGNED_CHAPEL_SMOKE=1');
 
     await writeStorage(extensionContext, extensionId, {
-      cfs_bsc_global_settings: JSON.stringify({ v: 1, rpcUrl: CHAPEL_RPC_DEFAULT, chainId: 97 }),
+      cfs_bsc_global_settings: JSON.stringify({ v: 1, rpcUrl: CHAPEL_RPC, chainId: 97 }),
     });
 
     const r = await sendExtensionMessage(extensionContext, extensionId, {

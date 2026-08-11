@@ -1,0 +1,16 @@
+{
+  "cfs_solana_jupiter_api_key": "",
+  "cfs_solana_watch_helius_api_key": "",
+  "cfs_bscscan_api_key": "",
+  "cfs_bsc_quicknode_rpc_url": "",
+  "cfs_bsc_quicknode_chapel_rpc_url": "",
+  "cfs_pancake_farm_private_key": "",
+  "cfs_ankr_api_key": "",
+  "cfs_covalent_api_key": "",
+  "cfs_thegraph_api_key": "",
+  "cfsAsterV3User": "",
+  "cfsAsterV3Signer": "",
+  "cfsAsterV3SignerPrivateKey": "",
+  "cfsAsterFuturesApiKey": "",
+  "cfsAsterFuturesApiSecret": ""
+}

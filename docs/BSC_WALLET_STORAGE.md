@@ -9,7 +9,11 @@ Data is written only from **Settings → BSC / PancakeSwap automation**. Workflo
 | **`cfs_bsc_wallets_v2`** | JSON: `{ v: 2, primaryWalletId, wallets: [...] }`. Each wallet has `id`, optional `label`, `address`, `secretType`, `backupConfirmedAt`, and either **`plainSecret`** or **`encJson`** (per-wallet AES-GCM + PBKDF2, shared vault password). |
 | **`cfs_bsc_practice_wallet_id`** | Optional string wallet `id` for the labeled **Crypto test (devnet/Chapel)** entry created by **`CFS_CRYPTO_TEST_ENSURE_WALLETS`** (Chapel chain 97). Not used for mainnet automation. |
 | **`cfs_bsc_global_settings`** | JSON: `{ rpcUrl, chainId }` shared by all saved wallets. |
-| **`cfs_bscscan_api_key`** | Optional BscScan API key (Following watch). |
+| **`cfs_bscscan_api_key`** | Optional Etherscan Multichain V2 API key (one of several Following BSC indexers; needs BSC chain coverage). |
+| **`cfs_bsc_quicknode_rpc_url`** | Optional QuickNode BSC HTTPS endpoint for Following watch (free-tier path; plain RPC block/log scan on BSC). |
+| **`cfs_ankr_api_key`** / **`cfs_covalent_api_key`** | Optional Ankr Advanced / Covalent GoldRush keys for Following watch. |
+| **`cfs_bsc_indexer_preference`** | `auto` \| `quicknode` \| `etherscan` \| `ankr` \| `covalent`. |
+| **`cfs_bsc_quicknode_aggressive_poll`** | When true, allow 1-minute QuickNode polls (may exceed free credits). |
 
 **Legacy (migrated away on load):** **`cfs_bsc_wallet_meta`**, **`cfs_bsc_wallet_secret_plain`**, **`cfs_bsc_wallet_secret_enc_json`**, **`cfs_bsc_wallet_address_hint`** — superseded by **`cfs_bsc_wallets_v2`** + **`cfs_bsc_global_settings`**.
 
