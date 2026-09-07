@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -37,17 +40,17 @@
       throw new Error((response && response.error) ? response.error : 'Perps status request failed');
     }
 
-    setRowVar(row, trimResolved(row, getRowValue, action, action.saveRaydiumPerpsVariable), response.raydiumPerps || '');
-    setRowVar(row, trimResolved(row, getRowValue, action, action.saveJupiterPerpsVariable), response.jupiterPerps || '');
-    setRowVar(row, trimResolved(row, getRowValue, action, action.savePerpsDocVariable), response.doc || '');
+    setRowVar(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveRaydiumPerpsVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveRaydiumPerpsVariable)), response.raydiumPerps || '');
+    setRowVar(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveJupiterPerpsVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveJupiterPerpsVariable)), response.jupiterPerps || '');
+    setRowVar(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'savePerpsDocVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.savePerpsDocVariable)), response.doc || '');
     if (response.note) {
-      setRowVar(row, trimResolved(row, getRowValue, action, action.savePerpsNoteVariable), response.note);
+      setRowVar(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'savePerpsNoteVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.savePerpsNoteVariable)), response.note);
     }
 
     var fetchMarkets = action.fetchJupiterPerpMarkets === true || String(action.fetchJupiterPerpMarkets).toLowerCase() === 'true';
-    var mkVar = trimResolved(row, getRowValue, action, action.saveJupiterPerpMarketsJsonVariable);
+    var mkVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveJupiterPerpMarketsJsonVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveJupiterPerpMarketsJsonVariable));
     if (fetchMarkets && mkVar) {
-      var jupKey = trimResolved(row, getRowValue, action, action.jupiterApiKeyOverride);
+      var jupKey = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'jupiterApiKeyOverride', row, getRowValue) : trimResolved(row, getRowValue, action, action.jupiterApiKeyOverride));
       var msgMk = { type: 'CFS_JUPITER_PERPS_MARKETS' };
       if (jupKey) msgMk.jupiterApiKey = jupKey;
       var mkRes = await sendMessage(msgMk);
@@ -56,7 +59,7 @@
       } else {
         row[mkVar] = '';
         var err = (mkRes && mkRes.error) ? mkRes.error : 'Jupiter perps markets request failed';
-        var errVar = trimResolved(row, getRowValue, action, action.saveJupiterPerpMarketsErrorVariable);
+        var errVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveJupiterPerpMarketsErrorVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveJupiterPerpMarketsErrorVariable));
         if (errVar) row[errVar] = err;
         else if (!mkRes || !mkRes.ok) throw new Error(err);
       }

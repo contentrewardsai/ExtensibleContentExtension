@@ -320,16 +320,25 @@ export async function triggerWorkflow(extensionContext, extensionId, fixturePage
 /** Send a message to a content script in a tab matching the given URL prefix. */
 export async function sendTabMessage(extensionContext, extensionId, fixtureUrl, message) {
   const page = await getExtensionHelperPage(extensionContext, extensionId);
-  return await page.evaluate(async ({ urlPrefix, msg }) => {
+  return await page.evaluate(async ({ urlPrefix, pageUrl, msg }) => {
     const tabs = await chrome.tabs.query({ url: urlPrefix + '*' });
     if (!tabs.length) return { ok: false, error: 'no tab found' };
+    const want = String(pageUrl || '').split('?')[0];
+    tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+    const target =
+      tabs.find((t) => String(t.url || '').split('?')[0] === want) ||
+      tabs.find((t) => /record-playback-test\.html/i.test(t.url || '')) ||
+      tabs[0];
     return new Promise((resolve) => {
-      chrome.tabs.sendMessage(tabs[0].id, msg, (r) => {
-        if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-        else resolve(r || { ok: false, error: 'No response' });
+      chrome.tabs.sendMessage(target.id, msg, (r) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message, tabUrl: target.url });
+        } else {
+          resolve(r || { ok: false, error: 'No response', tabUrl: target.url });
+        }
       });
     });
-  }, { urlPrefix: fixtureUrl.replace(/\/[^/]*$/, '/'), msg: message });
+  }, { urlPrefix: fixtureUrl.replace(/\/[^/]*$/, '/'), pageUrl: fixtureUrl, msg: message });
 }
 
 /** Read a chrome.storage.local key from an extension page. */

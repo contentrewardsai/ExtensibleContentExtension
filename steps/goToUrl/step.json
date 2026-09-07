@@ -2,14 +2,20 @@
   "id": "goToUrl",
   "label": "Go to URL",
   "category": "flow",
-  "description": "Navigate the current tab to a URL. Use a fixed URL or a row variable (e.g. url, pageUrl).",
+  "description": "Navigate the current tab to a URL. Use a fixed URL, a row variable, or rewrite the current tab (replace host / drop query) — e.g. open a builder iframe as a top-level page.",
   "defaultAction": {
     "type": "goToUrl",
     "url": "",
-    "variableKey": ""
+    "variableKey": "",
+    "fromCurrentUrl": false,
+    "replaceHost": "",
+    "dropSearch": false
   },
   "formSchema": [
     { "key": "url", "label": "URL", "inputType": "text", "placeholder": "https://example.com or leave empty to use row value" },
-    { "key": "variableKey", "label": "Row variable (if URL empty)", "inputType": "text", "placeholder": "e.g. url or pageUrl" }
+    { "key": "variableKey", "label": "Row variable (if URL empty)", "inputType": "text", "placeholder": "e.g. url or pageUrl" },
+    { "key": "fromCurrentUrl", "label": "From current tab URL", "inputType": "checkbox" },
+    { "key": "replaceHost", "label": "Replace host (optional)", "inputType": "text", "placeholder": "e.g. page-builder.leadconnectorhq.com" },
+    { "key": "dropSearch", "label": "Drop query string", "inputType": "checkbox" }
   ]
 }

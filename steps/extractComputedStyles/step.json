@@ -1,0 +1,17 @@
+{
+  "id": "extractComputedStyles",
+  "label": "Extract computed styles",
+  "category": "data",
+  "description": "Read text, HTML, form fields, and computed CSS (color, background, fontSize, etc.) for a list of regions. Saves a snapshot object for the Compare panel.",
+  "defaultAction": {
+    "type": "extractComputedStyles",
+    "saveAsVariable": "sourceSnapshot",
+    "regions": [
+      { "id": "root", "selector": "body" }
+    ]
+  },
+  "formSchema": [
+    { "key": "saveAsVariable", "label": "Save snapshot to variable", "inputType": "text" },
+    { "key": "regions", "label": "Regions JSON [{ id, selector }]", "inputType": "textarea", "rows": 6 }
+  ]
+}

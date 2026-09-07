@@ -39,7 +39,7 @@
             sendResponse({ ok: false, error: (e && e.message) || String(e) });
           });
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
     );
 
     register(
@@ -77,7 +77,7 @@
           }
         })();
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
     );
 
     register(
@@ -95,7 +95,7 @@
             sendResponse({ ok: false });
           });
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
     );
 
     register(
@@ -144,7 +144,24 @@
           }
         })();
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
+    );
+
+    register(
+      'CFS_WALLET_GET_ALLOWLIST',
+      function (msg, sender, sendResponse) {
+        if (!isExt(sender)) {
+          sendResponse({ ok: false, error: 'CFS_WALLET_GET_ALLOWLIST only allowed from extension pages' });
+          return;
+        }
+        var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers['CFS_WALLET_GET_ALLOWLIST'];
+        if (typeof impl !== 'function') {
+          sendResponse({ ok: false, error: 'Handler not installed: CFS_WALLET_GET_ALLOWLIST' });
+          return;
+        }
+        return impl(msg, sender, sendResponse);
+      },
+      { async: true, auth: 'extension', schema: 'extra' }
     );
 
     register(
@@ -162,7 +179,7 @@
             sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
           });
       },
-      { async: true }
+      { async: true, auth: 'extensionOrTrustedAuth', schema: 'switch' }
     );
 
     register(
@@ -173,9 +190,10 @@
           return;
         }
         (async function () {
+          var auth = null;
           try {
             var data = await chrome.storage.local.get(['whop_auth']);
-            var auth = data.whop_auth;
+            auth = data.whop_auth;
             if (!auth || !auth.access_token) {
               sendResponse({ ok: false, access_token: null, user: null, error: 'Not authenticated' });
               return;
@@ -200,7 +218,7 @@
                     : auth.refresh_token;
               var newExpires =
                 newTokens.expires_in != null ? newTokens.expires_in : json.expires_in != null ? json.expires_in : 3600;
-              if (newAccess) {
+              if (res.ok && newAccess) {
                 var updated = Object.assign({}, auth, {
                   access_token: newAccess,
                   refresh_token: newRefresh,
@@ -210,25 +228,29 @@
                 await chrome.storage.local.set({ whop_auth: updated });
                 sendResponse({ ok: true, access_token: newAccess, user: auth.user });
               } else {
-                sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
+                await chrome.storage.local.remove('whop_auth');
+                sendResponse({ ok: false, access_token: null, user: null, error: 'Not authenticated' });
               }
             } else {
               sendResponse({ ok: true, access_token: auth.access_token, user: auth.user });
             }
           } catch (e) {
-            try {
-              var data2 = await chrome.storage.local.get(['whop_auth']);
-              var auth2 = data2.whop_auth;
-              if (auth2 && auth2.access_token) {
-                sendResponse({ ok: true, access_token: auth2.access_token, user: auth2.user });
-                return;
-              }
-            } catch (_) {}
+            if (!auth) {
+              sendResponse({ ok: false, error: (e && e.message) || 'Failed to get token' });
+              return;
+            }
+            var elapsedCatch = (Date.now() - (auth.obtained_at || 0)) / 1000;
+            var refreshWasDue = elapsedCatch >= (auth.expires_in || 3600) - 60;
+            if (refreshWasDue) {
+              try { await chrome.storage.local.remove('whop_auth'); } catch (_) {}
+              sendResponse({ ok: false, access_token: null, user: null, error: 'Not authenticated' });
+              return;
+            }
             sendResponse({ ok: false, error: (e && e.message) || 'Failed to get token' });
           }
         })();
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
     );
 
     register(
@@ -247,7 +269,7 @@
             sendResponse({ ok: false, error: e && e.message });
           });
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
     );
 
     register(
@@ -287,7 +309,7 @@
           });
         });
       },
-      { async: true }
+      { async: true, auth: 'extension', schema: 'extra' }
     );
   }
 

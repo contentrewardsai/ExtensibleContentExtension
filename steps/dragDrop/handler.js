@@ -26,14 +26,37 @@
       throw new Error('dragDrop requires sourceSelectors and targetSelectors');
     }
 
-    const timeoutMs = Math.max(action.timeoutMs != null ? action.timeoutMs : 30000, 5000);
+    const timeoutMs = Math.max(action.timeoutMs != null ? action.timeoutMs : 20000, 4000);
     const stepIndex = (ctx.actionIndex || 0) + 1;
 
-    try {
+    function pickVisible(sels, hint) {
+      const resolveAllCandidates = ctx.resolveAllCandidates;
+      const list = typeof resolveAllCandidates === 'function' ? (resolveAllCandidates(sels, doc) || []) : [];
+      const els = list.map(function (c) { return c && c.element; }).filter(Boolean);
+      const want = String(hint || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const scored = els.filter(function (el) {
+        const r = el.getBoundingClientRect();
+        return r.width > 8 && r.height > 8 && r.x >= 0 && r.y >= 0;
+      });
+      if (want) {
+        const exact = scored.filter(function (el) {
+          const t = (el.textContent || el.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          return t === want || t.indexOf(want) === 0;
+        });
+        if (exact.length) return exact[0];
+      }
+      return scored[0] || (typeof resolveElement === 'function' ? resolveElement(sels, doc) : null);
+    }
+
+    let sourceEl = pickVisible(sourceSels, action.sourceText || action.text);
+    let targetEl = pickVisible(targetSels, '');
+    if (sourceEl && targetEl) {
+      /* already on screen — skip the long wait */
+    } else try {
       await waitForElement(sourceSels, timeoutMs, {
         stepIndex,
         type: 'dragDrop',
-        summary: 'source',
+        summary: action.sourceText || action.text || 'source',
         action,
         rootDoc: doc,
       });
@@ -49,8 +72,12 @@
       throw err;
     }
 
-    const sourceEl = resolveElement(sourceSels, doc);
-    const targetEl = resolveElement(targetSels, doc);
+    sourceEl = sourceEl || pickVisible(sourceSels, action.sourceText || action.text);
+    targetEl = targetEl || pickVisible(targetSels, '');
+    if (sourceEl && sourceEl.querySelector) {
+      const handle = sourceEl.querySelector('.gui__builder-card--handler');
+      if (handle) sourceEl = handle;
+    }
     if (!sourceEl || !targetEl) {
       if (action.optional) return;
       throw new Error('dragDrop: source or target not found');
@@ -59,7 +86,7 @@
     const view = doc.nodeType === 9 ? doc.defaultView : (doc.ownerDocument && doc.ownerDocument.defaultView) || window;
     const rs = sourceEl.getBoundingClientRect();
     const rt = targetEl.getBoundingClientRect();
-    const x0 = rs.left + rs.width / 2;
+    const x0 = rs.left + Math.min(8, Math.max(2, rs.width / 2));
     const y0 = rs.top + rs.height / 2;
     const x1 = rt.left + rt.width / 2;
     const y1 = rt.top + rt.height / 2;
@@ -68,6 +95,20 @@
     const pause = Math.max(10, parseInt(action.stepDelayMs, 10) || 25);
 
     const dataTransfer = new DataTransfer();
+    try { dataTransfer.setData('text/plain', String(action.sourceText || action.text || 'drag')); } catch (_) {}
+
+    sourceEl.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      view,
+      clientX: x0,
+      clientY: y0,
+      button: 0,
+      buttons: 1,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+    }));
 
     sourceEl.dispatchEvent(new DragEvent('dragstart', {
       bubbles: true,
@@ -104,6 +145,18 @@
           if (hit) under = hit;
         }
       } catch (_) {}
+      under.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        cancelable: true,
+        view,
+        clientX: x,
+        clientY: y,
+        button: 0,
+        buttons: 1,
+        pointerId: 1,
+        pointerType: 'mouse',
+        isPrimary: true,
+      }));
       under.dispatchEvent(new MouseEvent('mousemove', {
         bubbles: true,
         cancelable: true,
@@ -148,6 +201,18 @@
       clientY: y1,
       button: 0,
       buttons: 0,
+    }));
+    targetEl.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      cancelable: true,
+      view,
+      clientX: x1,
+      clientY: y1,
+      button: 0,
+      buttons: 0,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
     }));
     sourceEl.dispatchEvent(new DragEvent('dragend', {
       bubbles: true,

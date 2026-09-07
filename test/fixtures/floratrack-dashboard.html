@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FloraTrack — Dashboard</title>
+  <style>
+    :root { --nav: #2D5A47; --accent: #48A478; --page: #F8FAFC; --alert: #FFFBEB; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--page); color: #1e293b; }
+    nav { background: var(--nav); color: #fff; display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; }
+    nav h1 { margin: 0; font-size: 20px; font-weight: 700; }
+    .add-plant { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+    main { max-width: 960px; margin: 0 auto; padding: 24px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .card { background: #fff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .card .num { font-size: 28px; font-weight: 700; }
+    .card .lbl { color: #64748b; font-size: 13px; }
+    .alert { background: var(--alert); border-radius: 16px; padding: 16px; margin: 24px 0; }
+    .alert h2 { margin: 0 0 12px; font-size: 18px; }
+    .mini { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
+    .mini img { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+    .garden { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .garden h3 { margin: 8px 0 0; }
+    .species { font-style: italic; color: #64748b; margin: 0; }
+    .water { font-size: 13px; }
+    .badge { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 999px; padding: 2px 8px; font-size: 11px; }
+    img.plant { width: 100%; height: 140px; object-fit: cover; border-radius: 12px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <h1>FloraTrack</h1>
+    <a class="add-plant" href="#add-plant">Add Plant</a>
+  </nav>
+  <main>
+    <section class="stats" aria-label="stats">
+      <article class="card"><div class="lbl">Total Plants</div><div class="num">3</div></article>
+      <article class="card"><div class="lbl">Needs Water</div><div class="num">3</div></article>
+      <article class="card"><div class="lbl">Total Logs</div><div class="num">3</div></article>
+    </section>
+    <section class="alert">
+      <h2>Needs Attention</h2>
+      <div class="mini"><img alt="" src="https://images.unsplash.com/photo-1501004318641-b39e6451bec6?w=200"><div><strong>Monstera Deliciosa</strong><div>5 days ago</div></div></div>
+      <div class="mini"><img alt="" src="https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=200"><div><strong>Snake Plant</strong><div>12 days ago</div></div></div>
+      <div class="mini"><img alt="" src="https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=200"><div><strong>Pothos</strong><div>3 days ago</div></div></div>
+    </section>
+    <h2>My Garden</h2>
+    <section class="garden">
+      <article class="card">
+        <img class="plant" alt="Monstera" src="https://images.unsplash.com/photo-1501004318641-b39e6451bec6?w=400">
+        <h3>Monstera</h3>
+        <p class="species">Monstera deliciosa</p>
+        <p class="water">Water every 7d</p>
+        <span class="badge">Thirsty</span>
+      </article>
+      <article class="card">
+        <img class="plant" alt="Snake Plant" src="https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=400">
+        <h3>Snake Plant</h3>
+        <p class="species">Sansevieria trifasciata</p>
+        <p class="water">Water every 14d</p>
+      </article>
+      <article class="card">
+        <img class="plant" alt="Pothos" src="https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400">
+        <h3>Pothos</h3>
+        <p class="species">Epipremnum aureum</p>
+        <p class="water">Water every 7d</p>
+        <span class="badge">Thirsty</span>
+      </article>
+    </section>
+    <section id="add-plant" style="margin-top:32px">
+      <h2>Add Plant</h2>
+      <p>Collect these fields in a HighLevel Form (not this static page): Nickname / Name, Species, Watering Frequency (Days), Sunlight Needs, Last Watered Date, Image URL.</p>
+    </section>
+  </main>
+</body>
+</html>

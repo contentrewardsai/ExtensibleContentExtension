@@ -17,6 +17,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -51,7 +54,7 @@
       var row = ctx.currentRow || {};
       var getRowValue = ctx.getRowValue;
 
-      var inVar = trimResolved(row, getRowValue, action, action.inputVariable);
+      var inVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'inputVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.inputVariable));
       if (!inVar) throw new Error('watchActivityFilterTxAge: set input variable name');
 
       var rawIn = getRowValue(row, inVar);
@@ -61,7 +64,7 @@
       }
 
       var activity = Array.isArray(payload.activity) ? payload.activity.slice() : [];
-      var maxSecStr = trimResolved(row, getRowValue, action, action.maxAgeSec);
+      var maxSecStr = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxAgeSec', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxAgeSec));
       var maxSec = parseFloat(maxSecStr);
       if (!Number.isFinite(maxSec) || maxSec <= 0) {
         throw new Error('watchActivityFilterTxAge: maxAgeSec must be a positive number (seconds)');
@@ -76,7 +79,7 @@
         return age <= maxSec;
       });
 
-      var outVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+      var outVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
       if (!outVar) throw new Error('watchActivityFilterTxAge: set save result variable');
 
       var out = { activity: filtered, latest: filtered[0] || null, count: filtered.length };

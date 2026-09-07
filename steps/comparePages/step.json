@@ -1,0 +1,21 @@
+{
+  "id": "comparePages",
+  "label": "Compare pages",
+  "category": "data",
+  "description": "Compare a source snapshot to a preview snapshot (text, colors, layout, form fields). Writes compare.pass and compare.failures for correction loops.",
+  "defaultAction": {
+    "type": "comparePages",
+    "sourceVariable": "sourceSnapshot",
+    "previewVariable": "previewSnapshot",
+    "planVariable": "plan",
+    "saveAsVariable": "compare",
+    "maxColorDistance": 15
+  },
+  "formSchema": [
+    { "key": "sourceVariable", "label": "Source snapshot variable", "inputType": "text" },
+    { "key": "previewVariable", "label": "Preview snapshot variable", "inputType": "text" },
+    { "key": "planVariable", "label": "Plan variable (optional)", "inputType": "text" },
+    { "key": "saveAsVariable", "label": "Save result to", "inputType": "text" },
+    { "key": "maxColorDistance", "label": "Max color distance", "inputType": "number" }
+  ]
+}

@@ -1300,6 +1300,55 @@ section {
   margin-top: 12px;
 }
 
+.page-compare-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, #e5e5e7);
+}
+
+.page-compare-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px 0;
+}
+
+.page-compare-heading {
+  margin: 0;
+}
+
+.page-compare-strip {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.page-compare-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page-compare-label {
+  font-size: 11px;
+  color: #666;
+}
+
+.page-compare-pass.is-pass { color: #0a7a2f; font-weight: 600; }
+.page-compare-pass.is-fail { color: #b00020; font-weight: 600; }
+
+.page-compare-failures {
+  margin: 0;
+  padding: 8px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  background: var(--bg-secondary, #f5f5f5);
+  border-radius: 6px;
+  max-height: 140px;
+  overflow: auto;
+}
+
 .llm-chat-heading-row {
   display: flex;
   align-items: center;
@@ -1590,6 +1639,13 @@ section {
   margin-bottom: 4px;
   border: 1px solid #e5e5e7;
   overflow: hidden;
+  cursor: pointer;
+}
+
+.workflow-item.selected {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 1px #7c3aed;
+  background: #f5f3ff;
 }
 
 .workflow-item span {
@@ -3176,6 +3232,48 @@ section {
   border-style: dashed;
   border-color: #a1a1a6;
 }
+
+.step-chip {
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-right: 4px;
+  background: #eee;
+  color: #333;
+  flex-shrink: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-chip-if { background: #fff3cd; color: #7a5b00; }
+.steps-flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+  font-size: 11px;
+}
+.steps-flow-strip button {
+  border: 1px solid #ddd;
+  background: #fafafa;
+  border-radius: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.steps-flow-graph {
+  margin: 6px 0 10px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.steps-flow-graph .fg-node {
+  padding: 3px 0;
+  cursor: pointer;
+}
+.steps-flow-toolbar { margin: 4px 0; display: flex; gap: 6px; }
+.nested-play-status { margin: 4px 0; }
 
 .step-optional-badge {
   font-size: 10px;

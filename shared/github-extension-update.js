@@ -6,27 +6,21 @@
 (function (global) {
   'use strict';
 
-  var DEFAULT_OWNER = 'contentrewardsai';
-  var DEFAULT_REPO = 'ExtensibleContentExtension';
-  var DEFAULT_BRANCH = 'main';
+  var core = global.CFS_githubSyncCore || {};
+  var DEFAULT_OWNER = core.DEFAULT_OWNER || 'contentrewardsai';
+  var DEFAULT_REPO = core.DEFAULT_REPO || 'ExtensibleContentExtension';
+  var DEFAULT_BRANCH = core.DEFAULT_BRANCH || 'main';
   var STORAGE_KEY = 'cfs_github_extension_update';
   /** Written in the project folder (extension root). Gitignored; see github-sync-state.example.json */
-  var SYNC_STATE_FILENAME = 'github-sync-state.json';
-
-  /** Paths we never overwrite from GitHub (user data / huge binaries). */
-  var SKIP_PREFIXES = [
-    'node_modules/',
-    '.git/',
-    'models/',
-    '.cursor/',
-    '.DS_Store',
-  ];
+  var SYNC_STATE_FILENAME = core.SYNC_STATE_FILENAME || 'github-sync-state.json';
 
   function shouldSkipPath(rel) {
+    if (typeof core.shouldSkipPath === 'function') return core.shouldSkipPath(rel);
     if (!rel || typeof rel !== 'string') return true;
     var n = rel.replace(/\\/g, '/').replace(/^\/+/, '');
-    for (var i = 0; i < SKIP_PREFIXES.length; i++) {
-      if (n === SKIP_PREFIXES[i].replace(/\/$/, '') || n.indexOf(SKIP_PREFIXES[i]) === 0) return true;
+    var prefixes = core.SKIP_PREFIXES || ['node_modules/', '.git/', 'models/', '.cursor/', '.DS_Store'];
+    for (var i = 0; i < prefixes.length; i++) {
+      if (n === prefixes[i].replace(/\/$/, '') || n.indexOf(prefixes[i]) === 0) return true;
     }
     return false;
   }

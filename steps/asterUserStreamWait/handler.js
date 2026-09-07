@@ -18,6 +18,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -100,7 +103,7 @@
       var sendMessage = ctx.sendMessage;
       var row = currentRow;
 
-      var jk = trimResolved(row, getRowValue, action, action.userStreamJsonKey);
+      var jk = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'userStreamJsonKey', row, getRowValue) : trimResolved(row, getRowValue, action, action.userStreamJsonKey));
       var rawUserStream = null;
       if (jk) {
         rawUserStream = typeof getRowValue === 'function' ? getRowValue(row, jk) : undefined;
@@ -109,10 +112,10 @@
         }
       }
 
-      var wsUrl = trimResolved(row, getRowValue, action, action.wsUrl);
+      var wsUrl = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'wsUrl', row, getRowValue) : trimResolved(row, getRowValue, action, action.wsUrl));
       if (!wsUrl) wsUrl = extractWsUrlFromUserStreamJson(rawUserStream);
 
-      var listenKey = trimResolved(row, getRowValue, action, action.listenKey);
+      var listenKey = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'listenKey', row, getRowValue) : trimResolved(row, getRowValue, action, action.listenKey));
       if (!listenKey) listenKey = extractListenKeyFromUserStreamJson(rawUserStream);
 
       if (!wsUrl) {
@@ -136,28 +139,28 @@
         }
       }
 
-      var timeoutMs = parseInt(trimResolved(row, getRowValue, action, action.waitTimeoutMs), 10);
+      var timeoutMs = parseInt(((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'waitTimeoutMs', row, getRowValue) : trimResolved(row, getRowValue, action, action.waitTimeoutMs)), 10);
       if (!Number.isFinite(timeoutMs) || timeoutMs < 1000) timeoutMs = 120000;
       if (timeoutMs > 600000) timeoutMs = 600000;
 
-      var maxM = trimResolved(row, getRowValue, action, action.maxMessages);
+      var maxM = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxMessages', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxMessages));
       var maxMessages = maxM ? parseInt(maxM, 10) : undefined;
       if (!Number.isFinite(maxMessages) || maxMessages < 1) maxMessages = undefined;
 
-      var ivRaw = trimResolved(row, getRowValue, action, action.listenKeyKeepaliveIntervalMs);
+      var ivRaw = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'listenKeyKeepaliveIntervalMs', row, getRowValue) : trimResolved(row, getRowValue, action, action.listenKeyKeepaliveIntervalMs));
       var ivKeep = parseInt(ivRaw, 10);
 
       var msg = {
         type: 'CFS_ASTER_USER_STREAM_WAIT',
         wsUrl: wsUrl,
         timeoutMs: timeoutMs,
-        matchEvent: trimResolved(row, getRowValue, action, action.matchEvent),
-        matchSubstring: trimResolved(row, getRowValue, action, action.matchSubstring),
+        matchEvent: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'matchEvent', row, getRowValue) : trimResolved(row, getRowValue, action, action.matchEvent)),
+        matchSubstring: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'matchSubstring', row, getRowValue) : trimResolved(row, getRowValue, action, action.matchSubstring)),
         maxMessages: maxMessages,
-        skipEventTypes: trimResolved(row, getRowValue, action, action.skipEventTypes),
+        skipEventTypes: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'skipEventTypes', row, getRowValue) : trimResolved(row, getRowValue, action, action.skipEventTypes)),
       };
 
-      var recvW = trimResolved(row, getRowValue, action, action.recvWindow);
+      var recvW = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'recvWindow', row, getRowValue) : trimResolved(row, getRowValue, action, action.recvWindow));
       if (recvW !== '') {
         var rwn = parseInt(recvW, 10);
         if (!Number.isFinite(rwn) || rwn < 0 || rwn > 60000) {
@@ -173,7 +176,7 @@
           );
         }
         var inferredMk = inferListenKeyMarketFromWsUrl(wsUrl);
-        var lkm = trimResolved(row, getRowValue, action, action.listenKeyMarket).toLowerCase();
+        var lkm = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'listenKeyMarket', row, getRowValue) : trimResolved(row, getRowValue, action, action.listenKeyMarket)).toLowerCase();
         if (lkm !== 'futures' && lkm !== 'spot') lkm = '';
         if (lkm && lkm !== inferredMk) {
           throw new Error(
@@ -200,7 +203,7 @@
       else if (response.raw != null) payload = { raw: response.raw };
       else payload = {};
       if (row && typeof row === 'object') {
-        var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+        var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
         if (keyVar) {
           try {
             row[keyVar] = JSON.stringify(payload);

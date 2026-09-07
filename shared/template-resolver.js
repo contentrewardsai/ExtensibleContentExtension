@@ -107,9 +107,15 @@
     return cur;
   }
 
+  function resolveActionField(action, key, row, getRowValue) {
+    var raw = action && key != null ? action[key] : '';
+    return resolveTemplate(String(raw == null ? '' : raw).trim(), row || {}, getRowValue, action).trim();
+  }
+
   if (typeof global !== 'undefined') {
     global.CFS_templateResolver = {
       resolveTemplate: resolveTemplate,
+      resolveActionField: resolveActionField,
       getByPath: getByPath,
       tryParseJsonString: tryParseJsonString,
       tokenizeLoosePath: tokenizeLoosePath,

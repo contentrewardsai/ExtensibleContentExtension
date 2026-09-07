@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -26,10 +29,10 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var srcToken = trimResolved(row, getRowValue, action, action.srcToken);
-    var destToken = trimResolved(row, getRowValue, action, action.destToken);
-    var amount = trimResolved(row, getRowValue, action, action.amount);
-    var side = trimResolved(row, getRowValue, action, action.side) || 'SELL';
+    var srcToken = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'srcToken', row, getRowValue) : trimResolved(row, getRowValue, action, action.srcToken));
+    var destToken = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'destToken', row, getRowValue) : trimResolved(row, getRowValue, action, action.destToken));
+    var amount = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'amount', row, getRowValue) : trimResolved(row, getRowValue, action, action.amount));
+    var side = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'side', row, getRowValue) : trimResolved(row, getRowValue, action, action.side)) || 'SELL';
     if (!srcToken || !destToken || !amount) {
       throw new Error('bscAggregatorSwap: set srcToken, destToken, and amount (smallest units). Use native or WBNB address for BNB.');
     }
@@ -41,9 +44,9 @@
       destToken: destToken,
       amount: amount,
       side: side.toUpperCase() === 'BUY' ? 'BUY' : 'SELL',
-      slippage: trimResolved(row, getRowValue, action, action.slippage),
+      slippage: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'slippage', row, getRowValue) : trimResolved(row, getRowValue, action, action.slippage)),
       waitConfirmations: action.waitConfirmations,
-      gasLimit: trimResolved(row, getRowValue, action, action.gasLimit),
+      gasLimit: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'gasLimit', row, getRowValue) : trimResolved(row, getRowValue, action, action.gasLimit)),
     };
 
     var response = await sendMessage(msg);
@@ -52,9 +55,9 @@
     }
 
     if (row && typeof row === 'object') {
-      var hVar = trimResolved(row, getRowValue, action, action.saveTxHashVariable);
+      var hVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTxHashVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTxHashVariable));
       if (hVar && response.txHash) row[hVar] = response.txHash;
-      var eVar = trimResolved(row, getRowValue, action, action.saveExplorerUrlVariable);
+      var eVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveExplorerUrlVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveExplorerUrlVariable));
       if (eVar && response.explorerUrl) row[eVar] = response.explorerUrl;
     }
   }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });

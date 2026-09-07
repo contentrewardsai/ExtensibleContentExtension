@@ -54,6 +54,7 @@
   ];
 
   function trimStr(v) {
+    if (typeof global.CFS_trimStr === 'function') return global.CFS_trimStr(v);
     return v == null ? '' : String(v).trim();
   }
 

@@ -290,6 +290,7 @@
   };
 
   function trimStr(v) {
+    if (typeof globalThis.CFS_trimStr === 'function') return globalThis.CFS_trimStr(v);
     return v != null ? String(v).trim() : '';
   }
 

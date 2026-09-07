@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -26,9 +29,9 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var token = trimResolved(row, getRowValue, action, action.token);
-    var to = trimResolved(row, getRowValue, action, action.to);
-    var amount = trimResolved(row, getRowValue, action, action.amount);
+    var token = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'token', row, getRowValue) : trimResolved(row, getRowValue, action, action.token));
+    var to = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'to', row, getRowValue) : trimResolved(row, getRowValue, action, action.to));
+    var amount = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'amount', row, getRowValue) : trimResolved(row, getRowValue, action, action.amount));
     if (!token || !to || !amount) {
       throw new Error('bscTransferBep20: set token (contract), to, and amount (uint256 or max/balance).');
     }
@@ -39,9 +42,9 @@
       token: token,
       to: to,
       amount: amount,
-      deadline: trimResolved(row, getRowValue, action, action.deadline),
+      deadline: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'deadline', row, getRowValue) : trimResolved(row, getRowValue, action, action.deadline)),
       waitConfirmations: action.waitConfirmations,
-      gasLimit: trimResolved(row, getRowValue, action, action.gasLimit),
+      gasLimit: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'gasLimit', row, getRowValue) : trimResolved(row, getRowValue, action, action.gasLimit)),
     };
 
     var response = await sendMessage(msg);
@@ -50,9 +53,9 @@
     }
 
     if (row && typeof row === 'object') {
-      var hVar = trimResolved(row, getRowValue, action, action.saveTxHashVariable);
+      var hVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTxHashVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTxHashVariable));
       if (hVar && response.txHash) row[hVar] = response.txHash;
-      var eVar = trimResolved(row, getRowValue, action, action.saveExplorerUrlVariable);
+      var eVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveExplorerUrlVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveExplorerUrlVariable));
       if (eVar && response.explorerUrl) row[eVar] = response.explorerUrl;
     }
   }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });

@@ -11,6 +11,21 @@
       ? WhopAuthConfig.APP_ORIGIN.replace(/\/$/, '')
       : 'https://www.extensiblecontent.com';
 
+  async function sendLogout() {
+    try {
+      chrome.runtime.sendMessage({ type: 'LOGOUT' }, function () {});
+    } catch (_) {}
+  }
+
+  /** After 401: try GET_TOKEN refresh. Returns a new token to retry, or null after LOGOUT. */
+  async function retryTokenAfter401(previousToken) {
+    const refreshed = await getToken();
+    const next = refreshed && refreshed.token;
+    if (next && next !== previousToken) return next;
+    await sendLogout();
+    return null;
+  }
+
   async function getToken() {
     try {
       const res = await new Promise((resolve) => {
@@ -51,12 +66,24 @@
       ...(fetchOpts.headers || {}),
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(url, { ...fetchOpts, headers });
-    if (res.status === 401) {
-      try {
-        chrome.runtime.sendMessage({ type: 'LOGOUT' }, () => {});
-      } catch (_) {}
-      const err = new Error('Session expired. Please log in again.');
+    async function doFetch(bearer) {
+      const h = Object.assign({}, headers);
+      if (bearer) h.Authorization = 'Bearer ' + bearer;
+      else delete h.Authorization;
+      return fetch(url, Object.assign({}, fetchOpts, { headers: h }));
+    }
+    let res = await doFetch(token);
+    if (res.status === 401 && requireAuth) {
+      const newTok = await retryTokenAfter401(token);
+      if (newTok) res = await doFetch(newTok);
+      if (res.status === 401) {
+        const err = new Error('Session expired. Please log in again.');
+        err.code = 'UNAUTHORIZED';
+        err.status = 401;
+        throw err;
+      }
+    } else if (res.status === 401 && !requireAuth) {
+      const err = new Error('Unauthorized');
       err.code = 'UNAUTHORIZED';
       err.status = 401;
       throw err;
@@ -79,6 +106,8 @@
     APP_ORIGIN,
     getToken,
     getAccessToken: getToken,
+    retryTokenAfter401,
+    sendLogout,
     apiFetch,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

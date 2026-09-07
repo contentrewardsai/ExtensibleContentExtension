@@ -9,7 +9,6 @@
     "rowMapping": {}
   },
   "formSchema": [
-    { "key": "runIf", "label": "Run only if (row variable; skip when empty/falsy)", "inputType": "text", "placeholder": "e.g. {{pageUrl}}" },
     { "key": "workflowId", "label": "Workflow", "inputType": "select", "optionsSource": "workflows" },
     { "key": "rowMapping", "label": "Row mapping (parent key → child key)", "inputType": "textarea", "hint": "JSON object, e.g. {\"url\": \"pageUrl\"}" }
   ]

@@ -14,6 +14,7 @@
   let actionIndex = 0;
   let manualProceedResolver = null;
   let currentCryptoWalletId = '';
+  let workflowCatalog = {};
 
   function formatErr(err) {
     return err?.message || String(err);
@@ -49,7 +50,18 @@
     return item.querySelectorAll('video[src]').length === 0;
   }
 
+  function cfsIsTopFrame() {
+    try {
+      return typeof window === 'undefined' || window === window.top;
+    } catch (_) {
+      return false;
+    }
+  }
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    const playerControl = msg.type === 'PLAYER_PROCEED' || msg.type === 'PLAYER_START'
+      || msg.type === 'PLAYER_STOP' || msg.type === 'PLAYER_STATUS';
+    if (playerControl && !cfsIsTopFrame()) return false;
     if (msg.type === 'PLAYER_PROCEED') {
       if (manualProceedResolver) {
         manualProceedResolver();
@@ -71,12 +83,25 @@
       currentRow = msg.row || {};
       currentRowIndex = msg.rowIndex != null ? Number(msg.rowIndex) : 0;
       currentCryptoWalletId = msg.cryptoWalletId || '';
+      workflowCatalog = msg.workflowCatalog && typeof msg.workflowCatalog === 'object' ? msg.workflowCatalog : {};
       actionIndex = Math.max(0, parseInt(msg.startIndex, 10) || 0);
       executeNext(safeSend).catch(err => safeSend({ ok: false, error: err?.message || String(err), actionIndex, rowFailureAction: err?.rowFailureAction }));
       return true;
     } else if (msg.type === 'PLAYER_STOP') {
       isPlaying = false;
       currentWorkflow = null;
+      framePlayActive = 0;
+      framePlayCancelGeneration++;
+      try {
+        const CFS_FRAME = (globalThis.CFS_frameActions && globalThis.CFS_frameActions.FRAME_MSG) || '__CFS_FRAME__';
+        document.querySelectorAll('iframe').forEach(function (fr) {
+          try {
+            fr.contentWindow.postMessage({ [CFS_FRAME]: 1, kind: 'play-cancel' }, fr.src ? new URL(fr.src).origin : '*');
+          } catch (_) {
+            try { fr.contentWindow.postMessage({ [CFS_FRAME]: 1, kind: 'play-cancel' }, '*'); } catch (_) {}
+          }
+        });
+      } catch (_) {}
       if (manualProceedResolver) {
         manualProceedResolver();
         manualProceedResolver = null;
@@ -84,7 +109,14 @@
       cfsSendApifyRunCancelFromContentTab();
       sendResponse({ ok: true });
     } else if (msg.type === 'PLAYER_STATUS') {
-      sendResponse({ isPlaying, actionIndex, waitingManual: !!manualProceedResolver });
+      sendResponse({
+        isPlaying,
+        actionIndex,
+        waitingManual: !!manualProceedResolver,
+        nestedWorkflowId: currentNestedPlay && currentNestedPlay.workflowId || '',
+        nestedIndex: currentNestedPlay && currentNestedPlay.index != null ? currentNestedPlay.index : null,
+        nestedTotal: currentNestedPlay && currentNestedPlay.total != null ? currentNestedPlay.total : null,
+      });
     } else if (msg.type === 'GET_ELEMENT_TEXT') {
       try {
         const sel = msg.selector;
@@ -858,6 +890,174 @@
     return false;
   }
 
+  function findIframeElForAction(action) {
+    const sels = [...(action.iframeSelectors || []), ...(action.iframeFallbackSelectors || [])];
+    if (sels.length && typeof resolveElement === 'function') {
+      const el = resolveElement(sels, document);
+      if (el && String(el.tagName || '').toLowerCase() === 'iframe') return el;
+    }
+    const frames = document.querySelectorAll('iframe');
+    const matchFn = globalThis.CFS_frameActions && globalThis.CFS_frameActions.iframeSrcMatchesAction;
+    for (let i = 0; i < frames.length; i++) {
+      const src = frames[i].src || '';
+      if (typeof matchFn === 'function' && matchFn(src, action)) return frames[i];
+    }
+    if (action.frameOrigin) {
+      for (let j = 0; j < frames.length; j++) {
+        try {
+          if (frames[j].src && new URL(frames[j].src).origin === String(action.frameOrigin)) return frames[j];
+        } catch (_) {}
+      }
+    }
+    return frames.length === 1 ? frames[0] : null;
+  }
+
+  async function waitForIframeEl(action, timeoutMs) {
+    const deadline = Date.now() + (timeoutMs || 15000);
+    while (Date.now() < deadline) {
+      const el = findIframeElForAction(action);
+      if (el && el.contentWindow) return el;
+      await sleep(200);
+    }
+    return null;
+  }
+
+  function frameTargetOrigin(iframe, action) {
+    try {
+      if (action && action.frameOrigin) return String(action.frameOrigin);
+      if (iframe && iframe.src) return new URL(iframe.src).origin;
+    } catch (_) {}
+    return '*';
+  }
+
+  function waitForFramePlayerReady(iframe, action) {
+    const CFS_FRAME = (globalThis.CFS_frameActions && globalThis.CFS_frameActions.FRAME_MSG) || '__CFS_FRAME__';
+    const originOk = globalThis.CFS_frameActions && globalThis.CFS_frameActions.playMessageOriginAllowed;
+    return new Promise((resolve, reject) => {
+      const reqId = 'ping_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const targetOrigin = frameTargetOrigin(iframe, action);
+      const cancelGen = framePlayCancelGeneration;
+      let settled = false;
+      const timer = setTimeout(() => finish(new Error('Iframe player did not become ready')), 25000);
+      function finish(err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearInterval(pingTimer);
+        window.removeEventListener('message', onMsg);
+        if (err) reject(err);
+        else resolve();
+      }
+      function onMsg(e) {
+        const d = e && e.data;
+        if (!d || d[CFS_FRAME] !== 1 || d.kind !== 'play-pong' || d.requestId !== reqId) return;
+        if (typeof originOk === 'function' && !originOk(e.origin, action)) return;
+        finish();
+      }
+      function sendPing() {
+        if (cancelGen !== framePlayCancelGeneration) {
+          finish(new Error(STOPPED_MSG));
+          return;
+        }
+        try {
+          iframe.contentWindow.postMessage({ [CFS_FRAME]: 1, kind: 'play-ping', requestId: reqId, action: action }, targetOrigin);
+        } catch (_) {}
+      }
+      window.addEventListener('message', onMsg);
+      const pingTimer = setInterval(sendPing, 400);
+      sendPing();
+    });
+  }
+
+  function playActionInCrossOriginFrame(action) {
+    const CFS_FRAME = (globalThis.CFS_frameActions && globalThis.CFS_frameActions.FRAME_MSG) || '__CFS_FRAME__';
+    const originOk = globalThis.CFS_frameActions && globalThis.CFS_frameActions.playMessageOriginAllowed;
+    return waitForIframeEl(action, 15000).then((iframe) => {
+      if (!iframe || !iframe.contentWindow) {
+        throw new Error('Cross-origin iframe not found for framed step');
+      }
+      return waitForFramePlayerReady(iframe, action).then(() => {
+        const cancelGen = framePlayCancelGeneration;
+        return new Promise((resolve, reject) => {
+          const reqId = 'f' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          const timer = setTimeout(() => {
+            window.removeEventListener('message', onMsg);
+            reject(new Error('Timed out playing step in iframe'));
+          }, 90000);
+          function onMsg(e) {
+            const d = e && e.data;
+            if (!d || d[CFS_FRAME] !== 1 || d.kind !== 'play-result' || d.requestId !== reqId) return;
+            if (typeof originOk === 'function' && !originOk(e.origin, action)) return;
+            clearTimeout(timer);
+            window.removeEventListener('message', onMsg);
+            if (d.ok) resolve();
+            else reject(new Error(d.error || 'iframe step failed'));
+          }
+          window.addEventListener('message', onMsg);
+          if (cancelGen !== framePlayCancelGeneration) {
+            clearTimeout(timer);
+            window.removeEventListener('message', onMsg);
+            reject(new Error(STOPPED_MSG));
+            return;
+          }
+          iframe.contentWindow.postMessage({ [CFS_FRAME]: 1, kind: 'play-action', requestId: reqId, action: action }, frameTargetOrigin(iframe, action));
+        });
+      });
+    });
+  }
+
+  const CFS_FRAME_PLAY = (globalThis.CFS_frameActions && globalThis.CFS_frameActions.FRAME_MSG) || '__CFS_FRAME__';
+  window.addEventListener('message', function (e) {
+    const d = e && e.data;
+    if (!d || d[CFS_FRAME_PLAY] !== 1) return;
+    if (d.kind === 'play-cancel') {
+      isPlaying = false;
+      framePlayActive = 0;
+      framePlayCancelGeneration++;
+      return;
+    }
+    const originOk = globalThis.CFS_frameActions && globalThis.CFS_frameActions.playMessageOriginAllowed;
+    const srcWin = e.source;
+    const resultOrigin = e.origin && e.origin !== 'null' ? e.origin : '*';
+    if (d.kind === 'play-ping') {
+      const pingAction = d.action || {};
+      if (typeof originOk === 'function' && !originOk(e.origin, pingAction)) return;
+      try { srcWin.postMessage({ [CFS_FRAME_PLAY]: 1, kind: 'play-pong', requestId: d.requestId }, resultOrigin); } catch (_) {}
+      return;
+    }
+    if (d.kind !== 'play-action' || !d.action) return;
+    if (typeof originOk === 'function' && !originOk(e.origin, d.action)) return;
+    const reqId = d.requestId;
+    const local = Object.assign({}, d.action);
+    delete local.iframeSelectors;
+    delete local.iframeFallbackSelectors;
+    delete local.inIframe;
+    delete local.frameUrl;
+    delete local.frameOrigin;
+    const cancelGen = framePlayCancelGeneration;
+    framePlayActive++;
+    Promise.resolve()
+      .then(() => waitStepHandlersReady(STEP_HANDLERS_READY_TIMEOUT_MS))
+      .then(() => ensureActionHandler(local && local.type))
+      .then(() => {
+        if (cancelGen !== framePlayCancelGeneration) throw new Error(STOPPED_MSG);
+        return waitForActionElementIfNeeded(local);
+      })
+      .then(() => {
+        if (cancelGen !== framePlayCancelGeneration) throw new Error(STOPPED_MSG);
+        return executeAction(local, {});
+      })
+      .then(() => {
+        try { srcWin.postMessage({ [CFS_FRAME_PLAY]: 1, kind: 'play-result', requestId: reqId, ok: true }, resultOrigin); } catch (_) {}
+      })
+      .catch((err) => {
+        try { srcWin.postMessage({ [CFS_FRAME_PLAY]: 1, kind: 'play-result', requestId: reqId, ok: false, error: formatErr(err) }, resultOrigin); } catch (_) {}
+      })
+      .finally(() => {
+        framePlayActive = Math.max(0, framePlayActive - 1);
+      });
+  });
+
   async function executeNext(sendResponse) {
     if (!isPlaying || !currentWorkflow?.actions) {
       sendResponse?.({ ok: true, done: true });
@@ -887,6 +1087,26 @@
       }
       if (action.type === 'mouseover' || action.type === 'mouseenter') action.type = 'hover';
 
+      if (action.runIf && !evaluateRunIfCondition(action.runIf, currentRow || {}, getRowValue)) {
+        actionIndex++;
+        continue;
+      }
+
+      if (action.type === 'ifCondition') {
+        try {
+          const cond = action.condition != null ? action.condition : action.runIf;
+          const ok = !cond || evaluateRunIfCondition(cond, currentRow || {}, getRowValue);
+          const arm = ok ? (action.thenSteps || []) : (action.elseSteps || []);
+          if (arm.length) await runWorkflowActions(arm, currentRow || {});
+          actionIndex++;
+          continue;
+        } catch (err) {
+          const rowFailureAction = (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || err?.rowFailureAction || 'stop';
+          sendResponse?.({ ok: false, error: formatErr(err), actionIndex, rowFailureAction });
+          return;
+        }
+      }
+
       if (action.type === 'loop') {
         try {
           await executeLoop(action);
@@ -914,10 +1134,28 @@
         }
       }
 
+      if (action.type === 'runWorkflowPlan') {
+        try {
+          const hop = parseRunWorkflowPlanHop(action, currentRow || {});
+          sendResponse?.({ ok: true, runWorkflowPlan: true, items: hop.items, nextStepIndex: actionIndex + 1 });
+          return;
+        } catch (err) {
+          const rowFailureAction = (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || err?.rowFailureAction || 'stop';
+          sendResponse?.({ ok: false, error: formatErr(err), actionIndex, rowFailureAction });
+          return;
+        }
+      }
+
       if (action.type === 'goToUrl') {
-        let url = (action.url && String(action.url).trim()) || getRowValue(currentRow || {}, action.variableKey, 'url');
+        let url = '';
+        if (action.fromCurrentUrl) {
+          const rewrite = globalThis.CFS_frameActions && globalThis.CFS_frameActions.rewriteGoToUrl;
+          url = typeof rewrite === 'function' ? rewrite(action, window.location.href) : window.location.href;
+        } else {
+          url = (action.url && String(action.url).trim()) || getRowValue(currentRow || {}, action.variableKey, 'url');
+        }
         if (!url || !String(url).trim()) {
-          sendResponse?.({ ok: false, error: 'Go to URL: no URL set. Set URL in step or use a row variable (e.g. variableKey: url).', actionIndex, rowFailureAction: (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || 'stop' });
+          sendResponse?.({ ok: false, error: 'Go to URL: no URL set. Set URL in step, use a row variable, or enable From current URL.', actionIndex, rowFailureAction: (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || 'stop' });
           return;
         }
         url = String(url).trim();
@@ -964,6 +1202,13 @@
 
       try {
         if (action.delay && action.delay > 0) await sleep(action.delay);
+        const frameApi = globalThis.CFS_frameActions;
+        if (frameApi && typeof frameApi.actionNeedsFrameDelegate === 'function' && frameApi.actionNeedsFrameDelegate(action, window.location.href)) {
+          await playActionInCrossOriginFrame(action);
+          await saveVariableIfNeeded(action);
+          actionIndex++;
+          continue;
+        }
         if (isEnsureSelect && (action.checkSelectors?.length || action.openSelectors?.length || action.fallbackSelectors?.length)) {
           const base = action.checkSelectors?.length ? action.checkSelectors : action.openSelectors || [];
           const sels = [...base, ...(action.fallbackSelectors || [])];
@@ -999,10 +1244,6 @@
         const skipResult = await trySkipByDOMState(action, actions, actionIndex);
         if (skipResult?.skip) {
           actionIndex += skipResult.skipCount || 1;
-          continue;
-        }
-        if (action.runIf && !evaluateRunIfCondition(action.runIf, currentRow || {}, getRowValue)) {
-          actionIndex++;
           continue;
         }
         const prevAction = actions[actionIndex - 1];
@@ -1312,8 +1553,12 @@
   }
 
   const STOPPED_MSG = 'Playback stopped by user';
+  let framePlayActive = 0;
+  let framePlayCancelGeneration = 0;
+  let currentNestedPlay = null;
   function assertPlaying() {
-    if (!isPlaying) throw new Error(STOPPED_MSG);
+    if (isPlaying || framePlayActive > 0) return;
+    throw new Error(STOPPED_MSG);
   }
 
   async function waitForGenerationComplete(cfg, timeoutMs, stepInfo = {}) {
@@ -1379,6 +1624,23 @@
     throw new Error(`${stepLabel} not complete after ${timeoutMs / 1000}s (waiting for ${videoSelector} in container)`);
   }
 
+  async function waitForActionElementIfNeeded(action) {
+    if (!action) return;
+    const stepMeta = (typeof window !== 'undefined' && window.__CFS_stepHandlerMeta) ? window.__CFS_stepHandlerMeta[action.type] : null;
+    const needsElement = !!(stepMeta && stepMeta.needsElement === true);
+    if (!needsElement) return;
+    const waitSels = [...(action.selectors || []), ...(action.fallbackSelectors || [])];
+    if (!waitSels.length && action.type !== 'type') return;
+    const timeout = action.optional ? OPTIONAL_STEP_TIMEOUT_MS : ELEMENT_TIMEOUT_MS;
+    const summary = action.stepLabel || action.text || action.displayedValue || action.tagName || '';
+    await waitForElement(waitSels, timeout, {
+      type: action.type,
+      summary,
+      action,
+      rootDoc: document,
+    });
+  }
+
   async function waitForElement(selectors, timeoutMs, stepInfo = {}) {
     const doc = stepInfo.rootDoc && stepInfo.rootDoc.nodeType ? stepInfo.rootDoc : document;
     const start = Date.now();
@@ -1420,6 +1682,15 @@
       let candidates = typeof resolveAllCandidates === 'function'
         ? resolveAllCandidates(selectors, doc)
         : (typeof resolveElement === 'function' ? [{ element: resolveElement(selectors, doc) }] : []).filter(c => c?.element);
+      if (type === 'click' && action && candidates.length) {
+        const hintFn = globalThis.CFS_selectors && globalThis.CFS_selectors.clickTextHints;
+        const matchFn = globalThis.CFS_selectors && globalThis.CFS_selectors.elementMatchesClickLabel;
+        const hints = typeof hintFn === 'function' ? hintFn(action) : clickFallbackTexts;
+        if (hints && hints.length && typeof matchFn === 'function') {
+          const labeled = candidates.filter((c) => c && matchFn(c.element, hints));
+          if (labeled.length) candidates = labeled;
+        }
+      }
       if (candidates.length === 0 && type === 'click' && clickFallbackTexts.length) {
         for (const text of clickFallbackTexts) {
           const fallback = findClickableByText(doc, text);
@@ -1440,6 +1711,22 @@
             return t.includes(key) || key.includes(t) || (key.length >= 4 && t.includes(key.slice(0, -1)));
           });
           if (fallback) candidates = [{ element: fallback, selector: null }];
+        }
+      }
+      if (candidates.length === 0 && type === 'dragDrop' && (summary || action?.sourceText || action?.text)) {
+        const key = String(action?.sourceText || action?.text || summary || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (key.length >= 2 && key !== 'source' && key !== 'target') {
+          const cards = doc.querySelectorAll('.gui__builder-card, [draggable="true"]');
+          const found = Array.from(cards).find((el) => {
+            if (!isElementVisible(el)) return false;
+            const t = (el.textContent || el.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            return t === key || t.indexOf(key) === 0;
+          });
+          if (found) candidates = [{ element: found, selector: null }];
+        }
+        if (candidates.length === 0) {
+          const empty = doc.querySelector('.empty-component, .empty-slot');
+          if (empty && isElementVisible(empty)) candidates = [{ element: empty, selector: null }];
         }
       }
       if (candidates.length === 0 && type === 'type' && summary) {
@@ -1639,10 +1926,47 @@
   function applyRowMapping(row, mapping) {
     if (!mapping || !Object.keys(mapping).length) return { ...row };
     const result = { ...row };
+    const tr = typeof CFS_templateResolver !== 'undefined' ? CFS_templateResolver : null;
     for (const [nestedKey, parentKey] of Object.entries(mapping)) {
-      result[nestedKey] = row[parentKey];
+      let v;
+      if (tr && typeof tr.getByLoosePath === 'function' && parentKey) {
+        v = tr.getByLoosePath(row, parentKey);
+      }
+      if (v === undefined) v = row[parentKey];
+      result[nestedKey] = v;
     }
     return result;
+  }
+
+  function parseRunWorkflowPlanHop(action, row) {
+    const planApi = typeof CFS_workflowPlan !== 'undefined' ? CFS_workflowPlan : null;
+    if (!planApi || typeof planApi.parseWorkflowPlan !== 'function') {
+      throw new Error('CFS_workflowPlan missing');
+    }
+    let raw = action.planJson;
+    if (raw == null || String(raw).trim() === '') {
+      const key = String(action.variableKey || 'workflowPlan').trim();
+      raw = row[key];
+    }
+    if (raw == null || (typeof raw === 'string' && !String(raw).trim())) {
+      raw = row.llmReply || row.lastLlmText || row.llmResult;
+    }
+    const parsed = planApi.parseWorkflowPlan(raw);
+    if (!parsed.ok) throw new Error('runWorkflowPlan: ' + (parsed.error || 'invalid plan'));
+    return { items: parsed.next };
+  }
+
+  async function runWorkflowPlanInProcess(action, row) {
+    const hop = parseRunWorkflowPlanHop(action, row);
+    for (const item of hop.items) {
+      const entry = workflowCatalog[item.workflowId];
+      const actions = entry?.actions || entry?.analyzed?.actions;
+      if (!actions?.length) {
+        throw new Error('Plan workflow not found or empty: ' + item.workflowId);
+      }
+      const nestedRow = { ...(row || {}), ...(item.row || {}) };
+      await runWorkflowActions(actions, nestedRow);
+    }
   }
 
   async function runWorkflowActions(actions, row) {
@@ -1651,13 +1975,32 @@
     try {
       for (let i = 0; i < actions.length; i++) {
         const a = actions[i];
-        if (a.type === 'loop') {
+        if (currentNestedPlay) currentNestedPlay.index = i;
+        if (a.runIf && !evaluateRunIfCondition(a.runIf, currentRow || {}, getRowValue)) continue;
+        if (a.type === 'ifCondition') {
+          const cond = a.condition != null ? a.condition : a.runIf;
+          const ok = !cond || evaluateRunIfCondition(cond, currentRow || {}, getRowValue);
+          const arm = ok ? (a.thenSteps || []) : (a.elseSteps || []);
+          if (arm.length) await runWorkflowActions(arm, currentRow || {});
+        } else if (a.type === 'loop') {
           await executeLoop(a);
         } else if (a.type === 'runWorkflow') {
           const nested = a.nestedWorkflow;
           if (!nested?.actions?.length) throw new Error('Nested workflow not found');
           const nestedRow = applyRowMapping(currentRow || {}, a.rowMapping);
-          await runWorkflowActions(nested.actions, nestedRow);
+          const prevNested = currentNestedPlay;
+          currentNestedPlay = {
+            workflowId: a.workflowId || (nested && nested.id) || 'nested',
+            index: 0,
+            total: nested.actions.length,
+          };
+          try {
+            await runWorkflowActions(nested.actions, nestedRow);
+          } finally {
+            currentNestedPlay = prevNested;
+          }
+        } else if (a.type === 'runWorkflowPlan') {
+          await runWorkflowPlanInProcess(a, currentRow || {});
         } else {
           if (a.delay && a.delay > 0) await sleep(a.delay);
           if (a.type === 'ensureSelect' && (a.checkSelectors?.length || a.openSelectors?.length || a.fallbackSelectors?.length)) {
@@ -1685,7 +2028,6 @@
             i += (skipResult.skipCount || 1) - 1;
             continue;
           }
-          if (a.runIf && !evaluateRunIfCondition(a.runIf, currentRow || {}, getRowValue)) continue;
           await executeAction(a);
           await waitForStability(a);
         }
@@ -1706,11 +2048,17 @@
     let iterations;
     if (listVariable) {
       const row = currentRow || {};
-      const raw = row[listVariable];
+      let raw = row[listVariable];
+      if (raw == null && typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.getByLoosePath) {
+        raw = CFS_templateResolver.getByLoosePath(row, listVariable);
+      }
       if (raw == null) {
         iterations = [];
       } else if (Array.isArray(raw)) {
         iterations = raw;
+        if (loopAction.flattenChildren && typeof CFS_workflowPlan !== 'undefined' && CFS_workflowPlan.flattenPlanBlocks) {
+          iterations = CFS_workflowPlan.flattenPlanBlocks(raw);
+        }
       } else if (typeof raw === 'string' && raw.trim()) {
         try {
           const parsed = JSON.parse(raw);
@@ -1737,12 +2085,22 @@
         const step = steps[j];
         const nextStep = steps[j + 1];
         if (step.type === 'click' && nextStep?.type === 'upload') continue;
+        if (step.runIf && !evaluateRunIfCondition(step.runIf, rowBase, getRowValue)) continue;
+        if (step.type === 'ifCondition') {
+          const cond = step.condition != null ? step.condition : step.runIf;
+          const ok = !cond || evaluateRunIfCondition(cond, rowBase, getRowValue);
+          const arm = ok ? (step.thenSteps || []) : (step.elseSteps || []);
+          if (arm.length) await runWorkflowActions(arm, applyRowMapping(rowBase, step.rowMapping));
+          continue;
+        }
         if (step.type === 'runWorkflow') {
           const nested = step.nestedWorkflow;
           if (nested?.actions?.length) {
             const nestedRow = applyRowMapping(rowBase, step.rowMapping);
             await runWorkflowActions(nested.actions, nestedRow);
           }
+        } else if (step.type === 'runWorkflowPlan') {
+          await runWorkflowPlanInProcess(step, rowBase);
         } else {
           const prevRow = currentRow;
           currentRow = rowBase;
@@ -1750,8 +2108,6 @@
             const skipResult = await trySkipByDOMState(step, steps, j);
             if (skipResult?.skip) {
               j += (skipResult.skipCount || 1) - 1;
-            } else if (step.runIf && !evaluateRunIfCondition(step.runIf, currentRow || {}, getRowValue)) {
-              /* skip */
             } else {
               await executeAction(step);
             }
@@ -2192,6 +2548,9 @@
 
   function waitStepHandlersReady(ms) {
     return new Promise((resolve, reject) => {
+      if (window.__CFS_stepHandlers && window.__CFS_stepHandlers.click && window.__CFS_stepHandlers.type) {
+        window.__CFS_stepHandlersReady = true;
+      }
       if (window.__CFS_stepHandlersInjectFailed) {
         reject(new Error('Step handler injection failed'));
         return;
@@ -2233,6 +2592,28 @@
     });
   }
 
+  function ensureActionHandler(type) {
+    const id = String(type || '').trim();
+    if (!id) return Promise.resolve();
+    if (getStepHandlers()[id]) return Promise.resolve();
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        { type: 'INJECT_STEP_HANDLERS', files: ['steps/' + id + '/handler.js'] },
+        () => {
+          void chrome.runtime.lastError;
+          let n = 0;
+          const t = setInterval(() => {
+            n += 1;
+            if (getStepHandlers()[id] || n >= 20) {
+              clearInterval(t);
+              resolve();
+            }
+          }, 50);
+        }
+      );
+    });
+  }
+
   /** Run the registered handler for this step. Handlers must throw on failure so the player can report actionIndex for error correction (scroll to step, Validate/Compare hint). */
   async function executeAction(action, opts = {}) {
     if (!action) throw new Error('No action to execute');
@@ -2243,7 +2624,11 @@
     const ctx = getStepContext();
     ctx.nextAction = nextAction;
     ctx.prevAction = prevAction;
-    const handler = stepHandlers[action.type];
+    let handler = stepHandlers[action.type];
+    if (!handler) {
+      await ensureActionHandler(action.type);
+      handler = getStepHandlers()[action.type];
+    }
     if (!handler) {
       const removed = typeof globalThis.CFS_removedStepTypes !== 'undefined' && globalThis.CFS_removedStepTypes instanceof Set
         ? globalThis.CFS_removedStepTypes
@@ -2260,6 +2645,12 @@
   async function saveVariableIfNeeded(action) {
     const varName = action.saveAsVariable;
     if (!varName || !currentRow) return;
+    if (action.type === 'waitForElement') {
+      var found = action._elementFound;
+      if (found === undefined) found = false;
+      currentRow[varName] = action.saveResult === 'notFound' ? !found : !!found;
+      return;
+    }
     if (action.type === 'type') {
       currentRow[varName] = String(getRowValue(currentRow, action.variableKey, action.placeholder, action.name, 'value'));
     } else if (action.type === 'select') {

@@ -17,6 +17,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -27,7 +30,7 @@
     var row = ctx.currentRow || {};
     var getRowValue = ctx.getRowValue;
 
-    var limitStr = trimResolved(row, getRowValue, action, action.limit);
+    var limitStr = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'limit', row, getRowValue) : trimResolved(row, getRowValue, action, action.limit));
     var limit = parseInt(limitStr, 10);
     if (!Number.isFinite(limit) || limit < 1) limit = 40;
     if (limit > 100) limit = 100;
@@ -40,14 +43,14 @@
     var activity = Array.isArray(response.activity) ? response.activity.slice() : [];
     var applyClientFilters = action.applyClientFilters !== false;
     if (applyClientFilters) {
-      var filterAddr = trimResolved(row, getRowValue, action, action.filterAddress).trim();
+      var filterAddr = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'filterAddress', row, getRowValue) : trimResolved(row, getRowValue, action, action.filterAddress)).trim();
       if (filterAddr) {
         activity = activity.filter(function (r) {
           return String(r.address || '').toLowerCase().indexOf(filterAddr.toLowerCase()) !== -1;
         });
       }
 
-      var sinceStr = trimResolved(row, getRowValue, action, action.sinceTimestampMs);
+      var sinceStr = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'sinceTimestampMs', row, getRowValue) : trimResolved(row, getRowValue, action, action.sinceTimestampMs));
       if (sinceStr) {
         var since = parseInt(sinceStr, 10);
         if (Number.isFinite(since)) {
@@ -58,7 +61,7 @@
       }
     }
 
-    var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+    var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
     if (!keyVar) return;
 
     if (row && typeof row === 'object') {

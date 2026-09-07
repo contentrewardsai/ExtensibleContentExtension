@@ -14,6 +14,8 @@
     { "key": "state", "label": "State", "inputType": "radio", "options": ["visible", "hidden"] },
     { "key": "selectors", "label": "Selectors (JSON)", "inputType": "textarea", "pickOnPage": true },
     { "key": "timeoutMs", "label": "Timeout (ms)", "inputType": "number", "min": 1000 },
-    { "key": "optional", "label": "Optional (continue on timeout)", "inputType": "checkbox" }
+    { "key": "optional", "label": "Optional (continue on timeout)", "inputType": "checkbox" },
+    { "key": "saveAsVariable", "label": "Save result as row variable", "inputType": "text", "placeholder": "e.g. loginVisible" },
+    { "key": "saveResult", "label": "Saved value", "inputType": "radio", "options": ["found", "notFound"] }
   ]
 }

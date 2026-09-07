@@ -17,6 +17,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -58,7 +61,7 @@
       var row = ctx.currentRow || {};
       var getRowValue = ctx.getRowValue;
 
-      var inVar = trimResolved(row, getRowValue, action, action.inputVariable);
+      var inVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'inputVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.inputVariable));
       if (!inVar) throw new Error('watchActivityFilterPriceDrift: set input variable name');
 
       var rawIn = getRowValue(row, inVar);
@@ -68,14 +71,14 @@
       }
 
       var activity = Array.isArray(payload.activity) ? payload.activity.slice() : [];
-      var driftBuy = trimResolved(row, getRowValue, action, action.maxDriftPercentBuy);
-      var driftSell = trimResolved(row, getRowValue, action, action.maxDriftPercentSell);
-      var driftBoth = trimResolved(row, getRowValue, action, action.maxDriftPercentBoth);
-      var amountTpl = trimResolved(row, getRowValue, action, action.amountRaw);
-      var slipStr = trimResolved(row, getRowValue, action, action.slippageBps);
+      var driftBuy = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxDriftPercentBuy', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxDriftPercentBuy));
+      var driftSell = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxDriftPercentSell', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxDriftPercentSell));
+      var driftBoth = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxDriftPercentBoth', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxDriftPercentBoth));
+      var amountTpl = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'amountRaw', row, getRowValue) : trimResolved(row, getRowValue, action, action.amountRaw));
+      var slipStr = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'slippageBps', row, getRowValue) : trimResolved(row, getRowValue, action, action.slippageBps));
       var slip = parseInt(slipStr, 10);
       if (!Number.isFinite(slip)) slip = 50;
-      var chainExplicit = trimResolved(row, getRowValue, action, action.chain).toLowerCase();
+      var chainExplicit = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'chain', row, getRowValue) : trimResolved(row, getRowValue, action, action.chain)).toLowerCase();
 
       var filtered = [];
       for (var i = 0; i < activity.length; i++) {
@@ -132,7 +135,7 @@
         filtered.push(c3);
       }
 
-      var outVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+      var outVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
       if (!outVar) throw new Error('watchActivityFilterPriceDrift: set save result variable');
 
       var out = { activity: filtered, latest: filtered[0] || null, count: filtered.length };

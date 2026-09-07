@@ -91,15 +91,23 @@
         "shared/project-id-resolve.js",
         "shared/personal-info-sync.js",
         "shared/removed-step-types.js",
+        "shared/cfs-frame-actions.js",
+        "shared/workflow-plan.js",
+        "shared/page-compare.js",
         "steps/registry.js",
         "steps/loader.js",
+        "steps/click/handler.js",
+        "steps/type/handler.js",
+        "steps/wait/handler.js",
+        "steps/dragDrop/handler.js",
+        "steps/ensureOpen/handler.js",
         "content/recorder.js",
         "content/player.js",
         "shared/discovery-input-normalize.js",
         "content/auto-discovery.js"
       ],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true
     },
     {
       "matches": [
@@ -134,6 +142,8 @@
         "docs/BSC_WALLET_STORAGE.md",
         "docs/SOLANA_AUTOMATION.md",
         "test/fixtures/record-playback-test.html",
+        "test/fixtures/floratrack-dashboard.html",
+        "test/fixtures/floratrack-plan.json",
         "steps/manifest.json",
         "steps/*/handler.js",
         "content/wallet-provider-proxy.js",

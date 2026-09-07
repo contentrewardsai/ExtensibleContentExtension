@@ -14,7 +14,7 @@ function generateSelectors(element) {
     : [];
 
   // 1. ID (most stable when present and not dynamic)
-  if (id && !id.match(/^(ember|react|vue|ng|__next|mui)/)) {
+  if (id && !isUnstableGeneratedId(id)) {
     selectors.push({ type: 'id', value: `#${CSS.escape(id)}`, score: 10 });
   }
 
@@ -148,14 +148,44 @@ function selectorEntryKey(sel) {
  * @param {{ primaryCount?: number }} options - primaryCount = number of selectors to keep as primary (default 1)
  * @returns {{ primary: Array, fallbacks: Array }}
  */
+function isUnstableGeneratedId(id) {
+  const s = String(id || '').trim();
+  if (!s) return true;
+  if (/^(ember|react|vue|ng|__next|mui|radix)/i.test(s)) return true;
+  if (/^hr-button-v-/i.test(s)) return true;
+  if (/-v-\d+$/i.test(s) || /[_-]v\d+$/i.test(s)) return true;
+  return false;
+}
+
+/**
+ * Keep a selector only when resolving it now hits the recorded element first.
+ * Drops shared classes/IDs that match a different control earlier in the DOM
+ * (e.g. header "#add-step" vs modal "Create new page").
+ */
+function selectorPrefersRecordedTarget(sel, element) {
+  try {
+    const doc = (element && element.ownerDocument) || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !element || !sel) return true;
+    const all = tryResolveAllWithSelector(sel, doc);
+    if (all && all.length > 0) return all[0] === element;
+    const one = tryResolveWithSelector(sel, doc);
+    if (!one) return true;
+    return one === element;
+  } catch (_) {
+    return true;
+  }
+}
+
 function generatePrimaryAndFallbackSelectors(element, options) {
   const all = generateSelectors(element);
   if (!all.length) return { primary: [], fallbacks: [] };
   const sorted = [...all].sort((a, b) => (b.score || 0) - (a.score || 0));
+  const filtered = sorted.filter((s) => selectorPrefersRecordedTarget(s, element));
+  const use = filtered.length ? filtered : sorted;
   const primaryCount = Math.max(1, Math.min(5, (options && options.primaryCount) || 1));
-  const primary = sorted.slice(0, primaryCount);
+  const primary = use.slice(0, primaryCount);
   const primaryKeys = new Set(primary.map(selectorEntryKey));
-  const fallbacks = sorted.slice(primaryCount).filter(function(s) {
+  const fallbacks = use.slice(primaryCount).filter(function(s) {
     return !primaryKeys.has(selectorEntryKey(s));
   });
   return { primary: primary, fallbacks: fallbacks };
@@ -485,10 +515,18 @@ function resolveAllCandidates(selectors, doc = document) {
   const candidates = [];
   const sorted = [...normalized].sort((a, b) => (b.score || 0) - (a.score || 0));
   for (const sel of sorted) {
-    const el = tryResolveWithSelector(sel, doc);
-    if (el && !seen.has(el)) {
-      seen.add(el);
-      candidates.push({ element: el, selector: sel });
+    const all = tryResolveAllWithSelector(sel, doc);
+    const list = all && all.length ? all : [];
+    if (!list.length) {
+      const one = tryResolveWithSelector(sel, doc);
+      if (one) list.push(one);
+    }
+    for (let i = 0; i < list.length; i++) {
+      const el = list[i];
+      if (el && !seen.has(el)) {
+        seen.add(el);
+        candidates.push({ element: el, selector: sel });
+      }
     }
   }
   return candidates;
@@ -504,7 +542,7 @@ function actionSimilarity(a, b) {
   
   let aSels = a.selectors || [];
   let bSels = b.selectors || [];
-  if (a.type === 'ensureSelect') {
+  if (a.type === 'ensureSelect' || a.type === 'ensureOpen') {
     aSels = [].concat(a.checkSelectors || [], a.openSelectors || [], a.fallbackSelectors || []);
     bSels = [].concat(b.checkSelectors || [], b.openSelectors || [], b.fallbackSelectors || []);
   }
@@ -609,6 +647,53 @@ function actionSelectorsToCssStrings(action) {
  * @param {string[]} cssStrings - CSS selector strings
  * @returns {Element|null}
  */
+function normalizeClickLabel(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim();
+}
+
+/** Visible label used to disambiguate click targets when CSS hits the wrong control. */
+function clickTextHints(action) {
+  if (!action || typeof action !== 'object') return [];
+  const out = [];
+  const seen = new Set();
+  function add(v) {
+    const t = normalizeClickLabel(v);
+    if (t.length < 2 || t.length > 80) return;
+    const k = t.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(t);
+  }
+  add(action.displayedValue);
+  add(action.text);
+  const fbs = action.fallbackTexts;
+  if (Array.isArray(fbs)) {
+    for (let i = 0; i < fbs.length; i++) add(fbs[i]);
+  }
+  add(action.ariaLabel);
+  return out;
+}
+
+function clickTextHintsRequireMatch(action) {
+  /* Sort-only: never require a text match (label scoring still prefers the matching button). */
+  void action;
+  return false;
+}
+
+function elementMatchesClickLabel(el, hints) {
+  if (!el || !hints || !hints.length) return true;
+  const vis = normalizeClickLabel(
+    (el.textContent || el.innerText || el.value || el.getAttribute('aria-label') || '')
+  ).toLowerCase();
+  if (!vis) return false;
+  for (let i = 0; i < hints.length; i++) {
+    const n = String(hints[i] || '').toLowerCase();
+    if (!n) continue;
+    if (vis === n || vis.includes(n) || (n.includes(vis) && vis.length >= 4)) return true;
+  }
+  return false;
+}
+
 function findElementByCssStrings(doc, cssStrings) {
   if (!doc || !cssStrings || !cssStrings.length) return null;
   for (let i = 0; i < cssStrings.length; i++) {
@@ -628,12 +713,18 @@ if (typeof window !== 'undefined') {
   window.CFS_selectors.scoreSelectorString = scoreSelectorString;
   window.CFS_selectors.generateSelectors = generateSelectors;
   window.CFS_selectors.generatePrimaryAndFallbackSelectors = generatePrimaryAndFallbackSelectors;
+  window.CFS_selectors.isUnstableGeneratedId = isUnstableGeneratedId;
+  window.CFS_selectors.selectorPrefersRecordedTarget = selectorPrefersRecordedTarget;
+  window.CFS_selectors.clickTextHints = clickTextHints;
+  window.CFS_selectors.clickTextHintsRequireMatch = clickTextHintsRequireMatch;
+  window.CFS_selectors.elementMatchesClickLabel = elementMatchesClickLabel;
   window.CFS_selectors.selectorEntryKey = selectorEntryKey;
   window.CFS_selectors.normalizeSelectorEntry = normalizeSelectorEntry;
   window.CFS_selectors.tryResolveWithSelector = tryResolveWithSelector;
   window.CFS_selectors.tryResolveAllWithSelector = tryResolveAllWithSelector;
   window.CFS_selectors.resolveElement = resolveElement;
   window.CFS_selectors.resolveAllElements = resolveAllElements;
+  window.CFS_selectors.resolveAllCandidates = resolveAllCandidates;
   window.CFS_selectors.cssPathForElement = getCssPath;
   /**
    * Ordered matches for one selector entry (all matches, or [single] from tryResolve).

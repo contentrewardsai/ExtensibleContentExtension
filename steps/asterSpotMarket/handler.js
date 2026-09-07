@@ -17,6 +17,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -30,19 +33,19 @@
       var sendMessage = ctx.sendMessage;
       var row = currentRow;
 
-      var operation = trimResolved(row, getRowValue, action, action.operation);
+      var operation = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'operation', row, getRowValue) : trimResolved(row, getRowValue, action, action.operation));
       if (!operation) throw new Error('asterSpotMarket: set operation');
 
       var msg = {
         type: 'CFS_ASTER_FUTURES',
         asterCategory: 'spotMarket',
         operation: operation,
-        symbol: trimResolved(row, getRowValue, action, action.symbol),
-        limit: trimResolved(row, getRowValue, action, action.limit),
-        interval: trimResolved(row, getRowValue, action, action.interval),
-        fromId: trimResolved(row, getRowValue, action, action.fromId),
-        startTime: trimResolved(row, getRowValue, action, action.startTime),
-        endTime: trimResolved(row, getRowValue, action, action.endTime),
+        symbol: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'symbol', row, getRowValue) : trimResolved(row, getRowValue, action, action.symbol)),
+        limit: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'limit', row, getRowValue) : trimResolved(row, getRowValue, action, action.limit)),
+        interval: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'interval', row, getRowValue) : trimResolved(row, getRowValue, action, action.interval)),
+        fromId: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'fromId', row, getRowValue) : trimResolved(row, getRowValue, action, action.fromId)),
+        startTime: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'startTime', row, getRowValue) : trimResolved(row, getRowValue, action, action.startTime)),
+        endTime: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'endTime', row, getRowValue) : trimResolved(row, getRowValue, action, action.endTime)),
       };
 
       var response = await sendMessage(msg);
@@ -53,7 +56,7 @@
       }
 
       if (row && typeof row === 'object') {
-        var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+        var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
         if (keyVar && response.result != null) {
           try {
             row[keyVar] = JSON.stringify(response.result);

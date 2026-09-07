@@ -44,5 +44,8 @@ The workflow JSON supports all current features: steps, qualityCheck step (inclu
 Listed in **`workflows/manifest.json`** and auto-loaded into Library on side panel open (Reload Extension after pull):
 
 - **workflows/e2e-test/** – E2E fixture workflows (hidden from normal pickers; names contain “e2e”).
+- **workflows/ghl-blank-website-test/** – GoHighLevel blank website + Home page + top-level page builder headline.
+- **workflows/ghl-design-import/** – Design → HighLevel family (`wf_ghl_design_import` orchestrator, bootstrap, native placers, Forms/Surveys, HTML visual fallback, compare + correct). Static FloraTrack fixture: `test/fixtures/floratrack-dashboard.html` + `floratrack-plan.json`.
+- **workflows/beehiiv-draft-post/** – beehiiv Visual Editor: blank draft, title, `/` (or inline +) Heading 1, leave as draft (no publish).
 - **workflows/bsc-v3-lp/** – PancakeSwap V3 concentrated LP (enter / monitor / exit-stable / restake). See `docs/BSC_V3_LP_WORKFLOWS.md`.
 - **workflows/bsc-infi-lp/** – PancakeSwap Infinity bin LP examples. See `docs/BSC_INFI_LP_WORKFLOWS.md`.

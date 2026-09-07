@@ -49,9 +49,11 @@
     if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t)) {
       if (tr && typeof tr.getByLoosePath === 'function') {
         var v2 = tr.getByLoosePath(row, t);
-        return v2 !== undefined && v2 !== null ? v2 : '';
+        if (v2 !== undefined && v2 !== null && v2 !== '') return v2;
       }
-      return getRv(row, t);
+      var gv = typeof getRv === 'function' ? getRv(row, t) : undefined;
+      if (gv !== undefined && gv !== null && gv !== '') return gv;
+      return t;
     }
     return t;
   }

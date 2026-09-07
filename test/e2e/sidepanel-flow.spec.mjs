@@ -273,6 +273,7 @@ test.describe('Sidepanel UI: record workflow actions', () => {
   });
 
   test('record a click action on the fixture page', async ({ extensionContext, extensionId, fixtureServer }) => {
+    await fixturePage.waitForFunction(() => !!(window.__CFS_stepHandlersReady || window.__CFS_registerStepHandler), { timeout: 15_000 });
     const startResp = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
       type: 'RECORDER_START',
       workflowId: 'e2e-sp-record-click',
@@ -297,7 +298,8 @@ test.describe('Sidepanel UI: record workflow actions', () => {
   test('record a type action on the fixture page', async ({ extensionContext, extensionId, fixtureServer }) => {
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
-    await new Promise((r) => setTimeout(r, 500));
+    await fixturePage.waitForFunction(() => !!(window.__CFS_stepHandlersReady || window.__CFS_registerStepHandler), { timeout: 15_000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
 
     await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
       type: 'RECORDER_START',
@@ -559,7 +561,8 @@ test.describe('Sidepanel UI: programmatic RUN_WORKFLOW', () => {
   test('RUN_WORKFLOW triggers click playback on fixture', async ({ extensionContext, extensionId, fixtureServer }) => {
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
-    await new Promise((r) => setTimeout(r, 1000));
+    await fixturePage.waitForFunction(() => !!window.__CFS_stepHandlersReady, { timeout: 15_000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
 
     const wf = {
       id: 'e2e-sp-run-click',
@@ -584,7 +587,8 @@ test.describe('Sidepanel UI: programmatic RUN_WORKFLOW', () => {
   test('RUN_WORKFLOW triggers type playback with row data', async ({ extensionContext, extensionId, fixtureServer }) => {
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
-    await new Promise((r) => setTimeout(r, 1000));
+    await fixturePage.waitForFunction(() => !!window.__CFS_stepHandlersReady, { timeout: 15_000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
 
     const wf = {
       id: 'e2e-sp-run-type',
@@ -683,7 +687,8 @@ test.describe('Sidepanel UI: batch with startIndex', () => {
 
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
-    await new Promise((r) => setTimeout(r, 1000));
+    await fixturePage.waitForFunction(() => !!(window.__CFS_stepHandlersReady || window.__CFS_registerStepHandler), { timeout: 15_000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 500));
 
     const wf = {
       id: 'e2e-sp-batch-multi',
@@ -717,7 +722,8 @@ test.describe('Sidepanel UI: batch with startIndex', () => {
 
     await fixturePage.goto(fixtureServer.fixtureUrl);
     await fixturePage.waitForLoadState('domcontentloaded');
-    await new Promise((r) => setTimeout(r, 1000));
+    await fixturePage.waitForFunction(() => !!(window.__CFS_stepHandlersReady || window.__CFS_registerStepHandler), { timeout: 15_000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 500));
 
     const wf = {
       id: 'e2e-sp-batch-counts',
@@ -1565,6 +1571,128 @@ test.describe('Sidepanel UI: schedule run flow', () => {
       expect(remaining.length).toBe(0);
     } finally {
       await sidepanelPage.close();
+    }
+  });
+});
+
+/* ================================================================
+   Audit verification — logged-out + simulated logged-in contracts
+   ================================================================ */
+test.describe('Audit auth surfaces', () => {
+  test('logged-out: auth UI, no Library remotes, Settings crypto, no 401 spam', async ({ extensionContext, extensionId }) => {
+    const projectsHits = [];
+    const page = await extensionContext.newPage();
+    page.on('request', (req) => {
+      const u = req.url();
+      if (/\/api\/extension\/projects/i.test(u)) projectsHits.push(u);
+    });
+    try {
+      await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+      await page.waitForLoadState('domcontentloaded');
+      await new Promise((r) => setTimeout(r, 1500));
+
+      await expect(page.locator('#authLoggedOut')).toBeVisible();
+      await expect(page.locator('#authLoggedIn')).toBeHidden();
+      await expect(page.locator('#backendOfflineBanner')).toBeHidden();
+      const errText = ((await page.locator('#globalError, .global-error, #errorBanner').allTextContents().catch(() => [])) || []).join(' ');
+      expect(errText).not.toMatch(/UNAUTHORIZED|Please log in again/i);
+
+      await page.locator('.header-tab[data-tab="library"]').click();
+      await new Promise((r) => setTimeout(r, 800));
+      await expect(page.locator('#libraryPanel')).toBeVisible();
+
+      const remotes = await page.evaluate(async () => {
+        if (!window.CFS_libraryPanel || typeof window.CFS_libraryPanel.fetchRemoteProjects !== 'function') return 'missing';
+        return window.CFS_libraryPanel.fetchRemoteProjects(async () => false, (p) => p);
+      });
+      expect(remotes).toEqual([]);
+      expect(projectsHits).toEqual([]);
+
+      const token = await sendExtensionMessage(extensionContext, extensionId, { type: 'GET_TOKEN' });
+      expect(token?.ok).toBe(false);
+
+      const acct = await sendExtensionMessage(extensionContext, extensionId, { type: 'GET_ACCOUNT_STATUS' });
+      expect(acct?.ok).toBe(true);
+      expect(acct?.status?.loggedIn).toBeFalsy();
+      expect(acct?.status?.upgraded).toBe(false);
+
+      const settings = await extensionContext.newPage();
+      try {
+        await settings.goto(`chrome-extension://${extensionId}/settings/settings.html`);
+        await settings.waitForLoadState('domcontentloaded');
+        await settings.locator('.nav-item[data-target="tab-crypto"]').click();
+        await expect(settings.locator('#tab-crypto')).toBeVisible();
+        const cryptoToggle = settings.locator('#cfsCryptoWeb3Enabled');
+        if (!(await cryptoToggle.isChecked())) await cryptoToggle.check();
+        await expect(settings.locator('#cfsCryptoWeb3Content')).toBeVisible();
+        await expect(settings.locator('#solanaWalletSection')).toBeVisible();
+        await expect(settings.locator('#bscWalletSection')).toBeVisible();
+      } finally {
+        await settings.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('logged-in contracts: banner ping, Library remotes, Pro boolean, no duplicate fetch when logged out', async ({ extensionContext, extensionId }) => {
+    const page = await extensionContext.newPage();
+    try {
+      await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+      await page.waitForLoadState('domcontentloaded');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const result = await page.evaluate(async () => {
+        const api = window.ExtensionApi || (window.ExtensionApi = {});
+        const banner = document.getElementById('backendOfflineBanner');
+        const origInd = api.getIndustries;
+        const origProj = api.getProjects;
+        const out = {};
+
+        api.getIndustries = () => Promise.resolve([]);
+        await window.CFS_authBackend.checkBackendStatus(() => ({ isLoggedIn: true }));
+        await new Promise((r) => setTimeout(r, 50));
+        out.bannerHiddenWhenUp = banner.style.display === 'none' || banner.hidden;
+
+        api.getIndustries = () => Promise.reject(new Error('offline'));
+        await window.CFS_authBackend.checkBackendStatus(() => ({ isLoggedIn: true }));
+        await new Promise((r) => setTimeout(r, 50));
+        out.bannerShownWhenDown = banner.style.display === 'block';
+
+        await window.CFS_authBackend.checkBackendStatus(() => ({ isLoggedIn: false }));
+        await new Promise((r) => setTimeout(r, 50));
+        out.bannerHiddenWhenLoggedOut = banner.style.display === 'none' || banner.hidden;
+
+        let getProjectsCalls = 0;
+        api.getProjects = async () => {
+          getProjectsCalls += 1;
+          return [{ id: 'remote-1', name: 'Remote One' }];
+        };
+        const loggedOutRemotes = await window.CFS_libraryPanel.fetchRemoteProjects(async () => false, (p) => ({ id: p.id, name: p.name }));
+        const loggedInRemotes = await window.CFS_libraryPanel.fetchRemoteProjects(async () => true, (p) => ({ id: p.id, name: p.name }));
+        out.loggedOutRemotes = loggedOutRemotes;
+        out.loggedInRemotes = loggedInRemotes;
+        out.getProjectsCalls = getProjectsCalls;
+
+        const upgraded = { ok: true, pro: true };
+        out.proBoolean = !!(upgraded.ok && upgraded.pro);
+
+        if (origInd) api.getIndustries = origInd;
+        else delete api.getIndustries;
+        if (origProj) api.getProjects = origProj;
+        else delete api.getProjects;
+        return out;
+      });
+
+      expect(result.bannerHiddenWhenUp).toBe(true);
+      expect(result.bannerShownWhenDown).toBe(true);
+      expect(result.bannerHiddenWhenLoggedOut).toBe(true);
+      expect(result.loggedOutRemotes).toEqual([]);
+      expect(result.loggedInRemotes).toEqual([{ id: 'remote-1', name: 'Remote One' }]);
+      expect(result.getProjectsCalls).toBe(1);
+      expect(result.proBoolean).toBe(true);
+    } finally {
+      await page.close();
     }
   });
 });

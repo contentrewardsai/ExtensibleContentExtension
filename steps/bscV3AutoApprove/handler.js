@@ -21,6 +21,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -59,14 +62,14 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var tokenA = trimResolved(row, getRowValue, action, action.tokenA);
-    var tokenB = trimResolved(row, getRowValue, action, action.tokenB);
+    var tokenA = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'tokenA', row, getRowValue) : trimResolved(row, getRowValue, action, action.tokenA));
+    var tokenB = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'tokenB', row, getRowValue) : trimResolved(row, getRowValue, action, action.tokenB));
     if (!tokenA || !tokenB) throw new Error('bscV3AutoApprove: set tokenA and tokenB.');
 
-    var router = trimResolved(row, getRowValue, action, action.swapRouterV3Address) || SWAP_ROUTER_V3;
-    var npm = trimResolved(row, getRowValue, action, action.positionManagerAddress) || NPM_V3;
-    var amount = trimResolved(row, getRowValue, action, action.amount) || 'max';
-    var gasLimit = trimResolved(row, getRowValue, action, action.gasLimit);
+    var router = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'swapRouterV3Address', row, getRowValue) : trimResolved(row, getRowValue, action, action.swapRouterV3Address)) || SWAP_ROUTER_V3;
+    var npm = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'positionManagerAddress', row, getRowValue) : trimResolved(row, getRowValue, action, action.positionManagerAddress)) || NPM_V3;
+    var amount = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'amount', row, getRowValue) : trimResolved(row, getRowValue, action, action.amount)) || 'max';
+    var gasLimit = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'gasLimit', row, getRowValue) : trimResolved(row, getRowValue, action, action.gasLimit));
 
     await bscQuery(sendMessage, { operation: 'automationWalletAddress' });
 
@@ -106,7 +109,7 @@
     }
 
     if (row && typeof row === 'object') {
-      var saveVar = trimResolved(row, getRowValue, action, action.saveApproveResultsVariable) || 'v3ApproveResults';
+      var saveVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveApproveResultsVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveApproveResultsVariable)) || 'v3ApproveResults';
       try {
         row[saveVar] = JSON.stringify(results);
       } catch (_) {

@@ -5,6 +5,13 @@
   <title>E2E extract iframe</title>
 </head>
 <body>
+  <button type="button" data-testid="iframe-click-target" id="iframeClickTarget">Iframe click</button>
+  <p id="iframeClickStatus" data-testid="iframe-click-status">idle</p>
+  <script>
+    document.getElementById('iframeClickTarget').addEventListener('click', function () {
+      document.getElementById('iframeClickStatus').textContent = 'iframe clicked';
+    });
+  </script>
   <ul data-testid="iframe-item-list">
     <li data-testid="iframe-item">
       <span class="iframe-item-name">Carol</span>

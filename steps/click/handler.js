@@ -126,17 +126,19 @@
       var clickable = c.element.closest('button, a, [role="button"]') || c.element;
       return !isExternalNavLink(clickable);
     });
-    if (candidates.length > 1 && (action.text || action.displayedValue)) {
-      var key = String(action.text || action.displayedValue || '').trim().toLowerCase().slice(0, 30);
+    if (candidates.length > 1 && (action.text || action.displayedValue || (action.fallbackTexts && action.fallbackTexts[0]))) {
+      var key = String(action.text || action.displayedValue || action.fallbackTexts[0] || '').replace(/\s+/g, ' ').trim().toLowerCase();
       if (key.length >= 2) {
-        candidates.sort(function(x, y) {
-          var tx = (x.element.textContent || x.element.innerText || x.element.value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-          var ty = (y.element.textContent || y.element.innerText || y.element.value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-          var matchX = tx.indexOf(key) >= 0 || (key && tx.slice(0, 25).indexOf(key) >= 0);
-          var matchY = ty.indexOf(key) >= 0 || (key && ty.slice(0, 25).indexOf(key) >= 0);
-          if (matchX && !matchY) return -1;
-          if (!matchX && matchY) return 1;
+        function clickLabelScore(el) {
+          var tx = (el.textContent || el.innerText || el.value || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (!tx) return 0;
+          if (tx === key) return 3;
+          if (tx.indexOf(key) === 0 || key.indexOf(tx) === 0) return 2;
+          if (tx.indexOf(key) >= 0) return 1;
           return 0;
+        }
+        candidates.sort(function(x, y) {
+          return clickLabelScore(y.element) - clickLabelScore(x.element);
         });
       }
     }
