@@ -69,12 +69,10 @@
   }
 
   function evaluateRunIf(runIfRaw, row) {
-    var ric = global.CFS_runIfCondition;
-    if (!ric || typeof ric.evaluate !== 'function') {
-      return !!String(runIfRaw || '').trim();
-    }
+    var ws = global.CFS_watchShared;
+    if (ws && typeof ws.evaluateRunIf === 'function') return ws.evaluateRunIf(runIfRaw, row);
     if (!String(runIfRaw || '').trim()) return true;
-    return ric.evaluate(runIfRaw, row, getRowValue);
+    return false;
   }
 
   function applyRowMapping(parentRow, mapping) {

@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -39,25 +42,25 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var tokenA = trimResolved(row, getRowValue, action, action.tokenA);
-    var tokenB = trimResolved(row, getRowValue, action, action.tokenB);
-    var v3Fee = trimResolved(row, getRowValue, action, action.v3Fee) || '500';
-    var v3Pool = trimResolved(row, getRowValue, action, action.v3Pool);
-    var rangePercent = trimResolved(row, getRowValue, action, action.rangePercent) || '0.5';
-    var rangePercentBelow = trimResolved(row, getRowValue, action, action.rangePercentBelow);
-    var rangePercentAbove = trimResolved(row, getRowValue, action, action.rangePercentAbove);
-    var minPrice = trimResolved(row, getRowValue, action, action.minPrice);
-    var maxPrice = trimResolved(row, getRowValue, action, action.maxPrice);
-    var bnbBudgetWei = trimResolved(row, getRowValue, action, action.bnbBudgetWei) || 'max';
-    var gasReserveWei = trimResolved(row, getRowValue, action, action.gasReserveWei);
-    var fundMode = (trimResolved(row, getRowValue, action, action.fundMode) || 'bnb').toLowerCase();
-    var stableBudgetWei = trimResolved(row, getRowValue, action, action.stableBudgetWei) || 'max';
-    var stableReserveWei = trimResolved(row, getRowValue, action, action.stableReserveWei) || '0';
-    var stableToken = trimResolved(row, getRowValue, action, action.stableToken)
+    var tokenA = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'tokenA', row, getRowValue) : trimResolved(row, getRowValue, action, action.tokenA));
+    var tokenB = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'tokenB', row, getRowValue) : trimResolved(row, getRowValue, action, action.tokenB));
+    var v3Fee = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'v3Fee', row, getRowValue) : trimResolved(row, getRowValue, action, action.v3Fee)) || '500';
+    var v3Pool = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'v3Pool', row, getRowValue) : trimResolved(row, getRowValue, action, action.v3Pool));
+    var rangePercent = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'rangePercent', row, getRowValue) : trimResolved(row, getRowValue, action, action.rangePercent)) || '0.5';
+    var rangePercentBelow = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'rangePercentBelow', row, getRowValue) : trimResolved(row, getRowValue, action, action.rangePercentBelow));
+    var rangePercentAbove = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'rangePercentAbove', row, getRowValue) : trimResolved(row, getRowValue, action, action.rangePercentAbove));
+    var minPrice = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'minPrice', row, getRowValue) : trimResolved(row, getRowValue, action, action.minPrice));
+    var maxPrice = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxPrice', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxPrice));
+    var bnbBudgetWei = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'bnbBudgetWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.bnbBudgetWei)) || 'max';
+    var gasReserveWei = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'gasReserveWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.gasReserveWei));
+    var fundMode = (((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'fundMode', row, getRowValue) : trimResolved(row, getRowValue, action, action.fundMode)) || 'bnb').toLowerCase();
+    var stableBudgetWei = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'stableBudgetWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.stableBudgetWei)) || 'max';
+    var stableReserveWei = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'stableReserveWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.stableReserveWei)) || '0';
+    var stableToken = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'stableToken', row, getRowValue) : trimResolved(row, getRowValue, action, action.stableToken))
       || '0x55d398326f99059fF775485246999027B3197955';
-    var exitBelowPolicy = trimResolved(row, getRowValue, action, action.exitBelowPolicy) || 'sell_stable';
-    var exitAbovePolicy = trimResolved(row, getRowValue, action, action.exitAbovePolicy) || 'restake';
-    var slippageBps = trimResolved(row, getRowValue, action, action.slippageBps) || '50';
+    var exitBelowPolicy = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'exitBelowPolicy', row, getRowValue) : trimResolved(row, getRowValue, action, action.exitBelowPolicy)) || 'sell_stable';
+    var exitAbovePolicy = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'exitAbovePolicy', row, getRowValue) : trimResolved(row, getRowValue, action, action.exitAbovePolicy)) || 'restake';
+    var slippageBps = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'slippageBps', row, getRowValue) : trimResolved(row, getRowValue, action, action.slippageBps)) || '50';
     var previewAmounts = action.previewAmounts !== false;
 
     if (!tokenA || !tokenB) {
@@ -166,31 +169,31 @@
     }
 
     if (row && typeof row === 'object') {
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveTokenA) || 'tokenA', tokenA);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveTokenB) || 'tokenB', tokenB);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveV3Fee) || 'v3Fee', v3Fee);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveV3Pool) || 'v3Pool', v3Pool);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveRangePercent) || 'rangePercent', rangePercent);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveRangePercentBelow) || 'rangePercentBelow', rangePercentBelow);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveRangePercentAbove) || 'rangePercentAbove', rangePercentAbove);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveMinPrice) || 'minPrice', minPrice);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveMaxPrice) || 'maxPrice', maxPrice);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveTickLower) || 'tickLower', tickLower);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveTickUpper) || 'tickUpper', tickUpper);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveBnbBudgetWei) || 'bnbBudgetWei', fundMode === 'stable' ? '' : resolvedBudgetWei);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveStableBudgetWei) || 'stableBudgetWei', fundMode === 'stable' ? resolvedBudgetWei : stableBudgetWei);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveAmount0Desired) || 'amount0Desired', amount0Desired);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveAmount1Desired) || 'amount1Desired', amount1Desired);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveBnbFor0Wei) || 'bnbFor0Wei', bnbFor0Wei);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveBnbFor1Wei) || 'bnbFor1Wei', bnbFor1Wei);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTokenA', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTokenA)) || 'tokenA', tokenA);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTokenB', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTokenB)) || 'tokenB', tokenB);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveV3Fee', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveV3Fee)) || 'v3Fee', v3Fee);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveV3Pool', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveV3Pool)) || 'v3Pool', v3Pool);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveRangePercent', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveRangePercent)) || 'rangePercent', rangePercent);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveRangePercentBelow', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveRangePercentBelow)) || 'rangePercentBelow', rangePercentBelow);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveRangePercentAbove', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveRangePercentAbove)) || 'rangePercentAbove', rangePercentAbove);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveMinPrice', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveMinPrice)) || 'minPrice', minPrice);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveMaxPrice', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveMaxPrice)) || 'maxPrice', maxPrice);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTickLower', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTickLower)) || 'tickLower', tickLower);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTickUpper', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTickUpper)) || 'tickUpper', tickUpper);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveBnbBudgetWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveBnbBudgetWei)) || 'bnbBudgetWei', fundMode === 'stable' ? '' : resolvedBudgetWei);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveStableBudgetWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveStableBudgetWei)) || 'stableBudgetWei', fundMode === 'stable' ? resolvedBudgetWei : stableBudgetWei);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveAmount0Desired', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveAmount0Desired)) || 'amount0Desired', amount0Desired);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveAmount1Desired', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveAmount1Desired)) || 'amount1Desired', amount1Desired);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveBnbFor0Wei', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveBnbFor0Wei)) || 'bnbFor0Wei', bnbFor0Wei);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveBnbFor1Wei', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveBnbFor1Wei)) || 'bnbFor1Wei', bnbFor1Wei);
       saveToRow(row, 'stableFor0Wei', stableFor0Wei);
       saveToRow(row, 'stableFor1Wei', stableFor1Wei);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveToken0) || 'token0', token0);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveToken1) || 'token1', token1);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveStableToken) || 'stableToken', stableToken);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveExitBelowPolicy) || 'exitBelowPolicy', exitBelowPolicy);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveExitAbovePolicy) || 'exitAbovePolicy', exitAbovePolicy);
-      saveToRow(row, trimResolved(row, getRowValue, action, action.saveSlippageBps) || 'slippageBps', slippageBps);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveToken0', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveToken0)) || 'token0', token0);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveToken1', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveToken1)) || 'token1', token1);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveStableToken', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveStableToken)) || 'stableToken', stableToken);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveExitBelowPolicy', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveExitBelowPolicy)) || 'exitBelowPolicy', exitBelowPolicy);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveExitAbovePolicy', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveExitAbovePolicy)) || 'exitAbovePolicy', exitAbovePolicy);
+      saveToRow(row, ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveSlippageBps', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveSlippageBps)) || 'slippageBps', slippageBps);
       saveToRow(row, 'fundMode', fundMode);
     }
   }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });

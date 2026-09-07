@@ -1,0 +1,15 @@
+{
+  "id": "ifCondition",
+  "label": "If / else",
+  "category": "flow",
+  "description": "Run thenSteps when condition is true, elseSteps otherwise. Condition uses the same runIf comparison language (row / {{path}}).",
+  "defaultAction": {
+    "type": "ifCondition",
+    "condition": "",
+    "thenSteps": [],
+    "elseSteps": []
+  },
+  "formSchema": [
+    { "key": "condition", "label": "Condition (same as Run only if)", "inputType": "text", "placeholder": "e.g. {{loggedIn}} === true" }
+  ]
+}

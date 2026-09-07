@@ -60,6 +60,49 @@ function makeDiscoveryAffinitySimilarity(affinitySet) {
   };
 }
 
+/** Wrap a contiguous optional (non-type) cluster of 2+ steps as ifCondition.thenSteps. */
+function wrapComplementaryOptionalClusters(actions) {
+  if (!Array.isArray(actions) || actions.length < 2) return actions;
+  const out = [];
+  let i = 0;
+  while (i < actions.length) {
+    const a = actions[i];
+    const branchable = a && a.optional && a.type && a.type !== 'wait' && a.type !== 'type' && a.type !== 'ifCondition';
+    if (branchable) {
+      let j = i + 1;
+      while (j < actions.length) {
+        const b = actions[j];
+        if (!(b && b.optional && b.type && b.type !== 'wait' && b.type !== 'type')) break;
+        j++;
+      }
+      if (j - i >= 2) {
+        const thenSteps = actions.slice(i, j).map(function (step) {
+          const copy = Object.assign({}, step);
+          delete copy.optional;
+          return copy;
+        });
+        const first = thenSteps[0];
+        let condition = '';
+        if (first && first.skipIfText) condition = '{{skipIfText}} !== ' + JSON.stringify(String(first.skipIfText));
+        else if (first && first.text) condition = '{{' + String(first.text).replace(/\W+/g, '_').slice(0, 24) + 'Visible}} === true';
+        else condition = '{{branchThen}} === true';
+        out.push({
+          type: 'ifCondition',
+          condition: condition,
+          thenSteps: thenSteps,
+          elseSteps: [],
+          _fromOptionalCluster: true,
+        });
+        i = j;
+        continue;
+      }
+    }
+    out.push(a);
+    i++;
+  }
+  return out;
+}
+
 function analyzeRuns(runs, opts) {
   try {
     opts = opts || {};
@@ -178,7 +221,11 @@ function analyzeRuns(runs, opts) {
   }
 
   applyVariationToActions(actions);
+  sanitizeClickSelectorCollisions(actions);
   applyExpectedBeforeAfter(actions);
+  if (opts.createBranches !== false) {
+    actions = wrapComplementaryOptionalClusters(actions);
+  }
 
   return {
     actions,
@@ -774,6 +821,14 @@ function mergeActions(actions) {
     merged.optionSelectors = mergeSelectors(valid.flatMap(a => a.optionSelectors || []));
   }
 
+  if (first.type === 'ensureOpen') {
+    merged.checkSelectors = mergeSelectors(valid.flatMap(a => a.checkSelectors || []));
+    merged.openSelectors = mergeSelectors(valid.flatMap(a => a.openSelectors || []));
+    merged.timeoutMs = first.timeoutMs;
+    merged.afterOpenTimeoutMs = first.afterOpenTimeoutMs;
+    merged.optional = !!first.optional;
+  }
+
   if (first.type === 'upload') {
     merged.variableKey = first.variableKey || 'fileUrl';
     merged.accept = valid.map(a => a.accept).filter(Boolean)[0] || first.accept;
@@ -880,6 +935,78 @@ function augmentMissingFallbackSelectors(actions) {
     }
     if (extras.length) a.fallbackSelectors = mergeSelectors(extras);
   }
+}
+
+function clickActionLabelKey(a) {
+  return String((a && (a.displayedValue || a.text)) || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function selectorCollisionKey(s) {
+  if (!s || !s.type) return '';
+  try {
+    return `${s.type}:${JSON.stringify(s.value)}`;
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * When two click steps share the same CSS/id but have different labels, drop the
+ * shared selector so playback cannot hit the wrong button (GHL #add-step vs Create new page).
+ * Also require a text match for labeled clicks so created workflows keep the recorded label.
+ */
+function sanitizeClickSelectorCollisions(actions) {
+  if (!actions || !actions.length) return actions;
+  const clicks = [];
+  for (let i = 0; i < actions.length; i++) {
+    if (actions[i] && actions[i].type === 'click') clicks.push(actions[i]);
+  }
+  const keyToLabels = new Map();
+  for (let c = 0; c < clicks.length; c++) {
+    const a = clicks[c];
+    const label = clickActionLabelKey(a);
+    if (!label || label.length < 2) continue;
+    const lists = [].concat(a.selectors || [], a.fallbackSelectors || []);
+    for (let j = 0; j < lists.length; j++) {
+      const k = selectorCollisionKey(lists[j]);
+      if (!k) continue;
+      if (!keyToLabels.has(k)) keyToLabels.set(k, new Set());
+      keyToLabels.get(k).add(label);
+    }
+  }
+  const colliding = new Set();
+  keyToLabels.forEach((labels, k) => {
+    if (labels.size > 1) colliding.add(k);
+  });
+  for (let c = 0; c < clicks.length; c++) {
+    const a = clicks[c];
+    const label = clickActionLabelKey(a);
+    if (label && label.length >= 2 && label.length <= 80) {
+      if (!a.fallbackTexts || !a.fallbackTexts.length) {
+        a.fallbackTexts = mergeFallbackTexts([a.text, a.displayedValue].filter(Boolean));
+      }
+    }
+    if (!colliding.size) continue;
+    const drop = (list) => (list || []).filter((s) => !colliding.has(selectorCollisionKey(s)));
+    const nextSel = drop(a.selectors);
+    const nextFb = drop(a.fallbackSelectors);
+    if (nextSel.length) {
+      a.selectors = nextSel;
+      a.fallbackSelectors = nextFb;
+    } else if (nextFb.length) {
+      a.selectors = nextFb.slice(0, 2);
+      a.fallbackSelectors = nextFb.slice(2);
+    } else if (label) {
+      a.selectors = [{
+        type: 'text',
+        value: String(a.displayedValue || a.text).replace(/\s+/g, ' ').trim().slice(0, 50),
+        tag: a.tagName || 'button',
+        score: 7,
+      }];
+      a.fallbackSelectors = [];
+    }
+  }
+  return actions;
 }
 
 function mergeFallbackTexts(texts) {
@@ -1075,6 +1202,7 @@ function mergeSingleRun(run) {
     if (run.url && run.url.startsWith('http')) urlPattern = { origin: new URL(run.url).origin, pathPattern: '*' };
   } catch (_) {}
 
+  sanitizeClickSelectorCollisions(finalActions);
   applyExpectedBeforeAfter(finalActions);
 
   return {

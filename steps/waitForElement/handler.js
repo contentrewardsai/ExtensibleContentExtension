@@ -36,7 +36,9 @@
       };
       try {
         await waitForElement(sels, timeoutMs, stepInfo);
+        action._elementFound = true;
       } catch (err) {
+        action._elementFound = false;
         if (action.optional) return;
         throw err;
       }
@@ -54,9 +56,13 @@
         const el = typeof resolveElementForActionInDocument === 'function'
           ? resolveElementForActionInDocument(action, doc)
           : null;
-        if (!el || !isElementVisible(el)) return;
+        if (!el || !isElementVisible(el)) {
+          action._elementFound = false;
+          return;
+        }
         await sleep(POLL_MS);
       }
+      action._elementFound = true;
       if (action.optional) return;
       throw new Error('Element still visible after ' + (timeoutMs / 1000) + 's');
     }

@@ -766,4 +766,103 @@ test.describe('player variable propagation', () => {
       await fixturePage.close();
     }
   });
+
+  test('complementary runIf skips the non-matching runWorkflow child', async ({ extensionContext, extensionId, fixtureServer }) => {
+    const fixturePage = await extensionContext.newPage();
+    try {
+      await fixturePage.goto(fixtureServer.fixtureUrl);
+      await fixturePage.waitForLoadState('domcontentloaded');
+      await new Promise((r) => setTimeout(r, 1000));
+      const resp = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+        type: 'PLAYER_START',
+        workflow: {
+          actions: [
+            {
+              type: 'runWorkflow',
+              workflowId: 'wf-click',
+              runIf: '{{branch}} === click',
+              nestedWorkflow: {
+                actions: [
+                  {
+                    type: 'click',
+                    selectors: [{ type: 'attr', attr: 'data-testid', value: '[data-testid="primary-action"]', score: 9 }],
+                  },
+                ],
+              },
+            },
+            {
+              type: 'runWorkflow',
+              workflowId: 'wf-skip',
+              runIf: '{{branch}} === skip',
+              nestedWorkflow: {
+                actions: [
+                  {
+                    type: 'click',
+                    selectors: [{ type: 'attr', attr: 'data-testid', value: '[data-testid="secondary-action"]', score: 9 }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        row: { branch: 'click' },
+      });
+      expect(resp, JSON.stringify(resp)).toBeTruthy();
+      expect(resp?.ok, resp?.error || JSON.stringify(resp)).toBe(true);
+      await expect(fixturePage.locator('#status')).toContainText('Primary button clicked', { timeout: 8000 });
+      await expect(fixturePage.locator('#status')).not.toContainText('Secondary');
+    } finally {
+      await fixturePage.close();
+    }
+  });
+
+  test('iframe record → play → PLAYER_STOP after requireTextMatch revert', async ({ extensionContext, extensionId, fixtureServer }) => {
+    const page = await extensionContext.newPage();
+    try {
+      await page.goto(fixtureServer.fixtureUrl);
+      await page.waitForLoadState('domcontentloaded');
+      await new Promise((r) => setTimeout(r, 1000));
+      const iframe = page.frameLocator('[data-testid="extract-scope-iframe"]');
+      await iframe.getByTestId('iframe-click-target').waitFor({ state: 'visible', timeout: 15_000 });
+
+      const startRec = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+        type: 'RECORDER_START',
+        workflowId: 'e2e-iframe-rec',
+        runId: 'iframe-run1',
+      });
+      expect(startRec?.ok, startRec?.error || JSON.stringify(startRec)).toBe(true);
+      await iframe.getByTestId('iframe-click-target').click();
+      await new Promise((r) => setTimeout(r, 400));
+      const stopRec = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+        type: 'RECORDER_STOP',
+      });
+      expect(stopRec?.ok, stopRec?.error || JSON.stringify(stopRec)).toBe(true);
+
+      await iframe.getByTestId('iframe-click-status').evaluate((el) => { el.textContent = 'idle'; });
+      const playResp = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+        type: 'PLAYER_START',
+        workflow: {
+          actions: [{
+            type: 'click',
+            iframeSelectors: [{ type: 'attr', attr: 'data-testid', value: '[data-testid="extract-scope-iframe"]', score: 9 }],
+            selectors: [{ type: 'attr', attr: 'data-testid', value: '[data-testid="iframe-click-target"]', score: 9 }],
+          }],
+        },
+        row: {},
+      });
+      expect(playResp?.ok, playResp?.error || JSON.stringify(playResp)).toBe(true);
+      await expect(iframe.getByTestId('iframe-click-status')).toHaveText('iframe clicked', { timeout: 12_000 });
+
+      const stopPlay = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+        type: 'PLAYER_STOP',
+      });
+      expect(stopPlay?.ok).toBe(true);
+      const status = await sendTabMessage(extensionContext, extensionId, fixtureServer.fixtureUrl, {
+        type: 'PLAYER_STATUS',
+      });
+      expect(status?.isPlaying).toBeFalsy();
+    } finally {
+      await page.close();
+    }
+  });
 });

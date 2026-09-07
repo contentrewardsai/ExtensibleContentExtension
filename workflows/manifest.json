@@ -4,6 +4,9 @@
   "workflows": [
     "bsc-infi-lp",
     "bsc-v3-lp",
-    "e2e-test"
+    "e2e-test",
+    "ghl-blank-website-test",
+    "beehiiv-draft-post",
+    "ghl-design-import"
   ]
 }

@@ -11,7 +11,7 @@ This doc describes the manifest + registry pattern for adding new step plugins, 
 Once you **set the project folder** (the extension’s unpacked root), the app can write into it using the File System Access API. That allows:
 
 - **Workflows** – `workflows/{id}/workflow.json` and manifest.
-- **Steps** – `steps/{id}/` (step.json, handler.js, sidepanel.js); **steps/manifest.json** is updated automatically; extension manifest does not list step handlers.
+- **Steps** – `steps/{id}/` (step.json, handler.js, sidepanel.js); **steps/manifest.json** is updated automatically. The tab bundle / `manifest.json` `content_scripts[0].js` includes core handlers (`click`, `type`, `wait`, `dragDrop`) plus `shared/cfs-frame-actions.js` for first paint. **`steps/loader.js`** injects the rest and **skips ids already on `window.__CFS_stepHandlers`**.
 
 **How it works:** (1) Pick the project folder once; it is stored and reused. (2) The extension is loaded **unpacked** from that folder, so `chrome.runtime.getURL('')` points at it. (3) New files written there are part of the extension and load after reload.
 

@@ -298,6 +298,13 @@
             <button id="workflowUndoBtn" class="btn btn-outline btn-small" title="Undo last workflow edit (Ctrl+Z)" disabled data-testid="cfs-workflow-undo">↩ Undo</button>
             <button id="workflowRedoBtn" class="btn btn-outline btn-small" title="Redo workflow edit (Ctrl+Shift+Z)" disabled data-testid="cfs-workflow-redo">↪ Redo</button>
           </div>
+          <div class="steps-flow-toolbar">
+            <button type="button" class="btn btn-outline btn-small" id="stepsViewListBtn" data-testid="cfs-steps-view-list">List</button>
+            <button type="button" class="btn btn-outline btn-small" id="stepsViewGraphBtn" data-testid="cfs-steps-view-graph">Graph</button>
+          </div>
+          <div id="stepsFlowStrip" class="steps-flow-strip" data-testid="cfs-steps-flow-strip"></div>
+          <div id="stepsFlowGraph" class="steps-flow-graph" data-testid="cfs-steps-flow-graph" style="display:none"></div>
+          <p id="nestedPlayStatus" class="hint nested-play-status" data-testid="cfs-nested-play-status" style="display:none"></p>
           <div id="stepsList" class="steps-list"></div>
         </section>
         <div id="workflowProgressBlock" class="workflow-progress-block">
@@ -512,11 +519,25 @@
               This site only
             </label>
             <button type="button" id="llmChatSubmitQuestionBtn" class="btn btn-outline btn-small">Submit last as question</button>
+            <button type="button" id="llmChatRunPlanBtn" class="btn btn-outline btn-small" data-testid="cfs-chat-run-plan" style="display:none" title="Run { next: [{ workflowId, row }] } from the last chat reply">Run workflow plan</button>
             <button type="button" id="llmChatSendBtn" class="btn btn-primary btn-small">Send</button>
           </div>
         </div>
         <p id="llmChatStatus" class="hint llm-chat-status" style="display:none;" role="status"></p>
       </div>
+    </section>
+
+    <section class="page-compare-section" id="pageCompareSection">
+      <div class="page-compare-heading-row">
+        <h2 class="page-compare-heading">Compare</h2>
+        <button type="button" id="pageCompareRunBtn" class="btn btn-outline btn-small" data-testid="cfs-compare-run" title="Compare row sourceSnapshot / plan against the current tab preview">Compare now</button>
+      </div>
+      <p class="hint" style="margin:0 0 8px 0;">On-device text, color, layout, and form checks (LaMini / MiniLM optional). Paste a row with <code>plan</code> and <code>sourceSnapshot</code>, then open the GHL preview.</p>
+      <div class="page-compare-strip">
+        <div class="page-compare-metric"><span class="page-compare-label">Result</span><span id="pageComparePass" class="page-compare-pass" data-testid="cfs-compare-pass">—</span></div>
+        <div class="page-compare-metric"><span class="page-compare-label">Score</span><span id="pageCompareScore" data-testid="cfs-compare-score">—</span></div>
+      </div>
+      <pre id="pageCompareFailures" class="page-compare-failures" data-testid="cfs-compare-failures" role="status">none</pre>
     </section>
 
     <div id="recordingRequiresProjectFolder" style="display:none">
@@ -659,6 +680,7 @@
               <h3 class="activity-heading">Analyze &amp; Export</h3>
               <div class="btn-group" style="margin-top:8px; flex-wrap:wrap; align-items:center; gap:8px;">
                 <button id="analyzeWorkflow" class="btn btn-secondary">Analyze Runs → Create Workflow Steps</button>
+                <label class="hint" style="font-size:12px;"><input type="checkbox" id="analyzeCreateBranches" checked> Create if/else from optional clusters</label>
               </div>
               <div id="analyzeResult" class="analyze-result"></div>
               <details id="variationReportDetails" class="variation-report-details">
@@ -705,9 +727,11 @@
   <script src="../extension/auth-fetch.js"></script>
   <script src="../extension/workflow-normalize.js"></script>
   <script src="../shared/dom-utils.js"></script>
+  <script src="../shared/str-utils.js"></script>
+  <script src="../shared/github-sync-core.js"></script>
   <script src="../shared/bsc-indexer-providers.js"></script>
-  <script src="../extension/api.js"></script>
   <script src="../extension/following-sync-core.js"></script>
+  <script src="../extension/api.js"></script>
   <script src="../extension/sidebars-api.js"></script>
   <script src="../shared/selectors.js"></script>
   <script src="../shared/analyzer.js"></script>
@@ -715,7 +739,6 @@
   <script src="../shared/discovery-from-analyze.js"></script>
   <script src="../shared/cross-workflow-selectors.js"></script>
   <script src="../shared/selector-parity.js"></script>
-  <script src="../shared/run-variation.js"></script>
   <script src="../shared/step-validator.js"></script>
   <script src="../steps/sidepanel-registry.js"></script>
   <script src="../steps/devnet-smoke-utils.js"></script>
@@ -723,7 +746,7 @@
   <script src="../shared/workflow-setup-constants.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
   <script src="../shared/step-comment.js"></script>
-  <script src="../shared/walkthrough-export.js"></script>
+  <script src="walkthrough-export.js"></script>
   <script src="../lib/ffmpeg/ffmpeg.js"></script>
   <script src="../shared/ffmpeg-local.js"></script>
   <script src="../shared/project-id-resolve.js"></script>
@@ -736,10 +759,16 @@
   <script src="../shared/action-patterns-registry.js"></script>
   <script src="../shared/workflow-edit-history.js"></script>
   <script src="../shared/removed-step-types.js"></script>
+  <script src="../shared/workflow-plan.js"></script>
+  <script src="../shared/page-compare.js"></script>
   <script src="../shared/workflow-removed-steps-migration.js"></script>
   <script src="../shared/playback-error-normalize.js"></script>
   <script src="../shared/content-script-tab-bundle.js"></script>
   <script src="../shared/always-on-bound-positions.js"></script>
+  <script src="auth-backend.js"></script>
+  <script src="library-panel.js"></script>
+  <script src="workflow-list.js"></script>
+  <script src="step-shell.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

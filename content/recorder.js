@@ -113,6 +113,79 @@
   let dragDropPendingSource = null;
   /** Global refcount so nested RECORDER_START / iframes restore history only when last stops. */
   const HISTORY_PATCH_KEY = '__CFS_recorderHistoryPatch';
+  const CFS_FRAME = (globalThis.CFS_frameActions && globalThis.CFS_frameActions.FRAME_MSG) || '__CFS_FRAME__';
+  let _cfsLastFrameStartPayload = null;
+
+  function _cfsBroadcastRecorderToFrames(kind, extra) {
+    if (typeof window === 'undefined' || window !== window.top) return;
+    const payload = Object.assign({ [CFS_FRAME]: 1, kind: kind }, extra || {});
+    if (kind === 'recorder-start') _cfsLastFrameStartPayload = payload;
+    try {
+      document.querySelectorAll('iframe').forEach((fr) => {
+        try { fr.contentWindow.postMessage(payload, '*'); } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
+  function _cfsWatchIframesForRecorder() {
+    if (typeof window === 'undefined' || window !== window.top) return;
+    document.addEventListener('load', function (e) {
+      if (!isRecording || !_cfsLastFrameStartPayload) return;
+      const t = e.target;
+      if (!t || String(t.tagName || '').toLowerCase() !== 'iframe' || !t.contentWindow) return;
+      try { t.contentWindow.postMessage(_cfsLastFrameStartPayload, '*'); } catch (_) {}
+    }, true);
+  }
+  _cfsWatchIframesForRecorder();
+
+  function _cfsStartFromFrameMessage(msg) {
+    isRecording = true;
+    currentWorkflowId = msg.workflowId;
+    currentRunId = msg.runId || `run_${Date.now()}`;
+    recordedActions = [];
+    lastTypingTarget = null;
+    if (typingTimeout) {
+      clearTimeout(typingTimeout);
+      typingTimeout = null;
+    }
+    if (typingEnterFlushTimeoutId) {
+      clearTimeout(typingEnterFlushTimeoutId);
+      typingEnterFlushTimeoutId = null;
+    }
+    runStartState = null;
+    recordingMode = msg.recordingMode || 'replace';
+    insertAtStep = msg.insertAtStep;
+    qualityCheckMode = !!msg.qualityCheckMode;
+    qualityCheckPhase = msg.qualityCheckPhase || 'output';
+    qualityCheckReplaceIndex = msg.qualityCheckReplaceIndex;
+    setupListeners();
+    lastPageState = null;
+    startMutationObserver();
+    setTimeout(() => {
+      runStartState = capturePageState();
+      lastPageState = capturePageChangeSnapshot();
+      scheduleSyncRecordingToBackground();
+    }, 300);
+    try {
+      document.querySelectorAll('iframe').forEach((fr) => {
+        try { fr.contentWindow.postMessage(msg, '*'); } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    const d = e && e.data;
+    if (!d || d[CFS_FRAME] !== 1 || typeof d.kind !== 'string') return;
+    if (d.kind === 'recorder-start') {
+      if (typeof window !== 'undefined' && window !== window.top) _cfsStartFromFrameMessage(d);
+      return;
+    }
+    if (d.kind === 'recorder-stop') {
+      if (typeof window !== 'undefined' && window !== window.top && isRecording) {
+        try { finalizeRecordingSession(); } catch (_) {}
+      }
+    }
+  });
 
   let syncRecordingToBgTimer = null;
 
@@ -193,6 +266,7 @@
   var _cfsBadgeEl = null;
 
   function _cfsShowRecordingHintBadge() {
+    if (typeof window !== 'undefined' && window !== window.top) return;
     var hint = _cfsGetPageHint();
     if (!hint) { _cfsRemoveRecordingHintBadge(); return; }
     if (_cfsBadgeEl) { _cfsUpdateBadgeText(hint); return; }
@@ -239,6 +313,11 @@
   }
 
   function pushRecordedAction(action) {
+    try {
+      if (globalThis.CFS_frameActions && typeof globalThis.CFS_frameActions.attachFrameMeta === 'function') {
+        globalThis.CFS_frameActions.attachFrameMeta(action);
+      }
+    } catch (_) {}
     /* Attach pattern hint metadata if on a recognized platform */
     var hint = _cfsGetPageHint();
     if (hint) {
@@ -973,7 +1052,12 @@
       clearTimeout(typingEnterFlushTimeoutId);
       typingEnterFlushTimeoutId = null;
     }
+    if (domChangeTimeoutId) {
+      clearTimeout(domChangeTimeoutId);
+      domChangeTimeoutId = null;
+    }
     flushTypingAction();
+    lastTypingTarget = null;
     removeListeners();
     stopMutationObserver();
     const stateAtEnd = capturePageState();
@@ -999,7 +1083,18 @@
     return finalizeRecordingSession();
   };
 
+  function cfsRecorderIsTopFrame() {
+    try {
+      return typeof window === 'undefined' || window === window.top;
+    } catch (_) {
+      return false;
+    }
+  }
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    const recorderControl = msg.type === 'RECORDER_RESUME' || msg.type === 'RECORDER_START'
+      || msg.type === 'RECORDER_STOP' || msg.type === 'RECORDER_STATUS';
+    if (recorderControl && !cfsRecorderIsTopFrame()) return false;
     if (msg.type === 'RECORDER_FLUSH_SYNC') {
       Promise.resolve()
         .then(() => (typeof window.__CFS_recorderFlushSyncNow === 'function' ? window.__CFS_recorderFlushSyncNow() : Promise.resolve()))
@@ -1035,6 +1130,15 @@
       setupListeners();
       lastPageState = null;
       startMutationObserver();
+      _cfsBroadcastRecorderToFrames('recorder-start', {
+        workflowId: currentWorkflowId,
+        runId: currentRunId,
+        recordingMode: recordingMode,
+        insertAtStep: insertAtStep,
+        qualityCheckMode: qualityCheckMode,
+        qualityCheckPhase: qualityCheckPhase,
+        qualityCheckReplaceIndex: qualityCheckReplaceIndex,
+      });
       setTimeout(() => {
         lastPageState = capturePageChangeSnapshot();
         scheduleSyncRecordingToBackground();
@@ -1066,6 +1170,15 @@
       lastPageState = null;
       startMutationObserver();
       _cfsShowRecordingHintBadge();
+      _cfsBroadcastRecorderToFrames('recorder-start', {
+        workflowId: currentWorkflowId,
+        runId: currentRunId,
+        recordingMode: recordingMode,
+        insertAtStep: insertAtStep,
+        qualityCheckMode: qualityCheckMode,
+        qualityCheckPhase: qualityCheckPhase,
+        qualityCheckReplaceIndex: qualityCheckReplaceIndex,
+      });
       setTimeout(() => {
         runStartState = capturePageState();
         lastPageState = capturePageChangeSnapshot();
@@ -1076,6 +1189,7 @@
     }
     if (msg.type === 'RECORDER_STOP') {
       _cfsRemoveRecordingHintBadge();
+      _cfsBroadcastRecorderToFrames('recorder-stop');
       sendResponse(finalizeRecordingSession());
       return true;
     }
@@ -1360,7 +1474,10 @@
     if (!el || el.nodeType !== 1) return [];
     const out = [];
     const id = el.id;
-    if (id && !id.match(/^(ember|react|vue|ng|__next|mui|radix)/)) {
+    const unstableId = (globalThis.CFS_selectors && typeof globalThis.CFS_selectors.isUnstableGeneratedId === 'function')
+      ? globalThis.CFS_selectors.isUnstableGeneratedId(id)
+      : !!(id && /^(ember|react|vue|ng|__next|mui|radix)/i.test(id));
+    if (id && !unstableId) {
       out.push({ type: 'id', value: `#${CSS.escape(id)}`, score: 10 });
     }
     for (const attr of ['data-testid', 'data-cy', 'data-test']) {

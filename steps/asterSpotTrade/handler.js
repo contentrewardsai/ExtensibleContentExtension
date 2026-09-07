@@ -17,6 +17,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -30,32 +33,32 @@
       var sendMessage = ctx.sendMessage;
       var row = currentRow;
 
-      var operation = trimResolved(row, getRowValue, action, action.operation);
+      var operation = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'operation', row, getRowValue) : trimResolved(row, getRowValue, action, action.operation));
       if (!operation) throw new Error('asterSpotTrade: set operation');
 
-      var dryRunRaw = trimResolved(row, getRowValue, action, action.dryRun);
-      var validateFxRaw = trimResolved(row, getRowValue, action, action.validateExchangeFilters);
-      var roundFxRaw = trimResolved(row, getRowValue, action, action.roundToExchangeFilters);
+      var dryRunRaw = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'dryRun', row, getRowValue) : trimResolved(row, getRowValue, action, action.dryRun));
+      var validateFxRaw = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'validateExchangeFilters', row, getRowValue) : trimResolved(row, getRowValue, action, action.validateExchangeFilters));
+      var roundFxRaw = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'roundToExchangeFilters', row, getRowValue) : trimResolved(row, getRowValue, action, action.roundToExchangeFilters));
 
       var msg = {
         type: 'CFS_ASTER_FUTURES',
         asterCategory: 'spotTrade',
         operation: operation,
-        recvWindow: trimResolved(row, getRowValue, action, action.recvWindow),
-        symbol: trimResolved(row, getRowValue, action, action.symbol),
-        side: trimResolved(row, getRowValue, action, action.side),
-        orderType: trimResolved(row, getRowValue, action, action.orderType),
-        timeInForce: trimResolved(row, getRowValue, action, action.timeInForce),
-        quantity: trimResolved(row, getRowValue, action, action.quantity),
-        quoteOrderQty: trimResolved(row, getRowValue, action, action.quoteOrderQty),
-        price: trimResolved(row, getRowValue, action, action.price),
-        newClientOrderId: trimResolved(row, getRowValue, action, action.newClientOrderId),
-        stopPrice: trimResolved(row, getRowValue, action, action.stopPrice),
-        icebergQty: trimResolved(row, getRowValue, action, action.icebergQty),
-        newOrderRespType: trimResolved(row, getRowValue, action, action.newOrderRespType),
-        orderId: trimResolved(row, getRowValue, action, action.orderId),
-        origClientOrderId: trimResolved(row, getRowValue, action, action.origClientOrderId),
-        batchOrders: trimResolved(row, getRowValue, action, action.batchOrders),
+        recvWindow: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'recvWindow', row, getRowValue) : trimResolved(row, getRowValue, action, action.recvWindow)),
+        symbol: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'symbol', row, getRowValue) : trimResolved(row, getRowValue, action, action.symbol)),
+        side: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'side', row, getRowValue) : trimResolved(row, getRowValue, action, action.side)),
+        orderType: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'orderType', row, getRowValue) : trimResolved(row, getRowValue, action, action.orderType)),
+        timeInForce: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'timeInForce', row, getRowValue) : trimResolved(row, getRowValue, action, action.timeInForce)),
+        quantity: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'quantity', row, getRowValue) : trimResolved(row, getRowValue, action, action.quantity)),
+        quoteOrderQty: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'quoteOrderQty', row, getRowValue) : trimResolved(row, getRowValue, action, action.quoteOrderQty)),
+        price: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'price', row, getRowValue) : trimResolved(row, getRowValue, action, action.price)),
+        newClientOrderId: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'newClientOrderId', row, getRowValue) : trimResolved(row, getRowValue, action, action.newClientOrderId)),
+        stopPrice: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'stopPrice', row, getRowValue) : trimResolved(row, getRowValue, action, action.stopPrice)),
+        icebergQty: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'icebergQty', row, getRowValue) : trimResolved(row, getRowValue, action, action.icebergQty)),
+        newOrderRespType: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'newOrderRespType', row, getRowValue) : trimResolved(row, getRowValue, action, action.newOrderRespType)),
+        orderId: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'orderId', row, getRowValue) : trimResolved(row, getRowValue, action, action.orderId)),
+        origClientOrderId: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'origClientOrderId', row, getRowValue) : trimResolved(row, getRowValue, action, action.origClientOrderId)),
+        batchOrders: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'batchOrders', row, getRowValue) : trimResolved(row, getRowValue, action, action.batchOrders)),
       };
       if (/^(true|false)$/i.test(dryRunRaw)) msg.dryRun = /^true$/i.test(dryRunRaw);
       if (/^(true|false)$/i.test(validateFxRaw)) msg.validateExchangeFilters = /^true$/i.test(validateFxRaw);
@@ -69,7 +72,7 @@
       }
 
       if (row && typeof row === 'object') {
-        var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+        var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
         if (keyVar && response.result != null) {
           try {
             row[keyVar] = JSON.stringify(response.result);

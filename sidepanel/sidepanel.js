@@ -133,10 +133,11 @@
     'shared/selectors.js',
     'shared/recording-value.js',
     'shared/selector-parity.js',
+    'shared/cfs-frame-actions.js',
     'content/recorder.js',
   ];
 
-  /** Ensure recorder exists in same-origin iframes (many sites put inputs in frames). Idempotent on the top frame. */
+  /** Ensure recorder exists in iframes (same-origin and cross-origin via scripting.allFrames). Idempotent on the top frame. */
   async function injectRecorderIntoAllFrames(tabId) {
     try {
       await chrome.scripting.executeScript({
@@ -291,10 +292,15 @@
     const recordDoneBtn = document.getElementById('recordNextStepDone');
     const runAllBtn = document.getElementById('runAllRows');
     const countdownEl = document.getElementById('countdownDisplay');
-    const wfId = playbackWorkflow?.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     const wf = wfId ? workflows[wfId] : null;
     const hasSteps = (wf?.analyzed?.actions?.length || 0) > 0;
-    if (runBtn) { runBtn.disabled = !hasSteps; runBtn.textContent = 'Run Current Row'; runBtn.style.display = ''; }
+    if (runBtn) {
+      runBtn.disabled = !hasSteps;
+      runBtn.textContent = 'Run Current Row';
+      runBtn.title = wf ? ('Run Current Row — ' + (wf.name || wfId)) : 'Run Current Row (Ctrl+Enter / ⌘+Enter)';
+      runBtn.style.display = '';
+    }
     if (stopBtn) stopBtn.style.display = 'none';
     if (recordNextBtn) recordNextBtn.style.display = 'none';
     if (recordDoneBtn) recordDoneBtn.style.display = 'none';
@@ -605,7 +611,7 @@
   window.refreshActivityPanel = refreshActivityPanel;
   window.updateWorkflowLastRunStatus = updateWorkflowLastRunStatus;
 
-  function updateStepHighlight(actionIndex) {
+  function updateStepHighlight(actionIndex, nested) {
     const list = document.getElementById('stepsList');
     if (!list) return;
     list.querySelectorAll('.step-item').forEach((item, i) => {
@@ -621,6 +627,19 @@
         indicator.remove();
       }
     });
+    const nestEl = document.getElementById('nestedPlayStatus');
+    if (nestEl) {
+      const wid = nested && (nested.workflowId || nested.nestedWorkflowId);
+      if (wid) {
+        const idx = nested.index != null ? nested.index : nested.nestedIndex;
+        const tot = nested.total != null ? nested.total : nested.nestedTotal;
+        nestEl.style.display = '';
+        nestEl.textContent = 'Running ' + wid + (idx != null ? ' · ' + (Number(idx) + 1) + '/' + (tot != null ? tot : '?') : '');
+      } else {
+        nestEl.style.display = 'none';
+        nestEl.textContent = '';
+      }
+    }
   }
 
   function scrollToStepAndExpand(stepIndex) {
@@ -639,13 +658,8 @@
     }
   }
 
-  function normalizeScriptingError(err) {
-    return __CFS_playbackErrorNormalize.normalizeScriptingError(err);
-  }
-
-  function normalizePlaybackError(res) {
-    return __CFS_playbackErrorNormalize.normalizePlaybackError(res);
-  }
+  const normalizeScriptingError = __CFS_playbackErrorNormalize.normalizeScriptingError;
+  const normalizePlaybackError = __CFS_playbackErrorNormalize.normalizePlaybackError;
 
   function showConnectionErrorStatus(tabId) {
     const msg = 'Extension couldn\'t run on this tab. Reload the page and try again, or open your workflow\'s start URL.';
@@ -991,8 +1005,7 @@
       }
       // 3. Backend workflows are fetched only on: save, create, search, or active-tab origin change (see fetchWorkflowsFromBackend)
       try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.url) currentTabUrl = tab.url;
+        await refreshCurrentTabUrl();
       } catch (_) {}
       await applyRemovedStepsMigrationAndPersistIfNeeded();
       renderWorkflowList();
@@ -1094,7 +1107,12 @@
       }
     } catch (e) {
       if (e?.code === 'UNAUTHORIZED' || e?.code === 'NOT_LOGGED_IN') {
-        setStatus('Please log in again.', 'error');
+        var stillThinksLoggedIn = false;
+        try { stillThinksLoggedIn = typeof isWhopLoggedIn === 'function' && await isWhopLoggedIn(); } catch (_) {}
+        if (typeof updateAuthUI === 'function') {
+          try { await updateAuthUI(); } catch (_) {}
+        }
+        if (stillThinksLoggedIn) setStatus('Please log in again.', 'error');
       }
     }
   }
@@ -1109,6 +1127,13 @@
     return false;
   }
 
+  function collectWorkflowCallIds(w) {
+    if (window.CFS_workflowList && typeof window.CFS_workflowList.collectWorkflowCallIds === 'function') {
+      return window.CFS_workflowList.collectWorkflowCallIds(w);
+    }
+    return [];
+  }
+
   function renderWorkflowList() {
     if (!workflowList) return;
     workflowList.innerHTML = '';
@@ -1119,12 +1144,18 @@
         try { domain = new URL(w.runs[0].url).origin; } catch (_) {}
       }
       const div = document.createElement('div');
-      div.className = 'workflow-item';
+      const selectedId = getEffectiveWorkflowIdForPlaybackUi();
+      div.className = 'workflow-item' + (id === selectedId ? ' selected' : '');
       div.dataset.wfId = id;
+      div.setAttribute('role', 'button');
+      div.tabIndex = 0;
       const verLabel = (w.version != null && w.version !== 1) ? ` v${w.version}` : '';
+      const calls = collectWorkflowCallIds(w);
+      const callsHtml = calls.length ? `<small class="workflow-item-calls hint">calls: ${escapeHtml(calls.join(', '))}</small>` : '';
       div.innerHTML = `
         <span>${escapeHtml(w.name || id)}${escapeHtml(verLabel)}</span>
         <small>${(w.runs || []).length} runs${domain ? ' · ' + escapeHtml(domain) : ''}${w.published ? ' · Published' : ''}</small>
+        ${callsHtml}
         <small class="workflow-item-last-run hint" data-wf-id="${escapeAttr(id)}">—</small>
         ${w._backendMeta ? `<button type="button" class="btn btn-small btn-outline" data-update-workflow="${escapeAttr(id)}" title="Update from backend">Update</button>` : ''}
         <button type="button" class="btn btn-small btn-outline" data-rename-workflow="${escapeAttr(id)}" title="Rename workflow">Rename</button>
@@ -1133,6 +1164,26 @@
         <button type="button" class="btn btn-small" data-duplicate="${escapeAttr(id)}" title="Duplicate workflow">Copy</button>
         <button type="button" class="btn btn-small btn-outline" data-delete="${escapeAttr(id)}" title="Delete workflow" style="color:var(--error-color,#c00);">Delete</button>
       `;
+      const selectThis = function() {
+        if (playbackWorkflow) {
+          playbackWorkflow.value = id;
+          playbackWorkflow.dispatchEvent(new Event('change'));
+        }
+        if (workflowSelect && workflows[id]) {
+          workflowSelect.value = id;
+          workflowSelect.dispatchEvent(new Event('change'));
+        }
+      };
+      div.addEventListener('click', function(e) {
+        if (e.target.closest('button')) return;
+        selectThis();
+      });
+      div.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+        selectThis();
+      });
       workflowList.appendChild(div);
     }
     updateWorkflowListLastRuns();
@@ -1190,6 +1241,15 @@
 
   function isRestrictedUrl(url) {
     return url && (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:'));
+  }
+
+  async function refreshCurrentTabUrl() {
+    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.url || isRestrictedUrl(tab.url)) {
+      const actives = await chrome.tabs.query({ active: true });
+      tab = actives.find((t) => t.url && !isRestrictedUrl(t.url)) || tab;
+    }
+    if (tab?.url) currentTabUrl = tab.url;
   }
 
   function workflowMatchesCurrentTab(wf) {
@@ -1364,6 +1424,30 @@
     populatePlanWorkflowPickerUi(filteredIds);
   }
 
+  function idsMatchingCurrentTabOrigin(idList) {
+    if (!currentTabUrl || isRestrictedUrl(currentTabUrl)) return [];
+    return (idList || []).filter((id) => {
+      const origin = workflows[id] && workflows[id].urlPattern && workflows[id].urlPattern.origin;
+      return !!(origin && urlMatchesPattern(currentTabUrl, origin));
+    });
+  }
+
+  function isCryptoAlwaysOnWorkflow(id) {
+    const w = workflows[id];
+    if (!w) return false;
+    if (w.alwaysOn) return true;
+    const blob = String(id || '') + ' ' + String(w.name || '');
+    return /pancake|bsc-v3|bsc_v3|bsc-infi|infi-lp|jupiter|raydium|meteora/i.test(blob);
+  }
+
+  function getPersistedNonAlwaysOnWorkflowId() {
+    try {
+      return localStorage.getItem('cfsLastNonAlwaysOnWorkflow') || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function resolvePlanWorkflowSelectValue(filteredIds, prevPlanSel) {
     if (!filteredIds.length) return '__new__';
     function bias(id) {
@@ -1373,13 +1457,17 @@
       return preferred || id;
     }
     if (prevPlanSel === '__new__') return '__new__';
-    if (prevPlanSel && filteredIds.indexOf(prevPlanSel) >= 0) return bias(prevPlanSel);
+    const matching = idsMatchingCurrentTabOrigin(filteredIds);
+    if (prevPlanSel && matching.indexOf(prevPlanSel) >= 0) return bias(prevPlanSel);
     const persisted = getPersistedWorkflowId();
+    if (persisted && matching.indexOf(persisted) >= 0) return bias(persisted);
+    if (matching.length) return bias(matching[0]);
+    if (prevPlanSel && filteredIds.indexOf(prevPlanSel) >= 0) return bias(prevPlanSel);
     if (persisted && filteredIds.indexOf(persisted) >= 0) return bias(persisted);
     return bias(filteredIds[0]) || filteredIds[0];
   }
 
-  function resolvePlaybackWorkflowSelectValue(nonTestIds) {
+  function resolvePlaybackWorkflowSelectValue(nonTestIds, prevPlaybackSel) {
     if (!nonTestIds.length) return '';
     function bias(id) {
       if (!id || nonTestIds.indexOf(id) < 0) return id;
@@ -1387,8 +1475,24 @@
       const preferred = getMapPreferredVersionInList(F, nonTestIds);
       return preferred || id;
     }
+    const matching = idsMatchingCurrentTabOrigin(nonTestIds);
+    if (prevPlaybackSel && matching.indexOf(prevPlaybackSel) >= 0) return bias(prevPlaybackSel);
     const persisted = getPersistedWorkflowId();
-    if (persisted && nonTestIds.indexOf(persisted) >= 0 && workflows[persisted]) return bias(persisted);
+    if (persisted && matching.indexOf(persisted) >= 0 && workflows[persisted]) return bias(persisted);
+    if (matching.length) return bias(matching[0]);
+    const tabKnown = !!(currentTabUrl && !isRestrictedUrl(currentTabUrl));
+    if (prevPlaybackSel && nonTestIds.indexOf(prevPlaybackSel) >= 0) {
+      if (!tabKnown || !isCryptoAlwaysOnWorkflow(prevPlaybackSel)) return bias(prevPlaybackSel);
+    }
+    if (persisted && nonTestIds.indexOf(persisted) >= 0 && workflows[persisted]) {
+      if (!tabKnown || !isCryptoAlwaysOnWorkflow(persisted)) return bias(persisted);
+    }
+    const lastSafe = getPersistedNonAlwaysOnWorkflowId();
+    if (lastSafe && nonTestIds.indexOf(lastSafe) >= 0 && workflows[lastSafe]) return bias(lastSafe);
+    if (tabKnown) {
+      const nonCrypto = nonTestIds.filter((id) => !isCryptoAlwaysOnWorkflow(id));
+      if (nonCrypto.length) return bias(nonCrypto[0]);
+    }
     return bias(nonTestIds[0]) || nonTestIds[0];
   }
 
@@ -1405,6 +1509,7 @@
       populatePlanWorkflowPickerUi(filteredIds);
     }
     if (playbackWorkflow) {
+      const prevPlaybackSel = playbackWorkflow.value;
       const nonTestIds = ids.filter(id => !isTestWorkflow(workflows[id]));
       const playbackOpts = nonTestIds.map((id) => {
         const w = workflows[id];
@@ -1417,7 +1522,7 @@
         return '<option value="' + escapeAttr(id) + '">' + escapeHtml(label) + '</option>';
       }).join('');
       playbackWorkflow.innerHTML = nonTestIds.length ? playbackOpts : '<option value="">No workflows</option>';
-      const pb = resolvePlaybackWorkflowSelectValue(nonTestIds);
+      const pb = resolvePlaybackWorkflowSelectValue(nonTestIds, prevPlaybackSel);
       if (pb) playbackWorkflow.value = pb;
     }
     applyPlanWorkflowSelectToPlaybackDropdown({ silent: true });
@@ -1646,9 +1751,7 @@
   }
 
   function renderWorkflowUrlPattern() {
-    const wfId = (workflowSelect && workflowSelect.value && workflowSelect.value !== '__new__')
-      ? workflowSelect.value
-      : playbackWorkflow.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     const wf = workflows[wfId];
     const input = document.getElementById('workflowStartUrl');
     const planWrap = document.getElementById('workflowUrlPatternPlan');
@@ -1677,6 +1780,74 @@
     } catch (_) {
       return false;
     }
+  }
+
+  /** Start URL for the workflow being run — ignore a leftover Expected URL from a different workflow. */
+  function resolveStartUrlForWorkflow(wf, inputValue) {
+    const wfOrigin = (wf && wf.urlPattern && wf.urlPattern.origin) ? String(wf.urlPattern.origin).trim() : '';
+    const input = inputValue == null ? '' : String(inputValue).trim();
+    if (input && wfOrigin) {
+      const inputAsUrl = /^https?:\/\//i.test(input) ? input : ('https://' + input.replace(/^\*\./, ''));
+      if (urlMatchesPattern(inputAsUrl, wfOrigin)) return input;
+      return wfOrigin;
+    }
+    return input || wfOrigin;
+  }
+
+  function getSelectedWorkflowStartUrl(wf) {
+    const input = document.getElementById('workflowStartUrl');
+    return resolveStartUrlForWorkflow(wf, input && input.value);
+  }
+
+  /** Prefer the first goToUrl when opening a tab so a bare origin (or a stale field) is not used. */
+  function resolveOpenUrlForWorkflow(wf, startUrl) {
+    const actions = (wf && wf.analyzed && wf.analyzed.actions) || [];
+    for (let i = 0; i < actions.length; i++) {
+      const a = actions[i];
+      if (a && a.type === 'goToUrl' && a.url && String(a.url).trim()) return String(a.url).trim();
+    }
+    return startUrl || '';
+  }
+
+  function tabMatchesWorkflowUrl(pageUrl, wf, urlPattern) {
+    if (!pageUrl) return false;
+    if (!urlPattern) return true;
+    if (urlMatchesPattern(pageUrl, urlPattern)) return true;
+    const openUrl = resolveOpenUrlForWorkflow(wf, urlPattern);
+    if (!openUrl) return false;
+    try {
+      if (urlMatchesPattern(pageUrl, new URL(openUrl).origin)) return true;
+    } catch (_) {}
+    return urlMatchesPattern(pageUrl, openUrl);
+  }
+
+  function workflowStartsWithNavigation(wf) {
+    const actions = (wf && wf.analyzed && wf.analyzed.actions) || [];
+    for (let i = 0; i < actions.length; i++) {
+      const a = actions[i];
+      if (!a || !a.type || a.type === 'wait' || a.type === 'delayBeforeNextRun') continue;
+      return a.type === 'goToUrl' && !!(a.url && String(a.url).trim());
+    }
+    return false;
+  }
+
+  async function resolveTabForWorkflowRun(wf, queryOpts) {
+    const urlPattern = getSelectedWorkflowStartUrl(wf);
+    const navigates = workflowStartsWithNavigation(wf);
+    let [tab] = await chrome.tabs.query(queryOpts || { active: true, lastFocusedWindow: true });
+    if (urlPattern && tab && !tabMatchesWorkflowUrl(tab.url, wf, urlPattern)) {
+      const allTabs = await chrome.tabs.query({});
+      const matching = allTabs.filter((t) => t.url && tabMatchesWorkflowUrl(t.url, wf, urlPattern));
+      if (matching.length > 0) tab = matching[0];
+    }
+    const restricted = !tab?.id || (tab.url && /^(chrome|edge|about):\/\//i.test(tab.url));
+    const mismatch = !!(urlPattern && tab?.url && !tabMatchesWorkflowUrl(tab.url, wf, urlPattern));
+    if ((restricted || (!navigates && mismatch)) && (urlPattern || navigates)) {
+      setStatus('Opening start URL…', '');
+      const opened = await openWorkflowStartUrlAndGetTab(wf);
+      if (opened) tab = opened;
+    }
+    return { tab, urlPattern, navigates };
   }
 
   /** Hostname of the tracked active tab URL (for catalog + auto-enrich domain match). */
@@ -2191,13 +2362,20 @@
   chrome.tabs.onActivated.addListener(async () => {
     applyFollowingPrefillFromCurrentTab();
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.url) { currentTabUrl = tab.url; renderWorkflowSelects(); }
+      await refreshCurrentTabUrl();
+      renderWorkflowSelects();
     } catch (_) {}
     scheduleAutoEnrichMergeableStepsForPlaybackWorkflow();
   });
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.url) { currentTabUrl = changeInfo.url; applyFollowingPrefillFromCurrentTab(); renderWorkflowSelects(); }
+    if (changeInfo.url) {
+      chrome.tabs.query({ active: true }, (tabs) => {
+        if (!tabs.some((t) => t.id === tabId)) return;
+        if (!isRestrictedUrl(changeInfo.url)) currentTabUrl = changeInfo.url;
+        applyFollowingPrefillFromCurrentTab();
+        renderWorkflowSelects();
+      });
+    }
     if (changeInfo.status === 'complete') {
       chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
         try {
@@ -6088,6 +6266,9 @@
       }
       if (wfId) localStorage.setItem(STORAGE_KEY_SELECTED_WORKFLOW, wfId);
       else localStorage.removeItem(STORAGE_KEY_SELECTED_WORKFLOW);
+      if (wfId && !isCryptoAlwaysOnWorkflow(wfId)) {
+        localStorage.setItem('cfsLastNonAlwaysOnWorkflow', wfId);
+      }
     } catch (_) {}
   }
 
@@ -6591,17 +6772,11 @@
     })();
   }
 
-  /** Show/hide backend-offline banner only. Does not block any flows; playback, generator, and local workflows work offline. */
+  /** Show/hide backend-offline banner only when logged in and the host is unreachable. */
   function checkBackendStatus() {
-    const banner = document.getElementById('backendOfflineBanner');
-    if (!banner) return;
-    if (typeof ExtensionApi === 'undefined') {
-      banner.style.display = 'none';
-      return;
+    if (window.CFS_authBackend && typeof window.CFS_authBackend.checkBackendStatus === 'function') {
+      return window.CFS_authBackend.checkBackendStatus(getAuthState);
     }
-    getAuthState()
-      .then((auth) => { banner.style.display = auth.isLoggedIn ? 'none' : 'block'; })
-      .catch(() => { banner.style.display = 'block'; });
   }
 
   async function listVersionFilesInFolder(dirHandle) {
@@ -7083,10 +7258,6 @@
   const CFS_WORKFLOW_ANSWERS_KEY = 'workflowAnswers';
   const CFS_USER_CREDITS_BALANCE_KEY = 'cfs_user_credits_balance';
   async function getCreditsBalance() {
-    if (await isQaBackendConfigured() && typeof ExtensionApi !== 'undefined' && ExtensionApi.getCreditsBalanceQA) {
-      const fromApi = await ExtensionApi.getCreditsBalanceQA();
-      if (fromApi && typeof fromApi.balance === 'number') return fromApi.balance;
-    }
     const data = await chrome.storage.local.get([CFS_USER_CREDITS_BALANCE_KEY]);
     const v = data[CFS_USER_CREDITS_BALANCE_KEY];
     return typeof v === 'number' ? v : (parseInt(v, 10) || 0);
@@ -7106,19 +7277,7 @@
       '<p style="margin:0 0 6px 0;"><strong>Your credits:</strong> ' + escapeHtml(String(balance)) + ' (earn by answering questions; balance syncs when backend is connected)</p>' +
       '<p class="hint" style="margin:0;font-size:12px;">A share of membership payments will go to top contributors. Leaderboard and payouts appear here when the backend is connected.</p>';
   }
-  var qaUseBackend = null;
-  async function isQaBackendConfigured() {
-    if (qaUseBackend !== null) return qaUseBackend;
-    try {
-      qaUseBackend = !!(typeof ExtensionApi !== 'undefined' && ExtensionApi.getQaBaseUrl && (await ExtensionApi.getQaBaseUrl()));
-    } catch (_) { qaUseBackend = false; }
-    return qaUseBackend;
-  }
   async function loadWorkflowQuestions() {
-    if (await isQaBackendConfigured() && typeof ExtensionApi !== 'undefined' && ExtensionApi.getWorkflowQuestionsQA) {
-      const fromApi = await ExtensionApi.getWorkflowQuestionsQA();
-      if (fromApi && Array.isArray(fromApi.questions)) return fromApi.questions;
-    }
     try {
       const projectRoot = await getStoredProjectFolderHandle();
       if (projectRoot) {
@@ -7137,10 +7296,6 @@
     return Array.isArray(raw) ? raw : [];
   }
   async function loadWorkflowAnswers() {
-    if (await isQaBackendConfigured() && typeof ExtensionApi !== 'undefined' && ExtensionApi.getWorkflowAnswersQA) {
-      const fromApi = await ExtensionApi.getWorkflowAnswersQA();
-      if (fromApi && Array.isArray(fromApi.answers)) return fromApi.answers;
-    }
     try {
       const projectRoot = await getStoredProjectFolderHandle();
       if (projectRoot) {
@@ -7392,10 +7547,6 @@
           kb_answer_status: res.answer_status,
         });
         await mergeWorkflowAnswerIntoLocalFromBackend(qid, wfid, wfname, mergedAnswer);
-        if (await isQaBackendConfigured() && typeof ExtensionApi.getCreditsBalanceQA === 'function') {
-          var bal = await ExtensionApi.getCreditsBalanceQA();
-          if (bal && typeof bal.balance === 'number') await chrome.storage.local.set({ [CFS_USER_CREDITS_BALANCE_KEY]: bal.balance });
-        }
         if (typeof renderCreditsPlaceholder === 'function') renderCreditsPlaceholder();
         const pendingModeration = !!(
           !res.conflict &&
@@ -7612,14 +7763,6 @@
         return;
       }
     }
-    if (await isQaBackendConfigured() && typeof ExtensionApi !== 'undefined' && ExtensionApi.voteAnswerQA) {
-      const res = await ExtensionApi.voteAnswerQA(answerId, 'up');
-      if (res && res.ok) {
-        const resEl = document.getElementById('qaSearchResults');
-        if (resEl && resEl.dataset.lastQuery != null) await renderQaSearchResults(resEl.dataset.lastQuery, resEl.dataset.limitSite === '1');
-        return;
-      }
-    }
     const answers = (await loadWorkflowAnswers()).map(normalizeAnswer);
     const a = answers.find(function(x) { return x.id === answerId; });
     if (!a) return;
@@ -7641,14 +7784,6 @@
       (await isWhopLoggedIn())
     ) {
       const res = await ExtensionApi.postKnowledgeVote(answerId, 'down');
-      if (res && res.ok) {
-        const resEl = document.getElementById('qaSearchResults');
-        if (resEl && resEl.dataset.lastQuery != null) await renderQaSearchResults(resEl.dataset.lastQuery, resEl.dataset.limitSite === '1');
-        return;
-      }
-    }
-    if (await isQaBackendConfigured() && typeof ExtensionApi !== 'undefined' && ExtensionApi.voteAnswerQA) {
-      const res = await ExtensionApi.voteAnswerQA(answerId, 'down');
       if (res && res.ok) {
         const resEl = document.getElementById('qaSearchResults');
         if (resEl && resEl.dataset.lastQuery != null) await renderQaSearchResults(resEl.dataset.lastQuery, resEl.dataset.limitSite === '1');
@@ -7943,6 +8078,38 @@
     });
 
     let chatHistory = [];
+    let lastChatWorkflowPlan = null;
+
+    async function runChatWorkflowPlan(items) {
+      const list = Array.isArray(items) ? items : [];
+      if (!list.length) throw new Error('No workflow plan to run');
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tab?.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
+        throw new Error('Open the target page (e.g. HighLevel) first.');
+      }
+      await ensureContentScriptLoaded(tab.id);
+      const stopSignal = new Promise((resolve) => {
+        playbackResolve = () => resolve({ ok: true, done: true, stopped: true });
+      });
+      playbackTabId = tab.id;
+      try {
+        const hopState = {
+          currentTabId: tab.id,
+          startIndex: 0,
+          resolved: { actions: [] },
+          tab: tab,
+          row: {},
+          stopSignal: stopSignal,
+        };
+        const res = await executeWorkflowPlanItems(list, hopState);
+        if (res?.ok === false) throw new Error(res.error || 'Plan run failed');
+        if (typeof setStatus === 'function') setStatus('Chat workflow plan finished.', 'success');
+        return res;
+      } finally {
+        playbackTabId = null;
+        playbackResolve = null;
+      }
+    }
 
     function setChatStatus(msg, type) {
       if (!statusEl) return;
@@ -8137,7 +8304,12 @@
           role: 'system',
           content:
             (qaData.contextString || '') +
-            'You are a copywriter. Write punchy headlines, ad copy, and sales messaging. Be concise and professional.',
+            'You are a workflow assistant for Extensible Content. You can write copy, and you can dispatch HighLevel (GHL) builder workflows.\n' +
+            'When the user asks to place or run a GHL block, reply with JSON only in this shape:\n' +
+            '{ "next": [ { "workflowId": "wf_ghl_place_headline", "row": { "text": "FloraTrack" } } ] }\n' +
+            'Known workflow ids: wf_ghl_site_bootstrap, wf_ghl_place_section, wf_ghl_place_columns, wf_ghl_place_headline, wf_ghl_place_text, wf_ghl_place_image, wf_ghl_place_button, wf_ghl_ensure_form, wf_ghl_place_form, wf_ghl_apply_style, wf_ghl_place_html, wf_ghl_place_video, wf_ghl_place_divider, wf_ghl_place_nav, wf_ghl_place_footer, wf_ghl_place_list, wf_ghl_place_quote, wf_ghl_place_pricing, wf_ghl_place_faq, wf_ghl_place_countdown, wf_ghl_place_map, wf_ghl_place_slider, wf_ghl_place_popup, wf_ghl_place_social, wf_ghl_place_calendar, wf_ghl_design_correct, wf_ghl_design_import.\n' +
+            'Never invent a PancakeSwap or BSC workflow unless the user names it. Prefer native GHL blocks; use wf_ghl_place_html only for visual chrome (no form/input/select/textarea). Collect-info UI must use wf_ghl_ensure_form + wf_ghl_place_form.\n' +
+            'Otherwise write punchy headlines and be concise.',
         },
         ...chatHistory,
       ];
@@ -8193,7 +8365,32 @@
           qaMatches: qaData.matches && qaData.matches.length ? qaData.matches : undefined,
         });
         renderChatMessages();
-        setChatStatus('');
+        lastChatWorkflowPlan = null;
+        const planApi = typeof CFS_workflowPlan !== 'undefined' ? CFS_workflowPlan : null;
+        const parsedPlan = planApi && typeof planApi.parseWorkflowPlan === 'function'
+          ? planApi.parseWorkflowPlan(assistantText)
+          : null;
+        const runPlanBtn = document.getElementById('llmChatRunPlanBtn');
+        if (parsedPlan && parsedPlan.ok) {
+          lastChatWorkflowPlan = parsedPlan.next;
+          if (runPlanBtn) {
+            runPlanBtn.style.display = '';
+            runPlanBtn.disabled = false;
+          }
+          if (/\b(run|place|execute|dispatch)\b/i.test(text)) {
+            setChatStatus('Running workflow plan…', 'loading');
+            try {
+              await runChatWorkflowPlan(parsedPlan.next);
+              setChatStatus('Workflow plan finished.', '');
+            } catch (planErr) {
+              setChatStatus((planErr && planErr.message) || 'Plan run failed', 'error');
+            }
+          } else {
+            setChatStatus('Workflow plan ready — click Run workflow plan.', '');
+          }
+        } else if (runPlanBtn) {
+          runPlanBtn.style.display = 'none';
+        }
       } catch (e) {
         setChatStatus((e && e.message) || 'Chat failed', 'error');
         chatHistory.pop();
@@ -8237,11 +8434,148 @@
       }
     });
 
+    document.getElementById('llmChatRunPlanBtn')?.addEventListener('click', async function() {
+      if (!lastChatWorkflowPlan || !lastChatWorkflowPlan.length) {
+        setChatStatus('No workflow plan in the last reply.', 'error');
+        return;
+      }
+      setChatStatus('Running workflow plan…', 'loading');
+      try {
+        await runChatWorkflowPlan(lastChatWorkflowPlan);
+        setChatStatus('Workflow plan finished.', '');
+      } catch (planErr) {
+        setChatStatus((planErr && planErr.message) || 'Plan run failed', 'error');
+      }
+    });
     sendBtn.addEventListener('click', sendChat);
     inputEl.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendChat();
+      }
+    });
+  })();
+
+  (function initPageComparePanel() {
+    const passEl = document.getElementById('pageComparePass');
+    const scoreEl = document.getElementById('pageCompareScore');
+    const failEl = document.getElementById('pageCompareFailures');
+    const runBtn = document.getElementById('pageCompareRunBtn');
+    if (!passEl || !runBtn) return;
+
+    function renderCompareResult(result) {
+      const r = result || {};
+      passEl.textContent = r.pass ? 'pass' : 'fail';
+      passEl.className = 'page-compare-pass ' + (r.pass ? 'is-pass' : 'is-fail');
+      if (scoreEl) scoreEl.textContent = r.score != null ? String(Math.round(Number(r.score) * 100) / 100) : '—';
+      if (failEl) {
+        const fails = Array.isArray(r.failures) ? r.failures : [];
+        failEl.textContent = fails.length
+          ? fails.map(function (f) {
+            return (f.type || 'issue') + (f.text ? ': ' + f.text : '') + (f.label ? ': ' + f.label : '') + (f.ghl ? ' ' + f.ghl : '') + (f.percent != null ? ' ' + f.percent + '%' : '');
+          }).join('\n')
+          : 'none';
+      }
+      try { chrome.storage.local.set({ cfsLastPageCompare: r }); } catch (_) {}
+    }
+
+    function parseRowPayload() {
+      const raw = document.getElementById('rowData')?.value?.trim() || '';
+      if (!raw) return {};
+      try { return JSON.parse(raw); } catch (_) {}
+      return {};
+    }
+
+    async function captureActiveTabSnapshot() {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tab?.id) return null;
+      const injected = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: function () {
+          var body = document.body;
+          return {
+            href: location.href,
+            title: document.title || '',
+            text: (body && body.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 8000),
+            html: (body && body.innerHTML || '').slice(0, 4000),
+            formCount: document.querySelectorAll('form, [data-ghl-form], .hl-form-wrap').length,
+            regions: [{
+              id: 'root',
+              text: (body && body.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 4000),
+              styles: (function () {
+                if (!body) return {};
+                var st = getComputedStyle(body);
+                function hex(c) {
+                  var m = String(c || '').match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+                  if (!m) return String(c || '');
+                  function h(n) { var s = Number(n).toString(16); return s.length === 1 ? '0' + s : s; }
+                  return '#' + h(m[1]) + h(m[2]) + h(m[3]);
+                }
+                return { color: hex(st.color), backgroundColor: hex(st.backgroundColor), fontSize: st.fontSize };
+              })(),
+            }],
+          };
+        },
+      });
+      return injected && injected[0] && injected[0].result;
+    }
+
+    async function captureVisiblePixels() {
+      try {
+        const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: 'png' });
+        if (!dataUrl) return null;
+        const img = new Image();
+        await new Promise(function (resolve, reject) {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = dataUrl;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.min(img.width, 480);
+        canvas.height = Math.min(img.height, 360);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return ctx.getImageData(0, 0, canvas.width, canvas.height);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    runBtn.addEventListener('click', async function () {
+      const cmp = typeof CFS_pageCompare !== 'undefined' ? CFS_pageCompare : null;
+      if (!cmp || typeof cmp.comparePages !== 'function') {
+        passEl.textContent = 'error';
+        if (failEl) failEl.textContent = 'CFS_pageCompare missing';
+        return;
+      }
+      runBtn.disabled = true;
+      try {
+        const row = parseRowPayload();
+        const source = row.sourceSnapshot || {};
+        let preview = row.previewSnapshot || null;
+        if (!preview || !preview.text) preview = await captureActiveTabSnapshot() || {};
+        const pixels = {};
+        if (source && preview) {
+          /* optional pixel pass uses current tab as preview */
+          pixels.preview = await captureVisiblePixels();
+        }
+        const result = cmp.comparePages({
+          plan: row.plan || {},
+          sourceText: source.text || '',
+          previewText: preview.text || '',
+          previewHtml: preview.html || '',
+          previewCounts: { form: preview.formCount != null ? preview.formCount : 0 },
+          pixels: pixels.preview && source.pixels ? { source: source.pixels, preview: pixels.preview, maxPercent: 35 } : undefined,
+        });
+        renderCompareResult(result);
+        if (typeof setStatus === 'function') {
+          setStatus(result.pass ? 'Compare passed.' : 'Compare failed — see Compare strip.', result.pass ? 'success' : 'error');
+        }
+      } catch (err) {
+        passEl.textContent = 'error';
+        if (failEl) failEl.textContent = (err && err.message) || String(err);
+      } finally {
+        runBtn.disabled = false;
       }
     });
   })();
@@ -8442,7 +8776,10 @@
     const upgradeWrap = document.getElementById('upgradeCtaWrap');
     const plansList = document.getElementById('upgradePlansList');
     if (upgradeWrap && plansList) {
-      (typeof ExtensionApi !== 'undefined' ? ExtensionApi.hasUpgraded() : Promise.resolve({ ok: false })).then(function(upgraded) {
+      (typeof isWhopLoggedIn === 'function' ? isWhopLoggedIn() : Promise.resolve(false)).then(function(loggedIn) {
+        if (!loggedIn || typeof ExtensionApi === 'undefined') return Promise.resolve({ ok: false, pro: false });
+        return ExtensionApi.hasUpgraded();
+      }).then(function(upgraded) {
         const showUpgrade = !(upgraded && upgraded.pro);
         upgradeWrap.style.display = showUpgrade ? '' : 'none';
         if (!showUpgrade) return;
@@ -8708,6 +9045,17 @@
     await w.close();
   }
 
+  function cfsReloadExtensionNow() {
+    const go = () => {
+      try { chrome.runtime.reload(); } catch (_) {}
+    };
+    try {
+      chrome.storage.session.set({ cfsReopenSidePanelAfterReload: true }, go);
+    } catch (_) {
+      go();
+    }
+  }
+
   async function rebuildManifestsAndReload() {
     const statusEl = document.getElementById('reloadExtensionStatus');
     const setReloadStatus = (msg, isError) => {
@@ -8721,13 +9069,13 @@
           'Reloading… No project folder saved — skipped manifest rebuild. You do not need chrome://extensions. Record on a normal https:// page.',
           ''
         );
-        chrome.runtime.reload();
+        cfsReloadExtensionNow();
         return;
       }
       if (typeof showDirectoryPicker !== 'function') {
         setReloadStatus('Reloading extension (cannot rebuild manifests here)…', false);
         setStatus('Reloading…', '');
-        chrome.runtime.reload();
+        cfsReloadExtensionNow();
         return;
       }
       const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
@@ -8737,7 +9085,7 @@
           'Reloading… Grant project folder read/write next time to rebuild manifests on reload. Record on a normal https:// page, not chrome://.',
           ''
         );
-        chrome.runtime.reload();
+        cfsReloadExtensionNow();
         return;
       }
       setReloadStatus('Rebuilding manifests…', false);
@@ -8746,7 +9094,7 @@
       if (stepIds.length) await writeStepsManifest(projectRoot, stepIds);
       if (workflowIds.length) await writeWorkflowsManifest(projectRoot, workflowIds);
       setReloadStatus('Reloading…', false);
-      chrome.runtime.reload();
+      cfsReloadExtensionNow();
     } catch (err) {
       const msg = err.name === 'AbortError' ? 'Cancelled.' : (err.message || String(err));
       setStatus(err.name === 'AbortError' ? 'Cancelled.' : 'Rebuild failed: ' + msg, 'error');
@@ -8944,7 +9292,7 @@
           ghStatus('Update applied. Reloading extension…');
           pendingApply = null;
           applyBtn.disabled = true;
-          chrome.runtime.reload();
+          cfsReloadExtensionNow();
         } catch (e) {
           ghStatus('Apply failed: ' + (e.message || e));
           setStatus('GitHub apply failed: ' + (e.message || e), 'error');
@@ -8996,7 +9344,7 @@
           await GH.writeSyncStateFile(root, { baselineCommitSha: remote.sha, manifestVersion: mvFull });
           await GH.saveState({ lastSyncedSha: null });
           ghStatus('Full sync done. Reloading extension…');
-          chrome.runtime.reload();
+          cfsReloadExtensionNow();
         } catch (e) {
           ghStatus('Full sync failed: ' + (e.message || e));
           setStatus('GitHub full sync failed: ' + (e.message || e), 'error');
@@ -9020,14 +9368,9 @@
     if (!listEl) return;
     listEl.innerHTML = '';
     var remoteProjects = [];
-    if (typeof isWhopLoggedIn === 'function' && await isWhopLoggedIn() && typeof ExtensionApi !== 'undefined') {
-      try {
-        var apiProjects = await ExtensionApi.getProjects();
-        remoteProjects = (Array.isArray(apiProjects) ? apiProjects : []).map(function(p) {
-          return typeof normalizeSupabaseProject === 'function' ? normalizeSupabaseProject(p) : { id: p.id, name: p.name };
-        });
-      } catch (_) {}
-    } else if (typeof ExtensionApi !== 'undefined') {
+    if (window.CFS_libraryPanel && typeof window.CFS_libraryPanel.fetchRemoteProjects === 'function') {
+      remoteProjects = await window.CFS_libraryPanel.fetchRemoteProjects(isWhopLoggedIn, normalizeSupabaseProject);
+    } else if (typeof isWhopLoggedIn === 'function' && await isWhopLoggedIn() && typeof ExtensionApi !== 'undefined') {
       try {
         var apiProjects = await ExtensionApi.getProjects();
         remoteProjects = (Array.isArray(apiProjects) ? apiProjects : []).map(function(p) {
@@ -10388,22 +10731,33 @@
       typeof CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES !== 'undefined' && Array.isArray(CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES)
         ? CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES
         : null;
+    const injectAllFrames = async () => {
+      if (!bundleFiles || !bundleFiles.length) return;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          files: bundleFiles,
+        });
+      } catch (_) {}
+    };
     try {
       await chrome.tabs.sendMessage(tabId, { type: 'RECORDER_STATUS' });
       await waitForStepHandlersReady(tabId, 2500);
+      await injectAllFrames();
       return;
     } catch (_) {}
     try {
       await new Promise((r) => setTimeout(r, 400));
       await chrome.tabs.sendMessage(tabId, { type: 'RECORDER_STATUS' });
       await waitForStepHandlersReady(tabId, 2500);
+      await injectAllFrames();
       return;
     } catch (_) {}
     if (!bundleFiles || !bundleFiles.length) {
       throw new Error('Content script bundle list unavailable');
     }
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       files: bundleFiles,
     });
     await waitForStepHandlersReady(tabId, 8000);
@@ -10569,6 +10923,7 @@
         }
         if (mode === 'append' && wf.analyzed?.actions?.length) {
           wf.analyzed.actions = [...(wf.analyzed.actions || []), ...res.actions];
+          if (typeof sanitizeClickSelectorCollisions === 'function') sanitizeClickSelectorCollisions(wf.analyzed.actions);
           wf.runs = wf.runs || [];
           wf.runs.push(runData);
           workflows[wfId] = wf;
@@ -10590,6 +10945,7 @@
         } else if (mode === 'insert' && typeof insertAt === 'number' && wf.analyzed?.actions?.length) {
           const acts = [...wf.analyzed.actions];
           acts.splice(insertAt, 0, ...res.actions);
+          if (typeof sanitizeClickSelectorCollisions === 'function') sanitizeClickSelectorCollisions(acts);
           wf.analyzed.actions = acts;
           workflows[wfId] = wf;
           await chrome.storage.local.set({ workflows });
@@ -10705,7 +11061,8 @@
             fbHost = await getActiveTabDiscoveryHost();
           } catch (_) {}
           const aff = await buildDiscoveryAffinitySetForAnalyze(fbHost);
-          const opts = aff.size > 0 ? { discoveryAffinitySet: aff } : undefined;
+          const opts = aff.size > 0 ? { discoveryAffinitySet: aff } : {};
+          opts.createBranches = !!(document.getElementById('analyzeCreateBranches') && document.getElementById('analyzeCreateBranches').checked);
           const analyzed = analyzeRuns(wf.runs, opts);
           if (analyzed) {
             wf.analyzed = analyzed;
@@ -10732,6 +11089,11 @@
 
   playbackWorkflow.addEventListener('change', () => {
     persistSelectedWorkflowId(playbackWorkflow.value || null);
+    if (workflowSelect && playbackWorkflow.value && workflows[playbackWorkflow.value] && workflowSelect.value !== playbackWorkflow.value) {
+      workflowSelect.value = playbackWorkflow.value;
+      syncPlanWorkflowPickersFromHiddenSelect();
+    }
+    renderWorkflowList();
     const g = document.getElementById('qualityPreviewGroupMode');
     if (g) g.dataset.previewBound = '';
     renderWorkflowFormFields();
@@ -12014,6 +12376,53 @@
       }
     }
     list.innerHTML = stepHtml.join('');
+    var strip = document.getElementById('stepsFlowStrip');
+    var graphEl = document.getElementById('stepsFlowGraph');
+    if (strip) {
+      strip.innerHTML = actions.map(function(a, ix) {
+        var label = (ix + 1) + ' ' + (a.type || 'step');
+        if (a.runIf || (a.type === 'ifCondition' && a.condition)) label += ' [if]';
+        if (a.type === 'runWorkflow' && a.workflowId) label += ' → ' + a.workflowId;
+        return '<button type="button" class="flow-chip" data-flow-step="' + ix + '">' + escapeHtml(label) + '</button>';
+      }).join('');
+      strip.querySelectorAll('[data-flow-step]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var idx = parseInt(btn.getAttribute('data-flow-step'), 10);
+          var item = list.querySelector('.step-item[data-step-index="' + idx + '"]');
+          if (item) {
+            item.classList.add('step-expanded');
+            item.scrollIntoView({ block: 'nearest' });
+          }
+        });
+      });
+    }
+    if (graphEl) {
+      function graphLines(acts, indent) {
+        var html = '';
+        (acts || []).forEach(function(a, ix) {
+          var name = (a && a.type) || '?';
+          if (a && a.workflowId) name += ' → ' + a.workflowId;
+          if (a && (a.runIf || a.condition)) name += ' if ' + String(a.runIf || a.condition).slice(0, 28);
+          html += '<div class="fg-node" data-flow-step="' + ix + '" style="padding-left:' + (indent * 12) + 'px">' + escapeHtml(name) + '</div>';
+          if (a && a.type === 'ifCondition') {
+            html += '<div class="fg-node" style="padding-left:' + ((indent + 1) * 12) + 'px">then</div>';
+            html += graphLines(a.thenSteps || [], indent + 2);
+            html += '<div class="fg-node" style="padding-left:' + ((indent + 1) * 12) + 'px">else</div>';
+            html += graphLines(a.elseSteps || [], indent + 2);
+          }
+          if (a && a.type === 'loop') html += graphLines(a.steps || [], indent + 1);
+        });
+        return html;
+      }
+      graphEl.innerHTML = graphLines(actions, 0) || '<span class="hint">No steps</span>';
+      graphEl.querySelectorAll('[data-flow-step]').forEach(function(n) {
+        n.addEventListener('click', function() {
+          var idx = parseInt(n.getAttribute('data-flow-step'), 10);
+          var item = list.querySelector('.step-item[data-step-index="' + idx + '"]');
+          if (item) item.scrollIntoView({ block: 'nearest' });
+        });
+      });
+    }
     list.querySelectorAll('[data-field="llmProvider"]').forEach(function(sel) {
       const step = sel.closest('.step-item');
       if (!step) return;
@@ -12031,6 +12440,21 @@
         document.getElementById('recordWorkflowBtn')?.click();
       });
     });
+    if (!document.body._cfsStepsViewBound) {
+      document.body._cfsStepsViewBound = true;
+      document.getElementById('stepsViewListBtn')?.addEventListener('click', function() {
+        var g = document.getElementById('stepsFlowGraph');
+        var l = document.getElementById('stepsList');
+        if (g) g.style.display = 'none';
+        if (l) l.style.display = '';
+      });
+      document.getElementById('stepsViewGraphBtn')?.addEventListener('click', function() {
+        var g = document.getElementById('stepsFlowGraph');
+        var l = document.getElementById('stepsList');
+        if (g) g.style.display = '';
+        if (l) l.style.display = 'none';
+      });
+    }
     if (!list._proceedWhenBound) {
       list._proceedWhenBound = true;
       list.addEventListener('change', function(e) {
@@ -13223,15 +13647,25 @@
     const optional = !!action.optional;
     const delay = action.delay != null ? action.delay : '';
     const waitAfter = action.waitAfter || 'time';
+    const runIfVal = String(action.runIf || action.condition || '').trim();
     const canMoveUp = i > 0;
     const canMoveDown = i < totalCount - 1;
     const typeOptions = getStepTypes().map(function(s) {
       return '<option value="' + escapeHtml(s.id) + '"' + (type === s.id ? ' selected' : '') + '>' + escapeHtml(s.label) + '</option>';
     }).join('');
+    var chips = '';
+    if (runIfVal) chips += '<span class="step-chip step-chip-if" title="' + escapeHtml(runIfVal) + '">If ' + escapeHtml(runIfVal.length > 40 ? runIfVal.slice(0, 40) + '…' : runIfVal) + '</span>';
+    if (type === 'runWorkflow' && action.workflowId) chips += '<span class="step-chip">→ ' + escapeHtml(String(action.workflowId)) + '</span>';
+    if (type === 'loop') {
+      var lv = String(action.listVariable || '').trim();
+      chips += lv ? '<span class="step-chip">over {{' + escapeHtml(lv) + '}}</span>' : '<span class="step-chip">×' + escapeHtml(String(action.count != null ? action.count : 1)) + '</span>';
+    }
+    if (action.onFailure && action.onFailure !== 'stop') chips += '<span class="step-chip">onFailure: ' + escapeHtml(action.onFailure === 'skipRow' ? 'skip' : action.onFailure) + '</span>';
     return '<div class="step-item ' + (optional ? 'step-optional' : '') + '" data-step-index="' + i + '">' +
       '<div class="step-header" title="Double-click to run from this step">' +
       '<span class="step-number">' + (i + 1) + '</span>' +
       (optional ? '<span class="step-optional-badge" title="Optional: skipped if element not found">Optional</span>' : '') +
+      chips +
       '<span class="step-type-badge">' + escapeHtml(type) + '</span>' +
       '<span class="step-summary">' + escapeHtml(getStepSummary(action, i)) + '</span>' +
       '<span class="step-controls">' +
@@ -13248,6 +13682,7 @@
       '<div class="step-field"><label>Step label (optional)</label><input type="text" data-field="stepLabel" data-step="' + i + '" value="' + escapeHtml(String(action.stepLabel || '')) + '" placeholder="e.g. Set Flow settings"></div>' +
       stepCommentBlocksHtml(action, i) +
       '<div class="step-field"><label>Action type</label><select data-field="type" data-step="' + i + '">' + typeOptions + '</select></div>' +
+      '<div class="step-field"><label>Run only if</label><input type="text" data-field="runIf" data-step="' + i + '" data-testid="cfs-step-runif" value="' + escapeHtml(String(action.runIf || '')) + '" placeholder="e.g. {{exitPolicy}} === restake"></div>' +
       '<div class="step-field"><label>Delay before (ms)</label><input type="number" data-field="delay" data-step="' + i + '" value="' + escapeHtml(String(delay)) + '" placeholder="0" min="0"></div>' +
       '<div class="step-field"><label>Wait after</label><select data-field="waitAfter" data-step="' + i + '">' +
       '<option value="time"' + (waitAfter === 'time' ? ' selected' : '') + '>Short (300ms)</option>' +
@@ -13944,6 +14379,11 @@
           if (!String(action.llmModelOverride || '').trim()) delete action.llmModelOverride;
         }
       }
+      const runIfEl = item.querySelector('[data-field="runIf"][data-step="' + idx + '"]') || item.querySelector('[data-field="runIf"]');
+      if (runIfEl) {
+        const rv = String(runIfEl.value || '').trim();
+        if (rv) action.runIf = rv; else delete action.runIf;
+      }
       const proceedWhenEl = item.querySelector('[data-field="proceedWhen"]');
       if (proceedWhenEl) action.proceedWhen = proceedWhenEl.value || 'stepComplete';
       if (action.proceedWhen === 'element') {
@@ -13975,6 +14415,11 @@
     if (stepDef && Array.isArray(stepDef.formSchema) && stepDef.formSchema.length > 0) {
       const updated = saveStepFromFormSchema(item, action, idx, stepDef.formSchema);
       if (updated && typeof updated === 'object') Object.assign(action, updated);
+      const runIfEl = item.querySelector('[data-field="runIf"][data-step="' + idx + '"]') || item.querySelector('[data-field="runIf"]');
+      if (runIfEl) {
+        const rv = String(runIfEl.value || '').trim();
+        if (rv) action.runIf = rv; else delete action.runIf;
+      }
       const proceedWhenEl = item.querySelector('[data-field="proceedWhen"]');
       if (proceedWhenEl) action.proceedWhen = proceedWhenEl.value || 'stepComplete';
       if (action.proceedWhen === 'element') {
@@ -14159,6 +14604,11 @@
       }
     }
     await persistStepNarrationFromItem(item, action, wfId, idx);
+    const runIfEl = item.querySelector('[data-field="runIf"][data-step="' + idx + '"]') || item.querySelector('[data-field="runIf"]');
+    if (runIfEl) {
+      const rv = String(runIfEl.value || '').trim();
+      if (rv) action.runIf = rv; else delete action.runIf;
+    }
     const proceedWhenEl = item.querySelector('[data-field="proceedWhen"]');
     if (proceedWhenEl) action.proceedWhen = proceedWhenEl.value || 'stepComplete';
     if (action.proceedWhen === 'element') {
@@ -14186,7 +14636,7 @@
   }
 
   document.getElementById('workflowStartUrl')?.addEventListener('change', async (e) => {
-    const wfId = playbackWorkflow.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     if (!wfId) return;
     const wf = workflows[wfId];
     if (wf) {
@@ -14200,8 +14650,8 @@
 
   /** Opens the workflow start URL in a new tab, waits for load, returns the tab. Used when Run/Run All need the correct page. */
   async function openWorkflowStartUrlAndGetTab(wf) {
-    const input = document.getElementById('workflowStartUrl');
-    let url = (input && input.value && input.value.trim()) || (wf && wf.urlPattern && wf.urlPattern.origin) || '';
+    const startUrl = getSelectedWorkflowStartUrl(wf);
+    let url = resolveOpenUrlForWorkflow(wf, startUrl);
     if (!url || !url.trim()) return null;
     url = url.trim();
     if (!/^https?:\/\//i.test(url)) url = 'https://' + (url.startsWith('*.') ? url.replace(/^\*\./, '') : url);
@@ -14241,10 +14691,9 @@
   }
 
   document.getElementById('openStartUrlBtn')?.addEventListener('click', () => {
-    const input = document.getElementById('workflowStartUrl');
-    const wfId = playbackWorkflow?.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     const wf = wfId ? workflows[wfId] : null;
-    let url = (input && input.value && input.value.trim()) || (wf && wf.urlPattern && wf.urlPattern.origin) || '';
+    let url = resolveOpenUrlForWorkflow(wf, getSelectedWorkflowStartUrl(wf));
     if (!url) {
       setStatus('Set the workflow start URL first (e.g. https://example.com).', 'error');
       return;
@@ -15163,7 +15612,8 @@
     } catch (_) {}
     const fallbackHost = await getActiveTabDiscoveryHost();
     const affinitySet = await buildDiscoveryAffinitySetForAnalyze(fallbackHost);
-    const analyzeOpts = affinitySet.size > 0 ? { discoveryAffinitySet: affinitySet } : undefined;
+    const analyzeOpts = affinitySet.size > 0 ? { discoveryAffinitySet: affinitySet } : {};
+    analyzeOpts.createBranches = !!(document.getElementById('analyzeCreateBranches') && document.getElementById('analyzeCreateBranches').checked);
     let fresh = null;
     try {
       fresh = typeof analyzeRuns === 'function' ? analyzeRuns(runs, analyzeOpts) : null;
@@ -16106,40 +16556,159 @@
   function resolveNestedWorkflows(workflow, allWorkflows, seen = new Set()) {
     if (!workflow?.actions?.length) return workflow;
     const resolved = JSON.parse(JSON.stringify(workflow));
-    for (const a of resolved.actions) {
-      if (a.type === 'runWorkflow' && a.workflowId) {
-        const nested = allWorkflows[a.workflowId]?.analyzed;
-        if (!nested?.actions?.length) {
-          setStatus(`Nested workflow "${a.workflowId}" not found or not analyzed.`, 'error');
-          return null;
-        }
-        if (seen.has(a.workflowId)) {
-          setStatus(`Circular workflow reference: ${a.workflowId}`, 'error');
-          return null;
-        }
-        seen.add(a.workflowId);
-        a.nestedWorkflow = resolveNestedWorkflows(nested, allWorkflows, seen);
-        seen.delete(a.workflowId);
-        if (!a.nestedWorkflow) return null;
-      }
-      if (a.type === 'loop' && a.steps?.length) {
-        for (const s of a.steps) {
-          if (s.type === 'runWorkflow' && s.workflowId) {
-            const nested = allWorkflows[s.workflowId]?.analyzed;
-            if (nested?.actions?.length && !seen.has(s.workflowId)) {
-              seen.add(s.workflowId);
-              s.nestedWorkflow = resolveNestedWorkflows(nested, allWorkflows, seen);
-              seen.delete(s.workflowId);
-            }
+    function walkActions(list) {
+      if (!Array.isArray(list)) return true;
+      for (const a of list) {
+        if (!a || typeof a !== 'object') continue;
+        if (a.type === 'runWorkflow' && a.workflowId) {
+          const nested = allWorkflows[a.workflowId]?.analyzed;
+          if (!nested?.actions?.length) {
+            setStatus(`Nested workflow "${a.workflowId}" not found or not analyzed.`, 'error');
+            return false;
           }
+          if (seen.has(a.workflowId)) {
+            setStatus(`Circular workflow reference: ${a.workflowId}`, 'error');
+            return false;
+          }
+          seen.add(a.workflowId);
+          a.nestedWorkflow = resolveNestedWorkflows(nested, allWorkflows, seen);
+          seen.delete(a.workflowId);
+          if (!a.nestedWorkflow) return false;
+        }
+        if (a.type === 'loop' && a.steps?.length && !walkActions(a.steps)) return false;
+        if (a.type === 'ifCondition') {
+          if (!walkActions(a.thenSteps) || !walkActions(a.elseSteps)) return false;
         }
       }
+      return true;
     }
+    if (!walkActions(resolved.actions)) return null;
     return resolved;
   }
 
+  function buildSlimWorkflowCatalog() {
+    const cat = {};
+    Object.keys(workflows || {}).forEach((id) => {
+      const w = workflows[id];
+      const actions = w?.analyzed?.actions;
+      if (!actions?.length) return;
+      cat[id] = { id: id, name: w.name || id, actions: actions };
+    });
+    return cat;
+  }
+
+  function attachPlayerStartExtras(msg) {
+    if (!msg || typeof msg !== 'object') return msg;
+    msg.workflowCatalog = buildSlimWorkflowCatalog();
+    return msg;
+  }
+
+  async function executeWorkflowPlanItems(items, hopState) {
+    const list = Array.isArray(items) ? items : [];
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      const id = item && item.workflowId;
+      const wf = id && workflows[id];
+      if (!wf?.analyzed?.actions?.length) {
+        throw new Error('Plan workflow not found or empty: ' + (id || '(missing id)'));
+      }
+      let child = resolveNestedWorkflows(wf.analyzed, workflows);
+      if (!child) throw new Error('Could not resolve plan workflow: ' + id);
+      const childRow = Object.assign({}, hopState.row || {}, item.row || {});
+      setStatus('Running plan ' + (i + 1) + '/' + list.length + ': ' + (wf.name || id), '');
+      const childState = {
+        currentTabId: hopState.currentTabId,
+        startIndex: 0,
+        resolved: child,
+        tab: hopState.tab,
+        row: childRow,
+        stopSignal: hopState.stopSignal,
+        timeoutPromise: hopState.timeoutPromise,
+      };
+      const childRes = await playResolvedWorkflowUntilDone(childState);
+      hopState.currentTabId = childState.currentTabId;
+      hopState.tab = childState.tab;
+      if (childRes?.stopped) return childRes;
+      if (childRes?.ok === false) return childRes;
+    }
+    return { ok: true, done: true };
+  }
+
+  async function playResolvedWorkflowUntilDone(state) {
+    let res;
+    for (;;) {
+      res = await Promise.race([
+        new Promise((resolve) => {
+          chrome.tabs.sendMessage(state.currentTabId, attachPlayerStartExtras({
+            type: 'PLAYER_START',
+            workflow: state.resolved,
+            row: state.row,
+            startIndex: state.startIndex,
+          }), (resp) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+            else resolve(resp);
+          });
+        }),
+        state.stopSignal || new Promise(() => {}),
+        state.timeoutPromise || new Promise(() => {}),
+      ]).catch((err) => ({ ok: false, error: err.message }));
+      if (res?.stopped) return res;
+      const hopped = await applyPlayerResponseHop(res, state);
+      if (hopped) continue;
+      return res;
+    }
+  }
+
+  async function applyPlayerResponseHop(res, state) {
+    if (res?.runWorkflowPlan && Array.isArray(res.items)) {
+      const planRes = await executeWorkflowPlanItems(res.items, state);
+      if (planRes?.ok === false || planRes?.stopped) {
+        Object.assign(res, planRes);
+        return false;
+      }
+      state.startIndex = res.nextStepIndex || 0;
+      return true;
+    }
+    if (res?.navigate && res.url != null) {
+      if (res._useFallback) {
+        setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
+        if (res._fallbackActions?.length && state.resolved?.actions) {
+          const fi = res.nextStepIndex || 0;
+          state.resolved.actions.splice(fi, 1, ...res._fallbackActions);
+        }
+      } else {
+        setStatus('Navigating…', '');
+      }
+      chrome.tabs.update(state.currentTabId, { url: res.url });
+      await waitForTabLoad(state.currentTabId);
+      state.startIndex = res.nextStepIndex || 0;
+      return true;
+    }
+    if (res?.openTab && res.url != null) {
+      setStatus('Opening tab…', '');
+      let tab = state.tab;
+      if (res.openInNewWindow) {
+        const win = await new Promise((r) => chrome.windows.create({ url: res.url }, (w) => r(w)));
+        const tabs = await chrome.tabs.query({ windowId: win.id });
+        tab = (tabs && tabs[0]) ? tabs[0] : tab;
+      } else {
+        tab = await new Promise((r) => chrome.tabs.create({ url: res.url }, (t) => r(t)));
+      }
+      if (tab?.id) {
+        await waitForTabLoad(tab.id);
+        await ensureContentScriptLoaded(tab.id);
+        playbackTabId = tab.id;
+        state.currentTabId = tab.id;
+        state.tab = tab;
+      }
+      state.startIndex = res.nextStepIndex || 0;
+      return true;
+    }
+    return false;
+  }
+
   document.getElementById('runAllRows').addEventListener('click', async () => {
-    const wfId = playbackWorkflow.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     if (!wfId) return;
     const wf = workflows[wfId];
     const analyzed = wf?.analyzed;
@@ -16187,13 +16756,7 @@
       : gs.maxRetriesOnFail;
     if (!Number.isFinite(rowGenMaxRetries) || rowGenMaxRetries < 0) rowGenMaxRetries = DEFAULT_GENERATION_SETTINGS.maxRetriesOnFail;
     rowGenMaxRetries = Math.min(10, Math.max(0, Math.floor(rowGenMaxRetries)));
-    const urlPattern = document.getElementById('workflowStartUrl')?.value?.trim() || wf?.urlPattern?.origin;
-    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const needTabForBatch = !tab?.id || (tab.url && /^(chrome|edge|about):\/\//i.test(tab.url)) || (urlPattern && tab?.url && !urlMatchesPattern(tab.url, urlPattern));
-    if (needTabForBatch && urlPattern) {
-      setStatus('Opening start URL for batch…', '');
-      tab = await openWorkflowStartUrlAndGetTab(wf);
-    }
+    const { tab, urlPattern, navigates } = await resolveTabForWorkflowRun(wf, { active: true, currentWindow: true });
     if (!tab?.id) {
       setStatus('No active tab.', 'error');
       return;
@@ -16202,8 +16765,8 @@
       setStatus('Open the target website first (or set workflow start URL and try again).', 'error');
       return;
     }
-    if (urlPattern && !urlMatchesPattern(tab.url, urlPattern)) {
-      setStatus(`URL mismatch. Expected: ${urlPattern}.`, 'error');
+    if (!navigates && urlPattern && !tabMatchesWorkflowUrl(tab.url, wf, urlPattern)) {
+      setStatus(`URL mismatch for ${wf.name || wfId}. Expected: ${urlPattern}.`, 'error');
       return;
     }
     const runBtn = document.getElementById('runPlayback');
@@ -16224,7 +16787,7 @@
         if (!playbackTabId) return;
         try {
           const st = await chrome.tabs.sendMessage(playbackTabId, { type: 'PLAYER_STATUS' });
-          if (st?.isPlaying) updateStepHighlight(st.actionIndex ?? 0);
+          if (st?.isPlaying) updateStepHighlight(st.actionIndex ?? 0, st);
         } catch (_) {}
       }, 400);
       let resolved = resolveNestedWorkflows(analyzed, workflows);
@@ -16282,7 +16845,7 @@
             res = await Promise.race([
               new Promise((resolve) => {
                 try {
-                  const playerMsg = { type: 'PLAYER_START', workflow: resolved, row: rowForPlayback, rowIndex: i, startIndex: startIndexBatch };
+                  const playerMsg = attachPlayerStartExtras({ type: 'PLAYER_START', workflow: resolved, row: rowForPlayback, rowIndex: i, startIndex: startIndexBatch });
                   if (batchRunInfo?.cryptoWalletId) playerMsg.cryptoWalletId = batchRunInfo.cryptoWalletId;
                   chrome.tabs.sendMessage(currentTabIdBatch, playerMsg, (r) => {
                     if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
@@ -16298,40 +16861,23 @@
               }),
             ]).catch((e) => ({ ok: false, error: e?.message || String(e) }));
             if (res?.stopped) break;
-            if (res?.navigate && res.url != null) {
-              if (res._useFallback) {
-                setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
-                /* Temporarily splice fallback actions into the resolved workflow
-                   at the current step index so the player replays them on next iteration */
-                if (res._fallbackActions?.length && resolved?.actions) {
-                  const fi = res.nextStepIndex || 0;
-                  resolved.actions.splice(fi, 1, ...res._fallbackActions);
-                }
-              } else {
-                setStatus('Navigating…', '');
+            {
+              const hopState = {
+                currentTabId: currentTabIdBatch,
+                startIndex: startIndexBatch,
+                resolved: resolved,
+                tab: tab,
+                row: rowForPlayback,
+                stopSignal: stopSignal,
+              };
+              const hopped = await applyPlayerResponseHop(res, hopState);
+              if (hopped) {
+                currentTabIdBatch = hopState.currentTabId;
+                startIndexBatch = hopState.startIndex;
+                resolved = hopState.resolved;
+                tab = hopState.tab;
+                continue;
               }
-              chrome.tabs.update(currentTabIdBatch, { url: res.url });
-              await waitForTabLoad(currentTabIdBatch);
-              startIndexBatch = res.nextStepIndex || 0;
-              continue;
-            }
-            if (res?.openTab && res.url != null) {
-              setStatus('Opening tab…', '');
-              if (res.openInNewWindow) {
-                const win = await new Promise(r => chrome.windows.create({ url: res.url }, w => r(w)));
-                const tabsBatch = await chrome.tabs.query({ windowId: win.id });
-                tab = (tabsBatch && tabsBatch[0]) ? tabsBatch[0] : tab;
-              } else {
-                tab = await new Promise(r => chrome.tabs.create({ url: res.url }, t => r(t)));
-              }
-              if (tab?.id) {
-                await waitForTabLoad(tab.id);
-                await ensureContentScriptLoaded(tab.id);
-                playbackTabId = tab.id;
-                currentTabIdBatch = tab.id;
-              }
-              startIndexBatch = res.nextStepIndex || 0;
-              continue;
             }
             break;
           }
@@ -16457,7 +17003,7 @@
   });
 
   async function runPlaybackFromStep(startIndex) {
-    const wfId = playbackWorkflow.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     if (!wfId) return;
     const wf = workflows[wfId];
     const analyzed = wf?.analyzed;
@@ -16483,19 +17029,13 @@
       const parsed = parsedRows[0];
       if (parsed && Object.keys(parsed).length > 0) row = { ...parsed, ...row };
     }
-    const urlPattern = document.getElementById('workflowStartUrl')?.value?.trim() || wf?.urlPattern?.origin;
-    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (urlPattern && tab && !urlMatchesPattern(tab.url, urlPattern)) {
-      const allTabs = await chrome.tabs.query({});
-      const matching = allTabs.filter(t => t.url && urlMatchesPattern(t.url, urlPattern));
-      if (matching.length > 0) tab = matching[0];
-    }
+    const { tab, urlPattern, navigates } = await resolveTabForWorkflowRun(wf);
     if (!tab?.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://') || tab.url?.startsWith('edge://')) {
       setStatus('Open the target page first.', 'error');
       return;
     }
-    if (urlPattern && !urlMatchesPattern(tab.url, urlPattern)) {
-      setStatus(`URL mismatch. Open the correct page first.`, 'error');
+    if (!navigates && urlPattern && !tabMatchesWorkflowUrl(tab.url, wf, urlPattern)) {
+      setStatus(`URL mismatch for ${wf.name || wfId}. Open the correct page first.`, 'error');
       return;
     }
     let resolved = resolveNestedWorkflows(analyzed, workflows);
@@ -16514,7 +17054,7 @@
         if (!playbackTabId) return;
         try {
           const st = await chrome.tabs.sendMessage(playbackTabId, { type: 'PLAYER_STATUS' });
-          if (st?.isPlaying) updateStepHighlight(st.actionIndex ?? 0);
+          if (st?.isPlaying) updateStepHighlight(st.actionIndex ?? 0, st);
           const proceedBtn = document.getElementById('proceedToNextStep');
           if (proceedBtn) proceedBtn.style.display = st?.waitingManual ? '' : 'none';
         } catch (_) {}
@@ -16538,12 +17078,12 @@
       for (;;) {
         res = await Promise.race([
           new Promise((resolve) => {
-            chrome.tabs.sendMessage(currentTabIdRunFrom, {
+            chrome.tabs.sendMessage(currentTabIdRunFrom, attachPlayerStartExtras({
               type: 'PLAYER_START',
               workflow: resolved,
               row: row,
               startIndex: startIndexRunFrom,
-            }, (resp) => {
+            }), (resp) => {
               if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
               else resolve(resp);
             });
@@ -16552,38 +17092,24 @@
           timeoutPromise,
         ]).catch((err) => ({ ok: false, error: err.message }));
         if (res?.stopped) break;
-        if (res?.navigate && res.url != null) {
-          if (res._useFallback) {
-            setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
-            if (res._fallbackActions?.length && resolved?.actions) {
-              const fi = res.nextStepIndex || 0;
-              resolved.actions.splice(fi, 1, ...res._fallbackActions);
-            }
-          } else {
-            setStatus('Navigating…', '');
+        {
+          const hopState = {
+            currentTabId: currentTabIdRunFrom,
+            startIndex: startIndexRunFrom,
+            resolved: resolved,
+            tab: tab,
+            row: row,
+            stopSignal: stopSignal,
+            timeoutPromise: timeoutPromise,
+          };
+          const hopped = await applyPlayerResponseHop(res, hopState);
+          if (hopped) {
+            currentTabIdRunFrom = hopState.currentTabId;
+            startIndexRunFrom = hopState.startIndex;
+            resolved = hopState.resolved;
+            tab = hopState.tab;
+            continue;
           }
-          chrome.tabs.update(currentTabIdRunFrom, { url: res.url });
-          await waitForTabLoad(currentTabIdRunFrom);
-          startIndexRunFrom = res.nextStepIndex || 0;
-          continue;
-        }
-        if (res?.openTab && res.url != null) {
-          setStatus('Opening tab…', '');
-          if (res.openInNewWindow) {
-            const win = await new Promise(r => chrome.windows.create({ url: res.url }, w => r(w)));
-            const tabsRunFrom = await chrome.tabs.query({ windowId: win.id });
-            tab = (tabsRunFrom && tabsRunFrom[0]) ? tabsRunFrom[0] : tab;
-          } else {
-            tab = await new Promise(r => chrome.tabs.create({ url: res.url }, t => r(t)));
-          }
-          if (tab?.id) {
-            await waitForTabLoad(tab.id);
-            await ensureContentScriptLoaded(tab.id);
-            playbackTabId = tab.id;
-            currentTabIdRunFrom = tab.id;
-          }
-          startIndexRunFrom = res.nextStepIndex || 0;
-          continue;
         }
         break;
       }
@@ -16615,7 +17141,7 @@
   }
 
   document.getElementById('runPlayback').addEventListener('click', async () => {
-    const wfId = playbackWorkflow.value;
+    const wfId = getEffectiveWorkflowIdForPlaybackUi();
     if (!wfId) return;
     const wf = workflows[wfId];
     const analyzed = wf?.analyzed;
@@ -16651,18 +17177,7 @@
       }
     }
     let rowsToRun = [row];
-    const urlPattern = document.getElementById('workflowStartUrl')?.value?.trim() || wf?.urlPattern?.origin;
-    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (urlPattern && tab && !urlMatchesPattern(tab.url, urlPattern)) {
-      const allTabs = await chrome.tabs.query({});
-      const matching = allTabs.filter(t => t.url && urlMatchesPattern(t.url, urlPattern));
-      if (matching.length > 0) tab = matching[0];
-    }
-    const needTabForRun = !tab?.id || (tab.url && /^(chrome|edge|about):\/\//i.test(tab.url)) || (urlPattern && tab?.url && !urlMatchesPattern(tab.url, urlPattern));
-    if (needTabForRun && urlPattern) {
-      setStatus('Opening start URL…', '');
-      tab = await openWorkflowStartUrlAndGetTab(wf);
-    }
+    const { tab, urlPattern, navigates } = await resolveTabForWorkflowRun(wf);
     if (!tab?.id) {
       setStatus('No active tab.', 'error');
       return;
@@ -16671,8 +17186,8 @@
       setStatus('Cannot run on this page. Open the target website first (or set workflow start URL and try again).', 'error');
       return;
     }
-    if (urlPattern && !urlMatchesPattern(tab.url, urlPattern)) {
-      setStatus(`URL mismatch. Expected: ${urlPattern}. Open the correct page first (or set workflow start URL and try again).`, 'error');
+    if (!navigates && urlPattern && !tabMatchesWorkflowUrl(tab.url, wf, urlPattern)) {
+      setStatus(`URL mismatch for ${wf.name || wfId}. Expected: ${urlPattern}. Open the correct page first (or set workflow start URL and try again).`, 'error');
       return;
     }
     const delayMs = parseInt(document.getElementById('batchDelayMs')?.value || String(DEFAULT_BATCH_DELAY_MS), 10) || 0;
@@ -16695,7 +17210,7 @@
         if (!playbackTabId) return;
         try {
           const st = await chrome.tabs.sendMessage(playbackTabId, { type: 'PLAYER_STATUS' });
-          if (st?.isPlaying) updateStepHighlight(st.actionIndex ?? 0);
+          if (st?.isPlaying) updateStepHighlight(st.actionIndex ?? 0, st);
           const proceedBtn = document.getElementById('proceedToNextStep');
           if (proceedBtn) proceedBtn.style.display = st?.waitingManual ? '' : 'none';
         } catch (_) {}
@@ -16723,12 +17238,12 @@
         for (;;) {
           res = await Promise.race([
             new Promise((resolve) => {
-              chrome.tabs.sendMessage(currentTabId, {
+              chrome.tabs.sendMessage(currentTabId, attachPlayerStartExtras({
                 type: 'PLAYER_START',
                 workflow: resolved,
                 row: r,
                 startIndex,
-              }, (resp) => {
+              }), (resp) => {
                 if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
                 else resolve(resp);
               });
@@ -16748,38 +17263,23 @@
             })(),
           ]);
           if (res?.stopped) break;
-          if (res?.navigate && res.url != null) {
-            if (res._useFallback) {
-              setStatus(`API step failed — falling back to recorded steps… (${res._fallbackError || 'error'})`, '');
-              if (res._fallbackActions?.length && resolved?.actions) {
-                const fi = res.nextStepIndex || 0;
-                resolved.actions.splice(fi, 1, ...res._fallbackActions);
-              }
-            } else {
-              setStatus('Navigating…', '');
+          {
+            const hopState = {
+              currentTabId: currentTabId,
+              startIndex: startIndex,
+              resolved: resolved,
+              tab: tab,
+              row: r,
+              stopSignal: stopSignal,
+            };
+            const hopped = await applyPlayerResponseHop(res, hopState);
+            if (hopped) {
+              currentTabId = hopState.currentTabId;
+              startIndex = hopState.startIndex;
+              resolved = hopState.resolved;
+              tab = hopState.tab;
+              continue;
             }
-            chrome.tabs.update(currentTabId, { url: res.url });
-            await waitForTabLoad(currentTabId);
-            startIndex = res.nextStepIndex || 0;
-            continue;
-          }
-          if (res?.openTab && res.url != null) {
-            setStatus('Opening tab…', '');
-            if (res.openInNewWindow) {
-              const win = await new Promise(r => chrome.windows.create({ url: res.url }, w => r(w)));
-              const tabs = await chrome.tabs.query({ windowId: win.id });
-              tab = (tabs && tabs[0]) ? tabs[0] : tab;
-            } else {
-              tab = await new Promise(r => chrome.tabs.create({ url: res.url }, t => r(t)));
-            }
-            if (tab?.id) {
-              await waitForTabLoad(tab.id);
-              await ensureContentScriptLoaded(tab.id);
-              playbackTabId = tab.id;
-              currentTabId = tab.id;
-            }
-            startIndex = res.nextStepIndex || 0;
-            continue;
           }
           break;
         }
@@ -17157,10 +17657,10 @@
         const scheduledPlaybackMs = getWorkflowPlaybackTimeoutMs(resolved);
         const res = await Promise.race([
           new Promise((resolve) => {
-            chrome.tabs.sendMessage(tab.id, {
+            chrome.tabs.sendMessage(tab.id, attachPlayerStartExtras({
               type: 'PLAYER_START', workflow: resolved, row: entry.row || {},
               ...(entry.cryptoWalletId ? { cryptoWalletId: entry.cryptoWalletId } : {}),
-            }, (resp) => {
+            }), (resp) => {
               if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
               else resolve(resp || {});
             });
@@ -17576,6 +18076,9 @@
 
   /** Normalize Supabase Project to shape used by UI: { id, name, industries, platforms, monetization } */
   function normalizeSupabaseProject(p) {
+    if (typeof ExtensionWorkflowNormalize !== 'undefined' && ExtensionWorkflowNormalize.normalizeSupabaseProject) {
+      return ExtensionWorkflowNormalize.normalizeSupabaseProject(p);
+    }
     return {
       id: p.id,
       name: p.name || 'Unnamed project',
@@ -18251,6 +18754,13 @@
           });
         }
       } catch (e) {
+        var authCode = e && e.code;
+        if (authCode === 'UNAUTHORIZED' || authCode === 'NOT_LOGGED_IN') {
+          if (typeof updateAuthUI === 'function') {
+            try { await updateAuthUI(); } catch (_) {}
+          }
+          return;
+        }
         if (typeof setSocketStatus === 'function') setSocketStatus('Sidebar registration failed', 'error');
         if (typeof setStatus === 'function') {
           setStatus('Sidebar registration failed: ' + (e?.message || 'unknown'), 'error');
@@ -18291,13 +18801,15 @@
     async function updateAuthUI() {
       // Check Whop auth first
       let whopAuth = null;
+      let tokenTransportFailed = false;
+      let tokenAuthRejected = false;
       try {
         const res = await new Promise((resolve) => {
           chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, (r) => {
             try {
               const le = chrome.runtime.lastError && chrome.runtime.lastError.message;
               if (le) {
-                resolve({ ok: false, error: le });
+                resolve({ ok: false, error: le, _transport: true });
                 return;
               }
             } catch (_) {}
@@ -18308,10 +18820,14 @@
           whopAuth = {
             email: res.user?.email || res.user?.username || 'Logged in',
           };
+        } else if (res._transport) {
+          tokenTransportFailed = true;
+        } else if (res.ok === false) {
+          tokenAuthRejected = true;
         }
       } catch (_) {}
-      // Fallback if SW wake/message failed but tokens are already in local storage.
-      if (!whopAuth) {
+      // Fallback only when SW wake/message failed — never after an explicit Not authenticated.
+      if (!whopAuth && tokenTransportFailed && !tokenAuthRejected) {
         try {
           const data = await chrome.storage.local.get(['whop_auth']);
           const stored = data.whop_auth;

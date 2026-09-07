@@ -12,28 +12,18 @@
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 
-const DEFAULT_OWNER = 'contentrewardsai';
-const DEFAULT_REPO = 'ExtensibleContentExtension';
-const DEFAULT_BRANCH = 'main';
-const SYNC_STATE_FILENAME = 'github-sync-state.json';
+const require = createRequire(import.meta.url);
+const githubSyncCore = require('../../shared/github-sync-core.js');
 
-/** Paths we never overwrite from GitHub (user data / huge binaries). */
-const SKIP_PREFIXES = [
-  'node_modules/',
-  '.git/',
-  'models/',
-  '.cursor/',
-  '.DS_Store',
-];
+const DEFAULT_OWNER = githubSyncCore.DEFAULT_OWNER || 'contentrewardsai';
+const DEFAULT_REPO = githubSyncCore.DEFAULT_REPO || 'ExtensibleContentExtension';
+const DEFAULT_BRANCH = githubSyncCore.DEFAULT_BRANCH || 'main';
+const SYNC_STATE_FILENAME = githubSyncCore.SYNC_STATE_FILENAME || 'github-sync-state.json';
 
 function shouldSkipPath(rel) {
-  if (!rel || typeof rel !== 'string') return true;
-  const n = rel.replace(/\\/g, '/').replace(/^\/+/, '');
-  for (const prefix of SKIP_PREFIXES) {
-    if (n === prefix.replace(/\/$/, '') || n.startsWith(prefix)) return true;
-  }
-  return false;
+  return githubSyncCore.shouldSkipPath(rel);
 }
 
 /**

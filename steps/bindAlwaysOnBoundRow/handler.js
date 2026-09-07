@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -42,11 +45,11 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var targetWorkflowId = trimResolved(row, getRowValue, action, action.targetWorkflowId);
+    var targetWorkflowId = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'targetWorkflowId', row, getRowValue) : trimResolved(row, getRowValue, action, action.targetWorkflowId));
     if (!targetWorkflowId) throw new Error('bindAlwaysOnBoundRow: set targetWorkflowId.');
 
     var bindMode = trimResolved(row, getRowValue, action, action.bindMode || action.mode) || 'upsert';
-    var kind = (trimResolved(row, getRowValue, action, action.kind) || 'v3').toLowerCase();
+    var kind = (((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'kind', row, getRowValue) : trimResolved(row, getRowValue, action, action.kind)) || 'v3').toLowerCase();
     if (kind !== 'infi') kind = 'v3';
 
     var modeMap = {
@@ -75,7 +78,7 @@
 
     if (mode === 'removePosition') {
       var removeId =
-        trimResolved(row, getRowValue, action, action.tokenId) ||
+        ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'tokenId', row, getRowValue) : trimResolved(row, getRowValue, action, action.tokenId)) ||
         fields.v3PositionTokenId ||
         fields.positionNftId ||
         fields.infiPositionTokenId ||
@@ -91,7 +94,7 @@
     }
 
     if (mode === 'replaceTokenId') {
-      var oldId = trimResolved(row, getRowValue, action, action.oldTokenId) || fields.oldTokenId || '';
+      var oldId = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'oldTokenId', row, getRowValue) : trimResolved(row, getRowValue, action, action.oldTokenId)) || fields.oldTokenId || '';
       if (oldId) fields.oldTokenId = oldId;
     }
 
@@ -111,9 +114,9 @@
       msg.tokenId = fields.v3PositionTokenId || fields.positionNftId || fields.infiPositionTokenId;
     }
     if (mode === 'replaceTokenId') {
-      msg.oldTokenId = fields.oldTokenId || trimResolved(row, getRowValue, action, action.oldTokenId);
+      msg.oldTokenId = fields.oldTokenId || ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'oldTokenId', row, getRowValue) : trimResolved(row, getRowValue, action, action.oldTokenId));
     }
-    var poll = trimResolved(row, getRowValue, action, action.pollIntervalMs);
+    var poll = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'pollIntervalMs', row, getRowValue) : trimResolved(row, getRowValue, action, action.pollIntervalMs));
     if (poll) msg.pollIntervalMs = poll;
 
     var response = await sendMessage(msg);
@@ -122,7 +125,7 @@
     }
 
     if (row && typeof row === 'object') {
-      var saveVar = trimResolved(row, getRowValue, action, action.saveBoundRowVariable);
+      var saveVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveBoundRowVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveBoundRowVariable));
       if (saveVar && response.boundRow) {
         try {
           row[saveVar] = JSON.stringify(response.boundRow);
@@ -130,7 +133,7 @@
           row[saveVar] = String(response.boundRow);
         }
       }
-      var saveRows = trimResolved(row, getRowValue, action, action.saveBoundRowsVariable);
+      var saveRows = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveBoundRowsVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveBoundRowsVariable));
       if (saveRows && response.boundRows) {
         try {
           row[saveRows] = JSON.stringify(response.boundRows);

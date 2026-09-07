@@ -17,6 +17,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -52,28 +55,28 @@
       var assertPlaying = ctx.assertPlaying;
       var row = currentRow;
 
-      var waitKind = trimResolved(row, getRowValue, action, action.waitKind) || 'order';
-      var symbol = trimResolved(row, getRowValue, action, action.symbol);
+      var waitKind = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'waitKind', row, getRowValue) : trimResolved(row, getRowValue, action, action.waitKind)) || 'order';
+      var symbol = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'symbol', row, getRowValue) : trimResolved(row, getRowValue, action, action.symbol));
       if (waitKind !== 'balance' && !symbol) throw new Error('asterSpotWait: symbol required (order wait)');
 
       var pollMs = Math.max(500, parseInt(action.pollIntervalMs, 10) || 2000);
       var timeoutMs = Math.max(1000, parseInt(action.waitTimeoutMs, 10) || 120000);
       var deadline = Date.now() + timeoutMs;
-      var recvWindow = trimResolved(row, getRowValue, action, action.recvWindow);
+      var recvWindow = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'recvWindow', row, getRowValue) : trimResolved(row, getRowValue, action, action.recvWindow));
 
       var targetStatuses = parseStatusSet(
-        trimResolved(row, getRowValue, action, action.targetOrderStatus) || 'FILLED',
+        ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'targetOrderStatus', row, getRowValue) : trimResolved(row, getRowValue, action, action.targetOrderStatus)) || 'FILLED',
       );
 
-      var oid = trimResolved(row, getRowValue, action, action.orderId);
-      var oc = trimResolved(row, getRowValue, action, action.origClientOrderId);
+      var oid = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'orderId', row, getRowValue) : trimResolved(row, getRowValue, action, action.orderId));
+      var oc = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'origClientOrderId', row, getRowValue) : trimResolved(row, getRowValue, action, action.origClientOrderId));
       if (waitKind === 'order' && !oid && !oc) {
         throw new Error('asterSpotWait (order): orderId or origClientOrderId required');
       }
 
-      var balAsset = trimResolved(row, getRowValue, action, action.balanceAsset);
-      var balMode = trimResolved(row, getRowValue, action, action.balanceWaitMode) || 'freeAbove';
-      var balThr = parseFloat(trimResolved(row, getRowValue, action, action.balanceThreshold));
+      var balAsset = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'balanceAsset', row, getRowValue) : trimResolved(row, getRowValue, action, action.balanceAsset));
+      var balMode = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'balanceWaitMode', row, getRowValue) : trimResolved(row, getRowValue, action, action.balanceWaitMode)) || 'freeAbove';
+      var balThr = parseFloat(((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'balanceThreshold', row, getRowValue) : trimResolved(row, getRowValue, action, action.balanceThreshold)));
       if (waitKind === 'balance') {
         if (!balAsset) throw new Error('asterSpotWait (balance): balanceAsset required');
         if (!Number.isFinite(balThr)) throw new Error('asterSpotWait (balance): balanceThreshold must be a number');
@@ -148,7 +151,7 @@
       }
 
       if (row && typeof row === 'object') {
-        var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+        var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
         if (keyVar && lastPayload != null) {
           try {
             row[keyVar] = JSON.stringify(lastPayload);

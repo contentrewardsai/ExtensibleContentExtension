@@ -18,6 +18,9 @@
         };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -30,10 +33,10 @@
       var getRowValue = ctx.getRowValue;
       var sendMessage = ctx.sendMessage;
       if (typeof sendMessage !== 'function') throw new Error('rugcheckToken: sendMessage missing from context');
-      var mint = trimResolved(row, getRowValue, action, action.mint);
+      var mint = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'mint', row, getRowValue) : trimResolved(row, getRowValue, action, action.mint));
       if (!mint) throw new Error('rugcheckToken: set mint or template');
 
-      var maxStr = trimResolved(row, getRowValue, action, action.maxScoreNormalised);
+      var maxStr = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'maxScoreNormalised', row, getRowValue) : trimResolved(row, getRowValue, action, action.maxScoreNormalised));
       var maxN = maxStr ? Number(maxStr) : null;
       var failOnError = action.failOnError === true;
 
@@ -57,7 +60,7 @@
         );
       }
 
-      var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+      var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
       if (keyVar && row && typeof row === 'object') {
         try {
           row[keyVar] = JSON.stringify(json);

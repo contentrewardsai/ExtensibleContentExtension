@@ -106,7 +106,20 @@
     return { store: out, validIds, count: validIds.length, legacyError: null };
   }
 
+  function normalizeSupabaseProject(p) {
+    if (!p || typeof p !== 'object') return { id: '', name: 'Unnamed project' };
+    return {
+      id: p.id,
+      name: p.name || 'Unnamed project',
+      industries: Array.isArray(p.industries) ? p.industries.map(function (i) { return typeof i === 'object' ? i.id : i; }) : [],
+      platforms: Array.isArray(p.platforms) ? p.platforms.map(function (pl) { return typeof pl === 'object' ? pl.id : pl; }) : [],
+      monetization: Array.isArray(p.monetization) ? p.monetization.map(function (m) { return typeof m === 'object' ? m.id : m; }) : [],
+      added_by: '',
+    };
+  }
+
   global.ExtensionWorkflowNormalize = {
+    normalizeSupabaseProject,
     normalizeSupabaseWorkflow,
     mergePersonalInfoIntoWorkflowFromPrev,
     normalizeImportedWorkflows,

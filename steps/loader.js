@@ -11,8 +11,16 @@
   /** Minimal fallback when steps/manifest.json is missing or fetch fails. Prefer manifest as single source of truth. */
   var FALLBACK_STEP_IDS = ['click', 'type', 'wait'];
 
+  function hasCoreHandlers() {
+    var h = window.__CFS_stepHandlers;
+    return !!(h && h.click && h.type && h.wait);
+  }
+
   function onReady() {
     try { window.__CFS_stepHandlersInjectFailed = false; } catch (_) {}
+    if (!hasCoreHandlers() && FALLBACK_STEP_IDS.length) {
+      try { console.warn('[CFS steps] inject reported ok but core handlers missing in this frame; retrying'); } catch (_) {}
+    }
     window.__CFS_stepHandlersReady = true;
     try { window.dispatchEvent(new CustomEvent('cfs-step-handlers-ready')); } catch (_) {}
   }
@@ -25,7 +33,15 @@
   function injectHandlers(extensionStepIds, projectStepIds) {
     extensionStepIds = Array.isArray(extensionStepIds) ? extensionStepIds : [];
     projectStepIds = Array.isArray(projectStepIds) ? projectStepIds : [];
-    var files = extensionStepIds.map(function(id) { return 'steps/' + id + '/handler.js'; });
+    if (hasCoreHandlers()) onReady();
+    var files = extensionStepIds.map(function(id) { return 'steps/' + id + '/handler.js'; }).filter(function(file) {
+      var id = String(file).replace(/^steps\//, '').replace(/\/handler\.js$/, '');
+      return !(window.__CFS_stepHandlers && window.__CFS_stepHandlers[id]);
+    });
+    if (!files.length && !projectStepIds.length) {
+      onReady();
+      return;
+    }
     chrome.runtime.sendMessage(
       { type: 'INJECT_STEP_HANDLERS', files: files, projectStepIds: projectStepIds },
       function(response) {
@@ -35,6 +51,9 @@
           return;
         }
         if (!response || response.ok !== false) {
+          onReady();
+        } else if (hasCoreHandlers()) {
+          try { console.warn('[CFS steps] remaining inject failed; core handlers already ready:', response.error || '(no error detail)'); } catch (_) {}
           onReady();
         } else {
           try { console.warn('[CFS steps] inject failed (background):', response.error || '(no error detail)'); } catch (_) {}

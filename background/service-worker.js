@@ -4,9 +4,20 @@
  * via chrome.alarms; Whop auth, and MV3 sidepanel bridging.
  */
 importScripts('../shared/content-script-tab-bundle.js');
+importScripts('../shared/str-utils.js');
+importScripts('../shared/cfs-frame-actions.js');
 importScripts('../shared/storage-secret-keys.js');
 importScripts('message-registry.js');
+importScripts('message-type-catalog.js');
 importScripts('message-handlers-privileged.js');
+importScripts('message-handlers-auth.js');
+importScripts('message-handlers-playback.js');
+importScripts('message-handlers-following.js');
+importScripts('message-handlers-watch.js');
+importScripts('message-handlers-solana.js');
+importScripts('message-handlers-bsc.js');
+importScripts('message-handlers-defi.js');
+importScripts('message-handlers-apify.js');
 importScripts('../shared/apify-dataset-response.js');
 importScripts('../shared/apify-run-query-validation.js');
 importScripts('../shared/apify-extract-run-id.js');
@@ -24,6 +35,9 @@ importScripts('crypto-storage.js');
 importScripts('solana-rpc-helpers.js');
 importScripts('evm-helpers.js');
 importScripts('solana-swap.js');
+importScripts('../shared/template-resolver.js');
+importScripts('../shared/run-if-condition.js');
+importScripts('watch-shared.js');
 importScripts('../shared/cfs-always-on-automation.js');
 importScripts('../shared/workflow-edit-history.js');
 importScripts('../shared/cfs-global-token-blocklist.js');
@@ -78,6 +92,16 @@ const _CFS_DEFAULT_WALLET_ALLOWLIST = [
 function cfsIsExtensionPageSender(sender) {
   const url = (sender && sender.url) || '';
   return typeof url === 'string' && url.startsWith('chrome-extension://');
+}
+
+/** True when the sender is this extension (extension pages or our content scripts). */
+function cfsIsThisExtensionSender(sender) {
+  if (cfsIsExtensionPageSender(sender)) return true;
+  try {
+    return !!(sender && sender.id && sender.id === chrome.runtime.id);
+  } catch (_) {
+    return false;
+  }
 }
 
 /** Origin string from chrome.runtime sender (never trust client-supplied _pageOrigin). */
@@ -330,6 +354,7 @@ const CFS_RECORDER_RESUME_FILES = [
   'shared/selectors.js',
   'shared/recording-value.js',
   'shared/selector-parity.js',
+  'shared/cfs-frame-actions.js',
   'content/recorder.js',
 ];
 
@@ -454,6 +479,19 @@ function resolveNestedWorkflowsInBackground(workflow, allWorkflows, seen = new S
         }
       }
     }
+    if (a.type === 'ifCondition') {
+      const arms = [].concat(a.thenSteps || [], a.elseSteps || []);
+      for (const s of arms) {
+        if (s && s.type === 'runWorkflow' && s.workflowId) {
+          const nested = allWorkflows[s.workflowId]?.analyzed;
+          if (nested?.actions?.length && !seen.has(s.workflowId)) {
+            seen.add(s.workflowId);
+            s.nestedWorkflow = resolveNestedWorkflowsInBackground(nested, allWorkflows, seen);
+            seen.delete(s.workflowId);
+          }
+        }
+      }
+    }
   }
   return resolved;
 }
@@ -535,7 +573,7 @@ async function ensureContentScriptInTab(tabId) {
     } catch (_) {}
   }
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, allFrames: true },
     files: CONTENT_SCRIPT_TAB_BUNDLE_FILES,
   });
   await waitForStepHandlersReadyInTab(tabId, 8000);
@@ -1664,6 +1702,23 @@ function cfsEnsureSidePanelBehavior() {
     console.error(err);
   }
 }
+
+const CFS_REOPEN_SIDEPANEL_KEY = 'cfsReopenSidePanelAfterReload';
+function cfsReopenSidePanelIfRequested() {
+  try {
+    chrome.storage.session.get(CFS_REOPEN_SIDEPANEL_KEY, async (d) => {
+      if (!d || !d[CFS_REOPEN_SIDEPANEL_KEY]) return;
+      try { await chrome.storage.session.remove(CFS_REOPEN_SIDEPANEL_KEY); } catch (_) {}
+      try {
+        const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+        if (win && win.id != null) await chrome.sidePanel.open({ windowId: win.id });
+      } catch (err) {
+        console.warn('cfsReopenSidePanelIfRequested', err);
+      }
+    });
+  } catch (_) {}
+}
+cfsReopenSidePanelIfRequested();
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extensible Content installed');
@@ -3487,6 +3542,8 @@ function validateMessagePayload(type, msg) {
   return { valid: true };
 }
 
+if (typeof globalThis !== 'undefined') globalThis.CFS_validateMessagePayload = validateMessagePayload;
+
 if (typeof __CFS_installPrivilegedMessageHandlers === 'function') {
   __CFS_installPrivilegedMessageHandlers({
     isExtensionPageSender: cfsIsExtensionPageSender,
@@ -3518,44 +3575,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || typeof msg !== 'object') {
-    try { console.warn('[CFS] Invalid message: expected object'); } catch (_) {}
-    sendResponse({ ok: false, error: 'Invalid message: expected object' });
-    return true;
-  }
-  const type = msg.type;
-  if (typeof type !== 'string' || !type.trim()) {
-    try { console.warn('[CFS] Invalid message: missing or invalid type'); } catch (_) {}
-    sendResponse({ ok: false, error: 'Invalid message: missing or invalid type' });
-    return true;
-  }
-  if (type === 'WEBCAM_GRANT_RESULT') {
-    sendResponse({ ok: true });
-    return true;
-  }
-  if (type === 'MIC_GRANT_RESULT') {
-    sendResponse({ ok: true });
-    return true;
-  }
-  /** Replies from extension pages → dynamic waiters; do not treat as API requests. */
-  if (type === 'GET_FOLLOWING_DATA_RESULT' || type === 'MUTATE_FOLLOWING_RESULT') {
-    return false;
-  }
 
-  const payloadCheck = validateMessagePayload(type, msg);
-  if (!payloadCheck.valid) {
-    try { console.warn('[CFS] Payload validation failed:', type, payloadCheck.error); } catch (_) {}
-    sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
-    return true;
-  }
-
-  if (typeof __CFS_dispatchRegisteredMessage === 'function') {
-    const regRet = __CFS_dispatchRegisteredMessage(type, msg, sender, sendResponse);
-    if (regRet !== null && regRet !== undefined) return regRet;
-  }
-
-  if (type === 'CFS_SOLANA_EXECUTE_SWAP') {
+if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.create(null);
+  __CFS_swTypeHandlers["CFS_SOLANA_EXECUTE_SWAP"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_EXECUTE_SWAP";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_executeSwap;
@@ -3570,10 +3594,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  /* ── Jupiter Price V3 (read-only, no wallet needed) ── */
-  if (type === 'CFS_JUPITER_PRICE_V3') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_PRICE_V3"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_PRICE_V3";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_price_v3;
@@ -3582,10 +3607,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Token Search (read-only, no wallet needed) ── */
-  if (type === 'CFS_JUPITER_TOKEN_SEARCH') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_TOKEN_SEARCH"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_TOKEN_SEARCH";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_token_search;
@@ -3594,10 +3620,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter DCA Create ── */
-  if (type === 'CFS_JUPITER_DCA_CREATE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_DCA_CREATE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_DCA_CREATE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_dca_create;
@@ -3606,10 +3633,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Limit Order (Trigger V2) ── */
-  if (type === 'CFS_JUPITER_LIMIT_ORDER') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_LIMIT_ORDER"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_LIMIT_ORDER";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_limit_order;
@@ -3618,10 +3646,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Earn (Deposit/Withdraw) ── */
-  if (type === 'CFS_JUPITER_EARN') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_EARN"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_EARN";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_earn;
@@ -3630,10 +3659,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Flashloan (Borrow → Swap(s) → Repay) ── */
-  if (type === 'CFS_JUPITER_FLASHLOAN') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_FLASHLOAN"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_FLASHLOAN";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_flashloan;
@@ -3642,10 +3672,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Prediction Search ── */
-  if (type === 'CFS_PANCAKE_FLASH') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_PANCAKE_FLASH"] = function (msg, sender, sendResponse) {
+    var type = "CFS_PANCAKE_FLASH";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_pancake_flash;
@@ -3654,9 +3685,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  if (type === 'CFS_DEPLOY_FLASH_RECEIVER') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_DEPLOY_FLASH_RECEIVER"] = function (msg, sender, sendResponse) {
+    var type = "CFS_DEPLOY_FLASH_RECEIVER";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_deploy_flash_receiver;
@@ -3665,10 +3698,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Prediction Search ── */
-  if (type === 'CFS_JUPITER_PREDICTION_SEARCH') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_PREDICTION_SEARCH"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_PREDICTION_SEARCH";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_prediction_search;
@@ -3677,10 +3711,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  /* ── Jupiter Prediction Trade ── */
-  if (type === 'CFS_JUPITER_PREDICTION_TRADE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_PREDICTION_TRADE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_PREDICTION_TRADE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_prediction_trade;
@@ -3689,9 +3724,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) { sendResponse({ ok: false, error: e && e.message ? e.message : String(e) }); }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_WATCH_GET_ACTIVITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_WATCH_GET_ACTIVITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_WATCH_GET_ACTIVITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solanaWatch_getActivity;
@@ -3706,9 +3743,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_WATCH_REFRESH_NOW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_WATCH_REFRESH_NOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_WATCH_REFRESH_NOW";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solanaWatch_tick;
@@ -3723,9 +3762,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_WATCH_CLEAR_ACTIVITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_WATCH_CLEAR_ACTIVITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_WATCH_CLEAR_ACTIVITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solanaWatch_clearActivity;
@@ -3740,9 +3781,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_WATCH_GET_ACTIVITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_WATCH_GET_ACTIVITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_WATCH_GET_ACTIVITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bscWatch_getActivity;
@@ -3757,9 +3800,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_WATCH_REFRESH_NOW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_WATCH_REFRESH_NOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_WATCH_REFRESH_NOW";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bscWatch_tick;
@@ -3774,9 +3819,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_WATCH_CLEAR_ACTIVITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_WATCH_CLEAR_ACTIVITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_WATCH_CLEAR_ACTIVITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bscWatch_clearActivity;
@@ -3791,9 +3838,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_INDEXER_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_INDEXER_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_INDEXER_STATUS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bscIndexer_status;
@@ -3808,9 +3857,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_WATCH_TEST_HOOK') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_WATCH_TEST_HOOK"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_WATCH_TEST_HOOK";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bscWatch_testHook;
@@ -3825,9 +3876,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_FILE_WATCH_REFRESH_NOW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_FILE_WATCH_REFRESH_NOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_FILE_WATCH_REFRESH_NOW";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_fileWatch_tick;
@@ -3842,9 +3895,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_FILE_WATCH_GET_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_FILE_WATCH_GET_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_FILE_WATCH_GET_STATUS";
+    
     (async () => {
       try {
         const data = await chrome.storage.local.get(['cfsFileWatchLastPoll']);
@@ -3854,9 +3909,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_INFI_BIN_RANGE_WATCH_REFRESH_NOW";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_infiBinRangeWatch_tick;
@@ -3871,9 +3928,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_INFI_BIN_RANGE_WATCH_GET_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_INFI_BIN_RANGE_WATCH_GET_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_INFI_BIN_RANGE_WATCH_GET_STATUS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_infiBinRangeWatch_getStatus;
@@ -3888,9 +3947,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_V3_RANGE_WATCH_REFRESH_NOW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_V3_RANGE_WATCH_REFRESH_NOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_V3_RANGE_WATCH_REFRESH_NOW";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_v3RangeWatch_tick;
@@ -3905,9 +3966,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_V3_RANGE_WATCH_GET_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_V3_RANGE_WATCH_GET_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_V3_RANGE_WATCH_GET_STATUS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_v3RangeWatch_getStatus;
@@ -3922,9 +3985,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_V3_RANGE_WATCH_STOP') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_V3_RANGE_WATCH_STOP"] = function (msg, sender, sendResponse) {
+    var type = "CFS_V3_RANGE_WATCH_STOP";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_v3RangeWatch_handleStop;
@@ -3939,9 +4004,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_ALWAYS_ON_MERGE_BOUND_ROW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_ALWAYS_ON_MERGE_BOUND_ROW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_ALWAYS_ON_MERGE_BOUND_ROW";
+    
     (async () => {
       try {
         const workflowId = String(msg.workflowId || '').trim();
@@ -4049,9 +4116,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_V3_RECONCILE_POSITIONS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_V3_RECONCILE_POSITIONS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_V3_RECONCILE_POSITIONS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_v3RangeWatch_reconcile;
@@ -4065,9 +4134,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_INFI_BIN_RANGE_WATCH_STOP') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_INFI_BIN_RANGE_WATCH_STOP"] = function (msg, sender, sendResponse) {
+    var type = "CFS_INFI_BIN_RANGE_WATCH_STOP";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_infiBinRangeWatch_handleStop;
@@ -4082,9 +4153,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_FOLLOWING_AUTOMATION_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_FOLLOWING_AUTOMATION_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_FOLLOWING_AUTOMATION_STATUS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_evaluateFollowingAutomation;
@@ -4114,9 +4187,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_CRYPTO_TEST_ENSURE_WALLETS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_CRYPTO_TEST_ENSURE_WALLETS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_CRYPTO_TEST_ENSURE_WALLETS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_cryptoTest_ensureWallets;
@@ -4139,9 +4214,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_CRYPTO_TEST_RESTORE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_CRYPTO_TEST_RESTORE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_CRYPTO_TEST_RESTORE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_cryptoTest_restoreSnapshot;
@@ -4156,9 +4233,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_IS_PLAYBACK_ACTIVE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_IS_PLAYBACK_ACTIVE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_IS_PLAYBACK_ACTIVE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_cryptoTest_isPlaybackActive;
@@ -4173,9 +4252,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_CRYPTO_TEST_SIMULATE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_CRYPTO_TEST_SIMULATE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_CRYPTO_TEST_SIMULATE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_cryptoTest_simulate;
@@ -4190,9 +4271,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WATCH_ACTIVITY_PRICE_DRIFT_ROW";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_watchActivityPriceDriftRow;
@@ -4207,9 +4290,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RUGCHECK_TOKEN_REPORT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RUGCHECK_TOKEN_REPORT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RUGCHECK_TOKEN_REPORT";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_fetch_rugcheck_report;
@@ -4228,9 +4313,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_TRANSFER_SOL') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_TRANSFER_SOL"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_TRANSFER_SOL";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_transferSol;
@@ -4245,9 +4332,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_TRANSFER_SPL') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_TRANSFER_SPL"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_TRANSFER_SPL";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_transferSpl;
@@ -4262,9 +4351,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_ENSURE_TOKEN_ACCOUNT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_ENSURE_TOKEN_ACCOUNT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_ENSURE_TOKEN_ACCOUNT";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_ensureTokenAccount;
@@ -4279,9 +4370,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_WRAP_SOL') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_WRAP_SOL"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_WRAP_SOL";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_wrapSol;
@@ -4296,9 +4389,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_UNWRAP_WSOL') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_UNWRAP_WSOL"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_UNWRAP_WSOL";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_unwrapWsol;
@@ -4313,9 +4408,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_RPC_READ') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_RPC_READ"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_RPC_READ";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_rpcRead;
@@ -4330,9 +4427,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_PUMPFUN_BUY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_PUMPFUN_BUY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_PUMPFUN_BUY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_pumpfun_buy;
@@ -4347,9 +4446,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_PUMPFUN_SELL') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_PUMPFUN_SELL"] = function (msg, sender, sendResponse) {
+    var type = "CFS_PUMPFUN_SELL";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_pumpfun_sell;
@@ -4364,9 +4465,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_PUMPFUN_MARKET_PROBE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_PUMPFUN_MARKET_PROBE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_PUMPFUN_MARKET_PROBE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_pumpfun_market_probe;
@@ -4381,9 +4484,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_SOLANA_SELLABILITY_PROBE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_SOLANA_SELLABILITY_PROBE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_SOLANA_SELLABILITY_PROBE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_solana_sellability_probe;
@@ -4398,9 +4503,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_DLMM_ADD_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_DLMM_ADD_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_DLMM_ADD_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_dlmm_add_liquidity;
@@ -4415,9 +4522,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_DLMM_REMOVE_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_DLMM_REMOVE_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_DLMM_REMOVE_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_dlmm_remove_liquidity;
@@ -4432,9 +4541,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_DLMM_CLAIM_REWARDS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_DLMM_CLAIM_REWARDS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_DLMM_CLAIM_REWARDS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_dlmm_claim_rewards;
@@ -4449,8 +4560,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-  if (type === 'CFS_METEORA_DLMM_RANGE_CHECK') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_DLMM_RANGE_CHECK"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_DLMM_RANGE_CHECK";
+    
     (async () => {
       try {
         const L = globalThis.CFS_SOLANA_LIB;
@@ -4495,9 +4609,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_ADD_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_ADD_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_ADD_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_add_liquidity;
@@ -4512,9 +4628,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_REMOVE_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_REMOVE_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_REMOVE_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_remove_liquidity;
@@ -4529,9 +4647,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_DECREASE_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_DECREASE_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_DECREASE_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_decrease_liquidity;
@@ -4546,9 +4666,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_SWAP') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_SWAP"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_SWAP";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_swap;
@@ -4563,9 +4685,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_QUOTE_SWAP') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_QUOTE_SWAP"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_QUOTE_SWAP";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_quote_swap;
@@ -4580,9 +4704,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_QUOTE_SWAP_EXACT_OUT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_QUOTE_SWAP_EXACT_OUT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_QUOTE_SWAP_EXACT_OUT";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_quote_swap_exact_out;
@@ -4597,9 +4723,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_SWAP_EXACT_OUT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_SWAP_EXACT_OUT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_SWAP_EXACT_OUT";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_swap_exact_out;
@@ -4614,9 +4742,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_CLAIM_FEES') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_CLAIM_FEES"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_CLAIM_FEES";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_claim_fees;
@@ -4631,9 +4761,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_METEORA_CPAMM_CLAIM_REWARD') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_CPAMM_CLAIM_REWARD"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_CPAMM_CLAIM_REWARD";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_meteora_cpamm_claim_reward;
@@ -4648,9 +4780,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_ADD_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_ADD_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_ADD_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_add_liquidity;
@@ -4665,9 +4799,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_REMOVE_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_REMOVE_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_REMOVE_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_remove_liquidity;
@@ -4682,9 +4818,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_SWAP_STANDARD') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_SWAP_STANDARD"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_SWAP_STANDARD";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_standard_swap;
@@ -4699,9 +4837,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_RANGE_CHECK') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_RANGE_CHECK"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_RANGE_CHECK";
+    
     (async () => {
       try {
         const L = globalThis.CFS_SOLANA_LIB;
@@ -4781,9 +4921,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_SWAP_BASE_IN') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_SWAP_BASE_IN"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_SWAP_BASE_IN";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_swap_base_in;
@@ -4798,9 +4940,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_SWAP_BASE_OUT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_SWAP_BASE_OUT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_SWAP_BASE_OUT";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_swap_base_out;
@@ -4815,25 +4959,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-  /* ══════════════════════════════════════════════════════════════════
-   *  Wallet Injection — Provider Proxy Sign Handlers
-   * ══════════════════════════════════════════════════════════════════ */
-
-  /**
-   * @param {string|undefined} walletId - e.g. "sol:uuid" or "bsc:uuid"
-   * @param {string} chain - "sol" or "bsc"
-   * @returns {string} stripped wallet ID or "" if no match
-   */
-  function _cfsStripWalletPrefix(walletId, chain) {
-    if (!walletId || typeof walletId !== 'string') return '';
-    const prefix = chain + ':';
-    if (walletId.startsWith(prefix)) return walletId.slice(prefix.length);
-    /* Return as-is if no prefix — caller decides whether to use it */
-    return walletId;
-  }
-
-  if (type === 'CFS_WALLET_CONNECT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_CONNECT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_CONNECT";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -4871,14 +5001,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_WALLET_DISCONNECT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_DISCONNECT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_DISCONNECT";
+    
     sendResponse({ ok: true });
     return false;
-  }
-
-  if (type === 'CFS_WALLET_SIGN_TX') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_SIGN_TX"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_SIGN_TX";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -4916,9 +5050,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_WALLET_SIGN_AND_SEND_TX') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_SIGN_AND_SEND_TX"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_SIGN_AND_SEND_TX";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -5026,9 +5162,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_WALLET_SIGN_MESSAGE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_SIGN_MESSAGE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_SIGN_MESSAGE";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -5055,11 +5193,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  /* ── EVM (BSC) wallet sign handlers ── */
-
-  if (type === 'CFS_WALLET_EVM_SEND_TX') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_EVM_SEND_TX"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_EVM_SEND_TX";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -5113,9 +5251,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_WALLET_EVM_SIGN_MESSAGE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_EVM_SIGN_MESSAGE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_EVM_SIGN_MESSAGE";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -5143,9 +5283,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_WALLET_EVM_SIGN_TYPED_DATA') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_EVM_SIGN_TYPED_DATA"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_EVM_SIGN_TYPED_DATA";
+    
     (async () => {
       try {
         const auth = await cfsAuthorizeWalletSender(sender);
@@ -5172,10 +5314,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  /* ── Wallet proxy: allowlist + dynamic content script registration ── */
-  if (type === 'CFS_WALLET_GET_ALLOWLIST') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_WALLET_GET_ALLOWLIST"] = function (msg, sender, sendResponse) {
+    var type = "CFS_WALLET_GET_ALLOWLIST";
+    
     (async () => {
       try {
         const data = await chrome.storage.local.get(['cfs_wallet_injection_allowlist']);
@@ -5186,9 +5329,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_DEFI_LIST_POSITIONS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_DEFI_LIST_POSITIONS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_DEFI_LIST_POSITIONS";
+    
     (async () => {
       try {
         /* Read automation wallet addresses from storage */
@@ -5286,9 +5431,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_POOL_SEARCH') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_POOL_SEARCH"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_POOL_SEARCH";
+    
     (async () => {
       try {
         const RAYDIUM_API = 'https://api-v3.raydium.io';
@@ -5330,9 +5477,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_POOL_SEARCH') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_POOL_SEARCH"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_POOL_SEARCH";
+    
     (async () => {
       try {
         const sg = globalThis.CFS_PANCAKE_V3_SUBGRAPH || globalThis.__CFS_pancakeV3Subgraph;
@@ -5380,8 +5529,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-  if (type === 'CFS_METEORA_POOL_SEARCH') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_METEORA_POOL_SEARCH"] = function (msg, sender, sendResponse) {
+    var type = "CFS_METEORA_POOL_SEARCH";
+    
     (async () => {
       try {
         const METEORA_API = 'https://dlmm-api.meteora.ag';
@@ -5424,9 +5576,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_QUOTE_BASE_IN') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_QUOTE_BASE_IN"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_QUOTE_BASE_IN";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_quote_base_in;
@@ -5441,9 +5595,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_QUOTE_BASE_OUT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_QUOTE_BASE_OUT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_QUOTE_BASE_OUT";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_quote_base_out;
@@ -5458,9 +5614,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CPMM_ADD_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CPMM_ADD_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CPMM_ADD_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_cpmm_add_liquidity;
@@ -5475,9 +5633,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CPMM_REMOVE_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CPMM_REMOVE_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CPMM_REMOVE_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_cpmm_remove_liquidity;
@@ -5492,9 +5652,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_OPEN_POSITION') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_OPEN_POSITION"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_OPEN_POSITION";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_open_position;
@@ -5509,9 +5671,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_OPEN_POSITION_FROM_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_OPEN_POSITION_FROM_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_OPEN_POSITION_FROM_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_open_position_from_liquidity;
@@ -5526,9 +5690,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_COLLECT_REWARD') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_COLLECT_REWARD"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_COLLECT_REWARD";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_collect_reward;
@@ -5543,9 +5709,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_COLLECT_REWARDS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_COLLECT_REWARDS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_COLLECT_REWARDS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_collect_rewards;
@@ -5560,9 +5728,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_HARVEST_LOCK_POSITION') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_HARVEST_LOCK_POSITION"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_HARVEST_LOCK_POSITION";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_harvest_lock_position;
@@ -5577,9 +5747,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_LOCK_POSITION') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_LOCK_POSITION"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_LOCK_POSITION";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_lock_position;
@@ -5594,9 +5766,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_CLOSE_POSITION') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_CLOSE_POSITION"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_CLOSE_POSITION";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_close_position;
@@ -5611,9 +5785,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_DECREASE_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_DECREASE_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_DECREASE_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_decrease_liquidity;
@@ -5628,9 +5804,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_BASE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_BASE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_BASE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_increase_position_from_base;
@@ -5645,9 +5823,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_LIQUIDITY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_LIQUIDITY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_RAYDIUM_CLMM_INCREASE_POSITION_FROM_LIQUIDITY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_raydium_clmm_increase_position_from_liquidity;
@@ -5662,9 +5842,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_PERPS_AUTOMATION_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_PERPS_AUTOMATION_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_PERPS_AUTOMATION_STATUS";
+    
     try {
       const fn = globalThis.__CFS_perps_automation_status;
       if (typeof fn !== 'function') {
@@ -5681,9 +5863,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
     }
     return true;
-  }
-
-  if (type === 'CFS_JUPITER_PERPS_MARKETS') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_JUPITER_PERPS_MARKETS"] = function (msg, sender, sendResponse) {
+    var type = "CFS_JUPITER_PERPS_MARKETS";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_jupiter_perps_markets;
@@ -5698,9 +5882,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_TRANSFER_BNB') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_TRANSFER_BNB"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_TRANSFER_BNB";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bsc_executePoolOp;
@@ -5727,9 +5913,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_POOL_EXECUTE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_POOL_EXECUTE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_POOL_EXECUTE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bsc_executePoolOp;
@@ -5744,9 +5932,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_SELLABILITY_PROBE') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_SELLABILITY_PROBE"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_SELLABILITY_PROBE";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bsc_sellability_probe;
@@ -5761,9 +5951,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_QUERY') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_QUERY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_QUERY";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bsc_query;
@@ -5778,9 +5970,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_V3_RANGE_CHECK') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_V3_RANGE_CHECK"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_V3_RANGE_CHECK";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bsc_v3_range_check;
@@ -5795,9 +5989,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_BSC_INFI_BIN_RANGE_CHECK') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_BSC_INFI_BIN_RANGE_CHECK"] = function (msg, sender, sendResponse) {
+    var type = "CFS_BSC_INFI_BIN_RANGE_CHECK";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_bsc_infi_bin_range_check;
@@ -5812,9 +6008,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_ASTER_FUTURES') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_ASTER_FUTURES"] = function (msg, sender, sendResponse) {
+    var type = "CFS_ASTER_FUTURES";
+    
     (async () => {
       try {
         const fn = globalThis.__CFS_aster_futures;
@@ -5829,9 +6027,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_ASTER_USER_STREAM_WAIT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_ASTER_USER_STREAM_WAIT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_ASTER_USER_STREAM_WAIT";
+    
     (async () => {
       let release;
       let keepTimer = null;
@@ -5943,28 +6143,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (typeof globalThis.__CFS_bsc_walletRoute === 'function') {
-    const handled = globalThis.__CFS_bsc_walletRoute(msg, sender, sendResponse);
-    if (handled) return true;
-  }
-
-  if (typeof globalThis.__CFS_solana_walletRoute === 'function') {
-    const handled = globalThis.__CFS_solana_walletRoute(msg, sender, sendResponse);
-    if (handled) return true;
-  }
-
-  if (type === 'PICK_ELEMENT_CANCELLED') {
+  
+  };
+  __CFS_swTypeHandlers["PICK_ELEMENT_CANCELLED"] = function (msg, sender, sendResponse) {
+    var type = "PICK_ELEMENT_CANCELLED";
+    
     sendResponse({ ok: true });
     return true;
-  }
-  if (type === 'SCHEDULE_ALARM') {
+  
+  };
+  __CFS_swTypeHandlers["SCHEDULE_ALARM"] = function (msg, sender, sendResponse) {
+    var type = "SCHEDULE_ALARM";
+    
     scheduleAlarmForNextRun().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
-  }
-
-  if (type === 'MERGE_SCHEDULED_WORKFLOW_RUNS') {
+  
+  };
+  __CFS_swTypeHandlers["MERGE_SCHEDULED_WORKFLOW_RUNS"] = function (msg, sender, sendResponse) {
+    var type = "MERGE_SCHEDULED_WORKFLOW_RUNS";
+    
     (async () => {
       try {
         const entries = Array.isArray(msg.entries) ? msg.entries : [];
@@ -5994,9 +6191,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'GET_SCHEDULED_WORKFLOW_RUNS') {
+  
+  };
+  __CFS_swTypeHandlers["GET_SCHEDULED_WORKFLOW_RUNS"] = function (msg, sender, sendResponse) {
+    var type = "GET_SCHEDULED_WORKFLOW_RUNS";
+    
     (async () => {
       try {
         const data = await chrome.storage.local.get(['scheduledWorkflowRuns']);
@@ -6007,9 +6206,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'REMOVE_SCHEDULED_WORKFLOW_RUNS') {
+  
+  };
+  __CFS_swTypeHandlers["REMOVE_SCHEDULED_WORKFLOW_RUNS"] = function (msg, sender, sendResponse) {
+    var type = "REMOVE_SCHEDULED_WORKFLOW_RUNS";
+    
     (async () => {
       try {
         const idSet = new Set(msg.ids.map((x) => String(x).trim()));
@@ -6025,9 +6226,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'GET_TAB_INFO') {
+  
+  };
+  __CFS_swTypeHandlers["GET_TAB_INFO"] = function (msg, sender, sendResponse) {
+    var type = "GET_TAB_INFO";
+    
     (async () => {
       try {
         let tabId, windowId;
@@ -6052,9 +6255,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'RECORDING_SESSION_BEGIN') {
+  
+  };
+  __CFS_swTypeHandlers["RECORDING_SESSION_BEGIN"] = function (msg, sender, sendResponse) {
+    var type = "RECORDING_SESSION_BEGIN";
+    
     const senderUrl = sender?.url || '';
     if (!senderUrl.startsWith('chrome-extension://')) {
       sendResponse({ ok: false, error: 'Only extension' });
@@ -6080,9 +6285,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     };
     chrome.storage.session.set({ [CFS_RECORDING_SESSION_KEY]: session }, () => sendResponse({ ok: true }));
     return true;
-  }
-
-  if (type === 'RECORDING_SESSION_SYNC') {
+  
+  };
+  __CFS_swTypeHandlers["RECORDING_SESSION_SYNC"] = function (msg, sender, sendResponse) {
+    var type = "RECORDING_SESSION_SYNC";
+    
     const tabId = sender.tab?.id;
     if (tabId == null) {
       sendResponse({ ok: false });
@@ -6096,7 +6303,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       const inc = Array.isArray(msg.actions) ? msg.actions : [];
       const prev = Array.isArray(session.actions) ? session.actions : [];
-      if (inc.length >= prev.length) {
+      const mergeFn = globalThis.CFS_frameActions && globalThis.CFS_frameActions.mergeRecordingActions;
+      if (typeof mergeFn === 'function') {
+        session.actions = mergeFn(prev, inc);
+      } else if (inc.length >= prev.length) {
         session.actions = inc;
       }
       if (msg.runStartState != null && session.runStartState == null) {
@@ -6108,9 +6318,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.storage.session.set({ [CFS_RECORDING_SESSION_KEY]: session }, () => sendResponse({ ok: true }));
     });
     return true;
-  }
-
-  if (type === 'RECORDING_SESSION_TAKE') {
+  
+  };
+  __CFS_swTypeHandlers["RECORDING_SESSION_TAKE"] = function (msg, sender, sendResponse) {
+    var type = "RECORDING_SESSION_TAKE";
+    
     const senderUrl = sender?.url || '';
     if (!senderUrl.startsWith('chrome-extension://')) {
       sendResponse({ ok: false, error: 'Only extension' });
@@ -6132,743 +6344,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       });
     });
     return true;
-  }
-
-  if (msg.type === 'SET_PROJECT_STEP_HANDLERS') {
-    // Only accept from extension context (e.g. sidepanel). Reject from unknown senders to avoid code execution via cfs_project_step_handlers.
-    const senderUrl = sender?.url || '';
-    const isExtension = senderUrl.startsWith('chrome-extension://');
-    if (!isExtension) {
-      sendResponse({ ok: false, error: 'SET_PROJECT_STEP_HANDLERS only allowed from extension' });
-      return true;
-    }
-    projectStepHandlers = normalizeProjectStepHandlers({
-      stepIds: msg.stepIds,
-      codeById: msg.codeById,
-    });
-    projectStepHandlersLoaded = true;
-    chrome.storage.local.set({ [CFS_PROJECT_STEP_HANDLERS_KEY]: projectStepHandlers }).catch(() => {
-      // Quota or other error; in-memory copy still used until reload
-    });
-    sendResponse({ ok: true });
-    return true;
-  }
-
-  if (msg.type === 'GET_PROJECT_STEP_IDS') {
-    loadProjectStepHandlersFromStorage(() => {
-      sendResponse({ stepIds: projectStepHandlers.stepIds || [] });
-    });
-    return true;
-  }
-
-  if (msg.type === 'INJECT_STEP_HANDLERS') {
-    const tabId = sender?.tab?.id;
-    const files = msg.files;
-    const projectStepIds = Array.isArray(msg.projectStepIds) ? msg.projectStepIds : [];
-    if (!tabId) {
-      sendResponse({ ok: false, error: 'No tab context for injection' });
-      return true;
-    }
-    const allowedFiles = Array.isArray(files)
-      ? files.filter((f) => typeof f === 'string' && /^steps\/[A-Za-z0-9_-]+\/handler\.js$/.test(f))
-      : [];
-    if (Array.isArray(files) && files.length > 0 && allowedFiles.length !== files.length) {
-      sendResponse({ ok: false, error: 'INJECT_STEP_HANDLERS files must be steps/<id>/handler.js' });
-      return true;
-    }
-    loadProjectStepHandlersFromStorage(() => {
-      const injectExtension = (done) => {
-        if (!allowedFiles || allowedFiles.length === 0) return done();
-        const CHUNK = 18;
-        let offset = 0;
-        const injectNextChunk = () => {
-          if (offset >= allowedFiles.length) return done();
-          const chunk = allowedFiles.slice(offset, offset + CHUNK);
-          offset += CHUNK;
-          chrome.scripting.executeScript({ target: { tabId }, files: chunk }, () => {
-            if (chrome.runtime.lastError) {
-              return done(chrome.runtime.lastError.message);
-            }
-            injectNextChunk();
-          });
-        };
-        injectNextChunk();
-      };
-      const injectProjectSteps = (done) => {
-        if (projectStepIds.length === 0) return done();
-        const codeById = projectStepHandlers.codeById || {};
-        const toInject = projectStepIds.map((id) => codeById[id]).filter(Boolean);
-        if (toInject.length === 0) return done();
-        chrome.scripting.executeScript({
-          target: { tabId },
-          func: (codeStrings) => {
-            codeStrings.forEach((code) => {
-              try {
-                if (typeof code === 'string') eval(code);
-              } catch (_) {}
-            });
-          },
-          args: [toInject],
-        }, () => {
-          if (chrome.runtime.lastError) {
-            return done(chrome.runtime.lastError.message);
-          }
-          done();
-        });
-      };
-      injectExtension((err) => {
-        if (err) {
-          sendResponse({ ok: false, error: err });
-          return;
-        }
-        injectProjectSteps((err2) => {
-          sendResponse(err2 ? { ok: false, error: err2 } : { ok: true });
-        });
-      });
-    });
-    return true;
-  }
-
-  if (msg.type === 'QC_CALL') {
-    const { method, args } = msg || {};
-    if (!method) {
-      sendResponse({ ok: false, error: 'Missing method' });
-      return true;
-    }
-    (async () => {
-      let release;
-      try {
-        release = await acquireOffscreen('qc');
-        await new Promise((r) => setTimeout(r, 400));
-        const response = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            { type: 'QC_CALL', method, args: args || [] },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-              else resolve(res || { ok: false, error: 'No response' });
-            }
-          );
-        });
-        sendResponse(response);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'QC failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'CALL_LLM') {
-    const m = msg || {};
-    const { prompt, responseType, llmProvider: msgLlmProvider, llmOpenaiModel: msgOpenaiModel, llmModelOverride: msgModelOverride } = m;
-    const type = (responseType || 'text').toLowerCase();
-    const promptTrim = String(prompt || '').trim();
-    if (promptTrim.length > CFS_CALL_LLM_MAX_PROMPT_CHARS) {
-      sendResponse({
-        ok: false,
-        error: 'Prompt too long (max ' + CFS_CALL_LLM_MAX_PROMPT_CHARS + ' characters)',
-      });
-      return true;
-    }
-
-    (async () => {
-      let release;
-      try {
-        const llmStore = await chrome.storage.local.get([
-          'cfsLlmWorkflowProvider',
-          'cfsLlmWorkflowOpenaiModel',
-          'cfsLlmWorkflowModelOverride',
-          'cfsLlmOpenaiKey',
-          'cfsLlmAnthropicKey',
-          'cfsLlmGeminiKey',
-          'cfsLlmGrokKey',
-        ]);
-        let provider = (llmStore.cfsLlmWorkflowProvider || 'lamini').toLowerCase();
-        if (msgLlmProvider != null && String(msgLlmProvider).trim() !== '') {
-          const p = String(msgLlmProvider).trim().toLowerCase();
-          if (p === 'lamini' || p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok') {
-            provider = p;
-          }
-        }
-        const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
-        const useCloud = provider !== 'lamini' && cloudProviders[provider];
-
-        const stepOpenai =
-          msgOpenaiModel != null && String(msgOpenaiModel).trim() !== '' ? String(msgOpenaiModel).trim() : null;
-        const stepOverride =
-          msgModelOverride != null && String(msgModelOverride).trim() !== '' ? String(msgModelOverride).trim() : null;
-        const openaiModelPick = stepOpenai != null ? stepOpenai : llmStore.cfsLlmWorkflowOpenaiModel;
-        const modelOverridePick = stepOverride != null ? stepOverride : llmStore.cfsLlmWorkflowModelOverride;
-
-        if (useCloud && typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.callRemoteLlmStep) {
-          const keyField = cloudProviders[provider];
-          const apiKey = String(llmStore[keyField] || '').trim();
-          if (!apiKey) {
-            sendResponse({
-              ok: false,
-              error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
-            });
-            return;
-          }
-          if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
-            sendResponse({
-              ok: false,
-              error:
-                'API key too long (max ' +
-                CFS_LLM_API_KEY_MAX_CHARS +
-                ' characters). Fix it under Settings → Local Keys → LLM providers.',
-            });
-            return;
-          }
-          const model = CFS_remoteLlm.resolveModel(provider, openaiModelPick, modelOverridePick);
-          const modelLenCheck = cfsAssertResolvedLlmModelLength(model);
-          if (!modelLenCheck.ok) {
-            sendResponse({ ok: false, error: modelLenCheck.error });
-            return;
-          }
-          const stepRes = await CFS_remoteLlm.callRemoteLlmStep({
-            provider,
-            apiKey,
-            model,
-            prompt: promptTrim,
-            responseType: type,
-          });
-          if (stepRes.ok) {
-            sendResponse({ ok: true, result: stepRes.result, feedback: stepRes.feedback });
-          } else {
-            sendResponse({ ok: false, error: stepRes.error || 'LLM call failed' });
-          }
-          return;
-        }
-
-        release = await acquireOffscreen('qc');
-        await new Promise((r) => setTimeout(r, 400));
-        const response = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            { type: 'QC_CALL', method: 'runLlm', args: [(prompt || '').trim(), type] },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-              else resolve(res || null);
-            }
-          );
-        });
-        if (!response) {
-          sendResponse({ ok: false, error: 'No response' });
-        } else if (response.ok && response.result?.ok) {
-          sendResponse({
-            ok: true,
-            result: response.result.result,
-            feedback: response.result.feedback,
-          });
-        } else {
-          sendResponse({ ok: false, error: response.result?.error || response.error || 'LLM call failed' });
-        }
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'LLM call failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'CALL_REMOTE_LLM_CHAT') {
-    const { messages, options } = msg || {};
-    const validatedChat = cfsValidateRemoteChatInput(messages);
-    if (!validatedChat.ok) {
-      sendResponse({ ok: false, error: validatedChat.error || 'Invalid chat payload' });
-      return true;
-    }
-    (async () => {
-      try {
-        const llmStore = await chrome.storage.local.get([
-          'cfsLlmChatProvider',
-          'cfsLlmChatOpenaiModel',
-          'cfsLlmChatModelOverride',
-          'cfsLlmOpenaiKey',
-          'cfsLlmAnthropicKey',
-          'cfsLlmGeminiKey',
-          'cfsLlmGrokKey',
-        ]);
-        const provider = (llmStore.cfsLlmChatProvider || 'lamini').toLowerCase();
-        const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
-        if (provider === 'lamini' || !cloudProviders[provider]) {
-          sendResponse({ ok: false, error: 'Chat provider is not a cloud model' });
-          return;
-        }
-        if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.callRemoteChat) {
-          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
-          return;
-        }
-        const keyField = cloudProviders[provider];
-        const apiKey = String(llmStore[keyField] || '').trim();
-        if (!apiKey) {
-          sendResponse({
-            ok: false,
-            error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
-          });
-          return;
-        }
-        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
-          sendResponse({
-            ok: false,
-            error:
-              'API key too long (max ' +
-              CFS_LLM_API_KEY_MAX_CHARS +
-              ' characters). Fix it under Settings → Local Keys → LLM providers.',
-          });
-          return;
-        }
-        const model = CFS_remoteLlm.resolveModel(
-          provider,
-          llmStore.cfsLlmChatOpenaiModel,
-          llmStore.cfsLlmChatModelOverride
-        );
-        const chatModelLen = cfsAssertResolvedLlmModelLength(model);
-        if (!chatModelLen.ok) {
-          sendResponse({ ok: false, error: chatModelLen.error });
-          return;
-        }
-        const chatRes = await CFS_remoteLlm.callRemoteChat({
-          provider,
-          apiKey,
-          model,
-          messages: validatedChat.messages,
-          options: options || {},
-        });
-        if (chatRes.ok) {
-          sendResponse({ ok: true, result: { text: chatRes.text, model: chatRes.model } });
-        } else {
-          sendResponse({ ok: false, error: chatRes.error || 'Chat failed' });
-        }
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Chat failed' });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'CFS_LLM_TEST_PROVIDER') {
-    const { provider, token } = msg || {};
-    (async () => {
-      try {
-        const p = String(provider || '').trim().toLowerCase();
-        const keyMap = {
-          openai: 'cfsLlmOpenaiKey',
-          claude: 'cfsLlmAnthropicKey',
-          gemini: 'cfsLlmGeminiKey',
-          grok: 'cfsLlmGrokKey',
-        };
-        if (!keyMap[p]) {
-          sendResponse({ ok: false, error: 'Unknown provider' });
-          return;
-        }
-        let apiKey = token != null && String(token).trim() ? String(token).trim() : '';
-        if (!apiKey) {
-          const st = await chrome.storage.local.get(keyMap[p]);
-          apiKey = String(st[keyMap[p]] || '').trim();
-        }
-        if (!apiKey) {
-          sendResponse({ ok: false, error: 'No API key (type one in the field or save first)' });
-          return;
-        }
-        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
-          sendResponse({
-            ok: false,
-            error: 'API key too long (max ' + CFS_LLM_API_KEY_MAX_CHARS + ' characters)',
-          });
-          return;
-        }
-        if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.pingProvider) {
-          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
-          return;
-        }
-        const pr = await CFS_remoteLlm.pingProvider(p, apiKey);
-        sendResponse(pr);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Test failed' });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'TTS_GET_STREAM_ID') {
-    const tabId = sender?.tab?.id;
-    if (!tabId) { sendResponse({ ok: false, error: 'No tab ID (not called from a tab)' }); return true; }
-    (async () => {
-      try {
-        const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-        sendResponse({ ok: true, streamId });
-      } catch (e) {
-        sendResponse({ ok: false, error: e?.message || 'tabCapture.getMediaStreamId failed' });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'TAB_CAPTURE_AUDIO') {
-    const { tabId, durationMs } = msg || {};
-    const effectiveTabId = tabId ?? sender?.tab?.id;
-    if (!effectiveTabId) {
-      sendResponse({ ok: false, error: 'No tab ID provided (capture must run from tab context)' });
-      return true;
-    }
-    (async () => {
-      let release;
-      try {
-        release = await acquireOffscreen('tabAudio');
-        await new Promise((r) => setTimeout(r, 300));
-        const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: effectiveTabId });
-        const response = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            { type: 'RECORD_TAB_AUDIO', streamId, durationMs: durationMs || 10000 },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-              else resolve(res || { ok: false, error: 'No response' });
-            }
-          );
-        });
-        sendResponse(response);
-      } catch (e) {
-        sendResponse({ ok: false, error: e?.message || 'Tab capture failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'SEND_TO_ENDPOINT') {
-    const { url, method, body, headers, waitForResponse, timeoutMs } = msg || {};
-    /** When false (sendToEndpoint step / fire-and-forget), do not read or return body (step handler skips save). */
-    const waitForBody = waitForResponse !== false;
-    if (!url || typeof url !== 'string') {
-      sendResponse({ ok: false, error: 'Missing URL' });
-      return true;
-    }
-    const urlCheck = cfsValidatePublicHttpUrl(url);
-    if (!urlCheck.ok) {
-      sendResponse({ ok: false, error: urlCheck.error || 'URL not allowed' });
-      return true;
-    }
-    (async () => {
-      try {
-        const opts = { method: (method || 'POST').toUpperCase(), mode: 'cors' };
-        if (body != null && body !== '') opts.body = body;
-        if (headers && typeof headers === 'object' && Object.keys(headers).length) opts.headers = headers;
-        if (timeoutMs > 0) {
-          const ac = new AbortController();
-          opts.signal = ac.signal;
-          const t = setTimeout(() => ac.abort(), timeoutMs);
-          try {
-            const res = await fetch(urlCheck.url.href, opts);
-            clearTimeout(t);
-            if (!waitForBody) {
-              const hdrsEarly = responseHeadersObject(res);
-              if (!res.ok) {
-                sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, responseHeaders: hdrsEarly });
-                return;
-              }
-              try {
-                if (res.body && typeof res.body.cancel === 'function') await res.body.cancel();
-              } catch (_) {}
-              sendResponse({ ok: true, status: res.status, responseHeaders: hdrsEarly });
-              return;
-            }
-            const bodyText = await res.text();
-            let json;
-            try {
-              if (bodyText && bodyText.trim()) json = JSON.parse(bodyText);
-            } catch (_) {}
-            const responseHeaders = responseHeadersObject(res);
-            if (!res.ok) {
-              sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, bodyText, json, responseHeaders });
-              return;
-            }
-            sendResponse({ ok: true, status: res.status, bodyText, json, responseHeaders });
-          } catch (fetchErr) {
-            clearTimeout(t);
-            if (fetchErr && fetchErr.name === 'AbortError') {
-              sendResponse({ ok: false, error: 'Request timed out after ' + timeoutMs + ' ms' });
-            } else {
-              sendResponse({ ok: false, error: (fetchErr && fetchErr.message) || 'Request failed' });
-            }
-          }
-        } else {
-          const res = await fetch(urlCheck.url.href, opts);
-          if (!waitForBody) {
-            const hdrsEarly = responseHeadersObject(res);
-            if (!res.ok) {
-              sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, responseHeaders: hdrsEarly });
-              return;
-            }
-            try {
-              if (res.body && typeof res.body.cancel === 'function') await res.body.cancel();
-            } catch (_) {}
-            sendResponse({ ok: true, status: res.status, responseHeaders: hdrsEarly });
-            return;
-          }
-          const bodyText = await res.text();
-          let json;
-          try {
-            if (bodyText && bodyText.trim()) json = JSON.parse(bodyText);
-          } catch (_) {}
-          const responseHeaders = responseHeadersObject(res);
-          if (!res.ok) {
-            sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, bodyText, json, responseHeaders });
-            return;
-          }
-          sendResponse({ ok: true, status: res.status, bodyText, json, responseHeaders });
-        }
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Request failed' });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'APIFY_TEST_TOKEN') {
-    const v = validateMessagePayload('APIFY_TEST_TOKEN', msg);
-    if (!v.valid) {
-      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_TEST_TOKEN payload' });
-      return true;
-    }
-    (async () => {
-      try {
-        const out = await cfsApifyTestToken(msg);
-        sendResponse(out);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || String(e) });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'APIFY_RUN_CANCEL') {
-    let tid = null;
-    if (msg.tabId != null && msg.tabId !== '') {
-      const n = Number(msg.tabId);
-      if (Number.isInteger(n) && n >= 0) tid = n;
-    }
-    if (tid == null && sender && sender.tab && Number.isInteger(sender.tab.id) && sender.tab.id >= 0) {
-      tid = sender.tab.id;
-    }
-    if (tid != null) {
-      const ac = apifyRunAbortByTabId.get(tid);
-      if (ac) try { ac.abort(); } catch (_) {}
-      const ar = apifyAsyncRunByTabId.get(tid);
-      if (ar && ar.runId && ar.token) {
-        apifyAsyncRunByTabId.delete(tid);
-        apifyPostAbortRun(ar.token, ar.runId);
-      }
-    }
-    sendResponse({ ok: true });
-    return true;
-  }
-
-  if (msg.type === 'APIFY_RUN') {
-    const v = validateMessagePayload('APIFY_RUN', msg);
-    if (!v.valid) {
-      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN payload' });
-      return true;
-    }
-    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
-    (async () => {
-      try {
-        const out = await cfsExecuteApifyRun(msg, apifyTabId);
-        sendResponse(out);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || String(e) });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'APIFY_RUN_START') {
-    const v = validateMessagePayload('APIFY_RUN_START', msg);
-    if (!v.valid) {
-      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN_START payload' });
-      return true;
-    }
-    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
-    (async () => {
-      try {
-        const out = await cfsApifyRunStart(msg, apifyTabId);
-        sendResponse(out);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || String(e) });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'APIFY_RUN_WAIT') {
-    const v = validateMessagePayload('APIFY_RUN_WAIT', msg);
-    if (!v.valid) {
-      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN_WAIT payload' });
-      return true;
-    }
-    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
-    (async () => {
-      try {
-        const out = await cfsApifyRunWait(msg, apifyTabId);
-        sendResponse(out);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || String(e) });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'APIFY_DATASET_ITEMS') {
-    const v = validateMessagePayload('APIFY_DATASET_ITEMS', msg);
-    if (!v.valid) {
-      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_DATASET_ITEMS payload' });
-      return true;
-    }
-    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
-    (async () => {
-      try {
-        const out = await cfsApifyDatasetItems(msg, apifyTabId);
-        sendResponse(out);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || String(e) });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'PLAYER_OPEN_TAB') {
-    const url = msg?.url;
-    if (!url || typeof url !== 'string') {
-      sendResponse({ ok: false, error: 'No URL provided' });
-      return true;
-    }
-    const openInNewWindow = !!msg.openInNewWindow;
-    if (openInNewWindow) {
-      chrome.windows.create({ url: url.trim() }, (win) => {
-        if (chrome.runtime.lastError) sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-        else sendResponse({ ok: true });
-      });
-    } else {
-      chrome.tabs.create({ url: url.trim() }, (tab) => {
-        if (chrome.runtime.lastError) sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-        else sendResponse({ ok: true });
-      });
-    }
-    return true;
-  }
-
-  /** Programmatic API: set rows for the sidepanel (and optional workflow). Sidepanel applies on next load or when it listens to storage. */
-  if (msg.type === 'SET_IMPORTED_ROWS') {
-    const rows = Array.isArray(msg.rows) ? msg.rows : [];
-    const workflowId = typeof msg.workflowId === 'string' ? msg.workflowId : undefined;
-    chrome.storage.local.set({
-      cfs_pending_imported_rows: { rows, workflowId, at: Date.now() },
-    }, () => sendResponse({ ok: true }));
-    return true;
-  }
-  /** Programmatic API: request a workflow run with optional rows. Sidepanel applies and optionally auto-starts. */
-  if (msg.type === 'RUN_WORKFLOW') {
-    const workflowId = typeof msg.workflowId === 'string' ? msg.workflowId : '';
-    const rows = Array.isArray(msg.rows) ? msg.rows : undefined;
-    const startIndex = typeof msg.startIndex === 'number' ? msg.startIndex : 0;
-    const autoStart = msg.autoStart === true || msg.autoStart === 'all' ? 'all' : (msg.autoStart === 'current' ? 'current' : undefined);
-    if (!workflowId) {
-      sendResponse({ ok: false, error: 'Missing workflowId' });
-      return true;
-    }
-    chrome.storage.local.get(['workflows'], (data) => {
-      const workflows = data?.workflows && typeof data.workflows === 'object' ? data.workflows : {};
-      if (!workflows[workflowId]) {
-        sendResponse({ ok: false, error: 'Workflow not found: ' + workflowId });
-        return;
-      }
-      chrome.storage.local.set({
-        cfs_pending_run: { workflowId, rows, startIndex, autoStart, at: Date.now() },
-      }, () => sendResponse({ ok: true }));
-    });
-    return true;
-  }
-
-  /**
-   * Programmatic / settings: drop queued imported rows and pending run, signal sidepanel to clear in-memory rows.
-   * Removes cfs_pending_imported_rows and cfs_pending_run so programmatic queues do not reapply after clear.
-   */
-  if (msg.type === 'CLEAR_IMPORTED_ROWS') {
-    (async () => {
-      try {
-        await chrome.storage.local.remove(['cfs_pending_imported_rows', 'cfs_pending_run']);
-        await chrome.storage.local.set({ cfs_clear_imported_rows: { at: Date.now() } });
-        sendResponse({ ok: true });
-      } catch (e) {
-        sendResponse({ ok: false, error: e?.message || 'Clear failed' });
-      }
-    })();
-    return true;
-  }
-
-  /** Content → sidepanel: store so sidepanel can apply (sidepanel cannot receive messages from content in MV3). */
-  if (msg.type === 'PICK_ELEMENT_RESULT') {
-    const payload = { selectors: msg.selectors || [], pickedText: msg.pickedText, fallbackSelectors: msg.fallbackSelectors, at: Date.now() };
-    chrome.storage.local.set({ cfs_pick_element_result: payload }, () => sendResponse({ ok: true }));
-    return true;
-  }
-  if (msg.type === 'AUTO_DISCOVERY_UPDATE') {
-    const payload = { groups: msg.groups || [], host: msg.host, at: Date.now() };
-    chrome.storage.local.set({ cfs_auto_discovery_update: payload }, () => sendResponse({ ok: true }));
-    return true;
-  }
-  if (msg.type === 'PICK_SUCCESS_CONTAINER_COUNT') {
-    const payload = { count: typeof msg.count === 'number' ? msg.count : 0, at: Date.now() };
-    chrome.storage.local.set({ cfs_pick_success_container_count: payload }, () => sendResponse({ ok: true }));
-    return true;
-  }
-
-  /** Extract-data step: content script sends rows; background stores so sidepanel can apply (sidepanel cannot receive messages from content). */
-  if (msg.type === 'EXTRACTED_ROWS') {
-    const rows = Array.isArray(msg.rows) ? msg.rows : [];
-    chrome.storage.local.set({
-      cfs_extracted_rows: { rows, at: Date.now() },
-    }, () => sendResponse({ ok: true }));
-    return true;
-  }
-
-  if (msg.type === 'DOWNLOAD_FILE') {
-    const url = msg?.url;
-    if (!url || typeof url !== 'string') {
-      sendResponse({ ok: false, error: 'No URL provided' });
-      return true;
-    }
-    const isDataOrBlob = url.startsWith('data:') || url.startsWith('blob:');
-    if (isDataOrBlob) {
-      if (!cfsIsExtensionPageSender(sender)) {
-        sendResponse({ ok: false, error: 'data:/blob: downloads only allowed from extension pages' });
-        return true;
-      }
-    } else {
-      const urlCheck = cfsValidatePublicHttpUrl(url);
-      if (!urlCheck.ok) {
-        sendResponse({ ok: false, error: urlCheck.error || 'URL not allowed' });
-        return true;
-      }
-    }
-    chrome.downloads.download({
-      url,
-      filename: msg.filename || undefined,
-      saveAs: msg.saveAs !== false,
-    }, (downloadId) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-      } else {
-        sendResponse({ ok: true, downloadId });
-      }
-    });
-    return true;
-  }
-
-  if (type === 'FFMPEG_PROBE_DURATION') {
+  
+  };
+  __CFS_swTypeHandlers["FFMPEG_PROBE_DURATION"] = function (msg, sender, sendResponse) {
+    var type = "FFMPEG_PROBE_DURATION";
+    
     (async () => {
       let release;
       try {
@@ -6897,9 +6377,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_FETCH_AND_SAVE_TO_PROJECT') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_FETCH_AND_SAVE_TO_PROJECT"] = function (msg, sender, sendResponse) {
+    var type = "CFS_FETCH_AND_SAVE_TO_PROJECT";
+    
     (async () => {
       let release;
       try {
@@ -6956,384 +6438,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (msg.type === 'CFS_PROJECT_READ_FILE' || msg.type === 'CFS_PROJECT_WRITE_FILE') {
-    (async () => {
-      let release;
-      try {
-        const pathCheck = cfsValidateProjectRelativePath(msg.relativePath);
-        if (!pathCheck.ok) {
-          sendResponse({ ok: false, error: pathCheck.error });
-          return;
-        }
-        release = await acquireOffscreen('projectFolderIo');
-        await new Promise((r) => setTimeout(r, 120));
-        const payload = {
-          type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD',
-          op: msg.type === 'CFS_PROJECT_READ_FILE' ? 'read' : 'write',
-          relativePath: pathCheck.path,
-          maxBytes: msg.maxBytes,
-          encoding: msg.type === 'CFS_PROJECT_WRITE_FILE'
-            ? (msg.encoding || 'text')
-            : (msg.encoding || 'text'),
-          content: msg.type === 'CFS_PROJECT_WRITE_FILE' ? msg.content : undefined,
-        };
-        const ioRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(payload, (res) => {
-            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
-            else resolve(res || { ok: false, error: 'No response' });
-          });
-        });
-        sendResponse(ioRes);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Project folder IO failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'CFS_PROJECT_ENSURE_DIRS') {
-    (async () => {
-      let release;
-      try {
-        const rawPaths = Array.isArray(msg.paths) ? msg.paths : (msg.relativePath ? [msg.relativePath] : []);
-        const normPaths = [];
-        for (let i = 0; i < rawPaths.length; i++) {
-          const pc = cfsValidateProjectRelativePath(String(rawPaths[i] || '').trim());
-          if (!pc.ok) {
-            sendResponse({ ok: false, error: pc.error || 'Invalid path' });
-            return;
-          }
-          normPaths.push(pc.path);
-        }
-        if (normPaths.length === 0) {
-          sendResponse({ ok: false, error: 'paths or relativePath required' });
-          return;
-        }
-        release = await acquireOffscreen('projectFolderIo');
-        await new Promise((r) => setTimeout(r, 120));
-        const ioRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'ensureDirs', paths: normPaths },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
-              else resolve(res || { ok: false, error: 'No response' });
-            }
-          );
-        });
-        sendResponse(ioRes);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Project folder ensure dirs failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'PROJECT_FOLDER_LIST_DIR') {
-    (async () => {
-      let release;
-      try {
-        const pathCheck = cfsValidateProjectRelativePath(msg.relativePath);
-        if (!pathCheck.ok) { sendResponse({ ok: false, error: pathCheck.error }); return; }
-        release = await acquireOffscreen('projectFolderIo');
-        await new Promise((r) => setTimeout(r, 120));
-        const ioRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'listDir', relativePath: pathCheck.path },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
-              else resolve(res || { ok: false, error: 'No response' });
-            }
-          );
-        });
-        sendResponse(ioRes);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'List dir failed' });
-      } finally { if (release) release(); }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'PROJECT_FOLDER_MOVE_FILE') {
-    (async () => {
-      let release;
-      try {
-        const srcCheck = cfsValidateProjectRelativePath(msg.sourcePath);
-        const dstCheck = cfsValidateProjectRelativePath(msg.destPath);
-        if (!srcCheck.ok) { sendResponse({ ok: false, error: 'source: ' + srcCheck.error }); return; }
-        if (!dstCheck.ok) { sendResponse({ ok: false, error: 'dest: ' + dstCheck.error }); return; }
-        release = await acquireOffscreen('projectFolderIo');
-        await new Promise((r) => setTimeout(r, 120));
-        const ioRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'moveFile', sourcePath: srcCheck.path, destPath: dstCheck.path },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
-              else resolve(res || { ok: false, error: 'No response' });
-            }
-          );
-        });
-        sendResponse(ioRes);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Move file failed' });
-      } finally { if (release) release(); }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'SIDEBAR_STATE_UPDATE') {
-    const { windowId, sidebarName } = msg || {};
-    const updates = { lastSidebarUpdate: Date.now() };
-    // Store sidebar name keyed by stable device (preferred) and legacy windowId (compat)
-    if (sidebarName != null) {
-      updates.sidebarName_device = sidebarName || '';
-      if (windowId != null) updates[`sidebarName_${windowId}`] = sidebarName || '';
-    }
-    chrome.storage.local.set(updates).catch((e) => console.error('Sidebar state storage failed:', e));
-    sendResponse({ ok: true });
-    return true;
-  }
-
-  /** Offscreen recorder uses display/tab capture via `mode` only; no target tab id (ignore msg.tabId if present). */
-  if (msg.type === 'START_SCREEN_CAPTURE') {
-    (async () => {
-      try {
-        const release = await acquireOffscreen('screenRecorder');
-        const response = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({
-            type: 'START_RECORDING',
-            mode: msg.mode || 'screen',
-            recordScreen: msg.recordScreen,
-            systemAudio: msg.systemAudio,
-            microphone: msg.microphone,
-            recordWebcam: msg.recordWebcam === true,
-          }, (r) => {
-            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-            else resolve(r || { ok: false, error: 'Failed to start recording' });
-          });
-        });
-        if (response && response.ok) {
-          _offscreenBusy = true;
-          _screenRecorderRelease = release;
-          sendResponse({
-            ok: true,
-            webcamRecordingStarted: response.webcamRecordingStarted === true,
-          });
-        } else {
-          release();
-          sendResponse({
-            ok: false,
-            error: (response && response.error) || 'Failed to start recording',
-            capturePhase: response && response.capturePhase,
-          });
-        }
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Offscreen failed' });
-      }
-    })();
-    return true;
-  }
-  if (msg.type === 'STOP_SCREEN_CAPTURE') {
-    const capRunId = typeof msg.runId === 'string' ? msg.runId : '';
-    chrome.runtime.sendMessage({ type: 'STOP_RECORDING', runId: capRunId }, (response) => {
-      _offscreenBusy = false;
-      if (_screenRecorderRelease) {
-        _screenRecorderRelease();
-        _screenRecorderRelease = null;
-      }
-      const okStop =
-        response &&
-        response.ok &&
-        (response.captureInIdb || response.dataUrl || response.webcamDataUrl);
-      if (okStop) {
-        const out = { ok: true };
-        if (response.captureInIdb) {
-          out.captureInIdb = true;
-          out.runId = response.runId;
-        }
-        if (response.dataUrl) out.dataUrl = response.dataUrl;
-        if (response.webcamDataUrl) out.webcamDataUrl = response.webcamDataUrl;
-        sendResponse(out);
-      } else {
-        sendResponse({ ok: false, error: (response && response.error) || 'No recording' });
-      }
-    });
-    return true;
-  }
-
-  if (msg.type === 'CAPTURE_DISPLAY_AUDIO') {
-    const durationMs = Math.min(60000, Math.max(2000, msg.durationMs || 10000));
-    (async () => {
-      let release;
-      try {
-        release = await acquireOffscreen('screenRecorder');
-        _offscreenBusy = true;
-        await new Promise((r) => setTimeout(r, 400));
-        const startRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ type: 'START_RECORDING', mode: 'tabAudio' }, (r) => {
-            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-            else resolve(r || { ok: false });
-          });
-        });
-        if (!startRes || !startRes.ok) {
-          sendResponse({ ok: false, error: startRes?.error || 'Failed to start display capture' });
-          return;
-        }
-        await new Promise((r) => setTimeout(r, durationMs));
-        const stopRes = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }, (r) => {
-            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-            else resolve(r || { ok: false });
-          });
-        });
-        if (stopRes && stopRes.ok && stopRes.dataUrl) {
-          sendResponse({ ok: true, dataUrl: stopRes.dataUrl });
-        } else {
-          sendResponse({ ok: false, error: stopRes?.error || 'No audio captured' });
-        }
-      } catch (e) {
-        sendResponse({ ok: false, error: e?.message || 'Display audio capture failed' });
-      } finally {
-        _offscreenBusy = false;
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'COMBINE_VIDEOS') {
-    const urls = msg.urls || [];
-    const segments = msg.segments || [];
-    const hasSegments = segments.length > 0;
-    if (urls.length === 0 && !hasSegments) {
-      sendResponse({ ok: false, error: 'No video URLs or segments' });
-      return true;
-    }
-    if (!hasSegments && urls.length === 1) {
-      sendResponse({ ok: true, data: urls[0], url: urls[0] });
-      return true;
-    }
-    (async () => {
-      let release;
-      try {
-        release = await acquireOffscreen('videoCombiner');
-        await new Promise((r) => setTimeout(r, 400));
-        const payload = {
-          type: 'COMBINE_VIDEOS_PAYLOAD',
-          urls: hasSegments ? [] : urls,
-          segments: hasSegments ? segments : undefined,
-          overlays: msg.overlays,
-          audioTracks: msg.audioTracks,
-          width: msg.width || 1280,
-          height: msg.height || 720,
-          fps: msg.fps || 30,
-          mismatchStrategy: msg.mismatchStrategy || 'crop',
-        };
-        const combinerResponse = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(payload, (res) => {
-            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Combiner not available' });
-            else resolve(res);
-          });
-        });
-        if (combinerResponse && combinerResponse.ok) {
-          sendResponse({ ok: true, data: combinerResponse.data, url: combinerResponse.data });
-        } else {
-          sendResponse({ ok: false, error: (combinerResponse && combinerResponse.error) || 'Combine failed' });
-        }
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Combiner failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'EXTRACT_AUDIO_FROM_VIDEO') {
-    const b64 = msg.base64;
-    if (!b64 || typeof b64 !== 'string' || !b64.trim()) {
-      sendResponse({ ok: false, error: 'base64 required' });
-      return true;
-    }
-    (async () => {
-      let release;
-      try {
-        release = await acquireOffscreen('videoCombiner');
-        await new Promise((r) => setTimeout(r, 500));
-        const out = await new Promise((resolve) => {
-          chrome.runtime.sendMessage(
-            {
-              type: 'EXTRACT_AUDIO_FROM_VIDEO_PAYLOAD',
-              base64: b64.trim(),
-              mimeType: msg.mimeType || 'video/webm',
-            },
-            (res) => {
-              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Extract audio unavailable' });
-              else resolve(res || { ok: false, error: 'No response' });
-            }
-          );
-        });
-        sendResponse(out);
-      } catch (e) {
-        sendResponse({ ok: false, error: (e && e.message) || 'Extract audio failed' });
-      } finally {
-        if (release) release();
-      }
-    })();
-    return true;
-  }
-
-  if (msg.type === 'FETCH_FILE') {
-    const { url, filename: preferredFilename } = msg || {};
-    if (!url || typeof url !== 'string') {
-      sendResponse({ ok: false, error: 'No URL provided' });
-      return true;
-    }
-    const fetchUrlCheck = cfsValidatePublicHttpUrl(url);
-    if (!fetchUrlCheck.ok) {
-      sendResponse({ ok: false, error: fetchUrlCheck.error || 'URL not allowed' });
-      return true;
-    }
-    let responded = false;
-    const safeSend = (r) => {
-      if (responded) return;
-      responded = true;
-      try { sendResponse(r); } catch (_) {}
-    };
-    let fetchUrl = url;
-    const gdMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
-    if (gdMatch) fetchUrl = `https://drive.google.com/uc?export=download&id=${gdMatch[1]}`;
-    const headers = {
-      'Accept': '*/*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    };
-    fetch(fetchUrl, { credentials: 'omit', headers })
-      .then(res => {
-        if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-        const contentType = res.headers.get('content-type') || 'application/octet-stream';
-        return res.arrayBuffer().then(buf => ({ buf, contentType }));
-      })
-      .then(({ buf, contentType }) => {
-        const bytes = new Uint8Array(buf);
-        let binary = '';
-        const chunk = 8192;
-        for (let i = 0; i < bytes.length; i += chunk) {
-          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-        }
-        const base64 = btoa(binary);
-        const filename = preferredFilename || url.split('/').pop()?.split('?')[0] || 'file';
-        safeSend({ ok: true, base64, contentType, filename });
-      })
-      .catch(err => safeSend({ ok: false, error: (err?.message || 'Fetch failed') }));
-    return true;
-  }
-
-  if (type === 'GET_ACCOUNT_STATUS') {
+  
+  };
+  __CFS_swTypeHandlers["GET_ACCOUNT_STATUS"] = function (msg, sender, sendResponse) {
+    var type = "GET_ACCOUNT_STATUS";
+    
     (async () => {
       try {
         const status = { loggedIn: false, upgraded: false, email: null, username: null };
@@ -7347,10 +6456,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           status.username =
             user.username || user.user_name || user.name || whopAuth.username || whopAuth.user_name || null;
         }
-        /* Check upgrade (if ExtensionApi available) */
         try {
-          if (typeof ExtensionApi !== 'undefined' && ExtensionApi.hasUpgraded) {
-            status.upgraded = await ExtensionApi.hasUpgraded();
+          var token = whopAuth && (whopAuth.access_token || whopAuth.accessToken);
+          if (token) {
+            var upRes = await fetch(WHOP_APP_ORIGIN + '/api/extension/has-upgraded', {
+              headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+            });
+            if (upRes.ok) {
+              var upJson = await upRes.json().catch(function () { return {}; });
+              status.upgraded = !!(upJson.pro || upJson.has_upgraded);
+            }
           }
         } catch (_) {}
         sendResponse({ ok: true, status });
@@ -7359,9 +6474,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
+  
+  };
+  function __CFS_handleFollowingDataOrMutate(msg, sender, sendResponse, type) {
 
-  if (type === 'GET_FOLLOWING_DATA' || type === 'MUTATE_FOLLOWING') {
     (async () => {
       try {
         /* ── Step 1: Try the sidepanel (it has live caches and is faster) ── */
@@ -7496,10 +6612,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
+  
   }
+  __CFS_swTypeHandlers["GET_FOLLOWING_DATA"] = function (msg, sender, sendResponse) {
+    return __CFS_handleFollowingDataOrMutate(msg, sender, sendResponse, "GET_FOLLOWING_DATA");
+  };
+  __CFS_swTypeHandlers["MUTATE_FOLLOWING"] = function (msg, sender, sendResponse) {
+    return __CFS_handleFollowingDataOrMutate(msg, sender, sendResponse, "MUTATE_FOLLOWING");
+  };
 
-  // MCP: create / update / delete workflows programmatically.
-  if (type === 'CFS_MCP_SAVE_WORKFLOW') {
+  __CFS_swTypeHandlers["CFS_MCP_SAVE_WORKFLOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_MCP_SAVE_WORKFLOW";
+    
     (async () => {
       try {
         const { id, name, actions, urlPattern, merge } = msg;
@@ -7583,9 +6707,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (type === 'CFS_MCP_DELETE_WORKFLOW') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_MCP_DELETE_WORKFLOW"] = function (msg, sender, sendResponse) {
+    var type = "CFS_MCP_DELETE_WORKFLOW";
+    
     (async () => {
       try {
         const { id } = msg;
@@ -7601,13 +6727,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  /* ═══════════════════════════════════════════════════════════════════════════
-   * MCP Generator / Template management handlers
-   * ═══════════════════════════════════════════════════════════════════════════ */
-
-  if (type === 'CFS_MCP_START') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_MCP_START"] = function (msg, sender, sendResponse) {
+    var type = "CFS_MCP_START";
+    
     try {
       if (typeof chrome.runtime.connectNative !== 'function') {
         sendResponse({ ok: false, error: 'Native Messaging not available' });
@@ -7646,10 +6770,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: (e && e.message) || 'Failed to start MCP server' });
     }
     return true;
-  }
-
-  // MCP server: stop via HTTP shutdown endpoint.
-  if (type === 'CFS_MCP_STOP') {
+  
+  };
+  __CFS_swTypeHandlers["CFS_MCP_STOP"] = function (msg, sender, sendResponse) {
+    var type = "CFS_MCP_STOP";
+    
     (async () => {
       try {
         /* Shutdown is unauthenticated (localhost-only) */
@@ -7702,6 +6827,1259 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     })();
     return true;
+  
+  };
+
+  __CFS_swTypeHandlers['SET_PROJECT_STEP_HANDLERS'] = function (msg, sender, sendResponse) {
+    var type = 'SET_PROJECT_STEP_HANDLERS';
+    
+    // Only accept from extension context (e.g. sidepanel). Reject from unknown senders to avoid code execution via cfs_project_step_handlers.
+    const senderUrl = sender?.url || '';
+    const isExtension = senderUrl.startsWith('chrome-extension://');
+    if (!isExtension) {
+      sendResponse({ ok: false, error: 'SET_PROJECT_STEP_HANDLERS only allowed from extension' });
+      return true;
+    }
+    projectStepHandlers = normalizeProjectStepHandlers({
+      stepIds: msg.stepIds,
+      codeById: msg.codeById,
+    });
+    projectStepHandlersLoaded = true;
+    chrome.storage.local.set({ [CFS_PROJECT_STEP_HANDLERS_KEY]: projectStepHandlers }).catch(() => {
+      // Quota or other error; in-memory copy still used until reload
+    });
+    sendResponse({ ok: true });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['GET_PROJECT_STEP_IDS'] = function (msg, sender, sendResponse) {
+    var type = 'GET_PROJECT_STEP_IDS';
+    
+    loadProjectStepHandlersFromStorage(() => {
+      sendResponse({ stepIds: projectStepHandlers.stepIds || [] });
+    });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['INJECT_STEP_HANDLERS'] = function (msg, sender, sendResponse) {
+    var type = 'INJECT_STEP_HANDLERS';
+    
+    const tabId = sender?.tab?.id;
+    const files = msg.files;
+    const projectStepIds = Array.isArray(msg.projectStepIds) ? msg.projectStepIds : [];
+    if (!tabId) {
+      sendResponse({ ok: false, error: 'No tab context for injection' });
+      return true;
+    }
+    const allowedFiles = Array.isArray(files)
+      ? files.filter((f) => typeof f === 'string' && /^steps\/[A-Za-z0-9_-]+\/handler\.js$/.test(f))
+      : [];
+    if (Array.isArray(files) && files.length > 0 && allowedFiles.length !== files.length) {
+      sendResponse({ ok: false, error: 'INJECT_STEP_HANDLERS files must be steps/<id>/handler.js' });
+      return true;
+    }
+    loadProjectStepHandlersFromStorage(() => {
+      const injectExtension = (done) => {
+        if (!allowedFiles || allowedFiles.length === 0) return done();
+        const CHUNK = 18;
+        let offset = 0;
+        const injectNextChunk = () => {
+          if (offset >= allowedFiles.length) return done();
+          const chunk = allowedFiles.slice(offset, offset + CHUNK);
+          offset += CHUNK;
+          chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: chunk }, () => {
+            if (chrome.runtime.lastError) {
+              return done(chrome.runtime.lastError.message);
+            }
+            injectNextChunk();
+          });
+        };
+        injectNextChunk();
+      };
+      const injectProjectSteps = (done) => {
+        if (projectStepIds.length === 0) return done();
+        const codeById = projectStepHandlers.codeById || {};
+        const toInject = projectStepIds.map((id) => codeById[id]).filter(Boolean);
+        if (toInject.length === 0) return done();
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: (codeStrings) => {
+            codeStrings.forEach((code) => {
+              try {
+                if (typeof code === 'string') eval(code);
+              } catch (_) {}
+            });
+          },
+          args: [toInject],
+        }, () => {
+          if (chrome.runtime.lastError) {
+            return done(chrome.runtime.lastError.message);
+          }
+          done();
+        });
+      };
+      injectExtension((err) => {
+        if (err) {
+          sendResponse({ ok: false, error: err });
+          return;
+        }
+        injectProjectSteps((err2) => {
+          sendResponse(err2 ? { ok: false, error: err2 } : { ok: true });
+        });
+      });
+    });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['QC_CALL'] = function (msg, sender, sendResponse) {
+    var type = 'QC_CALL';
+    
+    const { method, args } = msg || {};
+    if (!method) {
+      sendResponse({ ok: false, error: 'Missing method' });
+      return true;
+    }
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('qc');
+        await new Promise((r) => setTimeout(r, 400));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'QC_CALL', method, args: args || [] },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'QC failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['CALL_LLM'] = function (msg, sender, sendResponse) {
+    const m = msg || {};
+    const { prompt, responseType, llmProvider: msgLlmProvider, llmOpenaiModel: msgOpenaiModel, llmModelOverride: msgModelOverride } = m;
+    const type = (responseType || 'text').toLowerCase();
+    const promptTrim = String(prompt || '').trim();
+    if (promptTrim.length > CFS_CALL_LLM_MAX_PROMPT_CHARS) {
+      sendResponse({
+        ok: false,
+        error: 'Prompt too long (max ' + CFS_CALL_LLM_MAX_PROMPT_CHARS + ' characters)',
+      });
+      return true;
+    }
+
+    (async () => {
+      let release;
+      try {
+        const llmStore = await chrome.storage.local.get([
+          'cfsLlmWorkflowProvider',
+          'cfsLlmWorkflowOpenaiModel',
+          'cfsLlmWorkflowModelOverride',
+          'cfsLlmOpenaiKey',
+          'cfsLlmAnthropicKey',
+          'cfsLlmGeminiKey',
+          'cfsLlmGrokKey',
+        ]);
+        let provider = (llmStore.cfsLlmWorkflowProvider || 'lamini').toLowerCase();
+        if (msgLlmProvider != null && String(msgLlmProvider).trim() !== '') {
+          const p = String(msgLlmProvider).trim().toLowerCase();
+          if (p === 'lamini' || p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok') {
+            provider = p;
+          }
+        }
+        const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
+        const useCloud = provider !== 'lamini' && cloudProviders[provider];
+
+        const stepOpenai =
+          msgOpenaiModel != null && String(msgOpenaiModel).trim() !== '' ? String(msgOpenaiModel).trim() : null;
+        const stepOverride =
+          msgModelOverride != null && String(msgModelOverride).trim() !== '' ? String(msgModelOverride).trim() : null;
+        const openaiModelPick = stepOpenai != null ? stepOpenai : llmStore.cfsLlmWorkflowOpenaiModel;
+        const modelOverridePick = stepOverride != null ? stepOverride : llmStore.cfsLlmWorkflowModelOverride;
+
+        if (useCloud && typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.callRemoteLlmStep) {
+          const keyField = cloudProviders[provider];
+          const apiKey = String(llmStore[keyField] || '').trim();
+          if (!apiKey) {
+            sendResponse({
+              ok: false,
+              error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
+            });
+            return;
+          }
+          if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+            sendResponse({
+              ok: false,
+              error:
+                'API key too long (max ' +
+                CFS_LLM_API_KEY_MAX_CHARS +
+                ' characters). Fix it under Settings → Local Keys → LLM providers.',
+            });
+            return;
+          }
+          const model = CFS_remoteLlm.resolveModel(provider, openaiModelPick, modelOverridePick);
+          const modelLenCheck = cfsAssertResolvedLlmModelLength(model);
+          if (!modelLenCheck.ok) {
+            sendResponse({ ok: false, error: modelLenCheck.error });
+            return;
+          }
+          const stepRes = await CFS_remoteLlm.callRemoteLlmStep({
+            provider,
+            apiKey,
+            model,
+            prompt: promptTrim,
+            responseType: type,
+          });
+          if (stepRes.ok) {
+            sendResponse({ ok: true, result: stepRes.result, feedback: stepRes.feedback });
+          } else {
+            sendResponse({ ok: false, error: stepRes.error || 'LLM call failed' });
+          }
+          return;
+        }
+
+        release = await acquireOffscreen('qc');
+        await new Promise((r) => setTimeout(r, 400));
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'QC_CALL', method: 'runLlm', args: [(prompt || '').trim(), type] },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || null);
+            }
+          );
+        });
+        if (!response) {
+          sendResponse({ ok: false, error: 'No response' });
+        } else if (response.ok && response.result?.ok) {
+          sendResponse({
+            ok: true,
+            result: response.result.result,
+            feedback: response.result.feedback,
+          });
+        } else {
+          sendResponse({ ok: false, error: response.result?.error || response.error || 'LLM call failed' });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'LLM call failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['CALL_REMOTE_LLM_CHAT'] = function (msg, sender, sendResponse) {
+    var type = 'CALL_REMOTE_LLM_CHAT';
+    
+    const { messages, options } = msg || {};
+    const validatedChat = cfsValidateRemoteChatInput(messages);
+    if (!validatedChat.ok) {
+      sendResponse({ ok: false, error: validatedChat.error || 'Invalid chat payload' });
+      return true;
+    }
+    (async () => {
+      try {
+        const llmStore = await chrome.storage.local.get([
+          'cfsLlmChatProvider',
+          'cfsLlmChatOpenaiModel',
+          'cfsLlmChatModelOverride',
+          'cfsLlmOpenaiKey',
+          'cfsLlmAnthropicKey',
+          'cfsLlmGeminiKey',
+          'cfsLlmGrokKey',
+        ]);
+        const provider = (llmStore.cfsLlmChatProvider || 'lamini').toLowerCase();
+        const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
+        if (provider === 'lamini' || !cloudProviders[provider]) {
+          sendResponse({ ok: false, error: 'Chat provider is not a cloud model' });
+          return;
+        }
+        if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.callRemoteChat) {
+          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
+          return;
+        }
+        const keyField = cloudProviders[provider];
+        const apiKey = String(llmStore[keyField] || '').trim();
+        if (!apiKey) {
+          sendResponse({
+            ok: false,
+            error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
+          });
+          return;
+        }
+        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+          sendResponse({
+            ok: false,
+            error:
+              'API key too long (max ' +
+              CFS_LLM_API_KEY_MAX_CHARS +
+              ' characters). Fix it under Settings → Local Keys → LLM providers.',
+          });
+          return;
+        }
+        const model = CFS_remoteLlm.resolveModel(
+          provider,
+          llmStore.cfsLlmChatOpenaiModel,
+          llmStore.cfsLlmChatModelOverride
+        );
+        const chatModelLen = cfsAssertResolvedLlmModelLength(model);
+        if (!chatModelLen.ok) {
+          sendResponse({ ok: false, error: chatModelLen.error });
+          return;
+        }
+        const chatRes = await CFS_remoteLlm.callRemoteChat({
+          provider,
+          apiKey,
+          model,
+          messages: validatedChat.messages,
+          options: options || {},
+        });
+        if (chatRes.ok) {
+          sendResponse({ ok: true, result: { text: chatRes.text, model: chatRes.model } });
+        } else {
+          sendResponse({ ok: false, error: chatRes.error || 'Chat failed' });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Chat failed' });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['CFS_LLM_TEST_PROVIDER'] = function (msg, sender, sendResponse) {
+    var type = 'CFS_LLM_TEST_PROVIDER';
+    
+    const { provider, token } = msg || {};
+    (async () => {
+      try {
+        const p = String(provider || '').trim().toLowerCase();
+        const keyMap = {
+          openai: 'cfsLlmOpenaiKey',
+          claude: 'cfsLlmAnthropicKey',
+          gemini: 'cfsLlmGeminiKey',
+          grok: 'cfsLlmGrokKey',
+        };
+        if (!keyMap[p]) {
+          sendResponse({ ok: false, error: 'Unknown provider' });
+          return;
+        }
+        let apiKey = token != null && String(token).trim() ? String(token).trim() : '';
+        if (!apiKey) {
+          const st = await chrome.storage.local.get(keyMap[p]);
+          apiKey = String(st[keyMap[p]] || '').trim();
+        }
+        if (!apiKey) {
+          sendResponse({ ok: false, error: 'No API key (type one in the field or save first)' });
+          return;
+        }
+        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+          sendResponse({
+            ok: false,
+            error: 'API key too long (max ' + CFS_LLM_API_KEY_MAX_CHARS + ' characters)',
+          });
+          return;
+        }
+        if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.pingProvider) {
+          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
+          return;
+        }
+        const pr = await CFS_remoteLlm.pingProvider(p, apiKey);
+        sendResponse(pr);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Test failed' });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['TTS_GET_STREAM_ID'] = function (msg, sender, sendResponse) {
+    var type = 'TTS_GET_STREAM_ID';
+    
+    const tabId = sender?.tab?.id;
+    if (!tabId) { sendResponse({ ok: false, error: 'No tab ID (not called from a tab)' }); return true; }
+    (async () => {
+      try {
+        const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+        sendResponse({ ok: true, streamId });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'tabCapture.getMediaStreamId failed' });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['TAB_CAPTURE_AUDIO'] = function (msg, sender, sendResponse) {
+    var type = 'TAB_CAPTURE_AUDIO';
+    
+    const { tabId, durationMs } = msg || {};
+    const effectiveTabId = tabId ?? sender?.tab?.id;
+    if (!effectiveTabId) {
+      sendResponse({ ok: false, error: 'No tab ID provided (capture must run from tab context)' });
+      return true;
+    }
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('tabAudio');
+        await new Promise((r) => setTimeout(r, 300));
+        const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: effectiveTabId });
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'RECORD_TAB_AUDIO', streamId, durationMs: durationMs || 10000 },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(response);
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Tab capture failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['SEND_TO_ENDPOINT'] = function (msg, sender, sendResponse) {
+    var type = 'SEND_TO_ENDPOINT';
+    
+    const { url, method, body, headers, waitForResponse, timeoutMs } = msg || {};
+    /** When false (sendToEndpoint step / fire-and-forget), do not read or return body (step handler skips save). */
+    const waitForBody = waitForResponse !== false;
+    if (!url || typeof url !== 'string') {
+      sendResponse({ ok: false, error: 'Missing URL' });
+      return true;
+    }
+    const urlCheck = cfsValidatePublicHttpUrl(url);
+    if (!urlCheck.ok) {
+      sendResponse({ ok: false, error: urlCheck.error || 'URL not allowed' });
+      return true;
+    }
+    (async () => {
+      try {
+        const opts = { method: (method || 'POST').toUpperCase(), mode: 'cors' };
+        if (body != null && body !== '') opts.body = body;
+        if (headers && typeof headers === 'object' && Object.keys(headers).length) opts.headers = headers;
+        if (timeoutMs > 0) {
+          const ac = new AbortController();
+          opts.signal = ac.signal;
+          const t = setTimeout(() => ac.abort(), timeoutMs);
+          try {
+            const res = await fetch(urlCheck.url.href, opts);
+            clearTimeout(t);
+            if (!waitForBody) {
+              const hdrsEarly = responseHeadersObject(res);
+              if (!res.ok) {
+                sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, responseHeaders: hdrsEarly });
+                return;
+              }
+              try {
+                if (res.body && typeof res.body.cancel === 'function') await res.body.cancel();
+              } catch (_) {}
+              sendResponse({ ok: true, status: res.status, responseHeaders: hdrsEarly });
+              return;
+            }
+            const bodyText = await res.text();
+            let json;
+            try {
+              if (bodyText && bodyText.trim()) json = JSON.parse(bodyText);
+            } catch (_) {}
+            const responseHeaders = responseHeadersObject(res);
+            if (!res.ok) {
+              sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, bodyText, json, responseHeaders });
+              return;
+            }
+            sendResponse({ ok: true, status: res.status, bodyText, json, responseHeaders });
+          } catch (fetchErr) {
+            clearTimeout(t);
+            if (fetchErr && fetchErr.name === 'AbortError') {
+              sendResponse({ ok: false, error: 'Request timed out after ' + timeoutMs + ' ms' });
+            } else {
+              sendResponse({ ok: false, error: (fetchErr && fetchErr.message) || 'Request failed' });
+            }
+          }
+        } else {
+          const res = await fetch(urlCheck.url.href, opts);
+          if (!waitForBody) {
+            const hdrsEarly = responseHeadersObject(res);
+            if (!res.ok) {
+              sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, responseHeaders: hdrsEarly });
+              return;
+            }
+            try {
+              if (res.body && typeof res.body.cancel === 'function') await res.body.cancel();
+            } catch (_) {}
+            sendResponse({ ok: true, status: res.status, responseHeaders: hdrsEarly });
+            return;
+          }
+          const bodyText = await res.text();
+          let json;
+          try {
+            if (bodyText && bodyText.trim()) json = JSON.parse(bodyText);
+          } catch (_) {}
+          const responseHeaders = responseHeadersObject(res);
+          if (!res.ok) {
+            sendResponse({ ok: false, error: res.statusText || 'HTTP ' + res.status, status: res.status, bodyText, json, responseHeaders });
+            return;
+          }
+          sendResponse({ ok: true, status: res.status, bodyText, json, responseHeaders });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Request failed' });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['APIFY_TEST_TOKEN'] = function (msg, sender, sendResponse) {
+    var type = 'APIFY_TEST_TOKEN';
+    
+    const v = validateMessagePayload('APIFY_TEST_TOKEN', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_TEST_TOKEN payload' });
+      return true;
+    }
+    (async () => {
+      try {
+        const out = await cfsApifyTestToken(msg);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['APIFY_RUN_CANCEL'] = function (msg, sender, sendResponse) {
+    var type = 'APIFY_RUN_CANCEL';
+    
+    let tid = null;
+    if (msg.tabId != null && msg.tabId !== '') {
+      const n = Number(msg.tabId);
+      if (Number.isInteger(n) && n >= 0) tid = n;
+    }
+    if (tid == null && sender && sender.tab && Number.isInteger(sender.tab.id) && sender.tab.id >= 0) {
+      tid = sender.tab.id;
+    }
+    if (tid != null) {
+      const ac = apifyRunAbortByTabId.get(tid);
+      if (ac) try { ac.abort(); } catch (_) {}
+      const ar = apifyAsyncRunByTabId.get(tid);
+      if (ar && ar.runId && ar.token) {
+        apifyAsyncRunByTabId.delete(tid);
+        apifyPostAbortRun(ar.token, ar.runId);
+      }
+    }
+    sendResponse({ ok: true });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['APIFY_RUN'] = function (msg, sender, sendResponse) {
+    var type = 'APIFY_RUN';
+    
+    const v = validateMessagePayload('APIFY_RUN', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsExecuteApifyRun(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['APIFY_RUN_START'] = function (msg, sender, sendResponse) {
+    var type = 'APIFY_RUN_START';
+    
+    const v = validateMessagePayload('APIFY_RUN_START', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN_START payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsApifyRunStart(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['APIFY_RUN_WAIT'] = function (msg, sender, sendResponse) {
+    var type = 'APIFY_RUN_WAIT';
+    
+    const v = validateMessagePayload('APIFY_RUN_WAIT', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_RUN_WAIT payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsApifyRunWait(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['APIFY_DATASET_ITEMS'] = function (msg, sender, sendResponse) {
+    var type = 'APIFY_DATASET_ITEMS';
+    
+    const v = validateMessagePayload('APIFY_DATASET_ITEMS', msg);
+    if (!v.valid) {
+      sendResponse({ ok: false, error: v.error || 'Invalid APIFY_DATASET_ITEMS payload' });
+      return true;
+    }
+    const apifyTabId = sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : undefined;
+    (async () => {
+      try {
+        const out = await cfsApifyDatasetItems(msg, apifyTabId);
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || String(e) });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['PLAYER_OPEN_TAB'] = function (msg, sender, sendResponse) {
+    var type = 'PLAYER_OPEN_TAB';
+    
+    const url = msg?.url;
+    if (!url || typeof url !== 'string') {
+      sendResponse({ ok: false, error: 'No URL provided' });
+      return true;
+    }
+    const openInNewWindow = !!msg.openInNewWindow;
+    if (openInNewWindow) {
+      chrome.windows.create({ url: url.trim() }, (win) => {
+        if (chrome.runtime.lastError) sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+        else sendResponse({ ok: true });
+      });
+    } else {
+      chrome.tabs.create({ url: url.trim() }, (tab) => {
+        if (chrome.runtime.lastError) sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+        else sendResponse({ ok: true });
+      });
+    }
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['SET_IMPORTED_ROWS'] = function (msg, sender, sendResponse) {
+    var type = 'SET_IMPORTED_ROWS';
+    
+    const rows = Array.isArray(msg.rows) ? msg.rows : [];
+    const workflowId = typeof msg.workflowId === 'string' ? msg.workflowId : undefined;
+    chrome.storage.local.set({
+      cfs_pending_imported_rows: { rows, workflowId, at: Date.now() },
+    }, () => sendResponse({ ok: true }));
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['RUN_WORKFLOW'] = function (msg, sender, sendResponse) {
+    var type = 'RUN_WORKFLOW';
+    
+    const workflowId = typeof msg.workflowId === 'string' ? msg.workflowId : '';
+    const rows = Array.isArray(msg.rows) ? msg.rows : undefined;
+    const startIndex = typeof msg.startIndex === 'number' ? msg.startIndex : 0;
+    const autoStart = msg.autoStart === true || msg.autoStart === 'all' ? 'all' : (msg.autoStart === 'current' ? 'current' : undefined);
+    if (!workflowId) {
+      sendResponse({ ok: false, error: 'Missing workflowId' });
+      return true;
+    }
+    chrome.storage.local.get(['workflows'], (data) => {
+      const workflows = data?.workflows && typeof data.workflows === 'object' ? data.workflows : {};
+      if (!workflows[workflowId]) {
+        sendResponse({ ok: false, error: 'Workflow not found: ' + workflowId });
+        return;
+      }
+      chrome.storage.local.set({
+        cfs_pending_run: { workflowId, rows, startIndex, autoStart, at: Date.now() },
+      }, () => sendResponse({ ok: true }));
+    });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['CLEAR_IMPORTED_ROWS'] = function (msg, sender, sendResponse) {
+    var type = 'CLEAR_IMPORTED_ROWS';
+    
+    (async () => {
+      try {
+        await chrome.storage.local.remove(['cfs_pending_imported_rows', 'cfs_pending_run']);
+        await chrome.storage.local.set({ cfs_clear_imported_rows: { at: Date.now() } });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Clear failed' });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['PICK_ELEMENT_RESULT'] = function (msg, sender, sendResponse) {
+    var type = 'PICK_ELEMENT_RESULT';
+    
+    const payload = { selectors: msg.selectors || [], pickedText: msg.pickedText, fallbackSelectors: msg.fallbackSelectors, at: Date.now() };
+    chrome.storage.local.set({ cfs_pick_element_result: payload }, () => sendResponse({ ok: true }));
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['AUTO_DISCOVERY_UPDATE'] = function (msg, sender, sendResponse) {
+    var type = 'AUTO_DISCOVERY_UPDATE';
+    
+    const payload = { groups: msg.groups || [], host: msg.host, at: Date.now() };
+    chrome.storage.local.set({ cfs_auto_discovery_update: payload }, () => sendResponse({ ok: true }));
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['PICK_SUCCESS_CONTAINER_COUNT'] = function (msg, sender, sendResponse) {
+    var type = 'PICK_SUCCESS_CONTAINER_COUNT';
+    
+    const payload = { count: typeof msg.count === 'number' ? msg.count : 0, at: Date.now() };
+    chrome.storage.local.set({ cfs_pick_success_container_count: payload }, () => sendResponse({ ok: true }));
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['EXTRACTED_ROWS'] = function (msg, sender, sendResponse) {
+    var type = 'EXTRACTED_ROWS';
+    
+    const rows = Array.isArray(msg.rows) ? msg.rows : [];
+    chrome.storage.local.set({
+      cfs_extracted_rows: { rows, at: Date.now() },
+    }, () => sendResponse({ ok: true }));
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['DOWNLOAD_FILE'] = function (msg, sender, sendResponse) {
+    var type = 'DOWNLOAD_FILE';
+    
+    const url = msg?.url;
+    if (!url || typeof url !== 'string') {
+      sendResponse({ ok: false, error: 'No URL provided' });
+      return true;
+    }
+    const isDataOrBlob = url.startsWith('data:') || url.startsWith('blob:');
+    if (isDataOrBlob) {
+      if (!cfsIsExtensionPageSender(sender)) {
+        sendResponse({ ok: false, error: 'data:/blob: downloads only allowed from extension pages' });
+        return true;
+      }
+    } else {
+      const urlCheck = cfsValidatePublicHttpUrl(url);
+      if (!urlCheck.ok) {
+        sendResponse({ ok: false, error: urlCheck.error || 'URL not allowed' });
+        return true;
+      }
+    }
+    chrome.downloads.download({
+      url,
+      filename: msg.filename || undefined,
+      saveAs: msg.saveAs !== false,
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({ ok: true, downloadId });
+      }
+    });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['CFS_PROJECT_ENSURE_DIRS'] = function (msg, sender, sendResponse) {
+    var type = 'CFS_PROJECT_ENSURE_DIRS';
+    
+    (async () => {
+      let release;
+      try {
+        const rawPaths = Array.isArray(msg.paths) ? msg.paths : (msg.relativePath ? [msg.relativePath] : []);
+        const normPaths = [];
+        for (let i = 0; i < rawPaths.length; i++) {
+          const pc = cfsValidateProjectRelativePath(String(rawPaths[i] || '').trim());
+          if (!pc.ok) {
+            sendResponse({ ok: false, error: pc.error || 'Invalid path' });
+            return;
+          }
+          normPaths.push(pc.path);
+        }
+        if (normPaths.length === 0) {
+          sendResponse({ ok: false, error: 'paths or relativePath required' });
+          return;
+        }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'ensureDirs', paths: normPaths },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Project folder ensure dirs failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['PROJECT_FOLDER_LIST_DIR'] = function (msg, sender, sendResponse) {
+    var type = 'PROJECT_FOLDER_LIST_DIR';
+    
+    (async () => {
+      let release;
+      try {
+        const pathCheck = cfsValidateProjectRelativePath(msg.relativePath);
+        if (!pathCheck.ok) { sendResponse({ ok: false, error: pathCheck.error }); return; }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'listDir', relativePath: pathCheck.path },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'List dir failed' });
+      } finally { if (release) release(); }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['PROJECT_FOLDER_MOVE_FILE'] = function (msg, sender, sendResponse) {
+    var type = 'PROJECT_FOLDER_MOVE_FILE';
+    
+    (async () => {
+      let release;
+      try {
+        const srcCheck = cfsValidateProjectRelativePath(msg.sourcePath);
+        const dstCheck = cfsValidateProjectRelativePath(msg.destPath);
+        if (!srcCheck.ok) { sendResponse({ ok: false, error: 'source: ' + srcCheck.error }); return; }
+        if (!dstCheck.ok) { sendResponse({ ok: false, error: 'dest: ' + dstCheck.error }); return; }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            { type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD', op: 'moveFile', sourcePath: srcCheck.path, destPath: dstCheck.path },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Move file failed' });
+      } finally { if (release) release(); }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['SIDEBAR_STATE_UPDATE'] = function (msg, sender, sendResponse) {
+    var type = 'SIDEBAR_STATE_UPDATE';
+    
+    const { windowId, sidebarName } = msg || {};
+    const updates = { lastSidebarUpdate: Date.now() };
+    // Store sidebar name keyed by stable device (preferred) and legacy windowId (compat)
+    if (sidebarName != null) {
+      updates.sidebarName_device = sidebarName || '';
+      if (windowId != null) updates[`sidebarName_${windowId}`] = sidebarName || '';
+    }
+    chrome.storage.local.set(updates).catch((e) => console.error('Sidebar state storage failed:', e));
+    sendResponse({ ok: true });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['START_SCREEN_CAPTURE'] = function (msg, sender, sendResponse) {
+    var type = 'START_SCREEN_CAPTURE';
+    
+    (async () => {
+      try {
+        const release = await acquireOffscreen('screenRecorder');
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            type: 'START_RECORDING',
+            mode: msg.mode || 'screen',
+            recordScreen: msg.recordScreen,
+            systemAudio: msg.systemAudio,
+            microphone: msg.microphone,
+            recordWebcam: msg.recordWebcam === true,
+          }, (r) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+            else resolve(r || { ok: false, error: 'Failed to start recording' });
+          });
+        });
+        if (response && response.ok) {
+          _offscreenBusy = true;
+          _screenRecorderRelease = release;
+          sendResponse({
+            ok: true,
+            webcamRecordingStarted: response.webcamRecordingStarted === true,
+          });
+        } else {
+          release();
+          sendResponse({
+            ok: false,
+            error: (response && response.error) || 'Failed to start recording',
+            capturePhase: response && response.capturePhase,
+          });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Offscreen failed' });
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['STOP_SCREEN_CAPTURE'] = function (msg, sender, sendResponse) {
+    var type = 'STOP_SCREEN_CAPTURE';
+    
+    const capRunId = typeof msg.runId === 'string' ? msg.runId : '';
+    chrome.runtime.sendMessage({ type: 'STOP_RECORDING', runId: capRunId }, (response) => {
+      _offscreenBusy = false;
+      if (_screenRecorderRelease) {
+        _screenRecorderRelease();
+        _screenRecorderRelease = null;
+      }
+      const okStop =
+        response &&
+        response.ok &&
+        (response.captureInIdb || response.dataUrl || response.webcamDataUrl);
+      if (okStop) {
+        const out = { ok: true };
+        if (response.captureInIdb) {
+          out.captureInIdb = true;
+          out.runId = response.runId;
+        }
+        if (response.dataUrl) out.dataUrl = response.dataUrl;
+        if (response.webcamDataUrl) out.webcamDataUrl = response.webcamDataUrl;
+        sendResponse(out);
+      } else {
+        sendResponse({ ok: false, error: (response && response.error) || 'No recording' });
+      }
+    });
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['CAPTURE_DISPLAY_AUDIO'] = function (msg, sender, sendResponse) {
+    var type = 'CAPTURE_DISPLAY_AUDIO';
+    
+    const durationMs = Math.min(60000, Math.max(2000, msg.durationMs || 10000));
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('screenRecorder');
+        _offscreenBusy = true;
+        await new Promise((r) => setTimeout(r, 400));
+        const startRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'START_RECORDING', mode: 'tabAudio' }, (r) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+            else resolve(r || { ok: false });
+          });
+        });
+        if (!startRes || !startRes.ok) {
+          sendResponse({ ok: false, error: startRes?.error || 'Failed to start display capture' });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, durationMs));
+        const stopRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }, (r) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+            else resolve(r || { ok: false });
+          });
+        });
+        if (stopRes && stopRes.ok && stopRes.dataUrl) {
+          sendResponse({ ok: true, dataUrl: stopRes.dataUrl });
+        } else {
+          sendResponse({ ok: false, error: stopRes?.error || 'No audio captured' });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || 'Display audio capture failed' });
+      } finally {
+        _offscreenBusy = false;
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['COMBINE_VIDEOS'] = function (msg, sender, sendResponse) {
+    var type = 'COMBINE_VIDEOS';
+    
+    const urls = msg.urls || [];
+    const segments = msg.segments || [];
+    const hasSegments = segments.length > 0;
+    if (urls.length === 0 && !hasSegments) {
+      sendResponse({ ok: false, error: 'No video URLs or segments' });
+      return true;
+    }
+    if (!hasSegments && urls.length === 1) {
+      sendResponse({ ok: true, data: urls[0], url: urls[0] });
+      return true;
+    }
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('videoCombiner');
+        await new Promise((r) => setTimeout(r, 400));
+        const payload = {
+          type: 'COMBINE_VIDEOS_PAYLOAD',
+          urls: hasSegments ? [] : urls,
+          segments: hasSegments ? segments : undefined,
+          overlays: msg.overlays,
+          audioTracks: msg.audioTracks,
+          width: msg.width || 1280,
+          height: msg.height || 720,
+          fps: msg.fps || 30,
+          mismatchStrategy: msg.mismatchStrategy || 'crop',
+        };
+        const combinerResponse = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(payload, (res) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Combiner not available' });
+            else resolve(res);
+          });
+        });
+        if (combinerResponse && combinerResponse.ok) {
+          sendResponse({ ok: true, data: combinerResponse.data, url: combinerResponse.data });
+        } else {
+          sendResponse({ ok: false, error: (combinerResponse && combinerResponse.error) || 'Combine failed' });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Combiner failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['EXTRACT_AUDIO_FROM_VIDEO'] = function (msg, sender, sendResponse) {
+    var type = 'EXTRACT_AUDIO_FROM_VIDEO';
+    
+    const b64 = msg.base64;
+    if (!b64 || typeof b64 !== 'string' || !b64.trim()) {
+      sendResponse({ ok: false, error: 'base64 required' });
+      return true;
+    }
+    (async () => {
+      let release;
+      try {
+        release = await acquireOffscreen('videoCombiner');
+        await new Promise((r) => setTimeout(r, 500));
+        const out = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(
+            {
+              type: 'EXTRACT_AUDIO_FROM_VIDEO_PAYLOAD',
+              base64: b64.trim(),
+              mimeType: msg.mimeType || 'video/webm',
+            },
+            (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Extract audio unavailable' });
+              else resolve(res || { ok: false, error: 'No response' });
+            }
+          );
+        });
+        sendResponse(out);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Extract audio failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  };
+
+  __CFS_swTypeHandlers['FETCH_FILE'] = function (msg, sender, sendResponse) {
+    var type = 'FETCH_FILE';
+    
+    const { url, filename: preferredFilename } = msg || {};
+    if (!url || typeof url !== 'string') {
+      sendResponse({ ok: false, error: 'No URL provided' });
+      return true;
+    }
+    const fetchUrlCheck = cfsValidatePublicHttpUrl(url);
+    if (!fetchUrlCheck.ok) {
+      sendResponse({ ok: false, error: fetchUrlCheck.error || 'URL not allowed' });
+      return true;
+    }
+    let responded = false;
+    const safeSend = (r) => {
+      if (responded) return;
+      responded = true;
+      try { sendResponse(r); } catch (_) {}
+    };
+    let fetchUrl = url;
+    const gdMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (gdMatch) fetchUrl = `https://drive.google.com/uc?export=download&id=${gdMatch[1]}`;
+    const headers = {
+      'Accept': '*/*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    };
+    fetch(fetchUrl, { credentials: 'omit', headers })
+      .then(res => {
+        if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+        const contentType = res.headers.get('content-type') || 'application/octet-stream';
+        return res.arrayBuffer().then(buf => ({ buf, contentType }));
+      })
+      .then(({ buf, contentType }) => {
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        const chunk = 8192;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        const base64 = btoa(binary);
+        const filename = preferredFilename || url.split('/').pop()?.split('?')[0] || 'file';
+        safeSend({ ok: true, base64, contentType, filename });
+      })
+      .catch(err => safeSend({ ok: false, error: (err?.message || 'Fetch failed') }));
+    return true;
+  
+  };
+
+  function __CFS_handleProjectReadWrite(msg, sender, sendResponse, type) {
+
+    (async () => {
+      let release;
+      try {
+        const pathCheck = cfsValidateProjectRelativePath(msg.relativePath);
+        if (!pathCheck.ok) {
+          sendResponse({ ok: false, error: pathCheck.error });
+          return;
+        }
+        release = await acquireOffscreen('projectFolderIo');
+        await new Promise((r) => setTimeout(r, 120));
+        const payload = {
+          type: 'CFS_PROJECT_FOLDER_IO_PAYLOAD',
+          op: msg.type === 'CFS_PROJECT_READ_FILE' ? 'read' : 'write',
+          relativePath: pathCheck.path,
+          maxBytes: msg.maxBytes,
+          encoding: msg.type === 'CFS_PROJECT_WRITE_FILE'
+            ? (msg.encoding || 'text')
+            : (msg.encoding || 'text'),
+          content: msg.type === 'CFS_PROJECT_WRITE_FILE' ? msg.content : undefined,
+        };
+        const ioRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage(payload, (res) => {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message || 'Project folder IO unavailable' });
+            else resolve(res || { ok: false, error: 'No response' });
+          });
+        });
+        sendResponse(ioRes);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Project folder IO failed' });
+      } finally {
+        if (release) release();
+      }
+    })();
+    return true;
+  
+  }
+  __CFS_swTypeHandlers["CFS_PROJECT_READ_FILE"] = function (msg, sender, sendResponse) {
+    return __CFS_handleProjectReadWrite(msg, sender, sendResponse, "CFS_PROJECT_READ_FILE");
+  };
+  __CFS_swTypeHandlers["CFS_PROJECT_WRITE_FILE"] = function (msg, sender, sendResponse) {
+    return __CFS_handleProjectReadWrite(msg, sender, sendResponse, "CFS_PROJECT_WRITE_FILE");
+  };
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || typeof msg !== 'object') {
+    try { console.warn('[CFS] Invalid message: expected object'); } catch (_) {}
+    sendResponse({ ok: false, error: 'Invalid message: expected object' });
+    return true;
+  }
+  const type = msg.type;
+  if (typeof type !== 'string' || !type.trim()) {
+    try { console.warn('[CFS] Invalid message: missing or invalid type'); } catch (_) {}
+    sendResponse({ ok: false, error: 'Invalid message: missing or invalid type' });
+    return true;
+  }
+  if (type === 'WEBCAM_GRANT_RESULT') {
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (type === 'MIC_GRANT_RESULT') {
+    sendResponse({ ok: true });
+    return true;
+  }
+  /** Replies from extension pages → dynamic waiters; do not treat as API requests. */
+  if (type === 'GET_FOLLOWING_DATA_RESULT' || type === 'MUTATE_FOLLOWING_RESULT') {
+    return false;
+  }
+
+  const payloadCheck = validateMessagePayload(type, msg);
+  if (!payloadCheck.valid) {
+    try { console.warn('[CFS] Payload validation failed:', type, payloadCheck.error); } catch (_) {}
+    sendResponse({ ok: false, error: payloadCheck.error || 'Invalid payload' });
+    return true;
+  }
+
+  if (typeof __CFS_dispatchRegisteredMessage === 'function') {
+    const regRet = __CFS_dispatchRegisteredMessage(type, msg, sender, sendResponse);
+    if (regRet !== null && regRet !== undefined) return regRet;
   }
 
   // Unhandled message type (e.g. from a future caller or typo). Respond so the sender doesn't hang.

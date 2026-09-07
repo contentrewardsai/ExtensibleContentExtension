@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -26,8 +29,8 @@
     var row = ctx.currentRow || {};
     var sendMessage = ctx.sendMessage;
 
-    var to = trimResolved(row, getRowValue, action, action.to);
-    var ethWei = trimResolved(row, getRowValue, action, action.ethWei);
+    var to = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'to', row, getRowValue) : trimResolved(row, getRowValue, action, action.to));
+    var ethWei = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'ethWei', row, getRowValue) : trimResolved(row, getRowValue, action, action.ethWei));
     if (!to || !ethWei) {
       throw new Error('bscTransferBnb: set to (address) and ethWei (wei, or max/balance after gas reserve).');
     }
@@ -37,9 +40,9 @@
       operation: 'transferNative',
       to: to,
       ethWei: ethWei,
-      deadline: trimResolved(row, getRowValue, action, action.deadline),
+      deadline: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'deadline', row, getRowValue) : trimResolved(row, getRowValue, action, action.deadline)),
       waitConfirmations: action.waitConfirmations,
-      gasLimit: trimResolved(row, getRowValue, action, action.gasLimit),
+      gasLimit: ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'gasLimit', row, getRowValue) : trimResolved(row, getRowValue, action, action.gasLimit)),
     };
 
     var response = await sendMessage(msg);
@@ -48,9 +51,9 @@
     }
 
     if (row && typeof row === 'object') {
-      var hVar = trimResolved(row, getRowValue, action, action.saveTxHashVariable);
+      var hVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveTxHashVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveTxHashVariable));
       if (hVar && response.txHash) row[hVar] = response.txHash;
-      var eVar = trimResolved(row, getRowValue, action, action.saveExplorerUrlVariable);
+      var eVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveExplorerUrlVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveExplorerUrlVariable));
       if (eVar && response.explorerUrl) row[eVar] = response.explorerUrl;
     }
   }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });

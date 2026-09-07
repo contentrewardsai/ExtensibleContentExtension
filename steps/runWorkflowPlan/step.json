@@ -1,0 +1,15 @@
+{
+  "id": "runWorkflowPlan",
+  "label": "Run workflow plan",
+  "category": "flow",
+  "description": "Parse a JSON plan ({ next: [{ workflowId, row }] }) from a row variable or the last LLM reply and run those workflows in order. Used when Local AI Chat or an llm step decides the next GHL placers.",
+  "defaultAction": {
+    "type": "runWorkflowPlan",
+    "variableKey": "workflowPlan",
+    "planJson": ""
+  },
+  "formSchema": [
+    { "key": "variableKey", "label": "Row variable with JSON plan", "inputType": "text", "placeholder": "workflowPlan" },
+    { "key": "planJson", "label": "Or inline JSON plan", "inputType": "textarea", "rows": 4 }
+  ]
+}

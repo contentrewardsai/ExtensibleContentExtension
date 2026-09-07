@@ -191,6 +191,34 @@
           {
             "type": "runWorkflow",
             "workflowId": "e2e-test-click",
+            "runIf": "{{branch}} === click",
+            "nestedWorkflow": {
+              "id": "e2e-test-click",
+              "actions": [
+                {
+                  "type": "click",
+                  "selectors": [
+                    { "type": "attr", "attr": "data-testid", "value": "[data-testid=\"primary-action\"]", "score": 9 }
+                  ],
+                  "fallbackSelectors": []
+                }
+              ]
+            },
+            "rowMapping": {}
+          },
+          {
+            "type": "runWorkflow",
+            "workflowId": "e2e-test-runIf-skip",
+            "runIf": "{{branch}} === skip",
+            "nestedWorkflow": {
+              "id": "e2e-test-runIf-skip",
+              "actions": [
+                {
+                  "type": "click",
+                  "selectors": [{ "type": "attr", "attr": "data-testid", "value": "[data-testid=\"secondary-action\"]", "score": 9 }]
+                }
+              ]
+            },
             "rowMapping": {}
           }
         ]

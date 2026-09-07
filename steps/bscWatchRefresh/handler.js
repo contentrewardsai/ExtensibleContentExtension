@@ -16,6 +16,9 @@
       };
 
   function trimResolved(row, getRowValue, action, val) {
+    if (typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveTemplate) {
+      return CFS_templateResolver.resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
+    }
     return resolveTemplate(String(val != null ? val : '').trim(), row, getRowValue, action).trim();
   }
 
@@ -51,7 +54,7 @@
       throw new Error(requiredIndexerHint());
     }
 
-    var keyVar = trimResolved(row, getRowValue, action, action.saveResultVariable);
+    var keyVar = ((typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.resolveActionField) ? CFS_templateResolver.resolveActionField(action, 'saveResultVariable', row, getRowValue) : trimResolved(row, getRowValue, action, action.saveResultVariable));
     if (keyVar && row && typeof row === 'object') {
       try {
         row[keyVar] = JSON.stringify(response);

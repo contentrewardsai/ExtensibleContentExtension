@@ -263,11 +263,25 @@
     }
     const url = `${APP_ORIGIN}/api/extension/workflow-step-media`;
     try {
-      const res = await fetch(url, {
+      let bearer = token;
+      let res = await fetch(url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${bearer}` },
         body: formData,
       });
+      if (res.status === 401 && ExtensionAuthFetch && ExtensionAuthFetch.retryTokenAfter401) {
+        const nextTok = await ExtensionAuthFetch.retryTokenAfter401(bearer);
+        if (nextTok) {
+          bearer = nextTok;
+          res = await fetch(url, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${bearer}` },
+            body: formData,
+          });
+        } else {
+          return { ok: false, error: 'Session expired', status: 401 };
+        }
+      }
       if (res.status === 404) {
         return { ok: false, error: 'NOT_IMPLEMENTED', status: 404 };
       }
@@ -275,9 +289,6 @@
         return { ok: false, error: 'File too large (max ~4.5MB for this upload)', status: 413 };
       }
       if (res.status === 401) {
-        try {
-          chrome.runtime.sendMessage({ type: 'LOGOUT' }, () => {});
-        } catch (_) {}
         return { ok: false, error: 'Session expired', status: 401 };
       }
       if (!res.ok) {
@@ -298,6 +309,9 @@
 
   /** Normalize a following row from the API (accounts vs following_accounts). */
   function normalizeFollowingItem(row) {
+    if (typeof FollowingSyncCore !== 'undefined' && FollowingSyncCore.normalizeFollowingApiRow) {
+      return FollowingSyncCore.normalizeFollowingApiRow(row);
+    }
     if (!row || typeof row !== 'object') return row;
     const accounts = row.accounts ?? row.following_accounts ?? [];
     return { ...row, accounts: Array.isArray(accounts) ? accounts : [] };
@@ -467,10 +481,19 @@
       return { ok: false, error: e?.message || 'Request failed', status: 0 };
     }
     if (res.status === 401) {
-      try {
-        chrome.runtime.sendMessage({ type: 'LOGOUT' }, () => {});
-      } catch (_) {}
-      return { ok: false, error: 'Session expired. Please log in again.', status: 401, code: 'UNAUTHORIZED' };
+      const nextTok = ExtensionAuthFetch && ExtensionAuthFetch.retryTokenAfter401
+        ? await ExtensionAuthFetch.retryTokenAfter401(token) : null;
+      if (nextTok) {
+        headers.Authorization = 'Bearer ' + nextTok;
+        try {
+          res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+        } catch (e2) {
+          return { ok: false, error: e2?.message || 'Request failed', status: 0 };
+        }
+      }
+      if (res.status === 401) {
+        return { ok: false, error: 'Session expired. Please log in again.', status: 401, code: 'UNAUTHORIZED' };
+      }
     }
     let json = null;
     try {
@@ -543,10 +566,19 @@
       return { ok: false, error: e?.message || 'Request failed', status: 0 };
     }
     if (res.status === 401) {
-      try {
-        chrome.runtime.sendMessage({ type: 'LOGOUT' }, () => {});
-      } catch (_) {}
-      return { ok: false, error: 'Session expired. Please log in again.', status: 401, code: 'UNAUTHORIZED' };
+      const nextTok = ExtensionAuthFetch && ExtensionAuthFetch.retryTokenAfter401
+        ? await ExtensionAuthFetch.retryTokenAfter401(token) : null;
+      if (nextTok) {
+        headers.Authorization = 'Bearer ' + nextTok;
+        try {
+          res = await fetch(url, { method: 'POST', headers, body });
+        } catch (e2) {
+          return { ok: false, error: e2?.message || 'Request failed', status: 0 };
+        }
+      }
+      if (res.status === 401) {
+        return { ok: false, error: 'Session expired. Please log in again.', status: 401, code: 'UNAUTHORIZED' };
+      }
     }
     if (!res.ok) {
       let msg = res.statusText || `HTTP ${res.status}`;

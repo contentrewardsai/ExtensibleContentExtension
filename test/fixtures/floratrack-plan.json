@@ -1,0 +1,59 @@
+{
+  "blocks": [
+    {
+      "id": "nav",
+      "ghl": "section",
+      "sectionLayout": "fullWidth",
+      "style": { "background": "#2D5A47" }
+    },
+    {
+      "id": "brand",
+      "ghl": "headline",
+      "text": "FloraTrack",
+      "style": { "color": "#FFFFFF", "fontSize": "20px" }
+    },
+    {
+      "id": "add-plant-cta",
+      "ghl": "button",
+      "text": "Add Plant",
+      "style": { "background": "#48A478", "color": "#FFFFFF" }
+    },
+    {
+      "id": "stats",
+      "ghl": "columns",
+      "sectionLayout": "3col"
+    },
+    { "id": "stat-plants", "ghl": "text", "text": "Total Plants" },
+    { "id": "stat-water", "ghl": "text", "text": "Needs Water" },
+    { "id": "stat-logs", "ghl": "text", "text": "Total Logs" },
+    {
+      "id": "attention",
+      "ghl": "section",
+      "sectionLayout": "fullWidth",
+      "style": { "background": "#FFFBEB" }
+    },
+    { "id": "attention-title", "ghl": "headline", "text": "Needs Attention" },
+    { "id": "garden-title", "ghl": "headline", "text": "My Garden" },
+    {
+      "id": "garden",
+      "ghl": "columns",
+      "sectionLayout": "3col"
+    },
+    { "id": "plant-monstera", "ghl": "headline", "text": "Monstera" },
+    { "id": "plant-snake", "ghl": "headline", "text": "Snake Plant" },
+    { "id": "plant-pothos", "ghl": "headline", "text": "Pothos" },
+    {
+      "id": "add-plant",
+      "ghl": "form",
+      "formName": "Add Plant",
+      "fields": [
+        { "label": "Nickname / Name", "type": "text", "required": true },
+        { "label": "Species", "type": "text", "required": false },
+        { "label": "Watering Frequency (Days)", "type": "number" },
+        { "label": "Sunlight Needs", "type": "dropdown", "options": ["Low Light", "Medium Indirect", "Bright Indirect", "Direct Sun"] },
+        { "label": "Last Watered Date", "type": "date", "required": true },
+        { "label": "Image URL", "type": "text" }
+      ]
+    }
+  ]
+}

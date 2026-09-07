@@ -118,6 +118,62 @@
     assertDeepEqual(m([]), []);
   }
 
+  function testSanitizeClickSelectorCollisionsDropsSharedId() {
+    var fn = global.sanitizeClickSelectorCollisions;
+    if (!fn) throw new Error('sanitizeClickSelectorCollisions not loaded');
+    var actions = [
+      { type: 'click', text: 'Add new page', selectors: [{ type: 'id', value: '#add-step', score: 10 }] },
+      { type: 'click', text: 'Create new page', selectors: [{ type: 'id', value: '#add-step', score: 6 }, { type: 'text', value: 'Create new page', score: 5 }] },
+      { type: 'wait', waitMs: 500 },
+    ];
+    fn(actions);
+    assertTrue(!actions[0].requireTextMatch, 'requireTextMatch is not set (sort-only labels)');
+    assertTrue(!actions[1].requireTextMatch, 'requireTextMatch is not set on second click');
+    var keys0 = (actions[0].selectors || []).map(function (s) { return s.value; });
+    var keys1 = (actions[1].selectors || []).map(function (s) { return s.value; });
+    assertTrue(keys0.indexOf('#add-step') < 0, 'shared #add-step dropped from first click');
+    assertTrue(keys1.indexOf('#add-step') < 0, 'shared #add-step dropped from second click');
+    assertTrue(keys1.some(function (v) { return String(v).indexOf('Create new page') >= 0; }), 'keeps text selector');
+  }
+
+  function testResolveAllCandidatesReturnsEveryCssMatch() {
+    var fn = global.CFS_selectors && global.CFS_selectors.resolveAllCandidates;
+    if (!fn) throw new Error('CFS_selectors.resolveAllCandidates not loaded');
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div class="gui__builder-card">1 Column</div><div class="gui__builder-card">Headline</div><div class="gui__builder-card">Sub-Headline</div>';
+    document.body.appendChild(wrap);
+    try {
+      var all = fn([{ type: 'css', value: '.gui__builder-card', score: 7 }], document);
+      assertEqual(all.length, 3, 'returns every card, not only the first');
+      var texts = all.map(function (c) { return (c.element.textContent || '').trim(); });
+      assertTrue(texts.indexOf('Headline') >= 0);
+      var match = global.CFS_selectors.elementMatchesClickLabel;
+      var labeled = all.filter(function (c) { return match(c.element, ['Headline']); });
+      assertEqual(labeled.length, 2, 'Headline and Sub-Headline both contain Headline');
+      var exact = labeled.filter(function (c) { return (c.element.textContent || '').trim() === 'Headline'; });
+      assertEqual(exact.length, 1);
+    } finally {
+      document.body.removeChild(wrap);
+    }
+  }
+
+  function testClickTextHintsRequireMatchForMultiWord() {
+    var req = global.CFS_selectors.clickTextHintsRequireMatch;
+    var hints = global.CFS_selectors.clickTextHints;
+    var match = global.CFS_selectors.elementMatchesClickLabel;
+    assertFalse(req({ text: 'Create new page' }), 'multi-word label does not hard-require match');
+    assertFalse(req({ text: 'OK' }), 'short single word does not require');
+    assertFalse(req({ text: 'OK', requireTextMatch: true }), 'requireTextMatch flag is ignored (sort-only)');
+    var h = hints({ text: 'Create new page', fallbackTexts: ['Create new page'] });
+    assertTrue(h.length >= 1);
+    var el = document.createElement('button');
+    el.textContent = 'Create new page';
+    var other = document.createElement('button');
+    other.textContent = 'Add new page';
+    assertTrue(match(el, h));
+    assertFalse(match(other, h));
+  }
+
   /** Selectors */
   function testSelectorsDecodeSelectorValue() {
     var d = global.CFS_selectors && global.CFS_selectors.decodeSelectorValue;
@@ -1747,6 +1803,51 @@
     }
   }
 
+  function testGenerateSelectorsSkipsVersionedButtonIds() {
+    var gen = global.CFS_selectors.generateSelectors;
+    var el = document.createElement('button');
+    el.id = 'hr-button-v-6';
+    el.textContent = 'Create new page';
+    document.body.appendChild(el);
+    try {
+      var sels = gen(el);
+      var idSel = sels.find(function (s) { return s.type === 'id'; });
+      assertEqual(idSel, undefined, 'should skip hr-button-v-6');
+      assertTrue(global.CFS_selectors.isUnstableGeneratedId('hr-button-v-6'));
+      assertFalse(global.CFS_selectors.isUnstableGeneratedId('add-step'));
+    } finally {
+      document.body.removeChild(el);
+    }
+  }
+
+  function testGeneratePrimaryDropsSelectorThatHitsEarlierSibling() {
+    var fn = global.CFS_selectors.generatePrimaryAndFallbackSelectors;
+    var header = document.createElement('button');
+    header.id = 'add-step';
+    header.className = 'hr-button hr-button--primary';
+    header.textContent = 'Add new page';
+    var modal = document.createElement('button');
+    modal.className = 'hr-button hr-button--primary';
+    modal.textContent = 'Create new page';
+    document.body.appendChild(header);
+    document.body.appendChild(modal);
+    try {
+      var result = fn(modal);
+      var all = (result.primary || []).concat(result.fallbacks || []);
+      var leaked = all.some(function (s) {
+        var v = typeof s.value === 'string' ? s.value : '';
+        return v === '#add-step' || v.indexOf('hr-button--primary') >= 0;
+      });
+      assertFalse(leaked, 'must not keep #add-step or shared class that hits the header first');
+      assertTrue(all.some(function (s) {
+        return s.type === 'text' && String(s.value).indexOf('Create new page') >= 0;
+      }), 'keeps Create new page text selector');
+    } finally {
+      document.body.removeChild(header);
+      document.body.removeChild(modal);
+    }
+  }
+
   function testGeneratePrimaryAndFallbackSelectorsCustomCount() {
     var fn = global.CFS_selectors.generatePrimaryAndFallbackSelectors;
     var el = document.createElement('button');
@@ -2709,6 +2810,61 @@
     assertFalse(sw({ runIf: '  ' }, { a: 1 }, getRow));
     assertFalse(sw({ runIf: '{{a}}' }, { a: 1 }, getRow));
     assertTrue(sw({ runIf: '{{a}}' }, { a: 0 }, getRow));
+  }
+
+  function testRunIfComplementaryRunWorkflowPair() {
+    var sw = global.CFS_runIfCondition.skipWhenRunIf;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var row = { exitPolicy: 'restake' };
+    var exitStep = { type: 'runWorkflow', workflowId: 'wf-exit', runIf: '{{exitPolicy}} === sell_usdc' };
+    var restakeStep = { type: 'runWorkflow', workflowId: 'wf-restake', runIf: '{{exitPolicy}} === restake' };
+    assertTrue(sw(exitStep, row, getRow), 'exit skipped when policy is restake');
+    assertFalse(sw(restakeStep, row, getRow), 'restake runs when policy is restake');
+    row.exitPolicy = 'sell_usdc';
+    assertFalse(sw(exitStep, row, getRow));
+    assertTrue(sw(restakeStep, row, getRow));
+  }
+
+  function testRunIfNeedsElementSkipWhenFalsy() {
+    var sw = global.CFS_runIfCondition.skipWhenRunIf;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var click = { type: 'click', runIf: '{{ready}} === true', selectors: [{ type: 'css', value: '#missing' }] };
+    assertTrue(sw(click, { ready: 'false' }, getRow), 'falsy runIf skips before waitForElement');
+    assertFalse(sw(click, { ready: 'true' }, getRow), 'truthy runIf does not skip');
+  }
+
+  function testResolveActionField() {
+    var tr = global.CFS_templateResolver;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var action = { mint: '{{token}}', other: 'plain' };
+    assertEqual(tr.resolveActionField(action, 'mint', { token: 'So111' }, getRow), 'So111');
+    assertEqual(tr.resolveActionField(action, 'other', {}, getRow), 'plain');
+    assertEqual(tr.resolveActionField(action, 'missing', {}, getRow), '');
+  }
+
+  function testMessageTypeCatalogCompleteness() {
+    var cat = global.CFS_messageTypeCatalog;
+    assertTrue(cat && Array.isArray(cat.types) && cat.types.length > 20, 'catalog loaded');
+    var seen = {};
+    cat.types.forEach(function (e) {
+      assertTrue(e && e.type && e.auth && e.schema && e.domain, 'catalog entry fields for ' + (e && e.type));
+      assertTrue(!seen[e.type], 'catalog type unique: ' + e.type);
+      seen[e.type] = true;
+      assertTrue(['none', 'extension', 'wallet', 'extensionOrTrustedAuth'].indexOf(e.auth) >= 0, 'auth enum ' + e.type);
+      assertTrue(e.schema === 'switch' || e.schema === 'extra', 'schema policy ' + e.type);
+    });
+    assertTrue(!!cat.byType.RUN_WORKFLOW, 'RUN_WORKFLOW catalogued');
+    assertTrue(!!cat.byType.GET_TOKEN, 'GET_TOKEN catalogued');
+    assertTrue(!!cat.byType.GET_FOLLOWING_DATA, 'GET_FOLLOWING_DATA catalogued');
+  }
+
+  function testGithubSyncCoreSkipPaths() {
+    var core = global.CFS_githubSyncCore;
+    assertTrue(!!core && typeof core.shouldSkipPath === 'function');
+    assertTrue(core.shouldSkipPath('node_modules/foo'));
+    assertTrue(core.shouldSkipPath('.git/config'));
+    assertFalse(core.shouldSkipPath('background/service-worker.js'));
+    assertEqual(global.CFS_trimStr('  x  '), 'x');
   }
 
   /* =========================================================================
@@ -3791,6 +3947,9 @@
     testAnalyzerUrlToCaptureContext,
     testAnalyzerMergeSelectors,
     testAnalyzerMergeFallbackTexts,
+    testSanitizeClickSelectorCollisionsDropsSharedId,
+    testResolveAllCandidatesReturnsEveryCssMatch,
+    testClickTextHintsRequireMatchForMultiWord,
     testSelectorsDecodeSelectorValue,
     testSelectorsScoreSelectorString,
     testTemplateResolverBasic,
@@ -3862,6 +4021,8 @@
     testGeneratePrimaryAndFallbackSelectorsEmpty,
     testGeneratePrimaryAndFallbackSelectorsSplit,
     testGeneratePrimaryAndFallbackSelectorsCustomCount,
+    testGenerateSelectorsSkipsVersionedButtonIds,
+    testGeneratePrimaryDropsSelectorThatHitsEarlierSibling,
     testGenerateSelectorsRoundtripResolve,
     testGetRunIndexForAction,
     testMergeConsecutiveWaits,
@@ -3945,6 +4106,11 @@
     testRunIfShouldSkipEmpty,
     testRunIfTripleEqualsAndNotEquals,
     testRunIfSkipWhenRunIfAction,
+    testRunIfComplementaryRunWorkflowPair,
+    testRunIfNeedsElementSkipWhenFalsy,
+    testResolveActionField,
+    testMessageTypeCatalogCompleteness,
+    testGithubSyncCoreSkipPaths,
     testStepCommentPartsWithMedia,
     testStepCommentPartsCustomOrder,
     testStepCommentSummaryLongText,
@@ -5064,6 +5230,33 @@
     assertFalse(urlMatchesPattern('https://other.com/', 'example.com'), 'different domain');
     assertFalse(urlMatchesPattern('https://notexample.com/', '*.example.com'), 'partial mismatch');
     assertTrue(urlMatchesPattern('https://example.com/', 'https://example.com'), 'full URL pattern');
+
+    function resolveStartUrlForWorkflow(wf, inputValue) {
+      var wfOrigin = (wf && wf.urlPattern && wf.urlPattern.origin) ? String(wf.urlPattern.origin).trim() : '';
+      var input = inputValue == null ? '' : String(inputValue).trim();
+      if (input && wfOrigin) {
+        var inputAsUrl = /^https?:\/\//i.test(input) ? input : ('https://' + input.replace(/^\*\./, ''));
+        if (urlMatchesPattern(inputAsUrl, wfOrigin)) return input;
+        return wfOrigin;
+      }
+      return input || wfOrigin;
+    }
+    var beehiiv = { urlPattern: { origin: 'https://app.beehiiv.com' } };
+    assertEqual(
+      resolveStartUrlForWorkflow(beehiiv, 'https://pancakeswap.finance'),
+      'https://app.beehiiv.com',
+      'stale pancake Expected URL does not win over selected workflow'
+    );
+    assertEqual(
+      resolveStartUrlForWorkflow(beehiiv, 'https://app.beehiiv.com/posts'),
+      'https://app.beehiiv.com/posts',
+      'same-origin start URL edit is kept'
+    );
+    assertEqual(
+      resolveStartUrlForWorkflow(beehiiv, ''),
+      'https://app.beehiiv.com',
+      'empty input uses workflow origin'
+    );
   }
 
   function testSidepanelIsTestWorkflow() {
@@ -6342,6 +6535,97 @@
   testPancakeV3LpAmountsHelpers();
   testAlwaysOnBoundPositionsHelpers();
   testBscIndexerProvidersResolveAndCredits();
+  testFrameActionsMergeAndRewrite();
+
+  function testFrameActionsMergeAndRewrite() {
+    var fa = global.CFS_frameActions;
+    assertTrue(!!fa, 'CFS_frameActions loaded');
+    var merged = fa.mergeRecordingActions(
+      [{ type: 'click', timestamp: 1, url: 'https://app.example.com/' }],
+      [{ type: 'type', timestamp: 2, frameUrl: 'https://builder.example.com/', inIframe: true }]
+    );
+    assertEqual(merged.length, 2, 'union merge parent + iframe actions');
+    assertEqual(merged[0].type, 'click');
+    assertEqual(merged[1].type, 'type');
+
+    var rewritten = fa.rewriteGoToUrl(
+      { fromCurrentUrl: true, replaceHost: 'page-builder.leadconnectorhq.com', dropSearch: true },
+      'https://app.gohighlevel.com/location/abc/page-builder/xyz?source=website'
+    );
+    assertEqual(
+      rewritten,
+      'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz',
+      'rewrite current host and drop query'
+    );
+
+    assertTrue(
+      fa.urlsMatchFrame(
+        'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz',
+        'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz?x=1',
+        'https://page-builder.leadconnectorhq.com'
+      ),
+      'top-level builder matches framed step'
+    );
+    assertFalse(
+      fa.actionNeedsFrameDelegate(
+        { inIframe: true, frameUrl: 'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz' },
+        'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz'
+      ),
+      'do not delegate when already on builder origin'
+    );
+    assertTrue(
+      fa.actionNeedsFrameDelegate(
+        { inIframe: true, frameUrl: 'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz' },
+        'https://app.gohighlevel.com/location/abc/page-builder/xyz'
+      ),
+      'delegate when parent still hosts the iframe'
+    );
+    assertTrue(
+      fa.iframeSrcMatchesAction(
+        'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz',
+        { frameUrl: 'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz?foo=1' }
+      ),
+      'iframe src matches frameUrl without query'
+    );
+    var framed = { frameOrigin: 'https://page-builder.leadconnectorhq.com' };
+    assertTrue(
+      fa.playMessageOriginAllowed('https://page-builder.leadconnectorhq.com', framed),
+      'allow recorded frame origin'
+    );
+    assertTrue(
+      fa.playMessageOriginAllowed(location.origin, framed),
+      'allow same window origin'
+    );
+    assertFalse(
+      fa.playMessageOriginAllowed('https://evil.example', framed),
+      'reject unknown origin'
+    );
+    assertTrue(
+      fa.playMessageOriginAllowed(
+        'https://app.gohighlevel.com',
+        framed,
+        { ancestorOrigins: ['https://app.gohighlevel.com'] }
+      ),
+      'iframe accepts embedding parent origin'
+    );
+  }
+
+  if (typeof CFS_workflowPlan !== 'undefined' && CFS_workflowPlan.parseWorkflowPlan) {
+    var plan = CFS_workflowPlan.parseWorkflowPlan('{"next":[{"workflowId":"wf_ghl_place_headline","row":{"text":"Hi"}}]}');
+    assertTrue(plan.ok, 'workflow plan parses');
+    assertEqual(plan.next[0].workflowId, 'wf_ghl_place_headline');
+  }
+
+  if (typeof CFS_pageCompare !== 'undefined' && CFS_pageCompare.comparePages) {
+    var cmpPass = CFS_pageCompare.comparePages({
+      plan: { blocks: [{ ghl: 'headline', text: 'FloraTrack' }] },
+      sourceText: 'FloraTrack',
+      previewText: 'FloraTrack My Garden',
+    });
+    assertTrue(cmpPass.pass, 'compare pass when text present');
+    assertTrue(CFS_pageCompare.colorDistance('#2D5A47', '#2D5A47') < 1, 'identical colors');
+    assertTrue(CFS_pageCompare.htmlLooksLikeForm('<form><input></form>'), 'detect raw form html');
+  }
 
 })(typeof window !== 'undefined' ? window : globalThis);
 

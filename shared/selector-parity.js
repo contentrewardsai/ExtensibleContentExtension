@@ -143,7 +143,7 @@
   /** Primary + fallback chain keys used for element resolution (enrich / parity). */
   function selectorChainForAction(action) {
     if (!action || typeof action !== 'object') return [];
-    if (action.type === 'ensureSelect') {
+    if (action.type === 'ensureSelect' || action.type === 'ensureOpen') {
       return []
         .concat(action.checkSelectors || [])
         .concat(action.openSelectors || [])
@@ -155,7 +155,7 @@
   /** Mutates `action`: put `newSel` at chain index (same order as selectorChainForAction). */
   function setChainEntryAtIndex(action, chainIndex, newSel) {
     var out = action;
-    if (out.type === 'ensureSelect') {
+    if (out.type === 'ensureSelect' || out.type === 'ensureOpen') {
       var c = out.checkSelectors || [];
       var cl = c.length;
       var o = out.openSelectors || [];

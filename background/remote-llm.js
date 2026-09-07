@@ -18,6 +18,7 @@
   var CFS_LLM_MODEL_ID_MAX_CHARS = 256;
 
   function trimStr(s) {
+    if (typeof globalThis.CFS_trimStr === 'function') return globalThis.CFS_trimStr(s);
     return s != null ? String(s).trim() : '';
   }
 

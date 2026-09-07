@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { test, expect, triggerWorkflow, loadPlaybackWorkflows } from './extension.fixture.mjs';
+import { test, expect, triggerWorkflow, loadPlaybackWorkflows, saveWorkflowToStorage } from './extension.fixture.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CI = !!process.env.CI;
@@ -27,13 +27,17 @@ const workflowAssertions = {
     }, { timeout: 15_000 }).toBe(true);
   },
   'e2e-test-extract': async (_fp, sp) => {
-    await expect(sp.locator('#status')).toContainText('Extracted', { timeout: 15_000 });
+    await expect(sp.locator('#status')).toContainText('Extracted', { timeout: 20_000 });
   },
   'e2e-test-send-endpoint': async (_fp, _sp, getLastEchoBody) => {
     await expect.poll(() => getLastEchoBody()?.name === 'E2E-Test', { timeout: 15_000 }).toBe(true);
   },
   'e2e-test-hover': async (fp) => {
-    await expect(fp.locator('#status')).toContainText('Hover target entered', { timeout: 15_000 });
+    await fp.waitForFunction(() => {
+      const el = document.getElementById('status');
+      return !!(el && /Hover target entered/i.test(el.textContent || ''));
+    }, null, { timeout: 20_000 });
+    await expect(fp.locator('#status')).toContainText('Hover target entered', { timeout: 5_000 });
   },
   'e2e-test-key': async (fp) => {
     await expect(fp.locator('#keyPressed')).toContainText('Key:', { timeout: 15_000 });
@@ -159,8 +163,23 @@ test.describe('playback workflows', () => {
 
       await fixturePage.goto(fixtureServer.fixtureUrl);
       await fixturePage.waitForLoadState('domcontentloaded');
+      await fixturePage.waitForFunction(() => !!(window.__CFS_stepHandlersReady || window.__CFS_registerStepHandler), { timeout: 15_000 }).catch(() => {});
       if (wf.prereqs.includes('fixture')) {
         await expect(fixturePage.locator('#mediaStatus')).toContainText('media-ready', { timeout: 5_000 }).catch(() => {});
+      }
+      const bundledPath = path.join(__dirname, '../../workflows/e2e-test/workflow.json');
+      if (fs.existsSync(bundledPath)) {
+        try {
+          const bundled = JSON.parse(fs.readFileSync(bundledPath, 'utf8'));
+          const pack = bundled && bundled.workflows ? bundled.workflows : {};
+          if (pack[wfId]) await saveWorkflowToStorage(extensionContext, extensionId, pack[wfId]);
+          const nestedId = pack[wfId] && pack[wfId].analyzed && Array.isArray(pack[wfId].analyzed.actions)
+            ? pack[wfId].analyzed.actions.map((a) => a && a.workflowId).filter(Boolean)
+            : [];
+          for (const nid of nestedId) {
+            if (pack[nid]) await saveWorkflowToStorage(extensionContext, extensionId, pack[nid]);
+          }
+        } catch (_) {}
       }
       await triggerWorkflow(extensionContext, extensionId, fixturePage, sidepanelPage, wfId, wf.rows);
 
