@@ -1,5 +1,6 @@
 .DS_Store
-.cursor
+.cursor/*
+!.cursor/environment.json
 .cursorrules
 Thumbs.db
 node_modules/

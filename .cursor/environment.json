@@ -1,0 +1,4 @@
+{
+  "name": "Extensible Content Extension",
+  "install": "npm ci && npx playwright install --with-deps chromium"
+}
