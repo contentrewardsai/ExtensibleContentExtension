@@ -6619,6 +6619,7 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
           var tokenExpired = !token || elapsedUp >= ((whopAuth && whopAuth.expires_in) || 3600) - 60;
           if (token && !tokenExpired) {
             var upRes = await fetch(WHOP_APP_ORIGIN + '/api/extension/has-upgraded', {
+              credentials: 'omit',
               headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
             });
             if (upRes.ok) {

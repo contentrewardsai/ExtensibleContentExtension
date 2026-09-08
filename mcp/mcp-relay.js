@@ -175,20 +175,14 @@
       var beMethod = (payload.method || 'GET').toUpperCase();
       var beBody = payload.body || null;
       var beHeadersIn = payload.headers && typeof payload.headers === 'object' ? payload.headers : {};
-      var pathCheck = String(bePath || '').trim();
-      if (!pathCheck) {
-        sendWs({ id: id, response: { ok: false, error: 'path required' } });
+      var mcpPath = typeof cfsIsAllowedMcpBackendFetchPath === 'function'
+        ? cfsIsAllowedMcpBackendFetchPath(bePath)
+        : { ok: false, error: 'MCP backend path allowlist unavailable' };
+      if (!mcpPath.ok) {
+        sendWs({ id: id, response: { ok: false, error: mcpPath.error || 'path must start with /api/extension/' } });
         return;
       }
-      if (/^[a-z][a-z0-9+.-]*:/i.test(pathCheck) || pathCheck.indexOf('//') === 0) {
-        sendWs({ id: id, response: { ok: false, error: 'path must be relative (no scheme)' } });
-        return;
-      }
-      if (pathCheck.charAt(0) !== '/') pathCheck = '/' + pathCheck;
-      if (pathCheck.indexOf('..') !== -1 || pathCheck.indexOf('/api/extension/') !== 0) {
-        sendWs({ id: id, response: { ok: false, error: 'path must start with /api/extension/' } });
-        return;
-      }
+      var pathCheck = mcpPath.path;
       chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, function (tokenRes) {
         var token = tokenRes && (tokenRes.access_token || tokenRes.token);
         if (!token) {
