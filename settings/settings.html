@@ -6,14 +6,14 @@
   <title>Extensible Content – Settings</title>
   <style>
     :root {
-      --bg: #ffffff;
-      --fg: #1a1a1a;
-      --border: #e4e4e7;
-      --muted: #71717a;
+      --bg: #fafafa;
+      --fg: #18181b;
+      --border: #d4d4d8;
+      --muted: #52525b;
       --muted-bg: #f4f4f5;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --accent-light: #eff6ff;
+      --accent: #16a34a;
+      --accent-hover: #15803d;
+      --accent-light: #dcfce7;
       --success: #16a34a;
       --error: #dc2626;
       --card-bg: #ffffff;
@@ -24,23 +24,23 @@
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #09090b;
-        --fg: #f4f4f5;
-        --border: #27272a;
-        --muted: #a1a1aa;
-        --muted-bg: #18181b;
-        --accent: #3b82f6;
-        --accent-hover: #60a5fa;
-        --accent-light: #1e3a8a;
-        --success: #4ade80;
+        --bg: #0e0e10;
+        --fg: #f2f2f2;
+        --border: #313134;
+        --muted: #a0a0ab;
+        --muted-bg: #18181c;
+        --accent: #22c55e;
+        --accent-hover: #4ade80;
+        --accent-light: #14532d;
+        --success: #22c55e;
         --error: #f87171;
-        --card-bg: #09090b;
-        --sidebar-bg: #18181b;
+        --card-bg: #18181c;
+        --sidebar-bg: #18181c;
       }
     }
     * { box-sizing: border-box; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
       margin: 0; background: var(--bg); color: var(--fg); line-height: 1.5;
       display: flex; height: 100vh; overflow: hidden;
     }
@@ -987,6 +987,7 @@
   <!-- Local overrides (committed stub). Must be an external script — MV3 extension CSP blocks inline. -->
   <script src="../config/whop-auth.js"></script>
   <script src="../extension/config.js"></script>
+  <script src="../shared/app-origin-guard.js"></script>
   <script src="../extension/auth-fetch.js"></script>
   <script src="../extension/workflow-normalize.js"></script>
   <script src="../shared/dom-utils.js"></script>

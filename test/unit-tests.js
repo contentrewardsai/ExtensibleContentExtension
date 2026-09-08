@@ -630,6 +630,16 @@
         case 'SEND_TO_ENDPOINT':
           if (!msg.url || typeof msg.url !== 'string') return { valid: false, error: 'url required' };
           break;
+        case 'CAPTURE_VISIBLE_TAB': {
+          var cap = global.CFS_mcpCaptureTab;
+          if (cap && typeof cap.optionalNonNegInt === 'function') {
+            var tabCheck = cap.optionalNonNegInt(msg.tabId, 'tabId');
+            if (!tabCheck.ok) return { valid: false, error: tabCheck.error };
+            var winCheck = cap.optionalNonNegInt(msg.windowId, 'windowId');
+            if (!winCheck.ok) return { valid: false, error: winCheck.error };
+          }
+          break;
+        }
         case 'APIFY_TEST_TOKEN': {
           var apifyTestTokMax = 2048;
           if (msg.token != null && String(msg.token).trim().length > apifyTestTokMax) {
@@ -1072,6 +1082,10 @@
     assertFalse(validateMessagePayload('RUN_WORKFLOW', { workflowId: '' }).valid);
     assertTrue(validateMessagePayload('RUN_WORKFLOW', { workflowId: 'test' }).valid);
 
+    assertTrue(validateMessagePayload('CAPTURE_VISIBLE_TAB', {}).valid);
+    assertTrue(validateMessagePayload('CAPTURE_VISIBLE_TAB', { tabId: 1, windowId: 2 }).valid);
+    assertFalse(validateMessagePayload('CAPTURE_VISIBLE_TAB', { tabId: -1 }).valid);
+    assertFalse(validateMessagePayload('CAPTURE_VISIBLE_TAB', { windowId: 1.5 }).valid);
     assertTrue(validateMessagePayload('UNKNOWN_TYPE', {}).valid, 'unknown type passes validation');
   }
 
@@ -2704,6 +2718,31 @@
     assertTrue(c.WORKFLOW_CATEGORIES.every(function(o) { return o.id && o.label; }));
   }
 
+  function testWorkflowCategoriesHelpers() {
+    var cat = global.CFS_workflowCategories;
+    assertTrue(!!cat, 'CFS_workflowCategories loaded');
+    var state = cat.emptyState();
+    var added = cat.addCustomCategory(state, 'Client Work');
+    assertTrue(added.ok);
+    assertEqual(added.id, 'client-work');
+    state = added.state;
+    var merged = cat.mergeCategories(state.custom);
+    assertTrue(merged.some(function (c) { return c.id === 'client-work'; }));
+    assertTrue(merged.some(function (c) { return c.id === 'social' && c.builtin; }));
+    state = cat.assignWorkflow(state, 'wf1', 'social');
+    state = cat.assignWorkflow(state, 'wf1', 'client-work');
+    assertDeepEqual(cat.workflowCategoryIds({ categories: ['social'] }, 'wf1', state.assignments).sort(), ['client-work', 'social']);
+    assertTrue(cat.matchesCategory({ categories: ['social'] }, 'wf1', 'social', state.assignments));
+    assertFalse(cat.matchesCategory({ categories: [] }, 'wf2', 'social', state.assignments));
+    assertTrue(cat.matchesSearch({ name: 'Course launch' }, 'wf1', 'course'));
+    assertFalse(cat.matchesSearch({ name: 'Course launch' }, 'wf1', 'newsletter'));
+    var removed = cat.removeCustomCategory(state, 'social');
+    assertFalse(removed.ok);
+    removed = cat.removeCustomCategory(state, 'client-work');
+    assertTrue(removed.ok);
+    assertFalse(removed.state.custom.some(function (c) { return c.id === 'client-work'; }));
+  }
+
   function testWorkflowSetupConstantsStorageKey() {
     var c = global.WorkflowSetupConstants;
     assertEqual(typeof c.WORKFLOW_SETUP_STORAGE_KEY, 'string');
@@ -2833,6 +2872,18 @@
     assertFalse(sw(click, { ready: 'true' }, getRow), 'truthy runIf does not skip');
   }
 
+  function testRunIfQuotedStringLiteralIgnoresRowKey() {
+    var ev = global.CFS_runIfCondition.evaluate;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var row = { headline: 'FloraTrack', text: 'FloraTrack', block: { ghl: 'headline' } };
+    assertFalse(ev('{{block.ghl}} === headline', row, getRow), 'unquoted headline resolves to row.headline');
+    assertTrue(ev('{{block.ghl}} === "headline"', row, getRow), 'quoted headline is a literal');
+    assertTrue(ev("{{block.ghl}} === 'headline'", row, getRow), 'single-quoted headline is a literal');
+    row.block.ghl = 'text';
+    assertFalse(ev('{{block.ghl}} === text', row, getRow), 'unquoted text resolves to row.text');
+    assertTrue(ev('{{block.ghl}} === "text"', row, getRow), 'quoted text is a literal');
+  }
+
   function testResolveActionField() {
     var tr = global.CFS_templateResolver;
     function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
@@ -2855,7 +2906,35 @@
     });
     assertTrue(!!cat.byType.RUN_WORKFLOW, 'RUN_WORKFLOW catalogued');
     assertTrue(!!cat.byType.GET_TOKEN, 'GET_TOKEN catalogued');
+    assertEqual(cat.byType.GET_TOKEN.auth, 'extension', 'GET_TOKEN auth is this-extension');
+    assertTrue(!!cat.byType.STORE_TOKENS, 'STORE_TOKENS catalogued');
+    assertEqual(cat.byType.STORE_TOKENS.auth, 'extensionOrTrustedAuth', 'STORE_TOKENS allows trusted auth pages');
+    assertTrue(!!cat.byType.CFS_NATIVE_DRAG, 'CFS_NATIVE_DRAG catalogued');
+    assertEqual(cat.byType.CFS_NATIVE_DRAG.auth, 'extension', 'CFS_NATIVE_DRAG must not skip extension auth');
     assertTrue(!!cat.byType.GET_FOLLOWING_DATA, 'GET_FOLLOWING_DATA catalogued');
+    assertTrue(!!cat.byType.CAPTURE_VISIBLE_TAB, 'CAPTURE_VISIBLE_TAB catalogued');
+    assertEqual(cat.byType.CAPTURE_VISIBLE_TAB.auth, 'extension', 'CAPTURE_VISIBLE_TAB auth is this-extension');
+    assertTrue(!!cat.byType.CFS_MCP_OPEN_RELAY, 'CFS_MCP_OPEN_RELAY catalogued');
+  }
+
+  function testMcpCaptureTabHelpers() {
+    var cap = global.CFS_mcpCaptureTab;
+    assertTrue(!!cap, 'CFS_mcpCaptureTab loaded');
+    assertTrue(cap.LIMITS.viewportOnly);
+    assertTrue(cap.LIMITS.iframesAsRenderedPixels);
+    assertTrue(cap.optionalNonNegInt(null, 'tabId').ok);
+    assertEqual(cap.optionalNonNegInt('3', 'tabId').value, 3);
+    assertFalse(cap.optionalNonNegInt(-1, 'tabId').ok);
+    assertFalse(cap.optionalNonNegInt(1.2, 'windowId').ok);
+    var png = 'data:image/png;base64,iVBORw0KGgo=';
+    assertTrue(cap.shouldInlineDataUrl(png, 1000));
+    assertFalse(cap.shouldInlineDataUrl(png, 5));
+    var split = cap.splitDataUrl(png);
+    assertTrue(split.ok && split.isBase64);
+    assertEqual(split.mime, 'image/png');
+    assertEqual(split.base64, 'iVBORw0KGgo=');
+    assertEqual(cap.projectRelativePath(42, 99), 'uploads/mcp-screenshots/tab-42-99.png');
+    assertEqual(cap.projectRelativePath('../x', 1).indexOf('uploads/mcp-screenshots/tab-'), 0);
   }
 
   function testGithubSyncCoreSkipPaths() {
@@ -4093,6 +4172,7 @@
     testWorkflowSetupConstantsPlatforms,
     testWorkflowSetupConstantsUpgradePlans,
     testWorkflowSetupConstantsCategories,
+    testWorkflowCategoriesHelpers,
     testWorkflowSetupConstantsStorageKey,
     testWorkflowSetupConstantsUpgradePlatforms,
     testTemplateResolverMultipleVars,
@@ -4108,8 +4188,10 @@
     testRunIfSkipWhenRunIfAction,
     testRunIfComplementaryRunWorkflowPair,
     testRunIfNeedsElementSkipWhenFalsy,
+    testRunIfQuotedStringLiteralIgnoresRowKey,
     testResolveActionField,
     testMessageTypeCatalogCompleteness,
+    testMcpCaptureTabHelpers,
     testGithubSyncCoreSkipPaths,
     testStepCommentPartsWithMedia,
     testStepCommentPartsCustomOrder,
@@ -4186,9 +4268,11 @@
     testPlayerQcLastItemHasFailedNoMatch,
     testPlayerApplyRowMappingEmpty,
     testPlayerApplyRowMappingWithMapping,
+    testPlayerApplyRowMappingSkipsUndefined,
     testPlayerGetRowValueBasic,
     testPlayerGetRowValueCaseInsensitive,
     testPlayerGetRowValueMissing,
+    testPlayerGetRowValueSkipsUndefined,
     testPlayerLooksLikeUploadTrigger,
 
     // ── Service worker helper tests ───────────────────────────────────
@@ -4248,6 +4332,11 @@
     testSidepanelWorkflowNeedsVideoBatchWait,
     testSidepanelIsWorkflowCatalogKbEligible,
     testSidepanelFriendlyKnowledgeAnswerError,
+    testAppFetchPathAllowlist,
+    testAppFetchFailsClosedWithoutToken,
+    testAppFetchRejectsDisallowedPathBeforeAuth,
+    testTrustedAuthOrigins,
+    testMcpRelayGuards,
 
     // ── Walkthrough export tests ──────────────────────────────────────
     testWalkthroughSelectorStrings,
@@ -4378,6 +4467,22 @@
     assertEqual(mapped.name, 'Alice', 'original keys preserved');
   }
 
+  function testPlayerApplyRowMappingSkipsUndefined() {
+    function applyRowMapping(row, mapping) {
+      if (!mapping || !Object.keys(mapping).length) return Object.assign({}, row);
+      var result = Object.assign({}, row);
+      for (var key in mapping) {
+        if (!mapping.hasOwnProperty(key)) continue;
+        var v = row[mapping[key]];
+        if (v !== undefined) result[key] = v;
+      }
+      return result;
+    }
+    var row = { block: { text: 'Pothos' }, text: 'keep' };
+    var mapped = applyRowMapping(row, { text: 'missing' });
+    assertEqual(mapped.text, 'keep', 'undefined mapping must not wipe an existing value');
+  }
+
   function testPlayerGetRowValueBasic() {
     function getRowValue(row) {
       if (!row || typeof row !== 'object') return '';
@@ -4430,6 +4535,25 @@
     assertEqual(getRowValue({}, 'x'), '', 'missing key → empty');
     assertEqual(getRowValue(null, 'x'), '', 'null row → empty');
     assertEqual(getRowValue(undefined, 'x'), '', 'undefined row → empty');
+  }
+
+  function testPlayerGetRowValueSkipsUndefined() {
+    function getRowValue(row) {
+      if (!row || typeof row !== 'object') return '';
+      var keys = Array.prototype.slice.call(arguments, 1).filter(Boolean);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (row[k] !== undefined && row[k] !== null) return row[k];
+        var lower = (k || '').toLowerCase();
+        var rks = Object.keys(row);
+        for (var j = 0; j < rks.length; j++) {
+          if ((rks[j] || '').toLowerCase() === lower && row[rks[j]] !== undefined && row[rks[j]] !== null) return row[rks[j]];
+        }
+      }
+      return '';
+    }
+    assertEqual(getRowValue({ text: undefined, name: 'Pothos' }, 'text', 'name'), 'Pothos', 'skip undefined mapped text');
+    assertEqual(getRowValue({ text: null }, 'text'), '', 'null value → empty');
   }
 
   function testPlayerLooksLikeUploadTrigger() {
@@ -5391,18 +5515,81 @@
     function friendlyKnowledgeAnswerErrorMessage(msg) {
       var s = String(msg || '');
       if (/workflow_kb_check_bypass|knowledge_answers.*schema cache|schema cache/i.test(s)) {
-        return 'Server database needs migration: add knowledge_answers.workflow_kb_check_bypass (boolean, default false). See docs/BACKEND_IMPLEMENTATION_PROMPT.md §8.';
+        return 'Could not save that answer. Sign in again if the session expired, or try a different workflow.';
       }
       return s;
     }
     var migration = friendlyKnowledgeAnswerErrorMessage('knowledge_answers schema cache issue');
-    assertTrue(migration.indexOf('migration') >= 0, 'schema cache → migration msg');
+    assertTrue(migration.indexOf('save that answer') >= 0, 'schema cache → friendly msg');
     var bypass = friendlyKnowledgeAnswerErrorMessage('workflow_kb_check_bypass');
-    assertTrue(bypass.indexOf('migration') >= 0, 'bypass check → migration msg');
+    assertTrue(bypass.indexOf('save that answer') >= 0, 'bypass check → friendly msg');
     var normal = friendlyKnowledgeAnswerErrorMessage('Timeout error');
     assertEqual(normal, 'Timeout error', 'pass-through');
     var empty = friendlyKnowledgeAnswerErrorMessage('');
     assertEqual(empty, '', 'empty pass-through');
+  }
+
+  function testAppFetchPathAllowlist() {
+    var fn = global.cfsIsAllowedAppFetchPath;
+    assertTrue(typeof fn === 'function', 'cfsIsAllowedAppFetchPath loaded');
+    assertTrue(fn('/api/extension/projects').ok, 'extension projects');
+    assertTrue(fn('/api/extension/workflows/catalog?hostname=x').ok, 'extension catalog query');
+    assertTrue(fn('/api/box/connections').ok, 'box connections');
+    assertTrue(fn('/api/box/browse?connection_id=1').ok, 'box browse query');
+    assertFalse(fn('/api/admin').ok, 'admin blocked');
+    assertFalse(fn('/api/extension/../box/connections').ok, 'dot-dot blocked');
+    assertFalse(fn('https://evil.example/api/extension/projects').ok, 'scheme blocked');
+    assertFalse(fn('//evil.example/api/extension/projects').ok, 'protocol-relative blocked');
+    assertFalse(fn('').ok, 'empty blocked');
+  }
+
+  function testAppFetchFailsClosedWithoutToken() {
+    var apiFetch = global.ExtensionAuthFetch && global.ExtensionAuthFetch.apiFetch;
+    assertTrue(typeof apiFetch === 'function', 'apiFetch loaded');
+    return apiFetch('/api/extension/projects').then(function () {
+      throw new Error('expected not-logged-in');
+    }, function (err) {
+      assertEqual(err && err.code, 'NOT_LOGGED_IN', 'no token → NOT_LOGGED_IN');
+    });
+  }
+
+  function testAppFetchRejectsDisallowedPathBeforeAuth() {
+    var apiFetch = global.ExtensionAuthFetch && global.ExtensionAuthFetch.apiFetch;
+    return apiFetch('/api/admin').then(function () {
+      throw new Error('expected path rejection');
+    }, function (err) {
+      assertEqual(err && err.code, 'PATH_NOT_ALLOWED', 'disallowed path fails closed');
+    });
+  }
+
+  function testTrustedAuthOrigins() {
+    var urlFn = global.cfsIsTrustedAuthPageUrl;
+    var originFn = global.cfsIsTrustedAuthOrigin;
+    assertTrue(typeof urlFn === 'function' && typeof originFn === 'function', 'trusted auth helpers loaded');
+    assertTrue(urlFn('https://www.extensiblecontent.com/extension/login'), 'www login');
+    assertTrue(urlFn('https://extensiblecontent.com/extension/login'), 'apex login');
+    assertTrue(urlFn('http://localhost:3000/extension/login'), 'localhost:3000');
+    assertTrue(urlFn('http://127.0.0.1:3000/extension/login'), '127.0.0.1:3000');
+    assertTrue(originFn('https://www.extensiblecontent.com'), 'www origin');
+    assertFalse(urlFn('https://evil.extensiblecontent.com/login'), 'subdomain rejected');
+    assertFalse(urlFn('http://localhost:9999/login'), 'other localhost port rejected');
+    assertFalse(urlFn('https://example.com/'), 'unrelated host rejected');
+    assertFalse(urlFn(''), 'empty rejected');
+  }
+
+  function testMcpRelayGuards() {
+    assertTrue(global.cfsIsAllowedMcpBundledPath('steps/manifest.json'), 'steps manifest');
+    assertTrue(global.cfsIsAllowedMcpBundledPath('workflows/manifest.json'), 'workflows manifest');
+    assertFalse(global.cfsIsAllowedMcpBundledPath('docs/BACKEND.md'), 'docs blocked');
+    assertFalse(global.cfsIsAllowedMcpBundledPath('steps/../docs/BACKEND.md'), 'traversal blocked');
+    assertFalse(global.cfsIsAllowedMcpBundledPath('config/whop-auth.js'), 'config blocked');
+    assertTrue(global.cfsIsAllowedMcpRelayReqType('BACKEND_FETCH'), 'BACKEND_FETCH allowed');
+    assertTrue(global.cfsIsAllowedMcpRelayReqType('MESSAGE'), 'MESSAGE allowed');
+    assertFalse(global.cfsIsAllowedMcpRelayReqType('GET_TOKEN'), 'GET_TOKEN not a reqType');
+    assertTrue(global.cfsIsDeniedMcpRelayMessageType('GET_TOKEN'), 'GET_TOKEN denied');
+    assertTrue(global.cfsIsDeniedMcpRelayMessageType('STORE_TOKENS'), 'STORE_TOKENS denied');
+    assertTrue(global.cfsIsDeniedMcpRelayMessageType('LOGOUT'), 'LOGOUT denied');
+    assertFalse(global.cfsIsDeniedMcpRelayMessageType('GET_TAB_INFO'), 'GET_TAB_INFO allowed');
   }
 
   // ── Walkthrough export tests ───────────────────────────────────────
@@ -6579,6 +6766,13 @@
         'https://app.gohighlevel.com/location/abc/page-builder/xyz'
       ),
       'delegate when parent still hosts the iframe'
+    );
+    assertTrue(
+      fa.actionNeedsFrameDelegate(
+        { inIframe: true, frameOrigin: 'https://leadgen-apps-form-survey-builder.leadconnectorhq.com' },
+        'https://page-builder.leadconnectorhq.com/location/abc/page-builder/xyz'
+      ),
+      'delegate nested form-builder from the page-builder iframe'
     );
     assertTrue(
       fa.iframeSrcMatchesAction(

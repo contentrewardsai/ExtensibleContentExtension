@@ -10,9 +10,10 @@
   <div class="container">
     <section class="backend-auth-section" id="backendAuthSection">
       <div id="authLoggedOut" class="auth-form">
-        <p class="hint">Sign in to sync across devices and receive remote workflow triggers.</p>
-        <div class="form-row">
-          <button id="authLoginWhop" class="btn btn-primary">Login with Whop</button>
+        <p class="hint">Start a free 3-day trial to sync across devices and receive remote workflow triggers.</p>
+        <div class="form-row" style="flex-direction:column; align-items:stretch;">
+          <button type="button" id="authStartTrial" class="btn btn-primary">Start 3-day free trial</button>
+          <button type="button" id="authLoginWhop" class="btn btn-outline">I already have an account</button>
         </div>
         <div class="form-row auth-reload-row" style="margin-top:8px; gap:4px; align-items:center;">
           <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root; workflows/ and steps/ will be subfolders">Set project folder</button>
@@ -35,7 +36,7 @@
           <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
         </div>
-        <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Set your project folder so we can read and write workflows, steps, and plugins. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there and new steps/plugins load on reload. You can also choose another folder; we'll import what we can from it.</p>
+        <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Optional: set a project folder to write workflow JSON files, steps, and plugins to disk. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there. Workflows still save in this browser (and to your account when signed in) without a folder.</p>
         <div class="sidebar-name-row form-row">
           <label for="sidebarName"><strong>Sidebar Name:</strong></label>
           <input type="text" id="sidebarName" placeholder="e.g. Office PC, Laptop">
@@ -43,14 +44,13 @@
         </div>
         <p id="sidebarNameSaveStatus" class="sidebar-save-status hint" style="display:none; margin:0 0 6px 0;"></p>
       </div>
-      <div class="auth-project-row form-row" style="margin-top:6px;">
-        <label for="projectSelect" class="project-label"><strong>Project:</strong></label>
-        <select id="projectSelect" class="project-select" title="Select a project">
-          <option value="">— Select project —</option>
-        </select>
-        <button type="button" id="addProjectBtn" class="btn btn-outline btn-small" title="Add new project">+</button>
-        <button type="button" id="editProjectBtn" class="btn btn-outline btn-small" title="Edit selected project">Edit</button>
-        <button type="button" id="saveProjectBtn" class="btn btn-outline btn-small" title="Save as default project">Save</button>
+      <div id="upgradeCtaWrap" class="upgrade-cta-wrap" style="display:none; margin-top:8px;">
+        <p id="upgradeCtaHint" class="hint" style="margin:0 0 8px 0;"></p>
+        <div id="upgradeTrialCtaRow" style="display:none; margin-bottom:8px;">
+          <button type="button" id="upgradeStartTrialBtn" class="btn btn-primary">Start 3-day free trial</button>
+          <button type="button" id="upgradeShowPaidPlansBtn" class="btn btn-outline btn-small" style="margin-top:6px;">Already used your trial? Pick a plan</button>
+        </div>
+        <div id="upgradePlansList" class="upgrade-plans-list"></div>
       </div>
       <div id="addProjectForm" class="add-project-form" style="display:none">
         <label for="newProjectName">Project Name</label>
@@ -198,10 +198,51 @@
       <h3 class="activity-heading">Content Rewards AI</h3>
       <p class="hint" style="margin:0 0 8px 0;">Create content in the Content Rewards AI app on Whop.</p>
       <button type="button" class="btn btn-outline" id="openContentRewardsLink" title="Open in new tab">Content Rewards AI</button>
-      <h3 class="activity-heading">Projects</h3>
-      <p id="libraryProjectsEmpty" class="hint activity-empty" style="display:none">Sign in to see projects. Generations save to <code>uploads/{projectId}/generations/</code>.</p>
-      <p class="hint" style="margin:0 0 8px 0;">Click a project to open its uploads folder — then add subfolders, upload files, or download.</p>
-      <div id="libraryProjectsList" class="library-projects-list"></div>
+      <h3 class="activity-heading">Sources</h3>
+      <p class="hint" style="margin:0 0 8px 0;">Load files from HighLevel, Box, and My Files — the same sources as the online app when you are signed in. Local folder uses this browser’s project folder.</p>
+      <p id="librarySourcesEmpty" class="hint activity-empty" style="display:none">Sign in to load HighLevel, Box, and My Files.</p>
+      <div id="librarySourcesList" class="library-sources-list"></div>
+      <section class="library-source-record" id="librarySourceRecordPanel" data-testid="cfs-source-record">
+        <h4 class="library-source-record-heading">Record</h4>
+        <p class="hint" style="margin:0 0 8px 0;font-size:11px;">Same capture as the online app: screen, microphone, webcam, and computer audio. Saves to the selected source, or your project folder / Downloads.</p>
+        <div class="library-source-record-modes" id="librarySourceRecordModes">
+          <button type="button" class="library-source-record-mode is-active" data-record-mode="mic" aria-pressed="true">
+            <span class="library-source-record-check" aria-hidden="true"></span>
+            <span class="library-source-record-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+            </span>
+            Microphone
+          </button>
+          <button type="button" class="library-source-record-mode" data-record-mode="system" aria-pressed="false">
+            <span class="library-source-record-check" aria-hidden="true"></span>
+            <span class="library-source-record-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3,9 7,9 11,5 11,19 7,15 3,15"/><path d="M15 9c2 2 2 4 0 6"/></svg>
+            </span>
+            System Audio
+          </button>
+          <button type="button" class="library-source-record-mode" data-record-mode="screen" aria-pressed="false">
+            <span class="library-source-record-check" aria-hidden="true"></span>
+            <span class="library-source-record-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><circle cx="12" cy="10" r="2"/><path d="M8 20h8"/></svg>
+            </span>
+            Screen
+          </button>
+          <button type="button" class="library-source-record-mode" data-record-mode="webcam" aria-pressed="false">
+            <span class="library-source-record-check" aria-hidden="true"></span>
+            <span class="library-source-record-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="13" height="10" rx="2"/><polygon points="16,9 21,7 21,17 16,15"/></svg>
+            </span>
+            Webcam
+          </button>
+        </div>
+        <div class="library-source-record-actions">
+          <button type="button" class="btn btn-record" id="librarySourceRecordStart" data-testid="cfs-source-record-start">Start Recording</button>
+          <button type="button" class="btn btn-stop" id="librarySourceRecordStop" disabled>Stop</button>
+          <span id="librarySourceRecordTimer" class="library-source-record-timer hint" hidden>0:00</span>
+        </div>
+        <p id="librarySourceRecordStatus" class="hint library-source-record-status" role="status"></p>
+      </section>
+      <div id="librarySourceBrowserWrap" class="library-source-browser" style="display:none; margin-top:8px; margin-left:12px; padding-left:12px; border-left:2px solid var(--border-color,#e5e5e7);"></div>
 
       <div id="uploadsBrowserWrap" class="uploads-browser-under-project" style="display:none; margin-top:8px; margin-left:12px; padding-left:12px; border-left:2px solid var(--border-color,#e5e5e7);">
         <div class="uploads-toolbar form-row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
@@ -215,30 +256,49 @@
         <div id="uploadsList" class="uploads-list" style="min-height:60px;"></div>
         <p id="uploadsEmpty" class="hint activity-empty" style="display:none;">This folder is empty. Add a subfolder or upload files.</p>
       </div>
-      <p id="uploadsPrompt" class="hint" style="margin-top:12px;display:none;">Click a project above to open its uploads folder.</p>
+      <p id="uploadsPrompt" class="hint" style="margin-top:12px;display:none;">Click a source above to browse files.</p>
 
       <div class="library-categories-section">
         <h3 class="activity-heading">Categories</h3>
-        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Browse workflows by category; highest rated at the top.</p>
+        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Filter and search workflows, create categories, and add or remove workflows from a category.</p>
         <div id="workflowCategoryTabs" class="workflow-category-tabs"></div>
         <div class="form-row" style="margin-top:8px">
           <input type="text" id="workflowDiscoverySearch" placeholder="Search workflows…" class="get-started-search" style="flex:1;min-width:0">
           <button type="button" id="workflowDiscoverySearchBtn" class="btn btn-outline btn-small">Search</button>
         </div>
+        <div id="workflowCategoryAssignWrap" style="display:none;margin-top:8px;"></div>
         <div id="workflowDiscoveryResults" class="workflow-discovery-results hint" style="margin-top:8px;min-height:40px;">Select a category or search to see workflows.</div>
       </div>
 
       <h3 class="activity-heading" style="margin-top:24px;">Workflows</h3>
-      <div id="workflowContentRequiresProjectFolder" style="display:none">
+      <div id="workflowContentRequiresProjectFolder">
         <div class="create-workflow-row form-row" style="margin-bottom:8px">
           <input type="text" id="newWorkflowName" placeholder="New workflow name">
           <button id="createWorkflow" class="btn btn-primary">Create New Workflow</button>
         </div>
         <p class="hint" style="margin:0 0 6px;font-size:11px;">Manage workflows (add, import, export, sync) on the <strong>Settings</strong> page.</p>
-        <h3 class="your-workflows-heading" style="margin-top:12px;margin-bottom:6px;">Your workflows (local)</h3>
-        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Workflows are written to <code>workflows/{workflow-id}/</code> as <code>workflow-{id}-{version}.json</code> (highest number = latest). Synced to backend when you create or version.</p>
+        <h3 class="your-workflows-heading" style="margin-top:12px;margin-bottom:6px;">Your workflows</h3>
+        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Saved in this browser. Signed-in accounts also sync to your backend (Supabase). Optional: write JSON files with <strong>Save to folder</strong> when a project folder is set.</p>
         <div class="workflow-list" id="workflowList"></div>
+        <section class="data-export-section" id="dataExportSection">
+          <h3 class="activity-heading">Export data</h3>
+          <div class="btn-group">
+            <button id="exportDataCSV" class="btn btn-outline">Export data (CSV)</button>
+          </div>
+        </section>
       </div>
+      <section class="page-compare-section" id="pageCompareSection">
+        <div class="page-compare-heading-row">
+          <h3 class="page-compare-heading activity-heading">Compare</h3>
+          <button type="button" id="pageCompareRunBtn" class="btn btn-outline btn-small" data-testid="cfs-compare-run" title="Compare row sourceSnapshot / plan against the current tab preview">Compare now</button>
+        </div>
+        <p class="hint" style="margin:0 0 8px 0;">On-device text, color, layout, and form checks (LaMini / MiniLM optional). Paste a row with <code>plan</code> and <code>sourceSnapshot</code>, then open the GHL preview.</p>
+        <div class="page-compare-strip">
+          <div class="page-compare-metric"><span class="page-compare-label">Result</span><span id="pageComparePass" class="page-compare-pass" data-testid="cfs-compare-pass">—</span></div>
+          <div class="page-compare-metric"><span class="page-compare-label">Score</span><span id="pageCompareScore" data-testid="cfs-compare-score">—</span></div>
+        </div>
+        <pre id="pageCompareFailures" class="page-compare-failures" data-testid="cfs-compare-failures" role="status">none</pre>
+      </section>
       <div id="versionHistoryPanel" class="version-history-panel" style="display:none">
         <h3>Version history</h3>
         <div id="versionHistoryList" class="version-history-list"></div>
@@ -298,8 +358,8 @@
             <button id="workflowUndoBtn" class="btn btn-outline btn-small" title="Undo last workflow edit (Ctrl+Z)" disabled data-testid="cfs-workflow-undo">↩ Undo</button>
             <button id="workflowRedoBtn" class="btn btn-outline btn-small" title="Redo workflow edit (Ctrl+Shift+Z)" disabled data-testid="cfs-workflow-redo">↪ Redo</button>
           </div>
-          <div class="steps-flow-toolbar">
-            <button type="button" class="btn btn-outline btn-small" id="stepsViewListBtn" data-testid="cfs-steps-view-list">List</button>
+          <div class="steps-flow-toolbar" role="group" aria-label="Steps view">
+            <button type="button" class="btn btn-outline btn-small is-active" id="stepsViewListBtn" data-testid="cfs-steps-view-list">List</button>
             <button type="button" class="btn btn-outline btn-small" id="stepsViewGraphBtn" data-testid="cfs-steps-view-graph">Graph</button>
           </div>
           <div id="stepsFlowStrip" class="steps-flow-strip" data-testid="cfs-steps-flow-strip"></div>
@@ -432,6 +492,7 @@
 
     <section class="tab-panel pulse-section" id="pulsePanel" data-tab="pulse" style="display:none">
       <h2>Pulse</h2>
+      <p class="hint" style="margin:0 0 10px;">What’s trending and people you follow.</p>
       <div class="pulse-icon-row">
         <a href="https://trends.google.com/trending" target="_blank" rel="noopener noreferrer" class="pulse-icon-link" title="Google Trends – Trending now">
           <svg class="pulse-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -473,15 +534,69 @@
       </div>
       <div class="following-section">
         <div class="following-heading-row">
-          <h3 class="following-heading">Following:</h3>
-          <button type="button" id="followingAddNewBtn" class="btn btn-outline btn-small">Add New</button>
+          <h3 class="following-heading">Following</h3>
+          <div class="following-heading-actions">
+            <button type="button" id="followingAddNewBtn" class="btn btn-outline btn-small">Add New</button>
+          </div>
         </div>
         <div id="followingAddForm" class="following-add-form" style="display:none">
           <input type="text" id="followingAddName" placeholder="Profile name" class="following-add-input">
           <button type="button" id="followingAddSaveBtn" class="btn btn-primary btn-small">Save</button>
         </div>
-        <div id="followingList" class="following-list"></div>
+        <div id="followingList" class="following-list" data-testid="cfs-pulse-following"></div>
         <p id="followingStatus" class="hint following-status" style="display:none;" role="status"></p>
+      </div>
+      <div class="pulse-viral-section" id="pulseViralSection" data-testid="cfs-pulse-viral">
+        <div class="pulse-viral-heading-row">
+          <h3 class="pulse-viral-heading">Popular content</h3>
+          <button type="button" id="pulseViralRefreshBtn" class="btn btn-outline btn-small" data-testid="cfs-pulse-viral-refresh" title="Refresh popular content">Refresh</button>
+        </div>
+        <div class="pulse-viral-filters">
+          <div class="pulse-viral-range" role="group" aria-label="Time range">
+            <button type="button" class="btn btn-outline btn-small is-active" data-pulse-window="7">7 day</button>
+            <button type="button" class="btn btn-outline btn-small" data-pulse-window="30">30 day</button>
+          </div>
+          <select id="pulseViralScope" class="pulse-viral-filter-select" aria-label="Scope" title="Overall chart vs vertical (niche) examples">
+            <option value="overall">Overall</option>
+            <option value="vertical">Vertical</option>
+          </select>
+          <select id="pulseViralCategory" class="pulse-viral-filter-select" aria-label="Category" title="One category maps across YouTube, TikTok, and the rest">
+            <option value="">All categories</option>
+            <option value="creators">Creators</option>
+            <option value="howto">How-to &amp; style</option>
+            <option value="education">Education</option>
+            <option value="gaming">Gaming</option>
+            <option value="sports">Sports &amp; fitness</option>
+            <option value="tech">Tech</option>
+            <option value="comedy">Comedy</option>
+            <option value="entertainment">Entertainment</option>
+            <option value="travel">Travel</option>
+            <option value="food">Food</option>
+            <option value="autos">Cars</option>
+            <option value="pets">Pets</option>
+            <option value="music">Music</option>
+            <option value="news">News</option>
+          </select>
+          <select id="pulseViralFormat" class="pulse-viral-filter-select" aria-label="Format" title="Content format">
+            <option value="">All formats</option>
+            <option value="talking-head-captions">Talking-head + captions</option>
+            <option value="pov">POV</option>
+            <option value="listicle-text">Listicle / text-on-screen</option>
+            <option value="green-screen">Green-screen commentary</option>
+            <option value="stitch-reaction">Stitch / duet / reaction</option>
+            <option value="before-after">Before-after / proof</option>
+            <option value="day-in-the-life">Day-in-the-life</option>
+            <option value="tutorial-screen">Tutorial / screen-record</option>
+            <option value="storytime">Storytime</option>
+            <option value="skit">Skit / sketch</option>
+            <option value="product-demo">Product-demo / UGC-ad</option>
+            <option value="street-interview">Street-interview / vox-pop</option>
+            <option value="montage-vo">Montage / b-roll + VO</option>
+          </select>
+        </div>
+        <div id="pulseViralTopics" class="pulse-topic-chips" hidden></div>
+        <p id="pulseViralStatus" class="pulse-viral-status hint" data-testid="cfs-pulse-viral-status" hidden></p>
+        <div id="pulseViralList" class="pulse-viral-list" data-testid="cfs-pulse-viral-list"></div>
       </div>
     </section>
 
@@ -490,17 +605,6 @@
         <p>Please upgrade your version of Chrome to 116 or later for these features to work.</p>
       </div>
       <div class="automations-main-content">
-      <div id="projectFolderBanner" class="project-folder-banner" style="display:none" role="alert">
-        <p>Set your project folder to create and run workflows and use exports.</p>
-        <button type="button" id="projectFolderBannerBtn" class="btn btn-primary btn-small">Set project folder</button>
-      </div>
-    <section class="data-export-section" id="dataExportSection">
-      <h2>Export data</h2>
-      <div class="btn-group">
-        <button id="exportDataCSV" class="btn btn-outline">Export data (CSV)</button>
-      </div>
-    </section>
-
     <section class="llm-chat-section" id="llmChatSection">
       <div class="llm-chat-heading-row">
         <h2 class="llm-chat-heading">Local AI Chat</h2>
@@ -527,20 +631,7 @@
       </div>
     </section>
 
-    <section class="page-compare-section" id="pageCompareSection">
-      <div class="page-compare-heading-row">
-        <h2 class="page-compare-heading">Compare</h2>
-        <button type="button" id="pageCompareRunBtn" class="btn btn-outline btn-small" data-testid="cfs-compare-run" title="Compare row sourceSnapshot / plan against the current tab preview">Compare now</button>
-      </div>
-      <p class="hint" style="margin:0 0 8px 0;">On-device text, color, layout, and form checks (LaMini / MiniLM optional). Paste a row with <code>plan</code> and <code>sourceSnapshot</code>, then open the GHL preview.</p>
-      <div class="page-compare-strip">
-        <div class="page-compare-metric"><span class="page-compare-label">Result</span><span id="pageComparePass" class="page-compare-pass" data-testid="cfs-compare-pass">—</span></div>
-        <div class="page-compare-metric"><span class="page-compare-label">Score</span><span id="pageCompareScore" data-testid="cfs-compare-score">—</span></div>
-      </div>
-      <pre id="pageCompareFailures" class="page-compare-failures" data-testid="cfs-compare-failures" role="status">none</pre>
-    </section>
-
-    <div id="recordingRequiresProjectFolder" style="display:none">
+    <div id="recordingRequiresProjectFolder">
       <section class="recording-section" id="recordingSection" style="margin-top:24px;">
         <h3 class="activity-heading">Add / Edit Workflow</h3>
         <div class="recording-controls">
@@ -557,10 +648,11 @@
           </div>
           <select id="workflowSelect" class="plan-workflow-id-select" aria-hidden="true" tabindex="-1"></select>
         </div>
-        <div id="newWorkflowRow" class="form-row" style="display:none; margin-top:6px;">
-          <input type="text" id="recordingNewWorkflowName" placeholder="Workflow name">
-          <button type="button" id="recordingCreateWorkflowBtn" class="btn btn-primary btn-small">Create</button>
+        <div id="newWorkflowRow" class="form-row" style="display:none; margin-top:6px; flex-wrap:wrap;">
+          <input type="text" id="recordingNewWorkflowName" placeholder="Workflow name (optional)">
+          <button type="button" id="recordingCreateWorkflowBtn" class="btn btn-outline btn-small">Create only</button>
         </div>
+        <p id="newWorkflowRecordHint" class="hint" style="display:none; margin:6px 0 0 0; font-size:11px;">Name is optional. Click <strong>Start Recording</strong> below to create the workflow and record.</p>
         <div id="workflowUrlPatternPlan" style="display:none; margin-top:8px;">
           <div id="workflowUrlPattern" class="url-pattern-row">
             <label for="workflowStartUrl">Expected URL/domain:</label>
@@ -576,39 +668,12 @@
             <div id="workflowAnswersList" class="workflow-answers-list hint" style="margin-top:4px;font-size:11px;"></div>
           </div>
         </div>
-        <div id="planWorkflowSubTabs" class="sub-tabs" style="display:none; margin-top:10px;">
+        <div id="planWorkflowSubTabs" class="sub-tabs" style="margin-top:10px;">
           <button type="button" class="sub-tab active" data-subtab="record">Record Workflow</button>
           <button type="button" class="sub-tab" data-subtab="editrun">Edit and Run Workflow</button>
         </div>
-        <div id="workflowSelectedControls" style="display:none;">
+        <div id="workflowSelectedControls">
           <div id="planRecordPanel" data-subtab-panel="record">
-            <div id="personalInfoPanel" class="personal-info-panel" style="margin-top:12px;">
-              <h3 class="activity-heading">Personal information</h3>
-              <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Use <strong>Select on page</strong>, then drag to highlight the exact sensitive text (or click an element to mask its full text), or <strong>type a phrase</strong> below. We'll replace matches with a generic word or <strong>***</strong> for preview and runs. <strong>Published</strong> workflows only sync selector rules that do not include your phrase (<code>replaceWholeElement</code> / <code>replaceRegexInElement</code> in JSON); phrases and &quot;local only&quot; rows stay on this device.</p>
-              <div class="form-row" style="margin-bottom:6px">
-                <button type="button" id="selectPersonalInfoOnPageBtn" class="btn btn-outline btn-small">Select on page</button>
-              </div>
-              <div class="form-row" style="margin-bottom:8px; flex-wrap:wrap; align-items:center; gap:6px;">
-                <label for="personalInfoManualPhrase" class="hint" style="margin:0;font-size:11px;flex:1 1 100%;">Or type text to mask (anywhere it appears on the page):</label>
-                <input type="text" id="personalInfoManualPhrase" placeholder="e.g. Jane Doe or 555-0100" style="flex:1; min-width:120px; padding:4px 8px; font-size:12px;">
-                <input type="text" id="personalInfoManualReplacement" placeholder="Replace with (e.g. *** )" style="flex:1; min-width:100px; padding:4px 8px; font-size:12px;">
-                <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoManualLocalOnly"> Local only (never sync)</label>
-                <button type="button" id="personalInfoManualAddBtn" class="btn btn-primary btn-small">Add typed phrase</button>
-              </div>
-              <div id="personalInfoSelectedWrap" style="display:none; margin-bottom:8px;">
-                <div class="hint" style="font-size:11px;">Selected text:</div>
-                <div id="personalInfoSelectedText" class="personal-info-selected-text" style="margin:4px 0; padding:6px; background:#fff; border:1px solid #e5e5e7; border-radius:4px; font-size:12px; max-height:60px; overflow-y:auto;"></div>
-                <div class="form-row" style="margin-top:6px; align-items:center; gap:6px;">
-                  <label for="personalInfoReplacement" class="hint" style="font-size:11px; margin:0;">Replace with (generic word or ***):</label>
-                  <input type="text" id="personalInfoReplacement" placeholder="e.g. *** or Your Name" style="flex:1; min-width:0; padding:4px 8px; font-size:12px;">
-                  <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoPickerLocalOnly"> Local only</label>
-                  <button type="button" id="personalInfoAddToListBtn" class="btn btn-primary btn-small">Add to list</button>
-                </div>
-              </div>
-              <ul id="personalInfoList" class="personal-info-list hint" style="margin:0; padding-left:18px; font-size:12px;"></ul>
-              <button type="button" id="personalInfoPreviewToggle" class="btn btn-outline btn-small" style="margin-top:6px;">Preview on page</button>
-            </div>
-            <hr style="margin:16px 0 0 0; border:none; border-top:1px solid #d2d2d7;">
             <h3 class="activity-heading" style="margin-top:12px;">Record Workflow</h3>
             <div class="recording-mode-row" id="recordingModeRow" style="margin-top:12px;">
               <span class="recording-mode-auto" id="recordingModeAuto"></span>
@@ -672,11 +737,37 @@
               <button id="stopRecord" class="btn btn-stop" disabled>Stop Recording</button>
             </div>
             <div id="recordingInstruction" class="recording-instruction hint" style="display:none; margin:8px 0; padding:8px; background:#f0f7ff; border-radius:6px; border:1px solid #b8d4f0;"></div>
-            <p class="hint">Record 2–5 runs of the same task to improve pattern matching. After recording, click <strong>Analyze Runs → Create Workflow Steps</strong> below to turn your recording into steps.</p>
-            <div class="runs-list" id="runsList"></div>
+            <p class="hint">Open the target page, then click <strong>Start Recording</strong>. Record 2–5 runs of the same task. After recording, click <strong>Analyze Runs → Create Workflow Steps</strong> to turn the recording into steps.</p>
+            <div id="personalInfoPanel" class="personal-info-panel" style="margin-top:12px;display:none;">
+              <h3 class="activity-heading">Personal information</h3>
+              <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Use <strong>Select on page</strong>, then drag to highlight the exact sensitive text (or click an element to mask its full text), or <strong>type a phrase</strong> below. We'll replace matches with a generic word or <strong>***</strong> for preview and runs. <strong>Published</strong> workflows only sync selector rules that do not include your phrase (<code>replaceWholeElement</code> / <code>replaceRegexInElement</code> in JSON); phrases and &quot;local only&quot; rows stay on this device.</p>
+              <div class="form-row" style="margin-bottom:6px">
+                <button type="button" id="selectPersonalInfoOnPageBtn" class="btn btn-outline btn-small">Select on page</button>
+              </div>
+              <div class="form-row" style="margin-bottom:8px; flex-wrap:wrap; align-items:center; gap:6px;">
+                <label for="personalInfoManualPhrase" class="hint" style="margin:0;font-size:11px;flex:1 1 100%;">Or type text to mask (anywhere it appears on the page):</label>
+                <input type="text" id="personalInfoManualPhrase" placeholder="e.g. Jane Doe or 555-0100" style="flex:1; min-width:120px; padding:4px 8px; font-size:12px;">
+                <input type="text" id="personalInfoManualReplacement" placeholder="Replace with (e.g. *** )" style="flex:1; min-width:100px; padding:4px 8px; font-size:12px;">
+                <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoManualLocalOnly"> Local only (never sync)</label>
+                <button type="button" id="personalInfoManualAddBtn" class="btn btn-primary btn-small">Add typed phrase</button>
+              </div>
+              <div id="personalInfoSelectedWrap" style="display:none; margin-bottom:8px;">
+                <div class="hint" style="font-size:11px;">Selected text:</div>
+                <div id="personalInfoSelectedText" class="personal-info-selected-text" style="margin:4px 0; padding:6px; background:#fff; border:1px solid #e5e5e7; border-radius:4px; font-size:12px; max-height:60px; overflow-y:auto;"></div>
+                <div class="form-row" style="margin-top:6px; align-items:center; gap:6px;">
+                  <label for="personalInfoReplacement" class="hint" style="font-size:11px; margin:0;">Replace with (generic word or ***):</label>
+                  <input type="text" id="personalInfoReplacement" placeholder="e.g. *** or Your Name" style="flex:1; min-width:0; padding:4px 8px; font-size:12px;">
+                  <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoPickerLocalOnly"> Local only</label>
+                  <button type="button" id="personalInfoAddToListBtn" class="btn btn-primary btn-small">Add to list</button>
+                </div>
+              </div>
+              <ul id="personalInfoList" class="personal-info-list hint" style="margin:0; padding-left:18px; font-size:12px;"></ul>
+              <button type="button" id="personalInfoPreviewToggle" class="btn btn-outline btn-small" style="margin-top:6px;">Preview on page</button>
+            </div>
+            <div class="runs-list" id="runsList" style="display:none;"></div>
 
-            <hr style="margin:16px 0 0 0; border:none; border-top:1px solid #d2d2d7;">
-            <section class="analyze-section" id="analyzeSection" style="margin-top:12px;">
+            <hr id="planAnalyzeHr" style="margin:16px 0 0 0; border:none; border-top:1px solid #d2d2d7; display:none;">
+            <section class="analyze-section" id="analyzeSection" style="margin-top:12px;display:none;">
               <h3 class="activity-heading">Analyze &amp; Export</h3>
               <div class="btn-group" style="margin-top:8px; flex-wrap:wrap; align-items:center; gap:8px;">
                 <button id="analyzeWorkflow" class="btn btn-secondary">Analyze Runs → Create Workflow Steps</button>
@@ -724,6 +815,7 @@
   <!-- Local overrides (committed stub). Must be an external script — MV3 extension CSP blocks inline. -->
   <script src="../config/whop-auth.js"></script>
   <script src="../extension/config.js"></script>
+  <script src="../shared/app-origin-guard.js"></script>
   <script src="../extension/auth-fetch.js"></script>
   <script src="../extension/workflow-normalize.js"></script>
   <script src="../shared/dom-utils.js"></script>
@@ -744,6 +836,7 @@
   <script src="../steps/devnet-smoke-utils.js"></script>
   <script src="../steps/sidepanel-loader.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
+  <script src="../shared/workflow-categories.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
   <script src="../shared/step-comment.js"></script>
   <script src="walkthrough-export.js"></script>
@@ -767,6 +860,8 @@
   <script src="../shared/always-on-bound-positions.js"></script>
   <script src="auth-backend.js"></script>
   <script src="library-panel.js"></script>
+  <script src="library-sources.js"></script>
+  <script src="library-categories.js"></script>
   <script src="workflow-list.js"></script>
   <script src="step-shell.js"></script>
   <script src="sidepanel.js"></script>

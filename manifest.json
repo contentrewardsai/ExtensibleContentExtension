@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Extensible Content",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "Record workflows by performing tasks, analyze patterns across runs, and automate via spreadsheet-driven execution",
   "icons": {
     "16": "icons/icon-16.png",
@@ -23,7 +23,8 @@
     "offscreen",
     "clipboardRead",
     "clipboardWrite",
-    "nativeMessaging"
+    "nativeMessaging",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -113,11 +114,11 @@
       "matches": [
         "https://www.extensiblecontent.com/*",
         "https://extensiblecontent.com/*",
-        "https://*.extensiblecontent.com/*",
-        "http://localhost/*",
-        "http://127.0.0.1/*"
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
       ],
       "js": [
+        "shared/app-origin-guard.js",
         "content/whop-auth-bridge.js"
       ],
       "run_at": "document_idle"
@@ -127,15 +128,13 @@
     "matches": [
       "https://www.extensiblecontent.com/*",
       "https://extensiblecontent.com/*",
-      "https://*.extensiblecontent.com/*",
-      "http://localhost/*",
-      "http://127.0.0.1/*"
+      "http://localhost:3000/*",
+      "http://127.0.0.1:3000/*"
     ]
   },
   "web_accessible_resources": [
     {
       "resources": [
-        "docs/BACKEND.md",
         "docs/INTEGRATIONS.md",
         "docs/BSC_AUTOMATION.md",
         "docs/BSC_V3_LP_WORKFLOWS.md",

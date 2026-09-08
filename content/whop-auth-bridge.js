@@ -1,6 +1,6 @@
 /**
  * Whop auth bridge: listens for postMessage from the login page and forwards tokens to the background.
- * Injected on all extensiblecontent.com pages and localhost (OAuth often redirects outside /extension/*).
+ * Injected on the login origin only (see manifest content_scripts matches).
  */
 (function () {
   'use strict';
@@ -8,24 +8,8 @@
   if (window.__CFS_WHOP_AUTH_BRIDGE__) return;
   window.__CFS_WHOP_AUTH_BRIDGE__ = true;
 
-  const ALLOWED_ORIGINS = [
-    'https://www.extensiblecontent.com',
-    'https://extensiblecontent.com',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-  ];
-
   function isAllowedOrigin(origin) {
-    if (!origin || typeof origin !== 'string') return false;
-    if (ALLOWED_ORIGINS.some((allowed) => origin === allowed || origin.startsWith(allowed + '/'))) {
-      return true;
-    }
-    try {
-      const u = new URL(origin);
-      if (u.protocol === 'https:' && (u.hostname === 'extensiblecontent.com' || u.hostname.endsWith('.extensiblecontent.com'))) {
-        return true;
-      }
-    } catch (_) {}
+    if (typeof cfsIsTrustedAuthOrigin === 'function') return cfsIsTrustedAuthOrigin(origin);
     return false;
   }
 
