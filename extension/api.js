@@ -251,8 +251,7 @@
   const WORKFLOW_STEP_MEDIA_MAX_BYTES = 4500000;
 
   /**
-   * POST multipart /api/extension/workflow-step-media (auth) — upload step narration audio/video to Supabase Storage.
-   * Server stores under bucket `workflow-data` at `{user_id}/{workflow_id}/step-{n}/{kind}/{block_id}/{uuid}{ext}` and returns a public CDN-style URL.
+   * POST multipart /api/extension/workflow-step-media (auth) — upload step narration audio/video.
    * @param {FormData} formData — fields: **file** (Blob/File), **workflow_id**, **step_index**, **block_id**, **kind** (`video` | `audio`). Do not set Content-Type (browser sets multipart boundary).
    * @returns {Promise<{ ok: boolean, url?: string, error?: string, status?: number }>}
    */
@@ -261,11 +260,17 @@
     if (!token) {
       return { ok: false, error: error || 'Not logged in' };
     }
+    if (auth && typeof auth.assertAllowedPath === 'function') {
+      try { auth.assertAllowedPath('/api/extension/workflow-step-media'); } catch (e) {
+        return { ok: false, error: e && e.message ? e.message : 'Path not allowed' };
+      }
+    }
     const url = `${APP_ORIGIN}/api/extension/workflow-step-media`;
     try {
       let bearer = token;
       let res = await fetch(url, {
         method: 'POST',
+        credentials: 'omit',
         headers: { Authorization: `Bearer ${bearer}` },
         body: formData,
       });
@@ -275,6 +280,7 @@
           bearer = nextTok;
           res = await fetch(url, {
             method: 'POST',
+            credentials: 'omit',
             headers: { Authorization: `Bearer ${bearer}` },
             body: formData,
           });
@@ -377,11 +383,36 @@
   }
 
   /**
-   * Safe fetch that returns { ok, ... } instead of throwing. For compatibility with callers expecting Backend-style responses.
+   * GET /api/extension/inspiration/discover (auth)
+   * CRA Pulse viral feed (viral_references + trend_topics). Call only when logged in.
+   * 404 → { items: [], topics: [], unavailable: true } (backend not deployed yet).
+   * Query: window (7|30), scope (overall|vertical), format, niche, category.
+   * @param {{ windowDays?: 7|30, scope?: string, format?: string, niche?: string, category?: string }} [opts]
    */
+  async function getInspirationDiscover(opts) {
+    const params = new URLSearchParams();
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const windowDays = o.windowDays === 30 || o.windowDays === 7 ? o.windowDays : 7;
+    params.set('window', String(windowDays));
+    if (o.scope) params.set('scope', String(o.scope));
+    if (o.format) params.set('format', String(o.format));
+    if (o.niche) params.set('niche', String(o.niche));
+    if (o.category) params.set('category', String(o.category));
+    const qs = params.toString();
+    const path = '/api/extension/inspiration/discover' + (qs ? '?' + qs : '');
+    try {
+      const res = await apiFetch(path);
+      return res && typeof res === 'object' ? res : { items: [], topics: [] };
+    } catch (e) {
+      if (e && e.status === 404) {
+        return { items: [], topics: [], unavailable: true };
+      }
+      throw e;
+    }
+  }
   async function safeApiFetch(path, opts = {}) {
     try {
-      const data = await apiFetch(path, opts);
+      const data = await apiFetch(path, Object.assign({ logoutOn401: false }, opts));
       return { ok: true, ...(typeof data === 'object' ? data : { data }) };
     } catch (e) {
       return { ok: false, error: e?.message || 'Request failed', status: e?.status };
@@ -469,6 +500,11 @@
     if (!token) {
       return { ok: false, error: error || 'Not logged in', status: 0, code: 'NOT_LOGGED_IN' };
     }
+    if (auth && typeof auth.assertAllowedPath === 'function') {
+      try { auth.assertAllowedPath('/api/extension/knowledge/answers'); } catch (e) {
+        return { ok: false, error: e && e.message ? e.message : 'Path not allowed', status: 0 };
+      }
+    }
     const url = `${APP_ORIGIN}/api/extension/knowledge/answers`;
     const headers = {
       'Content-Type': 'application/json',
@@ -476,7 +512,7 @@
     };
     let res;
     try {
-      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      res = await fetch(url, { method: 'POST', credentials: 'omit', headers, body: JSON.stringify(body) });
     } catch (e) {
       return { ok: false, error: e?.message || 'Request failed', status: 0 };
     }
@@ -486,7 +522,7 @@
       if (nextTok) {
         headers.Authorization = 'Bearer ' + nextTok;
         try {
-          res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+          res = await fetch(url, { method: 'POST', credentials: 'omit', headers, body: JSON.stringify(body) });
         } catch (e2) {
           return { ok: false, error: e2?.message || 'Request failed', status: 0 };
         }
@@ -553,6 +589,11 @@
     if (!token) {
       return { ok: false, error: error || 'Not logged in', status: 0, code: 'NOT_LOGGED_IN' };
     }
+    if (auth && typeof auth.assertAllowedPath === 'function') {
+      try { auth.assertAllowedPath('/api/extension/knowledge/votes'); } catch (e) {
+        return { ok: false, error: e && e.message ? e.message : 'Path not allowed', status: 0 };
+      }
+    }
     const url = `${APP_ORIGIN}/api/extension/knowledge/votes`;
     const headers = {
       'Content-Type': 'application/json',
@@ -561,7 +602,7 @@
     const body = JSON.stringify({ answer_id: aid, direction: dir });
     let res;
     try {
-      res = await fetch(url, { method: 'POST', headers, body });
+      res = await fetch(url, { method: 'POST', credentials: 'omit', headers, body });
     } catch (e) {
       return { ok: false, error: e?.message || 'Request failed', status: 0 };
     }
@@ -571,7 +612,7 @@
       if (nextTok) {
         headers.Authorization = 'Bearer ' + nextTok;
         try {
-          res = await fetch(url, { method: 'POST', headers, body });
+          res = await fetch(url, { method: 'POST', credentials: 'omit', headers, body });
         } catch (e2) {
           return { ok: false, error: e2?.message || 'Request failed', status: 0 };
         }
@@ -704,18 +745,34 @@
 
   /**
    * GET /api/extension/has-upgraded (auth)
-   * @returns {Promise<{ ok: boolean, pro?: boolean, num_accounts?: number, max_accounts?: number, error?: string, status?: number }>}
+   * @returns {Promise<{ ok: boolean, pro?: boolean, trial_active?: boolean, access?: string|null, trial_checkout_url?: string|null, num_accounts?: number, max_accounts?: number, error?: string, status?: number }>}
    */
   async function hasUpgraded() {
     const res = await safeApiFetch('/api/extension/has-upgraded');
     if (!res.ok) {
       if (res.status === 404) {
-        return { ok: true, pro: false, num_accounts: 0, max_accounts: 0 };
+        return {
+          ok: true,
+          pro: false,
+          has_upgraded: false,
+          trial_active: false,
+          access: null,
+          trial_checkout_url: null,
+          num_accounts: 0,
+          max_accounts: 0,
+        };
       }
       return res;
     }
     const pro = res.pro ?? res.has_upgraded;
-    return { ...res, ok: true, pro: !!pro };
+    return {
+      ...res,
+      ok: true,
+      pro: !!pro,
+      trial_active: !!res.trial_active,
+      access: res.access == null ? null : res.access,
+      trial_checkout_url: res.trial_checkout_url || null,
+    };
   }
 
   /**
@@ -778,14 +835,285 @@
     }
   }
 
+  var SHARED_STORAGE_SOURCE_ID = '__shared_storage__';
+  var BOX_UPLOAD_BASE = 'https://upload.box.com';
+  var BOX_API_BASE = 'https://api.box.com';
+
+  function toSourceItems(res) {
+    if (Array.isArray(res)) return res;
+    if (res && Array.isArray(res.items)) return res.items;
+    return [];
+  }
+
+  function isSharedGhlLocationRow(l) {
+    if (!l || typeof l !== 'object') return true;
+    if (l.shared === true || l.is_shared === true || l.is_my_files === true || l.kind === 'shared') return true;
+    if (String(l.location_id || '') === SHARED_STORAGE_SOURCE_ID) return true;
+    return false;
+  }
+
+  function locationsFromExtensionGhl(extGhl) {
+    return toArray(extGhl, 'locations').filter(function (l) {
+      if (!l || !l.location_id) return false;
+      if (isSharedGhlLocationRow(l)) return false;
+      if (l.is_active === false) return false;
+      return true;
+    }).map(function (l) {
+      return {
+        id: l.id,
+        location_id: l.location_id,
+        location_name: l.location_name || l.location_id,
+        owned: l.owned !== false,
+      };
+    });
+  }
+
+  /**
+   * Box connections, HighLevel locations, and My Files for the signed-in user.
+   */
+  async function getSourceAccounts() {
+    const { token, error } = await getToken();
+    if (!token) {
+      const err = new Error(error || 'Not logged in');
+      err.code = 'NOT_LOGGED_IN';
+      throw err;
+    }
+    const [boxRes, ghlRes, extGhl] = await Promise.all([
+      safeApiFetch('/api/box/connections', { requireAuth: true, logoutOn401: false }),
+      safeApiFetch('/api/ghl/locations/mine', { requireAuth: true, logoutOn401: false }),
+      safeApiFetch('/api/extension/ghl/connections', { requireAuth: true, logoutOn401: false }),
+    ]);
+    const boxConnections = (boxRes && boxRes.ok !== false)
+      ? toArray(boxRes, 'connections')
+      : [];
+    var ghlLocations = (ghlRes && ghlRes.ok !== false)
+      ? toArray(ghlRes, 'locations')
+      : [];
+    if (!ghlLocations.length && extGhl && extGhl.ok !== false) {
+      ghlLocations = locationsFromExtensionGhl(extGhl);
+    }
+    const userId = extGhl && extGhl.user_id ? String(extGhl.user_id) : '';
+    return {
+      boxConnections,
+      ghlLocations,
+      userId,
+      hasShared: true,
+    };
+  }
+
+  async function browseSource(kind, sourceId, folderId) {
+    const qs = new URLSearchParams({ limit: '100' });
+    let path;
+    if (kind === 'box') {
+      qs.set('connection_id', sourceId);
+      qs.set('folder_id', folderId || '0');
+      path = '/api/box/browse?' + qs.toString();
+    } else if (kind === 'shared') {
+      if (folderId) qs.set('parent_id', folderId);
+      path = '/api/ghl/media/browse-shared?' + qs.toString();
+    } else {
+      qs.set('location_id', sourceId);
+      if (folderId) qs.set('parent_id', folderId);
+      path = '/api/ghl/media/browse?' + qs.toString();
+    }
+    try {
+      const res = await apiFetch(path, { requireAuth: true, logoutOn401: false });
+      return toSourceItems(res);
+    } catch (e) {
+      if (kind === 'ghl' && e && e.status === 401) {
+        const fallback = await apiFetch(
+          '/api/extension/ghl/media?locationId=' + encodeURIComponent(sourceId) + '&limit=100',
+          { requireAuth: true, logoutOn401: false }
+        );
+        return toSourceItems(fallback).concat(toArray(fallback, 'files'));
+      }
+      throw e;
+    }
+  }
+
+  async function getBoxDownloadUrl(fileId, connectionId) {
+    const qs = new URLSearchParams({ file_id: fileId });
+    if (connectionId) qs.set('connection_id', connectionId);
+    const res = await apiFetch('/api/box/download-url?' + qs.toString(), { requireAuth: true, logoutOn401: false });
+    return res && res.url ? String(res.url) : '';
+  }
+
+  async function getBoxUploadToken(connectionId) {
+    const qs = new URLSearchParams();
+    if (connectionId) qs.set('connection_id', connectionId);
+    return apiFetch('/api/box/upload-token' + (qs.toString() ? '?' + qs.toString() : ''), { requireAuth: true, logoutOn401: false });
+  }
+
+  async function getGhlUploadTarget(locationId) {
+    return apiFetch('/api/ghl/media/upload-target', {
+      method: 'POST',
+      body: JSON.stringify({ location_id: locationId }),
+      requireAuth: true,
+      logoutOn401: false,
+    });
+  }
+
+  async function getSharedUploadTarget() {
+    return apiFetch('/api/whop/shared-ghl-upload-target', { method: 'POST', body: '{}', requireAuth: true, logoutOn401: false });
+  }
+
+  function ghlMediaFromResponse(json) {
+    json = json || {};
+    const mediaId = json.fileId || json._id || json.id || '';
+    const url = json.url || json.fileUrl || '';
+    return { mediaId: String(mediaId || ''), url: String(url || '') };
+  }
+
+  async function uploadToGhlTarget(target, file, parentId) {
+    const form = new FormData();
+    form.append('hosted', 'false');
+    form.append('file', file, file.name);
+    form.append('name', Date.now() + '_' + file.name);
+    if (parentId) form.append('parentId', parentId);
+    const res = await fetch(target.upload_url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Version: target.api_version || '2021-07-28',
+        Authorization: 'Bearer ' + target.token,
+      },
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(function () { return ''; });
+      throw new Error('Upload failed (' + res.status + '): ' + (text || res.statusText));
+    }
+    return ghlMediaFromResponse(await res.json());
+  }
+
+  async function uploadToBox(connectionId, parentFolderId, file) {
+    const tok = await getBoxUploadToken(connectionId);
+    const accessToken = tok && tok.access_token;
+    if (!accessToken) throw new Error('No Box access token returned');
+    const parentId = parentFolderId || '0';
+    async function doUpload(filename) {
+      const form = new FormData();
+      form.append('attributes', JSON.stringify({ name: filename, parent: { id: parentId } }));
+      form.append('file', file, filename);
+      return fetch(BOX_UPLOAD_BASE + '/api/2.0/files/content', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken },
+        body: form,
+      });
+    }
+    let res = await doUpload(file.name);
+    if (res.status === 409) {
+      const ext = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
+      const base = file.name.replace(/\.[^.]+$/, '');
+      res = await doUpload(base + '_' + Date.now() + ext);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(function () { return ''; });
+      throw new Error('Box upload failed (' + res.status + '): ' + (text || res.statusText));
+    }
+    const data = await res.json();
+    const uploaded = data.entries && data.entries[0];
+    return { mediaId: uploaded && uploaded.id ? String(uploaded.id) : '', url: '' };
+  }
+
+  async function uploadToSource(kind, sourceId, parentFolderId, file) {
+    if (kind === 'box') return uploadToBox(sourceId, parentFolderId, file);
+    if (kind === 'shared') {
+      const target = await getSharedUploadTarget();
+      return uploadToGhlTarget(target, file, parentFolderId || target.folder_id || '');
+    }
+    const target = await getGhlUploadTarget(sourceId);
+    return uploadToGhlTarget(target, file, parentFolderId);
+  }
+
+  async function createSourceFolder(kind, sourceId, parentFolderId, name) {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) throw new Error('Folder name is required');
+    if (kind === 'box') {
+      const tok = await getBoxUploadToken(sourceId);
+      const accessToken = tok && tok.access_token;
+      if (!accessToken) throw new Error('No Box access token returned');
+      const res = await fetch(BOX_API_BASE + '/2.0/folders', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: trimmed, parent: { id: parentFolderId || '0' } }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return { folderId: String(data.id) };
+      }
+      if (res.status === 409) {
+        const conflict = await res.json().catch(function () { return null; });
+        const conflictId = conflict && conflict.context_info && conflict.context_info.conflicts &&
+          conflict.context_info.conflicts[0] && conflict.context_info.conflicts[0].id;
+        if (conflictId) return { folderId: String(conflictId) };
+      }
+      const text = await res.text().catch(function () { return ''; });
+      throw new Error('Box folder create failed (' + res.status + '): ' + text);
+    }
+    const res = await apiFetch('/api/ghl/media/create-folder', {
+      method: 'POST',
+      body: JSON.stringify({
+        location_id: kind === 'shared' ? SHARED_STORAGE_SOURCE_ID : sourceId,
+        parent_id: parentFolderId || undefined,
+        name: trimmed,
+      }),
+      requireAuth: true,
+      logoutOn401: false,
+    });
+    return { folderId: String((res && (res.folder_id || res.id)) || '') };
+  }
+
+  async function deleteFromSource(kind, sourceId, mediaId, isFolder) {
+    if (!mediaId) throw new Error('Nothing to delete');
+    if (kind === 'box') {
+      const tok = await getBoxUploadToken(sourceId);
+      const accessToken = tok && tok.access_token;
+      if (!accessToken) throw new Error('No Box access token returned');
+      const path = isFolder
+        ? BOX_API_BASE + '/2.0/folders/' + encodeURIComponent(mediaId)
+        : BOX_API_BASE + '/2.0/files/' + encodeURIComponent(mediaId);
+      const res = await fetch(path, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + accessToken },
+      });
+      if (!res.ok && res.status !== 204) {
+        if (res.status === 400 && isFolder) {
+          throw new Error("Folder isn't empty. Empty it first, then delete.");
+        }
+        const text = await res.text().catch(function () { return ''; });
+        throw new Error('Box delete failed (' + res.status + '): ' + text);
+      }
+      return;
+    }
+    await apiFetch('/api/ghl/media/delete', {
+      method: 'POST',
+      body: JSON.stringify({
+        location_id: kind === 'shared' ? SHARED_STORAGE_SOURCE_ID : sourceId,
+        media_id: mediaId,
+      }),
+      requireAuth: true,
+      logoutOn401: false,
+    });
+  }
+
+  function sourceConnectUrls() {
+    const origin = APP_ORIGIN;
+    return {
+      box: origin + '/api/box/auth/start?return_to=/ext/settings',
+      ghl: origin + '/api/ghl/auth/start',
+    };
+  }
+
 global.ExtensionApi = {
     APP_ORIGIN,
     WORKFLOW_STEP_MEDIA_MAX_BYTES,
     getToken,
     getAccessToken,
     getAuthState,
-    apiFetch,
-    safeApiFetch,
     getIndustries,
     getPlatforms,
     getMonetization,
@@ -811,6 +1139,7 @@ global.ExtensionApi = {
     createFollowing,
     updateFollowing,
     deleteFollowing,
+    getInspirationDiscover,
     getSocialMediaProfiles,
     addRemoveSocialMedia,
 
@@ -826,6 +1155,14 @@ global.ExtensionApi = {
     addWorkflowQuestionQA,
     addWorkflowAnswerQA,
     postKnowledgeVote,
+    SHARED_STORAGE_SOURCE_ID,
+    getSourceAccounts,
+    browseSource,
+    getBoxDownloadUrl,
+    uploadToSource,
+    createSourceFolder,
+    deleteFromSource,
+    sourceConnectUrls,
   };
 })(typeof window !== 'undefined' ? window : self);
 

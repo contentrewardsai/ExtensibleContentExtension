@@ -50,6 +50,11 @@
     var reqType = data.reqType; /* 'MESSAGE' or 'STORAGE_READ' */
     var payload = data.payload;
 
+    if (typeof cfsIsAllowedMcpRelayReqType === 'function' && !cfsIsAllowedMcpRelayReqType(reqType)) {
+      sendWs({ id: id, response: { ok: false, error: 'Relay request type not allowed' } });
+      return;
+    }
+
     if (reqType === 'STORAGE_READ') {
       /* Direct chrome.storage.local.get — secret keys denied */
       var keys = Array.isArray(payload.keys) ? payload.keys : [payload.keys];
@@ -141,6 +146,10 @@
     if (reqType === 'FETCH_URL') {
       /* Fetch a chrome.runtime.getURL path (for reading bundled files like step.json) */
       var urlPath = payload.path || '';
+      if (typeof cfsIsAllowedMcpBundledPath !== 'function' || !cfsIsAllowedMcpBundledPath(urlPath)) {
+        sendWs({ id: id, response: { ok: false, error: 'FETCH_URL path not allowed' } });
+        return;
+      }
       try {
         var fullUrl = chrome.runtime.getURL(urlPath);
         fetch(fullUrl).then(function (resp) {
@@ -161,10 +170,25 @@
     }
 
     if (reqType === 'BACKEND_FETCH') {
-      /* Proxy an authenticated fetch to extensiblecontent.com through the extension's auth context. */
+      /* Proxy an authenticated fetch to the extension backend. Path must be /api/extension/*. */
       var bePath = payload.path || '';
       var beMethod = (payload.method || 'GET').toUpperCase();
       var beBody = payload.body || null;
+      var beHeadersIn = payload.headers && typeof payload.headers === 'object' ? payload.headers : {};
+      var pathCheck = String(bePath || '').trim();
+      if (!pathCheck) {
+        sendWs({ id: id, response: { ok: false, error: 'path required' } });
+        return;
+      }
+      if (/^[a-z][a-z0-9+.-]*:/i.test(pathCheck) || pathCheck.indexOf('//') === 0) {
+        sendWs({ id: id, response: { ok: false, error: 'path must be relative (no scheme)' } });
+        return;
+      }
+      if (pathCheck.charAt(0) !== '/') pathCheck = '/' + pathCheck;
+      if (pathCheck.indexOf('..') !== -1 || pathCheck.indexOf('/api/extension/') !== 0) {
+        sendWs({ id: id, response: { ok: false, error: 'path must start with /api/extension/' } });
+        return;
+      }
       chrome.runtime.sendMessage({ type: 'GET_TOKEN' }, function (tokenRes) {
         var token = tokenRes && (tokenRes.access_token || tokenRes.token);
         if (!token) {
@@ -173,15 +197,19 @@
         }
         var origin = 'https://www.extensiblecontent.com';
         try {
-          if (typeof chrome !== 'undefined' && chrome.storage) {
-            /* Try to get APP_ORIGIN from config, but fall back to default */
+          if (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig && WhopAuthConfig.APP_ORIGIN) {
+            origin = String(WhopAuthConfig.APP_ORIGIN).replace(/\/$/, '');
           }
         } catch (_) {}
-        var fetchUrl = origin + (bePath.startsWith('/') ? bePath : '/' + bePath);
-        var fetchOpts = {
-          method: beMethod,
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        };
+        var fetchUrl = origin + pathCheck;
+        var fetchHeaders = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+        var blockedHeader = { authorization: 1, cookie: 1, 'set-cookie': 1, host: 1, origin: 1, 'content-length': 1, connection: 1 };
+        Object.keys(beHeadersIn).forEach(function (hk) {
+          if (!hk || blockedHeader[String(hk).toLowerCase()]) return;
+          if (beHeadersIn[hk] == null) return;
+          fetchHeaders[hk] = String(beHeadersIn[hk]);
+        });
+        var fetchOpts = { method: beMethod, headers: fetchHeaders, credentials: 'omit' };
         if (beBody && beMethod !== 'GET' && beMethod !== 'HEAD') {
           fetchOpts.body = typeof beBody === 'string' ? beBody : JSON.stringify(beBody);
         }
@@ -198,7 +226,16 @@
       return;
     }
 
-    /* Default: relay as chrome.runtime.sendMessage */
+    /* Default: relay as chrome.runtime.sendMessage (MESSAGE only; token types denied) */
+    if (reqType !== 'MESSAGE') {
+      sendWs({ id: id, response: { ok: false, error: 'Unknown relay request type' } });
+      return;
+    }
+    var msgType = payload && payload.type;
+    if (typeof cfsIsDeniedMcpRelayMessageType === 'function' && cfsIsDeniedMcpRelayMessageType(msgType)) {
+      sendWs({ id: id, response: { ok: false, error: 'Message type not allowed over relay' } });
+      return;
+    }
     try {
       chrome.runtime.sendMessage(payload, function (response) {
         if (chrome.runtime.lastError) {

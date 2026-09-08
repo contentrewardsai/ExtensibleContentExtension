@@ -117,6 +117,7 @@
   let recordingTabId = null;
   /** True when Plan-tab parallel offscreen capture was started for this session. */
   let parallelPlanMediaRecording = false;
+  let sourceMediaBusy = false;
   /** runId for the active plan capture (used to read blobs from IndexedDB after stop; avoids huge sendMessage payloads). */
   let currentPlanCaptureRunId = null;
   /** True when we auto-applied PERSONAL_INFO_PREVIEW for masked screen capture. */
@@ -1046,7 +1047,7 @@
     const s = String(msg || '');
     if (/workflow_kb_check_bypass|knowledge_answers.*schema cache|schema cache/i.test(s)) {
       return (
-        'Server database needs migration: add knowledge_answers.workflow_kb_check_bypass (boolean, default false). See docs/BACKEND_IMPLEMENTATION_PROMPT.md §8.'
+        'Could not save that answer. Sign in again if the session expired, or try a different workflow.'
       );
     }
     return s;
@@ -1139,6 +1140,8 @@
     workflowList.innerHTML = '';
     for (const [id, w] of Object.entries(workflows || {})) {
       if (isTestWorkflow(w)) continue;
+      if (window.CFS_libraryCategories && typeof window.CFS_libraryCategories.matchesWorkflow === 'function' &&
+          !window.CFS_libraryCategories.matchesWorkflow(w, id)) continue;
       let domain = w.urlPattern?.origin || '';
       if (!domain && w.runs?.[0]?.url) {
         try { domain = new URL(w.runs[0].url).origin; } catch (_) {}
@@ -1151,18 +1154,41 @@
       div.tabIndex = 0;
       const verLabel = (w.version != null && w.version !== 1) ? ` v${w.version}` : '';
       const calls = collectWorkflowCallIds(w);
-      const callsHtml = calls.length ? `<small class="workflow-item-calls hint">calls: ${escapeHtml(calls.join(', '))}</small>` : '';
+      const callsHtml = calls.length ? `<small class="workflow-item-calls hint">calls ${escapeHtml(calls.join(', '))}</small>` : '';
+      const catHelper = window.CFS_workflowCategories;
+      const catState = window.CFS_libraryCategories && typeof window.CFS_libraryCategories.getState === 'function'
+        ? window.CFS_libraryCategories.getState()
+        : null;
+      const catIds = catHelper
+        ? catHelper.workflowCategoryIds(w, id, catState && catState.assignments)
+        : (Array.isArray(w.categories) ? w.categories : []);
+      const catHtml = catIds.length
+        ? `<small class="hint">Categories: ${escapeHtml(catIds.map(function (cid) {
+            return catHelper ? catHelper.categoryLabel(catHelper.mergeCategories(catState && catState.custom), cid) : cid;
+          }).join(', '))}</small>`
+        : '';
+      const extraBtns = [
+        w._backendMeta ? `<button type="button" class="btn btn-small btn-outline" data-update-workflow="${escapeAttr(id)}" title="Update from backend">Update</button>` : '',
+        `<button type="button" class="btn btn-small btn-outline" data-rename-workflow="${escapeAttr(id)}" title="Rename workflow">Rename</button>`,
+        (w._backendMeta || w.initial_version)
+          ? `<button type="button" class="btn btn-small btn-outline" data-save-new-version="${escapeAttr(id)}" title="Save as new version">v+</button><button type="button" class="btn btn-small btn-outline" data-version-history="${escapeAttr(id)}" title="Version history">History</button>`
+          : '',
+        `<button type="button" class="btn btn-small btn-outline" data-save-to-folder="${escapeAttr(id)}" title="Save to project folder">Save</button>`,
+        `<button type="button" class="btn btn-small" data-duplicate="${escapeAttr(id)}" title="Duplicate workflow">Copy</button>`,
+        `<button type="button" class="btn btn-small btn-outline" data-delete="${escapeAttr(id)}" title="Delete workflow" style="color:var(--destructive,#c00);">Delete</button>`,
+      ].filter(Boolean).join('');
       div.innerHTML = `
-        <span>${escapeHtml(w.name || id)}${escapeHtml(verLabel)}</span>
-        <small>${(w.runs || []).length} runs${domain ? ' · ' + escapeHtml(domain) : ''}${w.published ? ' · Published' : ''}</small>
-        ${callsHtml}
-        <small class="workflow-item-last-run hint" data-wf-id="${escapeAttr(id)}">—</small>
-        ${w._backendMeta ? `<button type="button" class="btn btn-small btn-outline" data-update-workflow="${escapeAttr(id)}" title="Update from backend">Update</button>` : ''}
-        <button type="button" class="btn btn-small btn-outline" data-rename-workflow="${escapeAttr(id)}" title="Rename workflow">Rename</button>
-        ${w._backendMeta || w.initial_version ? `<button type="button" class="btn btn-small btn-outline" data-save-new-version="${escapeAttr(id)}" title="Save as new version (keeps link to original)">v+</button><button type="button" class="btn btn-small btn-outline" data-version-history="${escapeAttr(id)}" title="Version history">History</button>` : ''}
-        <button type="button" class="btn btn-small btn-outline" data-save-to-folder="${escapeAttr(id)}" title="Add workflows/{id}/workflow-{id}-{version}.json (merge with existing folder)">Save to folder</button>
-        <button type="button" class="btn btn-small" data-duplicate="${escapeAttr(id)}" title="Duplicate workflow">Copy</button>
-        <button type="button" class="btn btn-small btn-outline" data-delete="${escapeAttr(id)}" title="Delete workflow" style="color:var(--error-color,#c00);">Delete</button>
+        <div class="workflow-item-main">
+          <span class="workflow-item-name">${escapeHtml(w.name || id)}${escapeHtml(verLabel)}</span>
+          <small>${(w.runs || []).length} runs${domain ? ' · ' + escapeHtml(domain) : ''}${w.published ? ' · Published' : ''}</small>
+          ${callsHtml}
+          ${catHtml}
+          <small class="workflow-item-last-run hint" data-wf-id="${escapeAttr(id)}"></small>
+        </div>
+        <details class="workflow-item-more">
+          <summary>Actions</summary>
+          <div class="workflow-item-actions">${extraBtns}</div>
+        </details>
       `;
       const selectThis = function() {
         if (playbackWorkflow) {
@@ -1540,21 +1566,36 @@
     const wfId = workflowSelect?.value;
     const realWfId = wfId && wfId !== '__new__' ? wfId : '';
     renderRunsList(realWfId);
-    const wfControls = document.getElementById('workflowSelectedControls');
-    if (wfControls) {
-      wfControls.style.display = realWfId ? '' : 'none';
-      renderPersonalInfoList(realWfId);
-    }
-    const subTabsEl = document.getElementById('planWorkflowSubTabs');
-    if (subTabsEl) subTabsEl.style.display = realWfId ? '' : 'none';
-    const urlPlanWrap = document.getElementById('workflowUrlPatternPlan');
-    if (urlPlanWrap) urlPlanWrap.style.display = realWfId ? '' : 'none';
+    updatePlanRecordUiForSelection(realWfId);
   }
 
   function toggleNewWorkflowRow() {
+    const isNew = workflowSelect?.value === '__new__';
     const row = document.getElementById('newWorkflowRow');
-    if (!row) return;
-    row.style.display = (workflowSelect?.value === '__new__') ? '' : 'none';
+    if (row) row.style.display = isNew ? '' : 'none';
+    const hint = document.getElementById('newWorkflowRecordHint');
+    if (hint) hint.style.display = isNew ? '' : 'none';
+  }
+
+  function updatePlanRecordUiForSelection(realWfId) {
+    const wfControls = document.getElementById('workflowSelectedControls');
+    if (wfControls) {
+      wfControls.style.display = '';
+      renderPersonalInfoList(realWfId);
+    }
+    const subTabsEl = document.getElementById('planWorkflowSubTabs');
+    if (subTabsEl) subTabsEl.style.display = '';
+    const urlPlanWrap = document.getElementById('workflowUrlPatternPlan');
+    if (urlPlanWrap) urlPlanWrap.style.display = realWfId ? '' : 'none';
+    const personal = document.getElementById('personalInfoPanel');
+    if (personal) personal.style.display = realWfId ? '' : 'none';
+    const analyze = document.getElementById('analyzeSection');
+    if (analyze) analyze.style.display = realWfId ? '' : 'none';
+    const analyzeHr = document.getElementById('planAnalyzeHr');
+    if (analyzeHr) analyzeHr.style.display = realWfId ? '' : 'none';
+    const runs = document.getElementById('runsList');
+    if (runs) runs.style.display = realWfId ? '' : 'none';
+    toggleNewWorkflowRow();
   }
 
   const DEFAULT_GENERATION_SETTINGS = {
@@ -2312,6 +2353,7 @@
   document.querySelectorAll('.header-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       const tabId = tab.getAttribute('data-tab');
+      if (typeof setStatus === 'function') setStatus('');
       document.querySelectorAll('.header-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       document.querySelectorAll('.tab-panel').forEach(panel => {
@@ -2327,6 +2369,7 @@
         if (tabId === 'pulse') {
           loadFollowing();
           loadPulseFollowingAutomationBanner();
+          loadPulseViral();
         }
         if (tabId === 'activity') {
           invalidateSidebarInstancesCache();
@@ -2354,6 +2397,7 @@
   setChromeUpgradeVisibilityForTab(initialTab);
   if (initialTab === 'pulse') {
     loadFollowing();
+    loadPulseViral();
   } else if (initialTab === 'automations' && typeof checkBackendStatus === 'function') {
     checkBackendStatus();
   }
@@ -4863,7 +4907,6 @@
     refreshPulseWatchActivityPanel();
     loadPulseFollowingAutomationBanner();
     if (!whopLoggedIn) {
-      setFollowingStatus('Sign in to sync with server. Showing local list.');
       return;
     }
     setFollowingStatus('Syncing with server…');
@@ -4940,6 +4983,170 @@
     })();
   }
 
+  let pulseViralNiche = '';
+
+  function pulseViralFormatCount(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x) || x <= 0) return '';
+    if (x >= 1e6) return (x / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (x >= 1e3) return (x / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(x));
+  }
+
+  function setPulseViralStatus(msg) {
+    const el = document.getElementById('pulseViralStatus');
+    if (!el) return;
+    const text = msg ? String(msg) : '';
+    el.textContent = text;
+    el.hidden = !text;
+    el.style.display = text ? '' : 'none';
+  }
+
+  function setPulseViralFiltersEnabled(enabled) {
+    const section = document.getElementById('pulseViralSection');
+    if (!section) return;
+    section.querySelectorAll('.pulse-viral-range button, .pulse-viral-filter-select').forEach((el) => {
+      el.disabled = !enabled;
+    });
+  }
+
+  function getPulseViralFilterOpts() {
+    const rangeEl = document.querySelector('.pulse-viral-range .is-active');
+    const windowDays = rangeEl && rangeEl.getAttribute('data-pulse-window') === '30' ? 30 : 7;
+    const scopeEl = document.getElementById('pulseViralScope');
+    const categoryEl = document.getElementById('pulseViralCategory');
+    const formatEl = document.getElementById('pulseViralFormat');
+    const scope = scopeEl && scopeEl.value === 'vertical' ? 'vertical' : 'overall';
+    const category = categoryEl ? String(categoryEl.value || '').trim() : '';
+    const format = formatEl ? String(formatEl.value || '').trim() : '';
+    const niche = String(pulseViralNiche || '').trim();
+    const opts = { windowDays, scope };
+    if (format) opts.format = format;
+    if (niche) opts.niche = niche;
+    if (category) opts.category = category;
+    return opts;
+  }
+
+  function clearPulseViralExtras() {
+    const listEl = document.getElementById('pulseViralList');
+    const topicsEl = document.getElementById('pulseViralTopics');
+    if (listEl) listEl.innerHTML = '';
+    if (topicsEl) {
+      topicsEl.innerHTML = '';
+      topicsEl.hidden = true;
+    }
+  }
+
+  function renderPulseViral(payload, loggedIn) {
+    const listEl = document.getElementById('pulseViralList');
+    const topicsEl = document.getElementById('pulseViralTopics');
+    if (!listEl) return;
+    setPulseViralFiltersEnabled(!!loggedIn);
+    if (!loggedIn) {
+      clearPulseViralExtras();
+      setPulseViralStatus('Sign in with Whop to see popular content.');
+      return;
+    }
+    if (payload && payload.unavailable) {
+      clearPulseViralExtras();
+      setPulseViralStatus('Popular feed is not on this backend yet.');
+      return;
+    }
+    const topics = Array.isArray(payload && payload.topics) ? payload.topics : [];
+    const items = Array.isArray(payload && payload.items) ? payload.items : [];
+    const hint = payload && payload.card && payload.card.hint ? String(payload.card.hint).trim() : '';
+    const opts = getPulseViralFilterOpts();
+    const rangeLabel = opts.windowDays === 30 ? 'this month' : 'this week';
+    if (topicsEl) {
+      const queries = topics.map((t) => String((t && (t.query || t.topic)) || '').trim()).filter(Boolean).slice(0, 8);
+      if (pulseViralNiche && !queries.includes(pulseViralNiche)) queries.unshift(pulseViralNiche);
+      topicsEl.innerHTML = queries.map((q) => {
+        const active = q === pulseViralNiche ? ' is-active' : '';
+        return '<button type="button" class="pulse-topic-chip' + active + '" data-niche="' + escapeAttr(q) + '">' + escapeHtml(q) + '</button>';
+      }).join('');
+      topicsEl.hidden = queries.length === 0;
+    }
+    if (!items.length) {
+      listEl.innerHTML = '';
+      setPulseViralStatus(hint || (topicsEl && !topicsEl.hidden ? '' : 'No popular examples ' + rangeLabel + '.'));
+      return;
+    }
+    setPulseViralStatus(hint);
+    listEl.innerHTML = items.slice(0, 12).map((item) => {
+      const url = String((item && (item.canonicalUrl || item.canonical_url)) || '').trim();
+      const platform = String((item && item.platform) || '').trim();
+      const format = String((item && (item.formatLabel || item.format_id || item.formatId)) || '').trim();
+      const caption = String((item && item.caption) || '').trim() || url || 'Open on platform';
+      const thumb = String((item && (item.thumbnailUrl || item.thumbnail_url)) || '').trim();
+      const views = pulseViralFormatCount(item && item.views);
+      const meta = [platform, format].filter(Boolean).join(' · ');
+      const stats = views ? views + ' views' : '';
+      const href = url || '#';
+      const thumbHtml = thumb
+        ? '<img class="pulse-viral-thumb" alt="" src="' + escapeAttr(thumb) + '">'
+        : '<div class="pulse-viral-thumb" aria-hidden="true"></div>';
+      return '<a class="pulse-viral-card" href="' + escapeAttr(href) + '" target="_blank" rel="noopener noreferrer">' +
+        thumbHtml +
+        '<div class="pulse-viral-card-body">' +
+        (meta ? '<p class="pulse-viral-meta">' + escapeHtml(meta) + '</p>' : '') +
+        '<p class="pulse-viral-caption">' + escapeHtml(caption.length > 120 ? caption.slice(0, 117) + '…' : caption) + '</p>' +
+        (stats ? '<p class="pulse-viral-stats">' + escapeHtml(stats) + '</p>' : '') +
+        '</div></a>';
+    }).join('');
+  }
+
+  async function loadPulseViral() {
+    const listEl = document.getElementById('pulseViralList');
+    if (!listEl) return;
+    if (!document.body._cfsPulseViralBound) {
+      document.body._cfsPulseViralBound = true;
+      const section = document.getElementById('pulseViralSection');
+      document.getElementById('pulseViralRefreshBtn')?.addEventListener('click', function () {
+        loadPulseViral();
+      });
+      section?.querySelector('.pulse-viral-range')?.addEventListener('click', function (e) {
+        const btn = e.target && e.target.closest ? e.target.closest('[data-pulse-window]') : null;
+        if (!btn || btn.disabled) return;
+        section.querySelectorAll('[data-pulse-window]').forEach((b) => b.classList.toggle('is-active', b === btn));
+        loadPulseViral();
+      });
+      ['pulseViralScope', 'pulseViralCategory', 'pulseViralFormat'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('change', function () {
+          loadPulseViral();
+        });
+      });
+      document.getElementById('pulseViralTopics')?.addEventListener('click', function (e) {
+        const chip = e.target && e.target.closest ? e.target.closest('[data-niche]') : null;
+        if (!chip) return;
+        const next = String(chip.getAttribute('data-niche') || '').trim();
+        pulseViralNiche = next && next === pulseViralNiche ? '' : next;
+        loadPulseViral();
+      });
+    }
+    const whopLoggedIn = typeof isWhopLoggedIn === 'function' && (await isWhopLoggedIn());
+    if (!whopLoggedIn) {
+      renderPulseViral(null, false);
+      return;
+    }
+    setPulseViralFiltersEnabled(true);
+    setPulseViralStatus('Loading…');
+    if (typeof ExtensionApi === 'undefined' || typeof ExtensionApi.getInspirationDiscover !== 'function') {
+      renderPulseViral({ unavailable: true }, true);
+      return;
+    }
+    try {
+      const payload = await ExtensionApi.getInspirationDiscover(getPulseViralFilterOpts());
+      renderPulseViral(payload, true);
+    } catch (e) {
+      if (e && (e.code === 'UNAUTHORIZED' || e.code === 'NOT_LOGGED_IN')) {
+        renderPulseViral(null, false);
+      } else {
+        setPulseViralStatus('Could not load popular content.');
+        clearPulseViralExtras();
+      }
+    }
+  }
+
   async function syncPulseFromBackend() {
     const whopLoggedIn = typeof isWhopLoggedIn === 'function' && (await isWhopLoggedIn());
     if (whopLoggedIn && typeof ExtensionApi !== 'undefined') {
@@ -4997,6 +5204,8 @@
     }
     await pushPulseWatchBundlesToStorage();
     refreshPulseWatchActivityPanel();
+    if (typeof renderFollowingFromCaches === 'function') renderFollowingFromCaches();
+    if (typeof loadPulseViral === 'function') loadPulseViral().catch(() => {});
   }
   window.syncPulseFromBackend = syncPulseFromBackend;
 
@@ -6580,11 +6789,10 @@
     const btnLoggedOut = document.getElementById('setProjectFolderBtnLoggedOut');
     const wrap = document.getElementById('workflowContentRequiresProjectFolder');
     const afterProject = document.getElementById('getStartedAfterProject');
-    const banner = document.getElementById('projectFolderBanner');
     const folderHint = document.getElementById('projectFolderHint');
     const recordingWrap = document.getElementById('recordingRequiresProjectFolder');
     getStoredProjectFolderHandle().then((h) => {
-      if (el) el.textContent = h ? 'Project folder set.' : 'Not set — set project folder to see workflows and add/create.';
+      if (el) el.textContent = h ? 'Project folder set.' : 'Not set — optional for disk files; workflows save in this browser and to your account when signed in.';
       if (elAuth) {
         elAuth.textContent = h ? '✓ Set' : '✗ Not set';
         elAuth.className = 'project-folder-status-auth hint' + (h ? ' project-folder-set' : ' project-folder-not-set');
@@ -6595,12 +6803,11 @@
       }
       if (btnAuth) btnAuth.classList.toggle('project-folder-set', !!h);
       if (btnLoggedOut) btnLoggedOut.classList.toggle('project-folder-set', !!h);
-      if (wrap) wrap.style.display = h ? '' : 'none';
-      if (afterProject) afterProject.style.display = h ? '' : 'none';
-      if (banner) banner.style.display = h ? 'none' : 'block';
+      if (wrap) wrap.style.display = '';
+      if (afterProject) afterProject.style.display = '';
       if (folderHint) folderHint.style.display = h ? 'none' : 'block';
-      if (recordingWrap) recordingWrap.style.display = h ? '' : 'none';
-      if (h && typeof renderGetStartedSection === 'function') renderGetStartedSection();
+      if (recordingWrap) recordingWrap.style.display = '';
+      if (typeof renderGetStartedSection === 'function') renderGetStartedSection();
       if (typeof checkBackendStatus === 'function') checkBackendStatus();
       if (typeof updateLaminiDownloadButtonVisibility === 'function') {
         updateLaminiDownloadButtonVisibility().catch(() => {});
@@ -7249,7 +7456,6 @@
   document.getElementById('setProjectFolderBtn')?.addEventListener('click', doSetProjectFolder);
   document.getElementById('setProjectFolderBtnAuth')?.addEventListener('click', doSetProjectFolder);
   document.getElementById('setProjectFolderBtnLoggedOut')?.addEventListener('click', doSetProjectFolder);
-  document.getElementById('projectFolderBannerBtn')?.addEventListener('click', doSetProjectFolder);
   document.getElementById('downloadLaminiBtnAuth')?.addEventListener('click', doDownloadLaminiIntoProject);
   document.getElementById('downloadLaminiBtnLoggedOut')?.addEventListener('click', doDownloadLaminiIntoProject);
 
@@ -8688,6 +8894,65 @@
     })();
   }
 
+  /** Open /extension/login with the same nonce handshake as Login with Whop. Optional intent=trial for copy. */
+  async function openWhopLoginTab(intent) {
+    let code = '';
+    try {
+      code =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+    } catch (_) {
+      code = String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+    }
+    try {
+      await chrome.storage.session.set({ cfs_whop_login_nonce: code });
+    } catch (e) {
+      if (typeof setStatus === 'function') {
+        setStatus(
+          'Could not start Whop login (session storage unavailable). Reload the extension and try again.',
+          'error'
+        );
+      }
+      return;
+    }
+    try {
+      await chrome.storage.local.remove('cfs_whop_login_last_error');
+    } catch (_) {}
+    let extId = '';
+    try {
+      extId = (chrome.runtime && chrome.runtime.id) || '';
+    } catch (_) {}
+    const intentVal = intent == null ? '' : String(intent).trim();
+    let base;
+    if (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig.getLoginUrl) {
+      base = WhopAuthConfig.getLoginUrl(code, extId, intentVal || undefined);
+    } else {
+      const params = new URLSearchParams();
+      if (code) params.set('code', code);
+      if (extId) params.set('ext_id', extId);
+      if (intentVal) params.set('intent', intentVal);
+      const qs = params.toString();
+      base = 'https://www.extensiblecontent.com/extension/login' + (qs ? '?' + qs : '');
+    }
+    if (intentVal && base && base.indexOf('intent=') === -1) {
+      base += (base.indexOf('?') >= 0 ? '&' : '?') + 'intent=' + encodeURIComponent(intentVal);
+    }
+    if (typeof setStatus === 'function') {
+      setStatus(intentVal === 'trial' ? 'Complete trial signup in the new tab…' : 'Complete Whop login in the new tab…', '');
+    }
+    chrome.tabs.create({ url: base });
+  }
+
+  function openTrialCheckoutOrLogin(upgraded) {
+    const url = upgraded && typeof upgraded.trial_checkout_url === 'string' ? upgraded.trial_checkout_url.trim() : '';
+    if (url) {
+      chrome.tabs.create({ url: url });
+      return;
+    }
+    void openWhopLoginTab('trial');
+  }
+
   /** Unified Get Started: load/save setup (monetization, platforms, platform-monetization), render UI, upgrade CTA, categories. */
   const WORKFLOW_SETUP_STORAGE_KEY = (typeof WorkflowSetupConstants !== 'undefined' && WorkflowSetupConstants.WORKFLOW_SETUP_STORAGE_KEY) || 'unifiedWorkflowSetup';
   async function loadWorkflowSetup() {
@@ -8709,7 +8974,6 @@
     const setup = await loadWorkflowSetup();
     const monetizationOpts = C.MONETIZATION_OPTIONS || [];
     const platformOpts = C.PLATFORM_OPTIONS || [];
-    const categories = C.WORKFLOW_CATEGORIES || [];
     const plans = C.UPGRADE_PLANS || [];
 
     const monetizationEl = document.getElementById('monetizationCheckboxes');
@@ -8775,126 +9039,69 @@
 
     const upgradeWrap = document.getElementById('upgradeCtaWrap');
     const plansList = document.getElementById('upgradePlansList');
+    const upgradeHint = document.getElementById('upgradeCtaHint');
+    const upgradeTrialRow = document.getElementById('upgradeTrialCtaRow');
     if (upgradeWrap && plansList) {
       (typeof isWhopLoggedIn === 'function' ? isWhopLoggedIn() : Promise.resolve(false)).then(function(loggedIn) {
         if (!loggedIn || typeof ExtensionApi === 'undefined') return Promise.resolve({ ok: false, pro: false });
         return ExtensionApi.hasUpgraded();
       }).then(function(upgraded) {
-        const showUpgrade = !(upgraded && upgraded.pro);
-        upgradeWrap.style.display = showUpgrade ? '' : 'none';
-        if (!showUpgrade) return;
-        plansList.innerHTML = plans.map(function(plan) {
-          const featuresHtml = (plan.features || []).map(function(f) { return '<li>' + f + '</li>'; }).join('');
-          return '<div class="upgrade-plan-card" data-plan="' + plan.id + '"><strong>' + (plan.name || plan.id) + '</strong> — $' + plan.price + '/' + plan.interval + '<ul class="upgrade-plan-features">' + featuresHtml + '</ul><button type="button" class="btn btn-outline btn-small upgrade-plan-btn" data-plan-id="' + (plan.id || '') + '">Upgrade</button></div>';
-        }).join('');
-        plansList.querySelectorAll('.upgrade-plan-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            const planId = btn.getAttribute('data-plan-id') || '';
-            const url = (typeof WorkflowSetupConstants !== 'undefined' && WorkflowSetupConstants.UPGRADE_URL) ? WorkflowSetupConstants.UPGRADE_URL + (planId ? '?plan=' + planId : '') : '#upgrade';
-            if (url && url !== '#upgrade') {
-              chrome.tabs.create({ url: url });
-            } else {
-              setStatus('Upgrade flow: configure UPGRADE_URL in workflow-setup-constants, or visit your account to upgrade.', '');
-            }
-          });
-        });
+        const pro = !!(upgraded && upgraded.pro);
+        const access = upgraded && upgraded.access;
+        const trialActive = !!(upgraded && upgraded.trial_active) || access === 'trial';
+        const entitledMember = access === 'project_member' || access === 'paid';
+        const loggedInOk = !!(upgraded && upgraded.ok);
+        if (pro || entitledMember) {
+          upgradeWrap.style.display = 'none';
+          return;
+        }
+        if (trialActive) {
+          upgradeWrap.style.display = '';
+          if (upgradeHint) upgradeHint.textContent = "You're on a 3-day trial.";
+          if (upgradeTrialRow) upgradeTrialRow.style.display = 'none';
+          plansList.innerHTML = '';
+          plansList.style.display = 'none';
+          return;
+        }
+        if (!loggedInOk) {
+          upgradeWrap.style.display = 'none';
+          return;
+        }
+        upgradeWrap.style.display = '';
+        if (upgradeHint) upgradeHint.textContent = 'Start a free 3-day trial. Pick a paid plan only if you already used your trial.';
+        if (upgradeTrialRow) upgradeTrialRow.style.display = '';
+        plansList.innerHTML = '';
+        plansList.style.display = 'none';
+        const startTrialBtn = document.getElementById('upgradeStartTrialBtn');
+        if (startTrialBtn) {
+          startTrialBtn.onclick = function() { openTrialCheckoutOrLogin(upgraded); };
+        }
+        const showPaidBtn = document.getElementById('upgradeShowPaidPlansBtn');
+        if (showPaidBtn) {
+          showPaidBtn.onclick = function() {
+            plansList.style.display = '';
+            plansList.innerHTML = plans.map(function(plan) {
+              const featuresHtml = (plan.features || []).map(function(f) { return '<li>' + f + '</li>'; }).join('');
+              return '<div class="upgrade-plan-card" data-plan="' + plan.id + '"><strong>' + (plan.name || plan.id) + '</strong> — $' + plan.price + '/' + plan.interval + '<ul class="upgrade-plan-features">' + featuresHtml + '</ul><button type="button" class="btn btn-outline btn-small upgrade-plan-btn" data-plan-id="' + (plan.id || '') + '">Upgrade</button></div>';
+            }).join('');
+            plansList.querySelectorAll('.upgrade-plan-btn').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                const planId = btn.getAttribute('data-plan-id') || '';
+                const url = (typeof WorkflowSetupConstants !== 'undefined' && WorkflowSetupConstants.UPGRADE_URL) ? WorkflowSetupConstants.UPGRADE_URL + (planId ? '?plan=' + planId : '') : '#upgrade';
+                if (url && url !== '#upgrade') {
+                  chrome.tabs.create({ url: url });
+                } else {
+                  setStatus('Upgrade flow: configure UPGRADE_URL in workflow-setup-constants, or visit your account to upgrade.', '');
+                }
+              });
+            });
+          };
+        }
       }).catch(function() { if (upgradeWrap) upgradeWrap.style.display = 'none'; });
     }
 
-    let lastDiscoveryWorkflows = [];
-    function renderDiscoveryResults(discoveryList, hint) {
-      const el = document.getElementById('workflowDiscoveryResults');
-      if (!el) return;
-      lastDiscoveryWorkflows = discoveryList || [];
-      if (!discoveryList || !discoveryList.length) {
-        el.innerHTML = '<p class="hint">' + (hint || 'No workflows found. Try a different category or search.') + '</p>';
-        return;
-      }
-      el.innerHTML = (hint ? '<p class="hint">' + hint + '</p>' : '') + discoveryList.map(function(w) {
-        return '<div class="backend-search-item" style="margin:6px 0;"><span>' + escapeHtml(w.name || w.id) + '</span> <small>' + escapeHtml(w.created_by || '') + '</small> <button type="button" class="btn btn-outline btn-small discovery-add-workflow" data-workflow-id="' + escapeAttr(w.id) + '">Add</button></div>';
-      }).join('');
-      el.querySelectorAll('.discovery-add-workflow').forEach(function(btn) {
-        btn.addEventListener('click', async function() {
-          const id = btn.getAttribute('data-workflow-id');
-          const item = lastDiscoveryWorkflows.find(function(w) { return w.id === id; });
-          if (!item || !item.workflow) return;
-          const wf = { ...item.workflow, id: item.id, name: item.name || item.id || 'Imported' };
-          workflows[id] = wf;
-          await chrome.storage.local.set({ workflows });
-          loadWorkflows();
-          if (typeof persistWorkflowToProjectFolder === 'function') persistWorkflowToProjectFolder(id);
-          setStatus('Workflow added. Find it in Your workflows below.', 'success');
-          if (typeof fetchWorkflowsFromBackend === 'function') fetchWorkflowsFromBackend();
-        });
-      });
-    }
-
-    const categoryTabs = document.getElementById('workflowCategoryTabs');
-    if (categoryTabs) {
-      categoryTabs.innerHTML = categories.map(function(c) {
-        return '<button type="button" class="btn btn-outline btn-small workflow-category-tab" data-category="' + c.id + '">' + (c.label || c.id) + '</button>';
-      }).join('');
-      categoryTabs.querySelectorAll('.workflow-category-tab').forEach(function(btn) {
-        btn.addEventListener('click', async function() {
-          const cat = btn.dataset.category;
-          const label = categories.find(function(c) { return c.id === cat; })?.label || cat;
-          const resultsEl = document.getElementById('workflowDiscoveryResults');
-          if (resultsEl) resultsEl.textContent = 'Loading…';
-          if (typeof isWhopLoggedIn !== 'function' || !(await isWhopLoggedIn()) || typeof ExtensionApi === 'undefined') {
-            if (resultsEl) resultsEl.textContent = 'Sign in with Whop to browse by category.';
-            return;
-          }
-          try {
-            const list = await ExtensionApi.getWorkflows();
-            const q = (label || '').toLowerCase();
-            const matched = Array.isArray(list) ? list.filter(function(row) {
-              const name = (row.name || row.workflow?.name || '').toLowerCase();
-              return !q || name.includes(q);
-            }).map(function(row) {
-              return { id: row.id, name: row.name || row.workflow?.name || 'Unnamed', workflow: row.workflow || row, created_by: row.created_by };
-            }) : [];
-            renderDiscoveryResults(matched, 'Category: ' + label + ' (your workflows matching).');
-          } catch (e) {
-            if (resultsEl) resultsEl.textContent = 'Search failed.';
-            setStatus(e?.message || 'Search failed', 'error');
-          }
-        });
-      });
-    }
-
-    const searchBtn = document.getElementById('workflowDiscoverySearchBtn');
-    const searchInput = document.getElementById('workflowDiscoverySearch');
-    if (searchBtn && searchInput) {
-      searchBtn.addEventListener('click', async function() {
-        const q = (searchInput.value || '').trim();
-        const resultsEl = document.getElementById('workflowDiscoveryResults');
-        if (!q) {
-          if (resultsEl) resultsEl.textContent = 'Enter a search term, or click a category above.';
-          setStatus('Enter a search term.', 'error');
-          return;
-        }
-        if (resultsEl) resultsEl.textContent = 'Loading…';
-        if (typeof isWhopLoggedIn !== 'function' || !(await isWhopLoggedIn()) || typeof ExtensionApi === 'undefined') {
-          if (resultsEl) resultsEl.textContent = 'Sign in with Whop to search workflows.';
-          setStatus('Sign in to search workflows.', 'error');
-          return;
-        }
-        try {
-          const list = await ExtensionApi.getWorkflows();
-          const qLower = q.toLowerCase();
-          const matched = Array.isArray(list) ? list.filter(function(row) {
-            const name = (row.name || row.workflow?.name || '').toLowerCase();
-            return name.includes(qLower);
-          }).map(function(row) {
-            return { id: row.id, name: row.name || row.workflow?.name || 'Unnamed', workflow: row.workflow || row, created_by: row.created_by };
-          }) : [];
-          renderDiscoveryResults(matched, 'Your workflows matching "' + q + '".');
-          setStatus(matched.length ? 'Found ' + matched.length + ' workflow(s).' : 'No results.', matched.length ? 'success' : 'error');
-        } catch (e) {
-          if (resultsEl) resultsEl.textContent = 'Search failed.';
-          setStatus(e?.message || 'Search failed', 'error');
-        }
-      });
+    if (window.CFS_libraryCategories && typeof window.CFS_libraryCategories.refresh === 'function') {
+      window.CFS_libraryCategories.refresh();
     }
     if (typeof renderWorkflowQuestionsList === 'function') renderWorkflowQuestionsList();
   }
@@ -9363,82 +9570,20 @@
 
   async function refreshLibraryPanel() {
     if (typeof renderGetStartedSection === 'function') renderGetStartedSection();
-    const listEl = document.getElementById('libraryProjectsList');
-    const emptyEl = document.getElementById('libraryProjectsEmpty');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-    var remoteProjects = [];
-    if (window.CFS_libraryPanel && typeof window.CFS_libraryPanel.fetchRemoteProjects === 'function') {
-      remoteProjects = await window.CFS_libraryPanel.fetchRemoteProjects(isWhopLoggedIn, normalizeSupabaseProject);
-    } else if (typeof isWhopLoggedIn === 'function' && await isWhopLoggedIn() && typeof ExtensionApi !== 'undefined') {
-      try {
-        var apiProjects = await ExtensionApi.getProjects();
-        remoteProjects = (Array.isArray(apiProjects) ? apiProjects : []).map(function(p) {
-          return typeof normalizeSupabaseProject === 'function' ? normalizeSupabaseProject(p) : { id: p.id, name: p.name };
-        });
-      } catch (_) {}
+    if (window.CFS_librarySources && typeof window.CFS_librarySources.refresh === 'function') {
+      await window.CFS_librarySources.refresh();
     }
-    var localProjects = [];
-    if (typeof getLocalProjects === 'function') {
-      try { localProjects = await getLocalProjects(); } catch (_) {}
+    if (window.CFS_libraryCategories && typeof window.CFS_libraryCategories.refresh === 'function') {
+      await window.CFS_libraryCategories.refresh();
     }
-    var merged = new Map();
-    (localProjects || []).forEach(function(p) { if (p && p.id) merged.set(p.id, p); });
-    remoteProjects.forEach(function(p) { if (p && p.id) merged.set(p.id, p); });
-    var projects = Array.from(merged.values());
-    if (emptyEl) emptyEl.style.display = projects.length === 0 && listEl.children.length === 0 ? 'none' : (projects.length === 0 ? '' : 'none');
-    function addProjectRow(projectId, label) {
-      var row = document.createElement('div');
-      row.className = 'library-project-row';
-      row.dataset.projectId = projectId;
-      row.style.cssText = 'padding:8px 0;border-bottom:1px solid var(--border-color,#ddd);cursor:pointer;';
-      row.setAttribute('role', 'button');
-      row.tabIndex = 0;
-      row.innerHTML = '<strong>' + escapeHtml(label || projectId) + '</strong><div class="library-project-id" style="font-size:11px;color:var(--gen-muted,#6e6e73);margin-top:2px;"><code style="font-size:11px;background:#eee;padding:2px 6px;">' + escapeHtml(projectId) + '</code></div>';
-      row.addEventListener('click', function() {
-        uploadsPathSegments = [projectId];
-        try {
-          chrome.storage.local.set({ selectedProjectId: projectId });
-        } catch (_) {}
-        refreshLibraryPanelSelection();
-        refreshUploadsList();
-      });
-      listEl.appendChild(row);
-    }
-    addProjectRow('default', 'Local (default)');
-    projects.forEach(function(p) {
-      var safeId = (p.id || '').replace(/[^\w-]/g, '_') || 'default';
-      addProjectRow(safeId, p.name || p.id || 'Unnamed');
-    });
-    refreshLibraryPanelSelection();
   }
 
   function refreshLibraryPanelSelection() {
-    var listEl = document.getElementById('libraryProjectsList');
-    if (!listEl) return;
-    var current = uploadsPathSegments[0] || '';
-    var rows = listEl.querySelectorAll('.library-project-row');
-    for (var i = 0; i < rows.length; i++) {
-      var r = rows[i];
-      if ((r.dataset.projectId || '') === current) {
-        r.classList.add('library-project-row-selected');
-      } else {
-        r.classList.remove('library-project-row-selected');
-      }
-    }
     var wrap = document.getElementById('uploadsBrowserWrap');
     var prompt = document.getElementById('uploadsPrompt');
-    if (wrap) {
-      if (current) {
-        var row = listEl.querySelector('.library-project-row[data-project-id="' + current + '"]');
-        if (row) row.after(wrap);
-        wrap.style.display = 'block';
-      } else {
-        wrap.style.display = 'none';
-        if (listEl.parentNode) listEl.parentNode.insertBefore(wrap, listEl.nextSibling);
-      }
-    }
-    if (prompt) prompt.style.display = current ? 'none' : 'block';
+    var current = uploadsPathSegments[0] || '';
+    if (wrap && current) wrap.style.display = 'block';
+    if (prompt) prompt.style.display = 'none';
   }
 
   window.refreshLibraryPanel = refreshLibraryPanel;
@@ -9452,6 +9597,30 @@
       dir = await dir.getDirectoryHandle(pathSegments[i], { create: true });
     }
     return dir;
+  }
+
+  async function writeSourceRecordingFile(filename, blob) {
+    if (!blob || !blob.size || !filename) return { ok: false };
+    const safeName = String(filename).replace(/[/\\]/g, '-');
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (projectRoot && typeof projectRoot.requestPermission === 'function') {
+        const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          const segs = uploadsPathSegments.length ? uploadsPathSegments.slice() : ['recordings'];
+          const dir = await getUploadsDir(projectRoot, segs);
+          if (dir) {
+            const fh = await dir.getFileHandle(safeName, { create: true });
+            const writable = await fh.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            if (typeof refreshUploadsList === 'function') refreshUploadsList();
+            return { ok: true, where: 'uploads/' + segs.join('/') + '/' + safeName };
+          }
+        }
+      }
+    } catch (_) {}
+    return { ok: false };
   }
 
   function resolveProfileId(profileId, profileName) {
@@ -9696,19 +9865,24 @@
     const input = document.getElementById('newWorkflowName');
     const name = input?.value?.trim();
     if (!name) return;
-    const projectRoot = await ensureProjectFolderForWrite();
-    if (!projectRoot) return;
     const id = 'wf_' + Date.now() + '_' + shortRandomId();
     workflows[id] = createNewWorkflowShape(id, name);
+    var catUi = window.CFS_libraryCategories;
+    if (catUi && typeof catUi.getState === 'function') {
+      var selectedCat = catUi.getState().selectedId;
+      if (selectedCat) workflows[id].categories = [selectedCat];
+    }
     await chrome.storage.local.set({ workflows });
+    persistWorkflowToProjectFolder(id);
     if (input) input.value = '';
     loadWorkflows();
+    if (catUi && typeof catUi.refresh === 'function') catUi.refresh();
     const syncRes = await syncWorkflowToBackend(id).catch(() => ({ ok: false }));
     if (syncRes.ok) {
       fetchWorkflowsFromBackend();
-      setStatus('Workflow created and synced to backend. Add steps (e.g. record + Analyze) then use Save to folder to write workflows/' + id + '/.', 'success');
+      setStatus('Workflow created and synced to your account. Add steps (e.g. record + Analyze). Use Save to folder if you want JSON on disk.', 'success');
     } else {
-      setStatus('Saved locally. Sign in with Whop to sync to extensiblecontent.com.', 'success');
+      setStatus('Saved in this browser. Sign in with Whop to sync to your account.', 'success');
     }
   });
 
@@ -10089,7 +10263,6 @@
   }
 
   function handlePlanWorkflowSelectChange() {
-    toggleNewWorkflowRow();
     const wfId = workflowSelect.value;
     const realWfId = wfId && wfId !== '__new__' ? wfId : '';
     applyPlanWorkflowSelectToPlaybackDropdown({ silent: false });
@@ -10097,12 +10270,7 @@
     renderRecordingMode();
     renderWorkflowUrlPattern();
     if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
-    const wfControls = document.getElementById('workflowSelectedControls');
-    if (wfControls) { wfControls.style.display = realWfId ? '' : 'none'; renderPersonalInfoList(realWfId); }
-    const subTabs = document.getElementById('planWorkflowSubTabs');
-    if (subTabs) subTabs.style.display = realWfId ? '' : 'none';
-    const urlPlanWrap = document.getElementById('workflowUrlPatternPlan');
-    if (urlPlanWrap) urlPlanWrap.style.display = realWfId ? '' : 'none';
+    updatePlanRecordUiForSelection(realWfId);
     void syncAutoDiscoveryState();
     if (realWfId) persistSelectedWorkflowId(realWfId);
     syncPlanWorkflowPickersFromHiddenSelect();
@@ -10210,12 +10378,15 @@
     });
   });
 
-  document.getElementById('recordingCreateWorkflowBtn')?.addEventListener('click', async () => {
+  async function createPlanWorkflow(optionalName) {
     const nameInput = document.getElementById('recordingNewWorkflowName');
-    const name = (nameInput?.value || '').trim();
-    if (!name) { setStatus('Enter a workflow name.', 'error'); return; }
-    const projectRoot = await ensureProjectFolderForWrite();
-    if (!projectRoot) return;
+    let name = (optionalName != null ? String(optionalName) : (nameInput?.value || '')).trim();
+    if (!name) {
+      try {
+        if (currentTabUrl) name = new URL(currentTabUrl).hostname.replace(/^www\./, '');
+      } catch (_) {}
+    }
+    if (!name) name = 'Untitled workflow';
     const id = 'wf_' + Date.now() + '_' + shortRandomId();
     const wf = createNewWorkflowShape(id, name);
     let tabOrigin = '';
@@ -10225,22 +10396,28 @@
     if (tabOrigin) wf.urlPattern = { origin: tabOrigin, pathPattern: '*' };
     workflows[id] = wf;
     await chrome.storage.local.set({ workflows });
+    persistWorkflowToProjectFolder(id);
     if (nameInput) nameInput.value = '';
     await loadWorkflows();
     const syncRes = await syncWorkflowToBackend(id).catch(() => ({ ok: false }));
     if (syncRes.ok) fetchWorkflowsFromBackend();
     workflowSelect.value = id;
     syncPlanWorkflowPickersFromHiddenSelect();
-    toggleNewWorkflowRow();
     renderRunsList(id);
     renderRecordingMode();
-    const wfControls = document.getElementById('workflowSelectedControls');
-    if (wfControls) { wfControls.style.display = ''; renderPersonalInfoList(id); }
-    const subTabsEl = document.getElementById('planWorkflowSubTabs');
-    if (subTabsEl) subTabsEl.style.display = '';
-    const urlPlanWrap = document.getElementById('workflowUrlPatternPlan');
-    if (urlPlanWrap) urlPlanWrap.style.display = '';
-    setStatus(syncRes.ok ? 'Workflow "' + name + '" created.' : 'Saved locally. Sign in with Whop to sync to extensiblecontent.com.', 'success');
+    updatePlanRecordUiForSelection(id);
+    return { id, name, syncOk: !!syncRes.ok };
+  }
+
+  document.getElementById('recordingCreateWorkflowBtn')?.addEventListener('click', async () => {
+    const created = await createPlanWorkflow();
+    if (!created) return;
+    setStatus(
+      created.syncOk
+        ? 'Workflow "' + created.name + '" created and synced to your account.'
+        : 'Saved in this browser. Sign in with Whop to sync to your account.',
+      'success'
+    );
   });
 
   document.getElementById('selectPersonalInfoOnPageBtn')?.addEventListener('click', async () => {
@@ -10558,10 +10735,15 @@
   });
 
   document.getElementById('startRecord').addEventListener('click', async () => {
-    const wfId = workflowSelect.value;
+    let wfId = workflowSelect.value;
     if (!wfId || wfId === '__new__') {
-      setStatus('Select or create a workflow first.', 'error');
-      return;
+      const created = await createPlanWorkflow();
+      if (!created?.id) {
+        setStatus('Could not create a workflow to record.', 'error');
+        return;
+      }
+      wfId = created.id;
+      setStatus('Created "' + created.name + '". Starting recording…', '');
     }
     const { mode } = getRecordingMode(wfId);
     const planMedia = getPlanRecordMediaOptions();
@@ -10573,6 +10755,10 @@
     }
     if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://') || tab.url?.startsWith('edge://')) {
       setStatus('Cannot record on this page. Open a regular website (e.g. google.com).', 'error');
+      return;
+    }
+    if (sourceMediaBusy) {
+      setStatus('Library Sources is already recording. Stop that first.', 'error');
       return;
     }
     if (planMedia.recordWebcam) {
@@ -12380,10 +12566,9 @@
     var graphEl = document.getElementById('stepsFlowGraph');
     if (strip) {
       strip.innerHTML = actions.map(function(a, ix) {
-        var label = (ix + 1) + ' ' + (a.type || 'step');
-        if (a.runIf || (a.type === 'ifCondition' && a.condition)) label += ' [if]';
-        if (a.type === 'runWorkflow' && a.workflowId) label += ' → ' + a.workflowId;
-        return '<button type="button" class="flow-chip" data-flow-step="' + ix + '">' + escapeHtml(label) + '</button>';
+        var label = String(ix + 1);
+        if (a.runIf || (a.type === 'ifCondition' && a.condition)) label += '?';
+        return '<button type="button" class="flow-chip" data-flow-step="' + ix + '" title="' + escapeHtml((a.type || 'step') + (a.workflowId ? ' → ' + a.workflowId : '')) + '">' + escapeHtml(label) + '</button>';
       }).join('');
       strip.querySelectorAll('[data-flow-step]').forEach(function(btn) {
         btn.addEventListener('click', function() {
@@ -12447,12 +12632,16 @@
         var l = document.getElementById('stepsList');
         if (g) g.style.display = 'none';
         if (l) l.style.display = '';
+        document.getElementById('stepsViewListBtn')?.classList.add('is-active');
+        document.getElementById('stepsViewGraphBtn')?.classList.remove('is-active');
       });
       document.getElementById('stepsViewGraphBtn')?.addEventListener('click', function() {
         var g = document.getElementById('stepsFlowGraph');
         var l = document.getElementById('stepsList');
         if (g) g.style.display = '';
         if (l) l.style.display = 'none';
+        document.getElementById('stepsViewGraphBtn')?.classList.add('is-active');
+        document.getElementById('stepsViewListBtn')?.classList.remove('is-active');
       });
     }
     if (!list._proceedWhenBound) {
@@ -13654,13 +13843,13 @@
       return '<option value="' + escapeHtml(s.id) + '"' + (type === s.id ? ' selected' : '') + '>' + escapeHtml(s.label) + '</option>';
     }).join('');
     var chips = '';
-    if (runIfVal) chips += '<span class="step-chip step-chip-if" title="' + escapeHtml(runIfVal) + '">If ' + escapeHtml(runIfVal.length > 40 ? runIfVal.slice(0, 40) + '…' : runIfVal) + '</span>';
-    if (type === 'runWorkflow' && action.workflowId) chips += '<span class="step-chip">→ ' + escapeHtml(String(action.workflowId)) + '</span>';
+    if (runIfVal) chips += '<span class="step-chip step-chip-if" title="' + escapeHtml(runIfVal) + '">If</span>';
+    if (type === 'runWorkflow' && action.workflowId) chips += '<span class="step-chip" title="' + escapeHtml(String(action.workflowId)) + '">→ wf</span>';
     if (type === 'loop') {
       var lv = String(action.listVariable || '').trim();
-      chips += lv ? '<span class="step-chip">over {{' + escapeHtml(lv) + '}}</span>' : '<span class="step-chip">×' + escapeHtml(String(action.count != null ? action.count : 1)) + '</span>';
+      chips += lv ? '<span class="step-chip" title="{{' + escapeHtml(lv) + '}}">loop</span>' : '<span class="step-chip">×' + escapeHtml(String(action.count != null ? action.count : 1)) + '</span>';
     }
-    if (action.onFailure && action.onFailure !== 'stop') chips += '<span class="step-chip">onFailure: ' + escapeHtml(action.onFailure === 'skipRow' ? 'skip' : action.onFailure) + '</span>';
+    if (action.onFailure && action.onFailure !== 'stop') chips += '<span class="step-chip">' + escapeHtml(action.onFailure === 'skipRow' ? 'skip' : action.onFailure) + '</span>';
     return '<div class="step-item ' + (optional ? 'step-optional' : '') + '" data-step-index="' + i + '">' +
       '<div class="step-header" title="Double-click to run from this step">' +
       '<span class="step-number">' + (i + 1) + '</span>' +
@@ -18074,6 +18263,26 @@
     return { isLoggedIn: false, username: null };
   }
 
+  window.CFS_libraryHost = {
+    getWorkflows: function () { return workflows; },
+    setStatus: setStatus,
+    isWhopLoggedIn: isWhopLoggedIn,
+    renderWorkflowList: renderWorkflowList,
+    loadWorkflows: loadWorkflows,
+    persistWorkflowToProjectFolder: persistWorkflowToProjectFolder,
+    fetchWorkflowsFromBackend: fetchWorkflowsFromBackend,
+    syncWorkflowToBackend: syncWorkflowToBackend,
+    refreshUploadsList: refreshUploadsList,
+    setUploadsPath: function (segs) { uploadsPathSegments = Array.isArray(segs) ? segs.slice() : []; },
+    startMediaCapture: startPlanParallelMediaCapture,
+    stopMediaCapture: stopPlanParallelMediaCapture,
+    ensureWebcamGrant: ensureWebcamGrantForPlanRecord,
+    ensureMicGrant: ensureMicrophoneGrantForPlanRecord,
+    writeSourceRecordingFile: writeSourceRecordingFile,
+    isPlanMediaBusy: function () { return !!parallelPlanMediaRecording; },
+    setSourceMediaBusy: function (v) { sourceMediaBusy = !!v; }
+  };
+
   /** Normalize Supabase Project to shape used by UI: { id, name, industries, platforms, monetization } */
   function normalizeSupabaseProject(p) {
     if (typeof ExtensionWorkflowNormalize !== 'undefined' && ExtensionWorkflowNormalize.normalizeSupabaseProject) {
@@ -18134,7 +18343,12 @@
         if (defaultRes.ok && defaultRes.defaultProjectId) selectedId = defaultRes.defaultProjectId;
       } catch (e) {
         if (e?.code === 'UNAUTHORIZED' || e?.code === 'NOT_LOGGED_IN') {
-          setStatus('Please log in again.', 'error');
+          var stillThinksLoggedIn = false;
+          try { stillThinksLoggedIn = await isWhopLoggedIn(); } catch (_) {}
+          if (typeof updateAuthUI === 'function') {
+            try { await updateAuthUI(); } catch (_) {}
+          }
+          if (stillThinksLoggedIn) setStatus('Please log in again.', 'error');
         } else {
           setStatus('Failed to load projects: ' + (e?.message || 'unknown'), 'error');
         }
@@ -18678,6 +18892,7 @@
     const loggedOut = document.getElementById('authLoggedOut');
     const loggedIn = document.getElementById('authLoggedIn');
     const loginWhopBtn = document.getElementById('authLoginWhop');
+    const startTrialBtn = document.getElementById('authStartTrial');
     const logoutBtn = document.getElementById('authLogout');
     const usernameDisplay = document.getElementById('authUsernameDisplay');
     const sidebarNameInput = document.getElementById('sidebarName');
@@ -18846,7 +19061,18 @@
         const proBadge = document.getElementById('authProBadge');
         if (proBadge) {
           const upgraded = typeof ExtensionApi !== 'undefined' ? await ExtensionApi.hasUpgraded().catch(() => ({ ok: false, pro: false })) : { ok: false, pro: false };
-          proBadge.style.display = upgraded.ok && upgraded.pro ? 'inline-block' : 'none';
+          if (upgraded.ok && upgraded.pro) {
+            proBadge.textContent = 'Pro';
+            proBadge.classList.remove('auth-trial-badge');
+            proBadge.style.display = 'inline-block';
+          } else if (upgraded.ok && upgraded.trial_active) {
+            proBadge.textContent = 'Trial';
+            proBadge.classList.add('auth-trial-badge');
+            proBadge.style.display = 'inline-block';
+          } else {
+            proBadge.style.display = 'none';
+            proBadge.classList.remove('auth-trial-badge');
+          }
         }
         if (sidebarNameInput) {
           try {
@@ -18917,48 +19143,10 @@
     });
 
     loginWhopBtn?.addEventListener('click', async () => {
-      let code = '';
-      try {
-        code =
-          typeof crypto !== 'undefined' && crypto.randomUUID
-            ? crypto.randomUUID()
-            : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
-      } catch (_) {
-        code = String(Date.now()) + '-' + Math.random().toString(36).slice(2);
-      }
-      try {
-        await chrome.storage.session.set({ cfs_whop_login_nonce: code });
-      } catch (e) {
-        // Must match service-worker fail-closed nonce verify — do not open login without a stored nonce.
-        if (typeof setStatus === 'function') {
-          setStatus(
-            'Could not start Whop login (session storage unavailable). Reload the extension and try again.',
-            'error'
-          );
-        }
-        return;
-      }
-      try {
-        await chrome.storage.local.remove('cfs_whop_login_last_error');
-      } catch (_) {}
-      let extId = '';
-      try {
-        extId = (chrome.runtime && chrome.runtime.id) || '';
-      } catch (_) {}
-      let base;
-      if (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig.getLoginUrl) {
-        base = WhopAuthConfig.getLoginUrl(code, extId);
-      } else {
-        const params = new URLSearchParams();
-        if (code) params.set('code', code);
-        if (extId) params.set('ext_id', extId);
-        const qs = params.toString();
-        base = 'https://www.extensiblecontent.com/extension/login' + (qs ? '?' + qs : '');
-      }
-      if (typeof setStatus === 'function') {
-        setStatus('Complete Whop login in the new tab…', '');
-      }
-      chrome.tabs.create({ url: base });
+      await openWhopLoginTab();
+    });
+    startTrialBtn?.addEventListener('click', async () => {
+      await openWhopLoginTab('trial');
     });
 
     chrome.storage.onChanged.addListener((changes, areaName) => {

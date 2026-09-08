@@ -7,11 +7,14 @@ importScripts('../shared/content-script-tab-bundle.js');
 importScripts('../shared/str-utils.js');
 importScripts('../shared/cfs-frame-actions.js');
 importScripts('../shared/storage-secret-keys.js');
+importScripts('../shared/app-origin-guard.js');
+importScripts('../shared/mcp-capture-tab.js');
 importScripts('message-registry.js');
 importScripts('message-type-catalog.js');
 importScripts('message-handlers-privileged.js');
 importScripts('message-handlers-auth.js');
 importScripts('message-handlers-playback.js');
+importScripts('native-drag-v3.js');
 importScripts('message-handlers-following.js');
 importScripts('message-handlers-watch.js');
 importScripts('message-handlers-solana.js');
@@ -1950,14 +1953,7 @@ function loadProjectStepHandlersFromStorage(callback) {
 
 /** Web pages allowed to call STORE_TOKENS via chrome.runtime.sendMessage(extensionId, …). */
 function cfsWhopIsTrustedAuthPageUrl(urlStr) {
-  if (!urlStr || typeof urlStr !== 'string') return false;
-  try {
-    const u = new URL(urlStr);
-    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return true;
-    if (u.protocol === 'https:' && (u.hostname === 'extensiblecontent.com' || u.hostname.endsWith('.extensiblecontent.com'))) {
-      return true;
-    }
-  } catch (_) {}
+  if (typeof cfsIsTrustedAuthPageUrl === 'function') return cfsIsTrustedAuthPageUrl(urlStr);
   return false;
 }
 
@@ -3386,7 +3382,18 @@ function validateMessagePayload(type, msg) {
     case 'GET_TOKEN':
     case 'LOGOUT':
     case 'GET_TAB_INFO':
+    case 'CFS_MCP_OPEN_RELAY':
       break;
+    case 'CAPTURE_VISIBLE_TAB': {
+      const cap = globalThis.CFS_mcpCaptureTab;
+      if (cap && typeof cap.optionalNonNegInt === 'function') {
+        const tabCheck = cap.optionalNonNegInt(msg.tabId, 'tabId');
+        if (!tabCheck.ok) return { valid: false, error: tabCheck.error };
+        const winCheck = cap.optionalNonNegInt(msg.windowId, 'windowId');
+        if (!winCheck.ok) return { valid: false, error: winCheck.error };
+      }
+      break;
+    }
     case 'CFS_SOLANA_WATCH_GET_ACTIVITY': {
       if (msg.limit != null && msg.limit !== '') {
         const lim = Number(msg.limit);
@@ -6228,6 +6235,98 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
     return true;
   
   };
+  function cfsTabLooksHttp(tab) {
+    const u = tab && tab.url ? String(tab.url) : '';
+    return /^https?:/i.test(u);
+  }
+
+  async function cfsResolveTabForCapture(msg, sender) {
+    if (msg && msg.tabId != null && msg.tabId !== '') {
+      const tab = await chrome.tabs.get(Number(msg.tabId));
+      return { tabId: tab && tab.id, windowId: tab && tab.windowId, url: tab && tab.url, title: tab && tab.title };
+    }
+    if (msg && msg.windowId != null && msg.windowId !== '') {
+      const tabs = await chrome.tabs.query({ active: true, windowId: Number(msg.windowId) });
+      const tab = tabs && tabs[0];
+      return {
+        tabId: tab && tab.id,
+        windowId: (tab && tab.windowId) != null ? tab.windowId : Number(msg.windowId),
+        url: tab && tab.url,
+        title: tab && tab.title,
+      };
+    }
+    const senderIsExt = !!(sender && sender.url && String(sender.url).indexOf('chrome-extension://') === 0);
+    if (!senderIsExt && sender && sender.tab && sender.tab.id != null) {
+      return {
+        tabId: sender.tab.id,
+        windowId: sender.tab.windowId,
+        url: sender.tab.url,
+        title: sender.tab.title,
+      };
+    }
+    const focused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (focused && focused[0] && cfsTabLooksHttp(focused[0])) {
+      return { tabId: focused[0].id, windowId: focused[0].windowId, url: focused[0].url, title: focused[0].title };
+    }
+    const current = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (current && current[0] && cfsTabLooksHttp(current[0])) {
+      return { tabId: current[0].id, windowId: current[0].windowId, url: current[0].url, title: current[0].title };
+    }
+    try {
+      const httpTabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+      httpTabs.sort(function (a, b) { return (b.lastAccessed || 0) - (a.lastAccessed || 0); });
+      if (httpTabs[0]) {
+        return { tabId: httpTabs[0].id, windowId: httpTabs[0].windowId, url: httpTabs[0].url, title: httpTabs[0].title };
+      }
+    } catch (_) {}
+    const fallback = (focused && focused[0]) || (current && current[0]);
+    return {
+      tabId: fallback && fallback.id,
+      windowId: fallback && fallback.windowId,
+      url: fallback && fallback.url,
+      title: fallback && fallback.title,
+    };
+  }
+
+  async function cfsEnsureMcpRelayTab() {
+    const url = chrome.runtime.getURL('mcp/mcp-relay.html');
+    let existing = [];
+    try {
+      existing = await chrome.tabs.query({ url: url });
+    } catch (_) {
+      existing = [];
+    }
+    if (!existing || !existing.length) {
+      try {
+        const all = await chrome.tabs.query({});
+        existing = (all || []).filter((t) => t && t.url && String(t.url).indexOf(url) === 0);
+      } catch (_) {
+        existing = [];
+      }
+    }
+    if (existing && existing.length) {
+      const tab = existing[0];
+      try {
+        await chrome.tabs.update(tab.id, { active: true });
+      } catch (_) {}
+      if (tab.windowId != null) {
+        try {
+          await chrome.windows.update(tab.windowId, { focused: true });
+        } catch (_) {}
+      }
+      return { ok: true, created: false, focused: true, tabId: tab.id, windowId: tab.windowId };
+    }
+    const created = await chrome.tabs.create({ url: url, active: true });
+    self._cfsMcpRelayTabOpenedByUs = created && created.id != null ? created.id : true;
+    return {
+      ok: true,
+      created: true,
+      focused: true,
+      tabId: created && created.id,
+      windowId: created && created.windowId,
+    };
+  }
+
   __CFS_swTypeHandlers["GET_TAB_INFO"] = function (msg, sender, sendResponse) {
     var type = "GET_TAB_INFO";
     
@@ -6256,6 +6355,64 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
     })();
     return true;
   
+  };
+  __CFS_swTypeHandlers["CAPTURE_VISIBLE_TAB"] = function (msg, sender, sendResponse) {
+    var type = "CAPTURE_VISIBLE_TAB";
+
+    (async () => {
+      try {
+        const helpers = globalThis.CFS_mcpCaptureTab;
+        const limits = (helpers && helpers.LIMITS) || {
+          viewportOnly: true,
+          iframesAsRenderedPixels: true,
+          notFullPage: true,
+        };
+        const resolved = await cfsResolveTabForCapture(msg || {}, sender);
+        let tabId = resolved.tabId;
+        let windowId = resolved.windowId;
+        if (tabId == null) {
+          sendResponse({ ok: false, error: 'No tab to capture', limits });
+          return;
+        }
+        try {
+          const updated = await chrome.tabs.update(tabId, { active: true });
+          if (updated && updated.windowId != null) windowId = updated.windowId;
+        } catch (actErr) {
+          sendResponse({
+            ok: false,
+            error: (actErr && actErr.message) || 'Could not activate tab for capture',
+            tabId,
+            windowId,
+            limits,
+          });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 120));
+        const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+        if (!dataUrl) {
+          sendResponse({ ok: false, error: 'captureVisibleTab returned empty', tabId, windowId, limits });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          dataUrl,
+          tabId,
+          windowId,
+          url: resolved.url || null,
+          title: resolved.title || null,
+          bytesEstimate: Math.max(0, String(dataUrl).length),
+          limits,
+        });
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          error: (e && e.message) || 'Failed to capture visible tab',
+          limits: (globalThis.CFS_mcpCaptureTab && globalThis.CFS_mcpCaptureTab.LIMITS) || undefined,
+        });
+      }
+    })();
+    return true;
+
   };
   __CFS_swTypeHandlers["RECORDING_SESSION_BEGIN"] = function (msg, sender, sendResponse) {
     var type = "RECORDING_SESSION_BEGIN";
@@ -6445,7 +6602,7 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
     
     (async () => {
       try {
-        const status = { loggedIn: false, upgraded: false, email: null, username: null };
+        const status = { loggedIn: false, upgraded: false, trial_active: false, access: null, email: null, username: null };
         /* Check login state */
         const authData = await chrome.storage.local.get(['whop_auth']);
         const whopAuth = authData.whop_auth;
@@ -6458,13 +6615,18 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         }
         try {
           var token = whopAuth && (whopAuth.access_token || whopAuth.accessToken);
-          if (token) {
+          var elapsedUp = (Date.now() - ((whopAuth && whopAuth.obtained_at) || 0)) / 1000;
+          var tokenExpired = !token || elapsedUp >= ((whopAuth && whopAuth.expires_in) || 3600) - 60;
+          if (token && !tokenExpired) {
             var upRes = await fetch(WHOP_APP_ORIGIN + '/api/extension/has-upgraded', {
               headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
             });
             if (upRes.ok) {
               var upJson = await upRes.json().catch(function () { return {}; });
               status.upgraded = !!(upJson.pro || upJson.has_upgraded);
+              status.trial_active = !!upJson.trial_active;
+              status.access = upJson.access || null;
+              if (upJson.trial_checkout_url) status.trial_checkout_url = upJson.trial_checkout_url;
             }
           }
         } catch (_) {}
@@ -6750,11 +6912,21 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         }
       }, 10000);
 
-      port.onMessage.addListener((msg) => {
-        if (msg && msg.type === 'started' && !started) {
+      port.onMessage.addListener((nativeMsg) => {
+        if (nativeMsg && nativeMsg.type === 'started' && !started) {
           started = true;
           clearTimeout(timeout);
-          sendResponse({ ok: true, port: msg.port });
+          Promise.resolve(cfsEnsureMcpRelayTab())
+            .then((relay) => {
+              sendResponse({ ok: true, port: nativeMsg.port, relay: relay || { ok: false } });
+            })
+            .catch((relayErr) => {
+              sendResponse({
+                ok: true,
+                port: nativeMsg.port,
+                relay: { ok: false, error: (relayErr && relayErr.message) || 'Failed to open MCP relay tab' },
+              });
+            });
         }
       });
       port.onDisconnect.addListener(() => {
@@ -6772,8 +6944,21 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
     return true;
   
   };
+  __CFS_swTypeHandlers["CFS_MCP_OPEN_RELAY"] = function (msg, sender, sendResponse) {
+    var type = "CFS_MCP_OPEN_RELAY";
+    (async () => {
+      try {
+        const relay = await cfsEnsureMcpRelayTab();
+        sendResponse(relay);
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Failed to open MCP relay tab' });
+      }
+    })();
+    return true;
+  };
   __CFS_swTypeHandlers["CFS_MCP_STOP"] = function (msg, sender, sendResponse) {
     var type = "CFS_MCP_STOP";
+    /* Leave mcp-relay.html open: reconnecting later is less surprising than closing a tab the user may be watching. */
     
     (async () => {
       try {

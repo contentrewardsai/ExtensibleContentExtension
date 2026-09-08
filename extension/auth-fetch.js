@@ -1,6 +1,7 @@
 /**
  * Shared Whop auth + REST fetch for extension API clients.
  * Load after extension/config.js (or Whop auth config), before extension/workflow-normalize.js and extension/api.js.
+ * Requires shared/app-origin-guard.js (path + origin allowlists).
  */
 (function (global) {
   'use strict';
@@ -17,12 +18,15 @@
     } catch (_) {}
   }
 
-  /** After 401: try GET_TOKEN refresh. Returns a new token to retry, or null after LOGOUT. */
+  /**
+   * After 401: retry only if GET_TOKEN minted a *new* access token.
+   * Same token (or no token) is not a reason to wipe the session.
+   */
   async function retryTokenAfter401(previousToken) {
     const refreshed = await getToken();
     const next = refreshed && refreshed.token;
     if (next && next !== previousToken) return next;
-    await sendLogout();
+    if (!next) await sendLogout();
     return null;
   }
 
@@ -52,32 +56,50 @@
     }
   }
 
+  function assertAllowedPath(path) {
+    const check = typeof global.cfsIsAllowedAppFetchPath === 'function'
+      ? global.cfsIsAllowedAppFetchPath(path)
+      : { ok: false, error: 'App fetch allowlist unavailable' };
+    if (!check.ok) {
+      const err = new Error(check.error || 'Path not allowed');
+      err.code = 'PATH_NOT_ALLOWED';
+      throw err;
+    }
+    return check.path;
+  }
+
   async function apiFetch(path, opts = {}) {
-    const { requireAuth = true, ...fetchOpts } = opts;
+    const { requireAuth = true, logoutOn401 = true, ...fetchOpts } = opts;
+    const allowedPath = assertAllowedPath(path);
     const { token, error } = await getToken();
     if (requireAuth && !token) {
       const err = new Error(error || 'Not logged in');
       err.code = 'NOT_LOGGED_IN';
       throw err;
     }
-    const url = `${APP_ORIGIN}${path.startsWith('/') ? path : '/' + path}`;
+    const url = `${APP_ORIGIN}${allowedPath.startsWith('/') ? allowedPath : '/' + allowedPath}`;
+    const isForm = typeof FormData !== 'undefined' && fetchOpts.body instanceof FormData;
     const headers = {
-      'Content-Type': 'application/json',
       ...(fetchOpts.headers || {}),
     };
+    if (!isForm && !headers['Content-Type'] && !headers['content-type']) {
+      headers['Content-Type'] = 'application/json';
+    }
     if (token) headers['Authorization'] = `Bearer ${token}`;
     async function doFetch(bearer) {
       const h = Object.assign({}, headers);
       if (bearer) h.Authorization = 'Bearer ' + bearer;
       else delete h.Authorization;
-      return fetch(url, Object.assign({}, fetchOpts, { headers: h }));
+      return fetch(url, Object.assign({}, fetchOpts, { credentials: 'omit', headers: h }));
     }
     let res = await doFetch(token);
     if (res.status === 401 && requireAuth) {
-      const newTok = await retryTokenAfter401(token);
+      const newTok = logoutOn401 ? await retryTokenAfter401(token) : null;
       if (newTok) res = await doFetch(newTok);
       if (res.status === 401) {
-        const err = new Error('Session expired. Please log in again.');
+        const err = new Error(logoutOn401
+          ? 'Session expired. Please log in again.'
+          : 'This source is not available with the extension login yet.');
         err.code = 'UNAUTHORIZED';
         err.status = 401;
         throw err;
@@ -109,5 +131,6 @@
     retryTokenAfter401,
     sendLogout,
     apiFetch,
+    assertAllowedPath,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

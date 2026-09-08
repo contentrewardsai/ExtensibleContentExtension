@@ -126,8 +126,8 @@ Documentation is colocated with features where practical. Use this index to find
 ## Manifest and references
 
 - **content_scripts[0].js** – Same order as **shared/content-script-tab-bundle.js** (see § Content scripts above). The bundle includes `shared/cfs-frame-actions.js` plus core handlers `steps/click`, `type`, `wait`, and `dragDrop` for first-paint. **`steps/loader.js`** then injects remaining **`steps/{id}/handler.js`** from **`steps/manifest.json`**, skipping ids already registered.
-- **content_scripts** (Whop) – **content/whop-auth-bridge.js** on `https://www.extensiblecontent.com/extension/*` and matching localhost paths only.
-- **web_accessible_resources** – `docs/BACKEND.md`, `docs/INTEGRATIONS.md` (sidepanel links), `test/fixtures/record-playback-test.html` (E2E fixtures), **`steps/manifest.json`**, **`steps/*/handler.js`** (URLs for the step loader / runtime injection), and `models/*` (data models). Content scripts are still injected via `scripting.executeScript` (file path), not loaded by URL for the main bundle.
+- **content_scripts** (Whop) – **content/whop-auth-bridge.js** (after **shared/app-origin-guard.js**) on `https://www.extensiblecontent.com/*`, `https://extensiblecontent.com/*`, and localhost port 3000 only.
+- **web_accessible_resources** – `docs/INTEGRATIONS.md` (sidepanel links), `test/fixtures/record-playback-test.html` (E2E fixtures), **`steps/manifest.json`**, **`steps/*/handler.js`** (URLs for the step loader / runtime injection), and `models/*` (data models). Content scripts are still injected via `scripting.executeScript` (file path), not loaded by URL for the main bundle.
 
 ---
 

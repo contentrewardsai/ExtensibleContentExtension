@@ -287,6 +287,7 @@
     const url = `${APP_ORIGIN}/api/extension/sidebars/disconnect`;
     fetch(url, {
       method: 'POST',
+      credentials: 'omit',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
