@@ -204,6 +204,7 @@
             if (elapsed >= (auth.expires_in || 3600) - buffer && auth.refresh_token) {
               var res = await fetch(whopAppOrigin + '/api/extension/refresh', {
                 method: 'POST',
+                credentials: 'omit',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refresh_token: auth.refresh_token }),
               });

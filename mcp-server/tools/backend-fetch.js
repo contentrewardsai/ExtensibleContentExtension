@@ -6,15 +6,43 @@ import { z } from 'zod';
 
 export const BACKEND_FETCH_ALLOWED_PREFIXES = ['/api/extension/'];
 
+function decodeUntilStable(s) {
+  let cur = String(s || '');
+  for (let i = 0; i < 5; i++) {
+    let next;
+    try {
+      next = decodeURIComponent(cur);
+    } catch (_) {
+      return null;
+    }
+    if (next === cur) return cur;
+    cur = next;
+  }
+  return null;
+}
+
 export function isAllowedBackendFetchPath(path) {
   const raw = String(path || '').trim();
   if (!raw) return { ok: false, error: 'path required' };
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('//')) {
     return { ok: false, error: 'path must be relative to the backend origin (no scheme)' };
   }
+  if (raw.includes('\\')) return { ok: false, error: 'path must not contain backslash' };
   const p = raw.startsWith('/') ? raw : '/' + raw;
-  if (p.includes('..')) return { ok: false, error: 'path must not contain ..' };
-  const allowed = BACKEND_FETCH_ALLOWED_PREFIXES.some((prefix) => p.startsWith(prefix));
+  const q = p.indexOf('?');
+  const h = p.indexOf('#');
+  let pathname = p;
+  if (q >= 0 && (h < 0 || q < h)) pathname = p.slice(0, q);
+  else if (h >= 0) pathname = p.slice(0, h);
+  const decoded = decodeUntilStable(pathname);
+  if (decoded == null) return { ok: false, error: 'path is not a valid encoding' };
+  if (pathname.includes('..') || decoded.includes('..')) {
+    return { ok: false, error: 'path must not contain ..' };
+  }
+  if (decoded.includes('\\') || decoded.includes('//')) {
+    return { ok: false, error: 'path must not contain //' };
+  }
+  const allowed = BACKEND_FETCH_ALLOWED_PREFIXES.some((prefix) => decoded.startsWith(prefix));
   if (!allowed) {
     return {
       ok: false,

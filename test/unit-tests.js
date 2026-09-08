@@ -5538,6 +5538,9 @@
     assertTrue(fn('/api/box/browse?connection_id=1').ok, 'box browse query');
     assertFalse(fn('/api/admin').ok, 'admin blocked');
     assertFalse(fn('/api/extension/../box/connections').ok, 'dot-dot blocked');
+    assertFalse(fn('/api/extension/%2e%2e/admin').ok, 'encoded dot-dot blocked');
+    assertFalse(fn('/api/extension/%252e%252e/admin').ok, 'double-encoded dot-dot blocked');
+    assertTrue(fn('/api/extension/projects?x=%2e%2e').ok, 'encoded dots in query still allowed');
     assertFalse(fn('https://evil.example/api/extension/projects').ok, 'scheme blocked');
     assertFalse(fn('//evil.example/api/extension/projects').ok, 'protocol-relative blocked');
     assertFalse(fn('').ok, 'empty blocked');
@@ -5582,6 +5585,7 @@
     assertTrue(global.cfsIsAllowedMcpBundledPath('workflows/manifest.json'), 'workflows manifest');
     assertFalse(global.cfsIsAllowedMcpBundledPath('docs/BACKEND.md'), 'docs blocked');
     assertFalse(global.cfsIsAllowedMcpBundledPath('steps/../docs/BACKEND.md'), 'traversal blocked');
+    assertFalse(global.cfsIsAllowedMcpBundledPath('steps/%2e%2e/docs/BACKEND.md'), 'encoded traversal blocked');
     assertFalse(global.cfsIsAllowedMcpBundledPath('config/whop-auth.js'), 'config blocked');
     assertTrue(global.cfsIsAllowedMcpRelayReqType('BACKEND_FETCH'), 'BACKEND_FETCH allowed');
     assertTrue(global.cfsIsAllowedMcpRelayReqType('MESSAGE'), 'MESSAGE allowed');
@@ -5590,6 +5594,12 @@
     assertTrue(global.cfsIsDeniedMcpRelayMessageType('STORE_TOKENS'), 'STORE_TOKENS denied');
     assertTrue(global.cfsIsDeniedMcpRelayMessageType('LOGOUT'), 'LOGOUT denied');
     assertFalse(global.cfsIsDeniedMcpRelayMessageType('GET_TAB_INFO'), 'GET_TAB_INFO allowed');
+    var mcpFn = global.cfsIsAllowedMcpBackendFetchPath;
+    assertTrue(typeof mcpFn === 'function', 'cfsIsAllowedMcpBackendFetchPath loaded');
+    assertTrue(mcpFn('/api/extension/projects').ok, 'MCP extension path');
+    assertFalse(mcpFn('/api/box/connections').ok, 'MCP does not proxy Box');
+    assertFalse(mcpFn('/api/ghl/locations/mine').ok, 'MCP does not proxy GHL');
+    assertFalse(mcpFn('/api/extension/%2e%2e/admin').ok, 'MCP encoded traversal blocked');
   }
 
   // ── Walkthrough export tests ───────────────────────────────────────

@@ -252,7 +252,7 @@
 
   function connectProvider(which) {
     if (typeof global.ExtensionApi === 'undefined') return;
-    var urls = global.ExtensionApi.sourceConnectUrls(state.userId);
+    var urls = global.ExtensionApi.sourceConnectUrls();
     var url = which === 'box' ? urls.box : urls.ghl;
     if (url) chrome.tabs.create({ url: url });
   }
