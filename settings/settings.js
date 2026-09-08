@@ -2842,6 +2842,9 @@
         const resp = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(2000) });
         if (resp.ok) {
           setStatus(statusEl, '✓ Server is already running!', 'success');
+          try {
+            await chrome.runtime.sendMessage({ type: 'CFS_MCP_OPEN_RELAY' });
+          } catch (_) {}
           setTimeout(() => setStatus(statusEl, '', ''), 3000);
           if (startBtn) startBtn.disabled = false;
           cfsMcpCheckHealth();
@@ -2853,7 +2856,11 @@
       try {
         const result = await chrome.runtime.sendMessage({ type: 'CFS_MCP_START' });
         if (result && result.ok) {
-          setStatus(statusEl, '✓ MCP server started on port ' + (result.port || 3100) + '.', 'success');
+          const relayNote =
+            result.relay && result.relay.created === false
+              ? ' Relay tab focused.'
+              : ' Relay tab opened.';
+          setStatus(statusEl, '✓ MCP server started on port ' + (result.port || 3100) + '.' + relayNote, 'success');
           setTimeout(() => setStatus(statusEl, '', ''), 4000);
           setTimeout(cfsMcpCheckHealth, 800);
           if (startBtn) startBtn.disabled = false;

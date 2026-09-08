@@ -412,7 +412,7 @@ export function registerResources(server, ctx) {
             relayConnected: connected,
             message: connected
               ? 'Extension relay is connected. All tools and resources are available.'
-              : 'Extension relay is NOT connected. Open mcp/mcp-relay.html in the extension browser.',
+              : 'Extension relay is NOT connected. Settings ▶ Start opens mcp/mcp-relay.html automatically; or call wake_extension_relay.',
           }, null, 2),
         }],
       };

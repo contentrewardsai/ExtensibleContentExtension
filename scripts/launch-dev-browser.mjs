@@ -264,6 +264,29 @@ async function handleRpc(body) {
     if (!page) throw new Error('no page for ' + body.match);
     return { result: await page.evaluate(body.js) };
   }
+  if (op === 'frameEval') {
+    const page = await pageByMatch(body.match);
+    if (!page) throw new Error('no page for ' + body.match);
+    const frame = page.frames().find((f) => (body.frameMatch ? f.url().includes(body.frameMatch) : /leadconnectorhq|page-builder/.test(f.url())));
+    if (!frame) throw new Error('no frame for ' + (body.frameMatch || 'leadconnectorhq'));
+    return { result: await frame.evaluate(body.js), url: frame.url() };
+  }
+  if (op === 'frameDrag') {
+    const page = await pageByMatch(body.match);
+    if (!page) throw new Error('no page for ' + body.match);
+    const frame = page.frames().find((f) => (body.frameMatch ? f.url().includes(body.frameMatch) : /leadconnectorhq|page-builder/.test(f.url())));
+    if (!frame) throw new Error('no frame for ' + (body.frameMatch || 'leadconnectorhq'));
+    const src = frame.locator(body.source).first();
+    const dst = frame.locator(body.target).first();
+    const dragOpts = { timeout: body.timeout || 20000, force: !!body.force };
+    if (body.targetPosition) dragOpts.targetPosition = body.targetPosition;
+    else if (body.drop === 'bottom') {
+      const box = await dst.boundingBox();
+      if (box) dragOpts.targetPosition = { x: Math.max(8, box.width / 2), y: Math.max(8, box.height - 24) };
+    }
+    await src.dragTo(dst, dragOpts);
+    return { ok: true, url: frame.url() };
+  }
   if (op === 'clickText') {
     const page = await pageByMatch(body.match);
     if (!page) throw new Error('no page for ' + body.match);
@@ -316,7 +339,12 @@ async function handleRpc(body) {
   }
   if (op === 'extEval') {
     const hp = await ensureHelper();
-    return { result: await hp.evaluate(body.js) };
+    return { result: await hp.evaluate((code) => eval(code), body.js) };
+  }
+  if (op === 'swEval') {
+    const swWorker = context.serviceWorkers().find((w) => /^chrome-extension:\/\//.test(w.url()));
+    if (!swWorker) throw new Error('no service worker');
+    return { result: await swWorker.evaluate((code) => eval(code), body.js) };
   }
   if (op === 'watch-status') {
     return await probeWatch();

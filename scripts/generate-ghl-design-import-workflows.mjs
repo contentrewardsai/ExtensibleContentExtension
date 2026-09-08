@@ -51,8 +51,13 @@ function iframeIf(on) {
 function ensureElementsOpen() {
   return {
     type: 'ensureOpen',
-    checkSelectors: [css('#hl-menu-item-elements'), textSel('Elements', 'button')],
-    openSelectors: [css('#hl-builder-add-elements-button')],
+    checkSelectors: [
+      textSel('Headline', '.gui__builder-card'),
+    ],
+    openSelectors: [
+      css('#hl-menu-item-elements'),
+      css('#hl-builder-add-elements-button'),
+    ],
     text: 'Elements',
     timeoutMs: 15000,
     afterOpenTimeoutMs: 8000,
@@ -75,7 +80,7 @@ function dragCard(cardName) {
   return {
     type: 'dragDrop',
     sourceSelectors: [textSel(cardName, '.gui__builder-card'), css('.gui__builder-card', 5)],
-    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6)],
+    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6), css('.page-wrapper', 3)],
     sourceText: cardName,
     text: cardName,
     steps: 20,
@@ -84,13 +89,73 @@ function dragCard(cardName) {
   };
 }
 
-function typeIntoEditor(variableKey, recordedValue) {
+function dragRowCard(cardName, extra = {}) {
+  return {
+    type: 'dragDrop',
+    sourceSelectors: [textSel(cardName, '.gui__builder-card'), css('.gui__builder-card', 5)],
+    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6), css('.page-wrapper', 4), css('.previewer', 3)],
+    sourceText: cardName,
+    text: cardName,
+    steps: 20,
+    stepDelayMs: 16,
+    ...FRAME,
+    ...extra,
+  };
+}
+
+function ensureEmptySlot() {
+  return {
+    type: 'ensureOpen',
+    checkSelectors: [css('.empty-component'), css('.empty-slot')],
+    openSelectors: [css('#hl-menu-item-rows')],
+    skipOpenIfSelectors: [textSel('1 Column', '.gui__builder-card')],
+    fallbackDrag: dragRowCard('1 Column'),
+    timeoutMs: 20000,
+    afterOpenTimeoutMs: 10000,
+    ...FRAME,
+  };
+}
+
+function typeIntoEditor(variableKey, recordedValue, scope) {
+  const selectors = [css('.tiptap.ProseMirror.ProseMirror-focused', 9)];
+  if (scope === 'headline') {
+    selectors.push(css('.tiptap.ProseMirror:has(h1)', 8));
+    selectors.push(css('h1.tiptap.ProseMirror', 7));
+    selectors.push(css('h1 .tiptap.ProseMirror', 6));
+  } else if (scope === 'text') {
+    selectors.push(css('.tiptap.ProseMirror:has(p):not(:has(h1))', 8));
+    selectors.push(css('p.tiptap.ProseMirror', 7));
+    selectors.push(css('p .tiptap.ProseMirror', 6));
+  } else if (scope === 'button') {
+    selectors.push(css('.dtr-ce', 8));
+    selectors.push(css('button .tiptap.ProseMirror', 7));
+    selectors.push(css('a .tiptap.ProseMirror', 6));
+  } else {
+    selectors.push(css('.tiptap.ProseMirror:has(h1)', 6));
+    selectors.push(css('.tiptap.ProseMirror:has(p)', 5));
+  }
+  selectors.push(css('.tiptap.ProseMirror', 4));
   return {
     type: 'type',
-    selectors: [css('.tiptap.ProseMirror', 8)],
+    selectors,
     variableKey,
     recordedValue,
     reactCompat: true,
+    pick: 'last',
+    ...FRAME,
+  };
+}
+
+function dismissInspector() {
+  return {
+    type: 'click',
+    selectors: [
+      css('[aria-label="Close"]', 8),
+      css('button[aria-label*="close" i]', 7),
+      css('.previewer', 5),
+      css('.page-wrapper', 3),
+    ],
+    optional: true,
     ...FRAME,
   };
 }
@@ -106,7 +171,17 @@ function saveBuilder() {
 }
 
 function placeFamily(cardName, opts = {}) {
+  const placeholders = []
+    .concat(opts.clickPlaceholder || [])
+    .concat(opts.clickPlaceholders || [])
+    .filter(Boolean);
   const actions = [
+    dismissInspector(),
+    ensureElementsOpen(),
+    wait(300),
+    ensureEmptySlot(),
+    wait(400),
+    dismissInspector(),
     ensureElementsOpen(),
     wait(300),
     clickMenu('#hl-menu-item-elements', 'Elements'),
@@ -114,18 +189,19 @@ function placeFamily(cardName, opts = {}) {
     dragCard(cardName),
     wait(1000),
   ];
-  if (opts.clickPlaceholder) {
+  if (placeholders.length) {
     actions.push({
       type: 'click',
-      selectors: [textSel(opts.clickPlaceholder, opts.placeholderTag || '*', 8)],
-      fallbackTexts: [opts.clickPlaceholder],
-      text: opts.clickPlaceholder,
-      requireTextMatch: true,
+      selectors: placeholders.map((label, i) => textSel(label, opts.placeholderTag || '*', 8 - i)),
+      fallbackTexts: placeholders,
+      text: placeholders[0],
+      requireTextMatch: false,
+      pick: 'last',
       ...FRAME,
     });
   }
   if (opts.variableKey) {
-    actions.push(typeIntoEditor(opts.variableKey, opts.recordedValue || ''));
+    actions.push(typeIntoEditor(opts.variableKey, opts.recordedValue || '', opts.editorScope));
     actions.push(wait(300));
   }
   if (opts.extra) actions.push(...opts.extra);
@@ -182,7 +258,7 @@ function runChild(workflowId, extraMap) {
 function ifGhl(value, thenSteps, elseSteps) {
   return {
     type: 'ifCondition',
-    condition: '{{block.ghl}} === ' + value,
+    condition: '{{block.ghl}} === "' + value + '"',
     thenSteps,
     elseSteps: elseSteps || [],
   };
@@ -216,59 +292,25 @@ const analyzeActions = [
 ];
 
 const sectionActions = [
+  dismissInspector(),
+  ensureElementsOpen(),
+  wait(300),
   clickMenu('#hl-menu-item-rows', 'Rows'),
   wait(400),
-  {
-    type: 'dragDrop',
-    sourceSelectors: [textSel('1 Column', '.gui__builder-card'), textSel('Full Width', '.gui__builder-card'), css('.gui__builder-card', 5)],
-    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6)],
-    sourceText: '1 Column',
-    text: '1 Column',
-    steps: 20,
-    stepDelayMs: 16,
-    runIf: '{{sectionLayout}} !== 2col',
-    ...FRAME,
-  },
-  {
-    type: 'dragDrop',
-    sourceSelectors: [textSel('2 Column', '.gui__builder-card'), textSel('2 Columns', '.gui__builder-card'), css('.gui__builder-card', 5)],
-    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6)],
-    sourceText: '2 Column',
-    text: '2 Column',
-    steps: 20,
-    stepDelayMs: 16,
-    runIf: '{{sectionLayout}} === 2col',
-    ...FRAME,
-  },
+  dragRowCard('1 Column', { runIf: '{{sectionLayout}} !== "2col"' }),
+  dragRowCard('2 Column', { runIf: '{{sectionLayout}} === "2col"' }),
   wait(600),
   saveBuilder(),
 ];
 
 const columnsActions = [
+  dismissInspector(),
+  ensureElementsOpen(),
+  wait(300),
   clickMenu('#hl-menu-item-rows', 'Rows'),
   wait(400),
-  {
-    type: 'dragDrop',
-    sourceSelectors: [textSel('3 Column', '.gui__builder-card'), textSel('3 Columns', '.gui__builder-card'), css('.gui__builder-card', 5)],
-    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6)],
-    sourceText: '3 Column',
-    text: '3 Column',
-    steps: 20,
-    stepDelayMs: 16,
-    runIf: '{{sectionLayout}} !== 2col',
-    ...FRAME,
-  },
-  {
-    type: 'dragDrop',
-    sourceSelectors: [textSel('2 Column', '.gui__builder-card'), textSel('2 Columns', '.gui__builder-card'), css('.gui__builder-card', 5)],
-    targetSelectors: [css('.empty-component', 8), css('.empty-slot', 6)],
-    sourceText: '2 Column',
-    text: '2 Column',
-    steps: 20,
-    stepDelayMs: 16,
-    runIf: '{{sectionLayout}} === 2col',
-    ...FRAME,
-  },
+  dragRowCard('3 Column', { runIf: '{{sectionLayout}} !== "2col"' }),
+  dragRowCard('2 Column', { runIf: '{{sectionLayout}} === "2col"' }),
   wait(600),
   saveBuilder(),
 ];
@@ -320,51 +362,166 @@ const applyStyleActions = [
 ];
 
 const ensureFormActions = [
-  {
-    type: 'click',
-    selectors: [textSel('Sites', '*', 7), css('[href*="sites"]', 6)],
-    fallbackTexts: ['Sites'],
-    text: 'Sites',
-    optional: true,
-  },
-  wait(600),
-  {
-    type: 'click',
-    selectors: [textSel('Forms', '*', 8), css('[href*="form"]', 6)],
-    fallbackTexts: ['Forms', 'Surveys'],
-    text: 'Forms',
-  },
-  wait(800),
-  {
-    type: 'click',
-    selectors: [
-      textSel('Create New Form', 'button', 8),
-      textSel('Create form', 'button', 7),
-      css('#create-new-button', 6),
-    ],
-    fallbackTexts: ['Create New Form', 'Create form', 'New form'],
-    text: 'Create New Form',
-    optional: true,
-  },
-  wait(600),
-  {
-    type: 'type',
-    selectors: [css('#name', 8), css('input[placeholder*="name" i]', 6)],
-    variableKey: 'formName',
-    recordedValue: 'Add Plant',
-    reactCompat: true,
-  },
+  ensureElementsOpen(),
+  wait(300),
+  clickMenu('#hl-menu-item-form-and-surveys', 'Forms And Surveys'),
   wait(400),
-  {
-    type: 'click',
-    selectors: [textSel('Save', 'button', 6), css('[data-testid*="save"]', 5)],
-    fallbackTexts: ['Save', 'Create'],
-    text: 'Save',
-    optional: true,
-  },
 ];
 
-const placeFormActions = placeFamily('Form', { extra: [] });
+const FORM_FRAME = {
+  inIframe: true,
+  frameOrigin: 'https://leadgen-apps-form-survey-builder.leadconnectorhq.com',
+};
+
+const fillFormBuilderActions = [
+    {
+      type: 'click',
+      selectors: [
+        textSel('Edit Form', 'button', 9),
+        textSel('Click Here', 'a', 8),
+        textSel('Click Here', '*', 7),
+      ],
+      fallbackTexts: ['Edit Form', 'Click Here'],
+      text: 'Edit Form',
+      requireTextMatch: true,
+      optional: true,
+      timeoutMs: 8000,
+      ...FRAME,
+    },
+    wait(1500),
+    {
+      type: 'waitForElement',
+      selectors: [css('form.builder-preview', 8), css('.builder-preview', 6)],
+      timeoutMs: 20000,
+      ...FORM_FRAME,
+    },
+    {
+      type: 'type',
+      selectors: [css('[aria-label="Form Name"]', 8)],
+      variableKey: 'formName',
+      recordedValue: 'Add Plant',
+      pick: 'last',
+      ...FORM_FRAME,
+    },
+    {
+      type: 'ensureOpen',
+      checkSelectors: [textSel('Single Line', '.gui__builder-card')],
+      openSelectors: [textSel('Quick Add', '*', 6)],
+      timeoutMs: 15000,
+      afterOpenTimeoutMs: 8000,
+      ...FORM_FRAME,
+    },
+    {
+      type: 'loop',
+      listVariable: 'fields',
+      itemVariable: 'field',
+      indexVariable: 'fieldIndex',
+      steps: [
+        {
+          type: 'ifCondition',
+          condition: '{{field.type}} === "dropdown"',
+          thenSteps: [{
+            type: 'dragDrop',
+            sourceSelectors: [textSel('Single Dropdown', '.gui__builder-card')],
+            targetSelectors: [css('form.builder-preview', 8), css('.builder-preview', 6)],
+            sourceText: 'Single Dropdown',
+            text: 'Single Dropdown',
+            dropAt: 'center',
+            timeoutMs: 25000,
+            ...FORM_FRAME,
+          }],
+          elseSteps: [{
+            type: 'ifCondition',
+            condition: '{{field.type}} === "date"',
+            thenSteps: [{
+              type: 'dragDrop',
+              sourceSelectors: [textSel('Date of birth', '.gui__builder-card')],
+              targetSelectors: [css('form.builder-preview', 8), css('.builder-preview', 6)],
+            sourceText: 'Date of birth',
+            text: 'Date of birth',
+            dropAt: 'center',
+            timeoutMs: 25000,
+            ...FORM_FRAME,
+            }],
+            elseSteps: [{
+              type: 'dragDrop',
+              sourceSelectors: [textSel('Single Line', '.gui__builder-card')],
+              targetSelectors: [css('form.builder-preview', 8), css('.builder-preview', 6)],
+            sourceText: 'Single Line',
+            text: 'Single Line',
+            dropAt: 'center',
+            timeoutMs: 25000,
+            ...FORM_FRAME,
+            }],
+          }],
+        },
+        wait(400),
+        {
+          type: 'type',
+          selectors: [css('.label-input', 8)],
+          variableKey: 'field.label',
+          recordedValue: 'Field',
+          pick: 'last',
+          ...FORM_FRAME,
+        },
+        {
+          type: 'ifCondition',
+          condition: '{{field.type}} === "dropdown"',
+          thenSteps: [{
+            type: 'loop',
+            listVariable: 'field.options',
+            itemVariable: 'option',
+            indexVariable: 'optionIndex',
+            steps: [
+              {
+                type: 'click',
+                selectors: [textSel('Add option', 'button', 8)],
+                fallbackTexts: ['Add option'],
+                text: 'Add option',
+                optional: true,
+                runIf: '{{optionIndex}} >= 3',
+                ...FORM_FRAME,
+              },
+              {
+                type: 'type',
+                selectors: [textSel('Option', 'label', 6), css('label', 3)],
+                variableKey: 'option',
+                recordedValue: 'Option',
+                pick: 'last',
+                optional: true,
+                ...FORM_FRAME,
+              },
+            ],
+          }],
+        },
+      ],
+    },
+    {
+      type: 'click',
+      selectors: [textSel('Save', 'button', 8)],
+      fallbackTexts: ['Save'],
+      text: 'Save',
+      optional: true,
+      ...FORM_FRAME,
+    },
+];
+
+const placeFormActions = placeFamily('Form', {
+  extra: [
+    wait(1500),
+    {
+      type: 'click',
+      selectors: [textSel('Click Here', 'a', 9), textSel('Click Here', '*', 8)],
+      fallbackTexts: ['Click Here'],
+      text: 'Click Here',
+      requireTextMatch: true,
+      timeoutMs: 20000,
+      ...FRAME,
+    },
+    wait(2500),
+    ...fillFormBuilderActions,
+  ],
+});
 
 const familyCard = {
   video: 'Video',
@@ -399,13 +556,25 @@ const workflows = {
   wf_ghl_place_headline: wf(
     'wf_ghl_place_headline',
     'GHL place headline',
-    placeFamily('Headline', { clickPlaceholder: 'Add a Title Here', placeholderTag: 'h1', variableKey: 'text', recordedValue: 'Headline' }),
+    placeFamily('Headline', {
+      clickPlaceholders: ['Add a Title Here', 'Headline'],
+      placeholderTag: 'h1',
+      variableKey: 'text',
+      recordedValue: 'Headline',
+      editorScope: 'headline',
+    }),
     { csvColumns: ['text', 'color', 'fontSize'] }
   ),
   wf_ghl_place_text: wf(
     'wf_ghl_place_text',
     'GHL place text',
-    placeFamily('Paragraph', { clickPlaceholder: 'Add your text here', variableKey: 'text', recordedValue: 'Body' }),
+    placeFamily('Paragraph', {
+      clickPlaceholders: ['This is a Paragraph Font', 'Add your text here', 'Start writing', 'Paragraph'],
+      placeholderTag: 'p',
+      variableKey: 'text',
+      recordedValue: 'Body',
+      editorScope: 'text',
+    }),
     { csvColumns: ['text', 'color', 'fontSize'] }
   ),
   wf_ghl_place_image: wf(
@@ -417,7 +586,12 @@ const workflows = {
   wf_ghl_place_button: wf(
     'wf_ghl_place_button',
     'GHL place button',
-    placeFamily('Button', { clickPlaceholder: 'Button', variableKey: 'text', recordedValue: 'Add Plant' }),
+    placeFamily('Button', {
+      clickPlaceholders: ['Get Started', 'Button'],
+      variableKey: 'text',
+      recordedValue: 'Add Plant',
+      editorScope: 'button',
+    }),
     { csvColumns: ['text', 'background', 'color'] }
   ),
   wf_ghl_apply_style: wf('wf_ghl_apply_style', 'GHL apply style', applyStyleActions, {
@@ -434,6 +608,9 @@ const workflows = {
   }),
   wf_ghl_place_form: wf('wf_ghl_place_form', 'GHL place form', placeFormActions, {
     csvColumns: ['formName'],
+  }),
+  wf_ghl_fill_form_fields: wf('wf_ghl_fill_form_fields', 'GHL fill form fields', fillFormBuilderActions, {
+    csvColumns: ['formName', 'fields'],
   }),
 };
 

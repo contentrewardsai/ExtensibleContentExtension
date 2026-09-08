@@ -91,7 +91,6 @@
 
   function actionNeedsFrameDelegate(action, pageHref) {
     if (!action || typeof action !== 'object') return false;
-    if (isInIframe()) return false;
     if (urlsMatchFrame(pageHref || (typeof window !== 'undefined' ? window.location.href : ''), action.frameUrl, action.frameOrigin)) {
       return false;
     }

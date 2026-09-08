@@ -1070,10 +1070,11 @@ httpServer.listen(config.port, '127.0.0.1', async () => {
   log('  │                                              │');
   log(`  │  MCP endpoint: http://127.0.0.1:${config.port}/mcp     │`);
   log(`  │  Health:       http://127.0.0.1:${config.port}/health   │`);
-  log('  │  Relay:        Waiting for extension…        │');
+  log('  │  Relay:        Auto-opened by the extension   │');
+  log('  │                when Settings ▶ Start succeeds. │');
   log('  │                                              │');
-  log('  │  Open mcp/mcp-relay.html in the extension    │');
-  log('  │  to connect the WebSocket relay.             │');
+  log('  │  If the WebSocket is still down, the         │');
+  log('  │  extension focuses mcp/mcp-relay.html.       │');
   log('  └──────────────────────────────────────────────┘');
   log('');
 

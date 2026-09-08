@@ -51,9 +51,14 @@
       candidates = resolveAllCandidates ? resolveAllCandidates(allSelectors, doc) : (resolveElement ? [{ element: resolveElement(allSelectors, doc), selector: allSelectors[0] }] : []).filter(function(c) { return c && c.element; });
     }
     candidates = candidates.filter(function(c) {
-      if (c.element.type === 'file') return false;
-      var tag = (c.element.tagName || '').toLowerCase();
-      return tag === 'input' || tag === 'textarea' || c.element.isContentEditable;
+      var el = c && c.element;
+      if (!el || el.type === 'file') return false;
+      var tag = (el.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return true;
+      if (el.isContentEditable) return true;
+      if (el.getAttribute && el.getAttribute('contenteditable') === 'true') return true;
+      if (el.classList && (el.classList.contains('ProseMirror') || el.classList.contains('tiptap') || el.classList.contains('dtr-ce'))) return true;
+      return false;
     });
     if (candidates.length === 0) {
       for (var ki = 0; ki < KNOWN_TYPE_IDS.length; ki++) {
@@ -69,14 +74,39 @@
       }
     }
     if (candidates.length === 0) throw new Error('Element not found for type (tried ' + (action.selectors ? action.selectors.length : 0) + ' selectors)');
+    var placeholders = ['add a title here', 'headline', 'this is a paragraph font', 'add your text here', 'start writing', 'paragraph', 'get started', 'button', 'add a subtitle'];
+    var pending = candidates.filter(function (c) {
+      var t = ((c.element.innerText || c.element.textContent || '') + '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return placeholders.some(function (p) { return t === p || t.indexOf(p) === 0; });
+    });
+    if (pending.length) {
+      candidates = action.pick === 'last' ? pending.slice().reverse() : pending;
+    } else if (action.pick === 'last' && candidates.length > 1) {
+      candidates = candidates.slice().reverse();
+    }
+    try {
+      var active = (doc.defaultView || window).document.activeElement;
+      var focusedPm = candidates.filter(function (c) {
+        return c.element && c.element.classList && c.element.classList.contains('ProseMirror-focused');
+      });
+      if (focusedPm.length) {
+        candidates = focusedPm.concat(candidates.filter(function (c) { return focusedPm.indexOf(c) < 0; }));
+      } else if (action.pick !== 'last' && active && (active.isContentEditable || /^(INPUT|TEXTAREA)$/.test(active.tagName || ''))) {
+        var already = candidates.some(function (c) { return c.element === active; });
+        if (!already) candidates.unshift({ element: active, selector: null });
+      }
+    } catch (_) {}
 
     var lastError = null;
     for (var i = 0; i < candidates.length; i++) {
       var el = candidates[i].element;
       try {
         await yieldToReact();
-        var value = String(getRowValue(row, action.variableKey, action.placeholder, action.name, 'value'));
-        if (!value.trim() && action.recordedValue != null && String(action.recordedValue).trim()) {
+        var value = getRowValue(row, action.variableKey, action.placeholder, action.name, 'value');
+        if (value == null || value === undefined) value = '';
+        value = String(value);
+        if (value === 'undefined' || value === 'null') value = '';
+        if (!value.trim() && action.recordedValue != null && String(action.recordedValue).trim() && String(action.recordedValue) !== 'undefined') {
           value = String(action.recordedValue);
         }
         if (personalInfo.length) {
@@ -96,11 +126,26 @@
           el.click();
         } catch (_) {}
         await sleep(80);
-        if (el.isContentEditable) {
-          el.textContent = '';
+        var editable = !!(el.isContentEditable || (el.getAttribute && el.getAttribute('contenteditable') === 'true') || (el.classList && (el.classList.contains('ProseMirror') || el.classList.contains('tiptap'))));
+        if (editable) {
+          try {
+            if (el.getAttribute('contenteditable') === 'false') el.setAttribute('contenteditable', 'true');
+          } catch (_) {}
           const ownerDoc = el.ownerDocument || document;
+          const view = ownerDoc.defaultView || window;
+          try {
+            const range = ownerDoc.createRange();
+            range.selectNodeContents(el);
+            const sel = view.getSelection && view.getSelection();
+            if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          } catch (_) {
+            try { el.textContent = ''; } catch (_) {}
+          }
           if (ownerDoc.execCommand) ownerDoc.execCommand('insertText', false, value);
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }));
         } else {
           var mode = typingModeForElement(el, action);
           var typingAct = Object.assign({}, action, {

@@ -41,23 +41,46 @@
     var sleep = ctx.sleep;
     var assertPlaying = ctx.assertPlaying;
     var performClick = ctx.performClick;
+    var skipOpenSels = [].concat(action.skipOpenIfSelectors || []);
+    var fallbackDrag = action.fallbackDrag && typeof action.fallbackDrag === 'object' ? action.fallbackDrag : null;
+
+    async function waitForCheck(ms) {
+      var until = Date.now() + ms;
+      while (Date.now() < until) {
+        if (typeof assertPlaying === 'function') assertPlaying();
+        if (firstVisible(checkSels, doc, ctx)) return true;
+        await sleep(200);
+      }
+      return !!firstVisible(checkSels, doc, ctx);
+    }
 
     var started = Date.now();
     var opened = false;
+    var dragged = false;
+    var lastOpener = null;
     while (Date.now() - started < timeoutMs) {
       if (typeof assertPlaying === 'function') assertPlaying();
       if (firstVisible(checkSels, doc, ctx)) return;
+      var skipOpen = skipOpenSels.length ? firstVisible(skipOpenSels, doc, ctx) : null;
       var opener = firstVisible(openSels, doc, ctx);
-      if (opener && !opened) {
+      if (opener && !skipOpen && opener !== lastOpener) {
         if (typeof performClick === 'function') performClick(opener);
         else opener.click();
         opened = true;
-        var afterStart = Date.now();
-        while (Date.now() - afterStart < afterOpenMs) {
-          if (typeof assertPlaying === 'function') assertPlaying();
-          if (firstVisible(checkSels, doc, ctx)) return;
-          await sleep(200);
+        lastOpener = opener;
+        if (await waitForCheck(afterOpenMs)) return;
+      }
+      if (fallbackDrag && !dragged) {
+        var dd = window.__CFS_stepHandlers && window.__CFS_stepHandlers.dragDrop;
+        if (typeof dd === 'function') {
+          dragged = true;
+          await dd(fallbackDrag, opts);
+          if (await waitForCheck(afterOpenMs)) return;
         }
+      }
+      var nextOpener = firstVisible(openSels, doc, ctx);
+      if ((opened || skipOpen || !openSels.length) && (dragged || !fallbackDrag) && (!nextOpener || nextOpener === lastOpener)) {
+        if (optional) return;
         if (checkSels.length) {
           throw new Error('Ensure open: clicked opener but target is still hidden');
         }
@@ -66,7 +89,7 @@
       await sleep(200);
     }
     if (optional) return;
-    if (opened) throw new Error('Ensure open: clicked opener but target is still hidden');
+    if (opened || dragged) throw new Error('Ensure open: clicked opener but target is still hidden');
     throw new Error('Ensure open: target not visible and opener not found');
   }, { needsElement: false, handlesOwnWait: true });
 })();

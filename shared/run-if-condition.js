@@ -31,6 +31,9 @@
 
   function resolveRunIfOperand(atom, row, getRv) {
     var t = String(atom || '').trim();
+    if ((t.charAt(0) === '"' && t.charAt(t.length - 1) === '"') || (t.charAt(0) === "'" && t.charAt(t.length - 1) === "'")) {
+      return t.slice(1, -1);
+    }
     var m = t.match(/^\{\{\s*([\s\S]+?)\s*\}\}$/);
     var tr = typeof CFS_templateResolver !== 'undefined' ? CFS_templateResolver : null;
     if (m) {

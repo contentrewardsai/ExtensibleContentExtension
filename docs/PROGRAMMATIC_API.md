@@ -503,6 +503,35 @@ If neither **`matchEvent`** nor **`matchSubstring`** is set, the first JSON obje
 
 ---
 
+## CAPTURE_VISIBLE_TAB
+
+PNG screenshot of a tab’s **visible viewport** (`chrome.tabs.captureVisibleTab`). Used by MCP `capture_tab_screenshot`.
+
+```js
+chrome.runtime.sendMessage({
+  type: 'CAPTURE_VISIBLE_TAB',
+  tabId: 123,      // optional
+  windowId: 1,     // optional when tabId omitted
+}, (response) => {
+  /* { ok: true, dataUrl: 'data:image/png;base64,…', tabId, windowId, url, title, limits } */
+});
+```
+
+- **Limits:** viewport only (not full page). Cross-origin iframes appear as already-rendered pixels. Default (no `tabId`) prefers the active http(s) tab so the MCP relay page is skipped.
+- **Auth:** this-extension only.
+
+## CFS_MCP_OPEN_RELAY
+
+Open or focus `mcp/mcp-relay.html`. Idempotent. Also runs automatically after **`CFS_MCP_START`** succeeds. **Stop does not close** the relay tab.
+
+```js
+chrome.runtime.sendMessage({ type: 'CFS_MCP_OPEN_RELAY' }, (r) => {
+  /* { ok: true, created: true|false, focused: true, tabId, windowId } */
+});
+```
+
+---
+
 ## Getting the extension ID
 
 From a content script or another extension: use `chrome.runtime.id` (for the same extension) or the target extension’s ID. From a web page you cannot message an extension unless it uses externally_connectable and you are listed in its manifest.

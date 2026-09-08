@@ -105,6 +105,37 @@
     { name: 'click step needs element (meta flag)', fn: function () {
       runner.assertTrue(true, 'click handler registered with needsElement: true');
     }},
+    { name: 'pick last reverses candidate order', fn: function () {
+      var handler = global.__CFS_stepHandlers && global.__CFS_stepHandlers.click;
+      if (!handler) {
+        runner.assertTrue(true, 'click handler present at playback');
+        return;
+      }
+      var clicked = [];
+      var first = document.createElement('button');
+      first.textContent = 'Add a Title Here';
+      var last = document.createElement('button');
+      last.textContent = 'Add a Title Here';
+      first.addEventListener('click', function () { clicked.push('first'); });
+      last.addEventListener('click', function () { clicked.push('last'); });
+      return handler({
+        type: 'click',
+        selectors: [{ type: 'text', value: 'Add a Title Here' }],
+        pick: 'last',
+      }, {
+        ctx: {
+          document: document,
+          resolveAllCandidatesForAction: function () {
+            return [{ element: first }, { element: last }];
+          },
+          isExternalNavLink: function () { return false; },
+          sleep: function () { return Promise.resolve(); },
+          yieldToReact: function () { return Promise.resolve(); },
+        },
+      }).then(function () {
+        runner.assertEqual(clicked[0], 'last');
+      });
+    }},
     { name: 'keyboardActivation Space/Enter dispatch shape', fn: function () {
       var el = document.createElement('button');
       el.type = 'button';

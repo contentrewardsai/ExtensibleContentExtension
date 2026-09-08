@@ -26,6 +26,11 @@
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CAPTURE_DISPLAY_AUDIO' }); return; }
       return impl(msg, sender, sendResponse);
     }, { auth: "extension", async: true, schema: "extra" });
+    register("CAPTURE_VISIBLE_TAB", function (msg, sender, sendResponse) {
+      var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CAPTURE_VISIBLE_TAB"];
+      if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CAPTURE_VISIBLE_TAB' }); return; }
+      return impl(msg, sender, sendResponse);
+    }, { auth: "extension", async: true, schema: "extra" });
     register("CFS_CRYPTO_TEST_ENSURE_WALLETS", function (msg, sender, sendResponse) {
       var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_CRYPTO_TEST_ENSURE_WALLETS"];
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_CRYPTO_TEST_ENSURE_WALLETS' }); return; }
@@ -56,6 +61,11 @@
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_IS_PLAYBACK_ACTIVE' }); return; }
       return impl(msg, sender, sendResponse);
     }, { auth: "extension", async: true, schema: "extra" });
+    register("CFS_NATIVE_DRAG", function (msg, sender, sendResponse) {
+      var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_NATIVE_DRAG"];
+      if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_NATIVE_DRAG' }); return; }
+      return impl(msg, sender, sendResponse);
+    }, { auth: "extension", async: true, schema: "extra" });
     register("CFS_LLM_TEST_PROVIDER", function (msg, sender, sendResponse) {
       var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_LLM_TEST_PROVIDER"];
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_LLM_TEST_PROVIDER' }); return; }
@@ -64,6 +74,11 @@
     register("CFS_MCP_DELETE_WORKFLOW", function (msg, sender, sendResponse) {
       var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_MCP_DELETE_WORKFLOW"];
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_MCP_DELETE_WORKFLOW' }); return; }
+      return impl(msg, sender, sendResponse);
+    }, { auth: "extension", async: true, schema: "extra" });
+    register("CFS_MCP_OPEN_RELAY", function (msg, sender, sendResponse) {
+      var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_MCP_OPEN_RELAY"];
+      if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_MCP_OPEN_RELAY' }); return; }
       return impl(msg, sender, sendResponse);
     }, { auth: "extension", async: true, schema: "extra" });
     register("CFS_MCP_SAVE_WORKFLOW", function (msg, sender, sendResponse) {

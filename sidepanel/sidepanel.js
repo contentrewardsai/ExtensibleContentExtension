@@ -12562,50 +12562,44 @@
       }
     }
     list.innerHTML = stepHtml.join('');
-    var strip = document.getElementById('stepsFlowStrip');
-    var graphEl = document.getElementById('stepsFlowGraph');
-    if (strip) {
-      strip.innerHTML = actions.map(function(a, ix) {
-        var label = String(ix + 1);
-        if (a.runIf || (a.type === 'ifCondition' && a.condition)) label += '?';
-        return '<button type="button" class="flow-chip" data-flow-step="' + ix + '" title="' + escapeHtml((a.type || 'step') + (a.workflowId ? ' → ' + a.workflowId : '')) + '">' + escapeHtml(label) + '</button>';
-      }).join('');
-      strip.querySelectorAll('[data-flow-step]').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          var idx = parseInt(btn.getAttribute('data-flow-step'), 10);
-          var item = list.querySelector('.step-item[data-step-index="' + idx + '"]');
-          if (item) {
-            item.classList.add('step-expanded');
-            item.scrollIntoView({ block: 'nearest' });
-          }
-        });
-      });
+    var chainSelect = document.getElementById('stepsFlowChainSelect');
+    if (chainSelect) {
+      var chainOpts = Object.keys(workflows || {}).filter(function(id) { return id && id !== wfId; });
+      chainSelect.innerHTML = chainOpts.length
+        ? chainOpts.map(function(id) {
+            var name = (workflows[id] && workflows[id].name) ? workflows[id].name : id;
+            return '<option value="' + escapeHtml(id) + '">' + escapeHtml(name) + '</option>';
+          }).join('')
+        : '<option value="">No other workflows</option>';
+      chainSelect.disabled = !chainOpts.length;
+      var chainAdd = document.getElementById('stepsFlowChainAdd');
+      if (chainAdd) chainAdd.disabled = !chainOpts.length;
     }
-    if (graphEl) {
-      function graphLines(acts, indent) {
-        var html = '';
-        (acts || []).forEach(function(a, ix) {
-          var name = (a && a.type) || '?';
-          if (a && a.workflowId) name += ' → ' + a.workflowId;
-          if (a && (a.runIf || a.condition)) name += ' if ' + String(a.runIf || a.condition).slice(0, 28);
-          html += '<div class="fg-node" data-flow-step="' + ix + '" style="padding-left:' + (indent * 12) + 'px">' + escapeHtml(name) + '</div>';
-          if (a && a.type === 'ifCondition') {
-            html += '<div class="fg-node" style="padding-left:' + ((indent + 1) * 12) + 'px">then</div>';
-            html += graphLines(a.thenSteps || [], indent + 2);
-            html += '<div class="fg-node" style="padding-left:' + ((indent + 1) * 12) + 'px">else</div>';
-            html += graphLines(a.elseSteps || [], indent + 2);
-          }
-          if (a && a.type === 'loop') html += graphLines(a.steps || [], indent + 1);
-        });
-        return html;
-      }
-      graphEl.innerHTML = graphLines(actions, 0) || '<span class="hint">No steps</span>';
-      graphEl.querySelectorAll('[data-flow-step]').forEach(function(n) {
-        n.addEventListener('click', function() {
-          var idx = parseInt(n.getAttribute('data-flow-step'), 10);
+    var canvas = document.getElementById('stepsFlowCanvas');
+    if (canvas && window.CFS_stepsFlowGraph && typeof window.CFS_stepsFlowGraph.renderInto === 'function') {
+      var typeLabels = {};
+      getStepTypes().forEach(function(s) { typeLabels[s.id] = s.label; });
+      var alwaysOnRules = (wf.alwaysOn && wf.alwaysOn.priceRangeWatch && Array.isArray(wf.alwaysOn.priceRangeWatch.onOutOfRange))
+        ? wf.alwaysOn.priceRangeWatch.onOutOfRange
+        : [];
+      window.CFS_stepsFlowGraph.renderInto(canvas, actions, {
+        typeLabel: function(type) { return typeLabels[type] || ''; },
+        getLabel: function(action, i) { return getStepSummary(action, i); },
+        getWorkflowName: function(id) {
+          var child = workflows[id];
+          return (child && child.name) ? child.name : id;
+        },
+        alwaysOnRules: alwaysOnRules,
+        onNodeClick: function(info) {
+          var idx = info.stepIndex != null ? info.stepIndex : info.parentStepIndex;
+          document.getElementById('stepsViewListBtn')?.click();
           var item = list.querySelector('.step-item[data-step-index="' + idx + '"]');
-          if (item) item.scrollIntoView({ block: 'nearest' });
-        });
+          if (!item) return;
+          var header = item.querySelector('.step-header');
+          var body = header && header.nextElementSibling;
+          if (body && !body.classList.contains('expanded') && header) header.click();
+          item.scrollIntoView({ block: 'nearest' });
+        },
       });
     }
     list.querySelectorAll('[data-field="llmProvider"]').forEach(function(sel) {
@@ -12642,6 +12636,26 @@
         if (l) l.style.display = 'none';
         document.getElementById('stepsViewGraphBtn')?.classList.add('is-active');
         document.getElementById('stepsViewListBtn')?.classList.remove('is-active');
+      });
+      document.getElementById('stepsFlowChainAdd')?.addEventListener('click', async function() {
+        var sel = document.getElementById('stepsFlowChainSelect');
+        var childId = sel && sel.value ? String(sel.value).trim() : '';
+        var parentId = getEffectiveWorkflowIdForPlaybackUi();
+        if (!parentId) { setStatus('Select a workflow first.', 'error'); return; }
+        if (!childId || childId === parentId) { setStatus('Pick another workflow to chain.', 'error'); return; }
+        var parentWf = workflows[parentId];
+        var acts = parentWf && parentWf.analyzed && parentWf.analyzed.actions ? parentWf.analyzed.actions : [];
+        var insertAt = acts.length;
+        if (insertAt && acts[insertAt - 1] && acts[insertAt - 1].type === 'delayBeforeNextRun') insertAt -= 1;
+        var action = Object.assign({}, getDefaultActionForType('runWorkflow'), { type: 'runWorkflow', workflowId: childId });
+        await insertStep(parentId, insertAt, action);
+        var g = document.getElementById('stepsFlowGraph');
+        var l = document.getElementById('stepsList');
+        if (g) g.style.display = '';
+        if (l) l.style.display = 'none';
+        document.getElementById('stepsViewGraphBtn')?.classList.add('is-active');
+        document.getElementById('stepsViewListBtn')?.classList.remove('is-active');
+        setStatus('Chained workflow added. Save the step if you need a row mapping.', 'success');
       });
     }
     if (!list._proceedWhenBound) {
