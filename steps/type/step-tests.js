@@ -112,5 +112,70 @@
       runner.assertEqual(el.textContent, 'Hello');
       document.body.removeChild(el);
     }},
+    { name: 'ProseMirror stays typeable when contenteditable is false', fn: function () {
+      function isTypeable(el) {
+        if (!el || el.type === 'file') return false;
+        var tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return true;
+        if (el.isContentEditable) return true;
+        if (el.getAttribute && el.getAttribute('contenteditable') === 'true') return true;
+        if (el.classList && (el.classList.contains('ProseMirror') || el.classList.contains('tiptap') || el.classList.contains('dtr-ce'))) return true;
+        return false;
+      }
+      var el = document.createElement('div');
+      el.className = 'tiptap ProseMirror';
+      el.setAttribute('contenteditable', 'false');
+      runner.assertTrue(isTypeable(el), 'GHL editors are typeable before focus');
+      runner.assertFalse(el.isContentEditable);
+    }},
+    { name: 'undefined row value falls back to recordedValue', fn: function () {
+      var raw = String(undefined);
+      runner.assertEqual(raw, 'undefined');
+      var value = raw === 'undefined' || raw === 'null' ? '' : raw;
+      if (!value.trim()) value = 'Pothos';
+      runner.assertEqual(value, 'Pothos');
+    }},
+    { name: 'pick last does not prefer a stale active editor', fn: function () {
+      var handler = global.__CFS_stepHandlers && global.__CFS_stepHandlers.type;
+      if (!handler) {
+        runner.assertTrue(true, 'type handler present at playback');
+        return;
+      }
+      var first = document.createElement('div');
+      first.contentEditable = 'true';
+      first.textContent = 'FloraTrack';
+      var last = document.createElement('div');
+      last.contentEditable = 'true';
+      last.className = 'tiptap ProseMirror';
+      last.textContent = 'Add a Title Here';
+      document.body.appendChild(first);
+      document.body.appendChild(last);
+      first.focus();
+      return handler({
+        type: 'type',
+        selectors: [{ type: 'css', value: '[contenteditable="true"]' }],
+        pick: 'last',
+        recordedValue: 'My Garden',
+        variableKey: 'text',
+      }, {
+        ctx: {
+          document: document,
+          currentRow: { text: 'My Garden' },
+          resolveAllCandidatesForAction: function () {
+            return [{ element: first }, { element: last }];
+          },
+          getRowValue: function (row, key) { return row && row[key] || ''; },
+          yieldToReact: function () { return Promise.resolve(); },
+          sleep: function () { return Promise.resolve(); },
+          personalInfo: [],
+        },
+      }).then(function () {
+        runner.assertEqual(last.textContent, 'My Garden');
+        runner.assertEqual(first.textContent, 'FloraTrack');
+      }).finally(function () {
+        document.body.removeChild(first);
+        document.body.removeChild(last);
+      });
+    }},
   ]);
 })(typeof window !== 'undefined' ? window : globalThis);

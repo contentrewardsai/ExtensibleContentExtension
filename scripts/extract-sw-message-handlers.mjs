@@ -89,6 +89,8 @@ const allTypes = unique([
   'GET_ACCOUNT_STATUS',
   'GET_FOLLOWING_DATA',
   'MUTATE_FOLLOWING',
+  'CAPTURE_VISIBLE_TAB',
+  'CFS_MCP_OPEN_RELAY',
 ]).filter((t) => !t.endsWith('_RESULT'));
 
 const catalog = allTypes.sort().map((type) => ({

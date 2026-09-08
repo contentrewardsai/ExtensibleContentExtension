@@ -66,6 +66,12 @@
     "schema": "extra"
   },
   {
+    "type": "CAPTURE_VISIBLE_TAB",
+    "domain": "playback",
+    "auth": "extension",
+    "schema": "extra"
+  },
+  {
     "type": "CFS_ALWAYS_ON_MERGE_BOUND_ROW",
     "domain": "watch",
     "auth": "extension",
@@ -312,6 +318,12 @@
     "schema": "extra"
   },
   {
+    "type": "CFS_NATIVE_DRAG",
+    "domain": "playback",
+    "auth": "extension",
+    "schema": "extra"
+  },
+  {
     "type": "CFS_JUPITER_DCA_CREATE",
     "domain": "defi",
     "auth": "extension",
@@ -373,6 +385,12 @@
   },
   {
     "type": "CFS_MCP_DELETE_WORKFLOW",
+    "domain": "playback",
+    "auth": "extension",
+    "schema": "extra"
+  },
+  {
+    "type": "CFS_MCP_OPEN_RELAY",
     "domain": "playback",
     "auth": "extension",
     "schema": "extra"

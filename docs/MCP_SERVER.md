@@ -21,7 +21,7 @@ The Extensible Content extension includes a local MCP (Model Context Protocol) s
                                        └──────────────────┘
 ```
 
-The MCP server is a standalone program that runs on your computer. It communicates with the Chrome extension through `mcp/mcp-relay.html`, which maintains a WebSocket connection and bridges tool calls to the extension's service worker via `chrome.runtime.sendMessage`.
+The MCP server is a standalone program that runs on your computer. It communicates with the Chrome extension through `mcp/mcp-relay.html`, which maintains a WebSocket connection and bridges tool calls to the extension's service worker via `chrome.runtime.sendMessage`. **Settings ▶ Start** opens or focuses that relay tab automatically (it does not spawn duplicates). Stop leaves the tab open.
 
 **No Node.js, npm, or command line is needed.** The binary is self-contained.
 
@@ -50,6 +50,8 @@ No Node.js or npm needed — the binaries are self-contained.
 ### 3. Start the server
 
 **Settings → MCP Server → ▶ Start** launches the binary through Chrome native messaging (host `com.extensiblecontent.mcp`).
+
+When start succeeds (or when ▶ Start sees the server **already running**), the extension **opens or focuses** `mcp/mcp-relay.html` so the WebSocket connects without a manual tab. If that tab is already open, it is focused instead of duplicated. **Stop leaves the relay tab open** so a later Start can reconnect immediately.
 
 **First time only** (or if Start says the host was not found): use **📂 Find MCP Server binary**, open `mcp-server/dist/`, and **double-click** the binary for your OS. That run installs the native messaging host and starts HTTP on port 3100. After that, ▶ Start / ■ Stop work from Settings.
 
@@ -85,7 +87,7 @@ Example `ec-mcp-config.json`:
 
 ### Chrome wake-up (relay backup)
 
-If Chrome is quit or the relay tab is gone, the MCP process can relaunch/activate Chrome and open `chrome-extension://<extensionId>/mcp/mcp-relay.html` so the WebSocket reconnects.
+If Chrome is quit or the relay tab is gone, the MCP process can relaunch/activate Chrome and open `chrome-extension://<extensionId>/mcp/mcp-relay.html` so the WebSocket reconnects. **Settings ▶ Start** also opens/focuses that tab from the extension (no `extensionId` file required for that path).
 
 - **Auto:** when the relay stays disconnected for ~30s (`wakeChromeIntervalMs`), the server attempts a wake (at most once per `wakeChromeMinIntervalMs`, with backoff after failures). Set `wakeChromeOnDisconnect: false` to disable.
 - **Tool:** `wake_extension_relay` — on-demand wake; optional `refreshV3Watch: true` sends `CFS_V3_RANGE_WATCH_REFRESH_NOW` after reconnect.
@@ -149,7 +151,7 @@ bash build.sh darwin-arm64       # or your platform
 npm run test:mcp-smoke           # from repo root; uses binary if present, else node server.js
 ```
 
-This does **not** require the Chrome extension relay (`relayConnected` may be `false`). Full tool calls still need the extension with **Enable MCP Server** and `mcp/mcp-relay.html` connected.
+This does **not** require the Chrome extension relay (`relayConnected` may be `false`). Full tool calls still need the extension with **Enable MCP Server**; **Settings ▶ Start** opens `mcp/mcp-relay.html` automatically.
 
 ## Building Binaries
 
@@ -199,7 +201,7 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 
 > ⚠️ **WARNING:** MCP tools can execute real financial transactions through your extension wallets. Do not use large amounts of funds or funds you are concerned about losing. Always review tool calls in your AI client before approving.
 
-## Available Tools (76+)
+## Available Tools (78+)
 
 ### Workflows (6)
 | Tool | Description |
@@ -325,6 +327,8 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 | `get_step_types` | Available step types |
 | `read_storage` | Read chrome.storage keys |
 | `get_tab_info` | Active tab information |
+| `capture_tab_screenshot` | PNG of the **visible viewport** (`CAPTURE_VISIBLE_TAB`). Optional `tabId` / `windowId`. Large images write to the project folder. Iframes appear as rendered pixels. |
+| `backend_fetch` | Authenticated REST to `/api/extension/*` on the extension backend using the signed-in Whop token (token is **not** returned) |
 | `tunnel_status` | Remote access tunnel status |
 | `wake_extension_relay` | Launch/activate Chrome and open `mcp/mcp-relay.html`; optional `refreshV3Watch` |
 | `monitor_watchdog_status` / `monitor_watchdog_configure` | LP watchdog (relay offline + OOR alerts); default off |
@@ -363,14 +367,48 @@ The server binds exclusively to `127.0.0.1` — no external connections are poss
 
 ### Relay won't connect
 - Make sure the MCP server is running on the configured port
-- Open `mcp/mcp-relay.html` in the extension's browser
+- Click **Settings → MCP Server → ▶ Start** (opens/focuses the relay tab) or call `wake_extension_relay`
 - Check Settings → MCP Server → Status indicator
+
+### Tools return "Extension relay not connected"
+**Settings ▶ Start** (or Start when the binary is already healthy) opens `mcp/mcp-relay.html` automatically. The WebSocket reconnects if the server restarts. If Chrome was quit, call `wake_extension_relay` (or wait for auto-wake) — requires `extensionId` in `ec-mcp-config.json`. Stopping MCP leaves the relay tab open.
+
+## Campaign submit workflows
+
+Shipped in **`workflows/campaign-submit/`** (see that folder’s README). Load via Reload Extension after pull.
+
+| Workflow ID | Use |
+|-------------|-----|
+| `wf_campaign_submit` | Parent. `platform`: `clipster`, `reellu`, or default Whop. |
+| `wf_whop_content_rewards_submit` | Whop Content Rewards web UI (starter selectors). |
+| `wf_clipster_submit` | Clipster.gg Submit Content (starter). |
+| `wf_reellu_submit` | Reellu.com clip URL (starter). |
+
+Row fields: **`postUrl`** (required), optional `proofScreenshot`, `campaignId`, `notes`, `caption`, `campaignUrl`, `submitApiUrl` (POST JSON instead of UI), `walletAddress` (Reellu).
+
+```json
+{
+  "workflowId": "wf_campaign_submit",
+  "autoStart": "current",
+  "rows": [{ "postUrl": "https://www.tiktok.com/@you/video/123", "platform": "whop" }]
+}
+```
+
+Call via MCP `run_workflow` with the same payload. Selectors are **unverified** — confirm on a signed-in live page (`workflows/campaign-submit/README.md`).
+
+## `capture_tab_screenshot`
+
+Uses `chrome.tabs.captureVisibleTab` (PNG). **Visible viewport only** — not a full-page stitch. Cross-origin iframes are pixels already painted into the tab. Default tab is the active **http(s)** page so the MCP relay tab is not captured after auto-open.
+
+- Small PNG: returned as `dataUrl` (`stored: "inline"`).
+- Large PNG or `forceFile` / `relativePath`: written with `CFS_PROJECT_WRITE_FILE` (`encoding: "base64"`), typically `uploads/mcp-screenshots/tab-{id}-{ts}.png`. Requires a project folder.
+
+## `backend_fetch`
+
+Thin wrapper around relay `BACKEND_FETCH`. Path must start with **`/api/extension/`**. Method, optional JSON body, optional extra headers (Authorization / Cookie / Host stripped). Uses `GET_TOKEN` inside the extension; the MCP result never includes the Whop token. User must be signed in; relay must be connected.
 
 ### macOS Gatekeeper blocks the binary
 ```bash
 chmod +x StartMacMCPServer
 xattr -d com.apple.quarantine StartMacMCPServer
 ```
-
-### Tools return "Extension relay not connected"
-The relay page (`mcp/mcp-relay.html`) must be open in the extension browser. The WebSocket reconnects automatically if the server restarts. If Chrome was quit, call `wake_extension_relay` (or wait for auto-wake) — requires `extensionId` in `ec-mcp-config.json`.

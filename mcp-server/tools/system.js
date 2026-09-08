@@ -4,6 +4,7 @@
  * Read-only status and step types moved to MCP Resources.
  */
 import { z } from 'zod';
+import { registerBackendFetchTool } from './backend-fetch.js';
 
 export function registerSystemTools(server, ctx) {
   server.tool(
@@ -27,6 +28,118 @@ export function registerSystemTools(server, ctx) {
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
     }
   );
+
+  server.tool(
+    'capture_tab_screenshot',
+    'Capture the visible viewport of a browser tab as PNG (chrome.tabs.captureVisibleTab). Viewport only — not full page. Cross-origin iframes appear as already-rendered pixels. Optional tabId/windowId; default is the active http(s) tab (extension pages such as the MCP relay are skipped). Large images are written to the project folder instead of returned inline.',
+    {
+      tabId: z.number().int().min(0).optional().describe('Tab to capture (activated first; captureVisibleTab is per-window)'),
+      windowId: z.number().int().min(0).optional().describe('Window whose active tab to capture when tabId is omitted'),
+      relativePath: z
+        .string()
+        .optional()
+        .describe('If set (or if the PNG is large), write under this project-relative path via CFS_PROJECT_WRITE_FILE'),
+      forceFile: z.boolean().optional().describe('Always write to the project folder and omit the data URL from the tool result'),
+    },
+    async ({ tabId, windowId, relativePath, forceFile }) => {
+      const payload = { type: 'CAPTURE_VISIBLE_TAB' };
+      if (tabId != null) payload.tabId = tabId;
+      if (windowId != null) payload.windowId = windowId;
+      const res = await ctx.sendMessage(payload);
+      if (!res || !res.ok || !res.dataUrl) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify(res || { ok: false, error: 'Capture failed' }, null, 2) }],
+          isError: true,
+        };
+      }
+      const helpers = {
+        INLINE_MAX: 180000,
+        shouldInline: (s) => typeof s === 'string' && s.length <= 180000,
+        split: (dataUrl) => {
+          const comma = String(dataUrl).indexOf(',');
+          if (comma < 0) return { ok: false };
+          return { ok: true, base64: String(dataUrl).slice(comma + 1), isBase64: /;base64/i.test(String(dataUrl).slice(0, comma)) };
+        },
+        defaultPath: (tid) => {
+          const id = tid != null ? String(tid).replace(/[^a-zA-Z0-9_-]/g, '') || 'active' : 'active';
+          return 'uploads/mcp-screenshots/tab-' + id + '-' + Date.now() + '.png';
+        },
+      };
+      const limits = res.limits || {
+        viewportOnly: true,
+        iframesAsRenderedPixels: true,
+        notFullPage: true,
+      };
+      const wantFile = forceFile === true || !!relativePath || !helpers.shouldInline(res.dataUrl);
+      if (!wantFile) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              ok: true,
+              stored: 'inline',
+              tabId: res.tabId,
+              windowId: res.windowId,
+              url: res.url || null,
+              title: res.title || null,
+              mimeType: 'image/png',
+              dataUrl: res.dataUrl,
+              limits,
+            }, null, 2),
+          }],
+        };
+      }
+      const split = helpers.split(res.dataUrl);
+      if (!split.ok || !split.isBase64 || !split.base64) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'Capture was not a PNG data URL', limits }, null, 2) }],
+          isError: true,
+        };
+      }
+      const dest = (relativePath && String(relativePath).trim()) || helpers.defaultPath(res.tabId);
+      const writeRes = await ctx.sendMessage({
+        type: 'CFS_PROJECT_WRITE_FILE',
+        relativePath: dest,
+        content: split.base64,
+        encoding: 'base64',
+      });
+      if (!writeRes || writeRes.ok === false) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              ok: false,
+              error: (writeRes && writeRes.error) || 'Project write failed (set a project folder). Screenshot was too large to inline.',
+              tabId: res.tabId,
+              windowId: res.windowId,
+              bytesEstimate: res.bytesEstimate,
+              limits,
+            }, null, 2),
+          }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ok: true,
+            stored: 'file',
+            relativePath: dest,
+            tabId: res.tabId,
+            windowId: res.windowId,
+            url: res.url || null,
+            title: res.title || null,
+            mimeType: 'image/png',
+            bytesEstimate: res.bytesEstimate,
+            limits,
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
+  registerBackendFetchTool(server, ctx);
 
   server.tool(
     'tunnel_status',

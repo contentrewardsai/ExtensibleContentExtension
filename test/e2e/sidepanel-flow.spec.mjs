@@ -3,7 +3,7 @@
  *
  * Covers the main user path through the sidebar:
  * 1. Open sidepanel and navigate to Library tab
- * 2. Create a new workflow (or inject one via storage when project folder is absent)
+ * 2. Create a new workflow (saved in chrome.storage.local; project folder is optional)
  * 3. Verify workflow appears in dropdowns and list
  * 4. Record actions on a fixture page
  * 5. Verify recorded steps are captured
@@ -73,12 +73,32 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     await expect(sidepanelPage.locator('#automationsPanel')).toBeVisible({ timeout: 5000 });
   });
 
+  test('Plan tab does not require a project folder banner to create or run workflows', async () => {
+    await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(await sidepanelPage.locator('#projectFolderBanner').count()).toBe(0);
+    expect(await sidepanelPage.locator('#automationsPanel #dataExportSection').count()).toBe(0);
+    await expect(sidepanelPage.locator('#recordingRequiresProjectFolder')).toBeVisible();
+  });
+
+  test('Library workflows section includes export data and create controls', async () => {
+    await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    await expect(sidepanelPage.locator('#workflowContentRequiresProjectFolder')).toBeVisible();
+    await expect(sidepanelPage.locator('#newWorkflowName')).toBeVisible();
+    await expect(sidepanelPage.locator('#createWorkflow')).toBeVisible();
+    await expect(sidepanelPage.locator('#libraryPanel #dataExportSection')).toBeVisible();
+    await expect(sidepanelPage.locator('#exportDataCSV')).toBeVisible();
+  });
+
   test('Plan tab contains recording section', async () => {
     await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
     await new Promise((r) => setTimeout(r, 500));
     expect(await sidepanelPage.locator('#recordingSection').count()).toBe(1);
     expect(await sidepanelPage.locator('#startRecord').count()).toBe(1);
     expect(await sidepanelPage.locator('#stopRecord').count()).toBe(1);
+    await expect(sidepanelPage.locator('#startRecord')).toBeVisible();
+    await expect(sidepanelPage.locator('#workflowSelectedControls')).toBeVisible();
   });
 
   test('Plan record workflow includes optional screen and audio capture checkboxes', async () => {
@@ -87,6 +107,14 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     expect(await sidepanelPage.locator('#planRecordScreen').count()).toBe(1);
     expect(await sidepanelPage.locator('#planRecordSystemAudio').count()).toBe(1);
     expect(await sidepanelPage.locator('#planRecordMic').count()).toBe(1);
+  });
+
+  test('Library Sources includes the media record panel', async () => {
+    await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    await expect(sidepanelPage.getByTestId(CFS_E2E_TESTID.sourceRecord)).toBeVisible();
+    await expect(sidepanelPage.getByTestId(CFS_E2E_TESTID.sourceRecordStart)).toBeVisible();
+    expect(await sidepanelPage.locator('#librarySourceRecordModes [data-record-mode]').count()).toBe(4);
   });
 
   test('Library panel contains playback controls', async () => {
@@ -175,7 +203,7 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
    ================================================================ */
 test.describe('Sidepanel UI: create workflow', () => {
   let sidepanelPage;
-  const WORKFLOW_NAME = 'E2E-SP-Create-' + Date.now();
+  const WORKFLOW_NAME = 'SP-Create-' + Date.now();
 
   test.beforeAll(async ({ extensionContext, extensionId }) => {
     sidepanelPage = await extensionContext.newPage();
@@ -188,27 +216,20 @@ test.describe('Sidepanel UI: create workflow', () => {
     await sidepanelPage?.close();
   });
 
-  test('create workflow via UI or verify UI is gated behind project folder', async () => {
+  test('create workflow via UI without requiring a project folder', async () => {
     await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
     await new Promise((r) => setTimeout(r, 500));
 
     const nameInput = sidepanelPage.locator('#newWorkflowName');
-    const inputVisible = await nameInput.isVisible().catch(() => false);
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill(WORKFLOW_NAME);
+    await sidepanelPage.locator('#createWorkflow').click();
+    await new Promise((r) => setTimeout(r, 1500));
 
-    if (inputVisible) {
-      await nameInput.fill(WORKFLOW_NAME);
-      await sidepanelPage.locator('#createWorkflow').click();
-      await new Promise((r) => setTimeout(r, 1500));
-
-      const options = await sidepanelPage.locator('#playbackWorkflow option').allTextContents();
-      const wfList = await sidepanelPage.locator('#workflowList').textContent().catch(() => '');
-      const found = options.some((t) => t.includes(WORKFLOW_NAME)) || wfList.includes(WORKFLOW_NAME);
-      expect(found, 'workflow should appear in dropdown or list after creation').toBe(true);
-    } else {
-      const gateEl = sidepanelPage.locator('#workflowContentRequiresProjectFolder');
-      const gateHidden = (await gateEl.evaluate((el) => getComputedStyle(el).display).catch(() => 'none')) === 'none';
-      expect(gateHidden, 'workflow creation is gated behind project folder (expected)').toBe(true);
-    }
+    const options = await sidepanelPage.locator('#playbackWorkflow option').allTextContents();
+    const wfList = await sidepanelPage.locator('#workflowList').textContent().catch(() => '');
+    const found = options.some((t) => t.includes(WORKFLOW_NAME)) || wfList.includes(WORKFLOW_NAME);
+    expect(found, 'workflow should appear in dropdown or list after creation').toBe(true);
   });
 
   test('injecting workflow into storage makes it available after sidepanel reload', async ({ extensionContext, extensionId }) => {

@@ -360,10 +360,17 @@
           </div>
           <div class="steps-flow-toolbar" role="group" aria-label="Steps view">
             <button type="button" class="btn btn-outline btn-small is-active" id="stepsViewListBtn" data-testid="cfs-steps-view-list">List</button>
-            <button type="button" class="btn btn-outline btn-small" id="stepsViewGraphBtn" data-testid="cfs-steps-view-graph">Graph</button>
+            <button type="button" class="btn btn-outline btn-small" id="stepsViewGraphBtn" data-testid="cfs-steps-view-graph" title="Flowchart of steps, branches, and chained workflows">Flow</button>
           </div>
-          <div id="stepsFlowStrip" class="steps-flow-strip" data-testid="cfs-steps-flow-strip"></div>
-          <div id="stepsFlowGraph" class="steps-flow-graph" data-testid="cfs-steps-flow-graph" style="display:none"></div>
+          <div id="stepsFlowGraph" class="steps-flow-graph" data-testid="cfs-steps-flow-graph" style="display:none">
+            <p class="hint steps-flow-hint">Boxes are steps in order. Diamonds are If branches; green bars are nested workflows. Click a box to edit it in the list.</p>
+            <div id="stepsFlowCanvas" class="steps-flow-canvas"></div>
+            <div class="steps-flow-chain">
+              <label for="stepsFlowChainSelect">Chain workflow</label>
+              <select id="stepsFlowChainSelect" data-testid="cfs-steps-flow-chain-select" title="Append a Run workflow step that calls another workflow"></select>
+              <button type="button" class="btn btn-outline btn-small" id="stepsFlowChainAdd" data-testid="cfs-steps-flow-chain-add">Add</button>
+            </div>
+          </div>
           <p id="nestedPlayStatus" class="hint nested-play-status" data-testid="cfs-nested-play-status" style="display:none"></p>
           <div id="stepsList" class="steps-list"></div>
         </section>
@@ -864,6 +871,7 @@
   <script src="library-categories.js"></script>
   <script src="workflow-list.js"></script>
   <script src="step-shell.js"></script>
+  <script src="steps-flow-graph.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

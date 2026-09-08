@@ -6821,5 +6821,66 @@
     assertTrue(CFS_pageCompare.htmlLooksLikeForm('<form><input></form>'), 'detect raw form html');
   }
 
+  if (typeof CFS_stepsFlowGraph !== 'undefined' && CFS_stepsFlowGraph.layoutWorkflowGraph) {
+    var emptyLayout = CFS_stepsFlowGraph.layoutWorkflowGraph([]);
+    assertTrue(emptyLayout.nodes.some(function (n) { return n.id === 'start'; }), 'empty graph has Start');
+    assertTrue(emptyLayout.nodes.some(function (n) { return n.id === 'end'; }), 'empty graph has End');
+    assertEqual(emptyLayout.edges.length, 1, 'empty graph Start→End');
+
+    var linear = CFS_stepsFlowGraph.layoutWorkflowGraph([
+      { type: 'click' },
+      { type: 'type', stepLabel: 'Enter email' },
+    ]);
+    var linearKinds = linear.nodes.map(function (n) { return n.kind; });
+    assertTrue(linearKinds.indexOf('step') >= 0, 'linear includes step nodes');
+    assertTrue(linear.nodes.filter(function (n) { return n.kind === 'step'; }).length === 2, 'two step boxes');
+    assertTrue(linear.width > 0 && linear.height > 0, 'layout has size');
+    linear.nodes.forEach(function (n) {
+      assertTrue(n.x >= 0 && n.y >= 0, 'non-negative coords');
+    });
+
+    var branched = CFS_stepsFlowGraph.layoutWorkflowGraph([
+      {
+        type: 'ifCondition',
+        condition: '{{ok}} === true',
+        thenSteps: [{ type: 'runWorkflow', workflowId: 'wf_yes' }],
+        elseSteps: [{ type: 'runWorkflow', workflowId: 'wf_no' }],
+      },
+    ], { getWorkflowName: function (id) { return id === 'wf_yes' ? 'Yes path' : 'No path'; } });
+    assertTrue(branched.nodes.some(function (n) { return n.kind === 'if'; }), 'if diamond');
+    assertTrue(branched.nodes.filter(function (n) { return n.kind === 'workflow'; }).length === 2, 'two chained workflows');
+    assertTrue(branched.nodes.some(function (n) { return n.kind === 'join'; }), 'branch join');
+    assertTrue(branched.edges.some(function (e) { return e.label === 'yes'; }), 'yes edge');
+    assertTrue(branched.edges.some(function (e) { return e.label === 'no'; }), 'no edge');
+    var yesNode = branched.nodes.filter(function (n) { return n.kind === 'workflow' && n.workflowId === 'wf_yes'; })[0];
+    assertTrue(yesNode && yesNode.subtitle.indexOf('Yes') >= 0, 'workflow uses display name');
+
+    var looped = CFS_stepsFlowGraph.layoutWorkflowGraph([
+      { type: 'loop', count: 3, steps: [{ type: 'click' }] },
+    ]);
+    assertTrue(looped.nodes.some(function (n) { return n.kind === 'loop'; }), 'loop node');
+    assertTrue(looped.edges.some(function (e) { return e.kind === 'back'; }), 'loop back-edge');
+
+    var gated = CFS_stepsFlowGraph.layoutWorkflowGraph([
+      { type: 'runWorkflow', workflowId: 'child', runIf: '{{go}} === true' },
+    ]);
+    var gatedNode = gated.nodes.filter(function (n) { return n.kind === 'workflow'; })[0];
+    assertTrue(gatedNode && gatedNode.gated, 'runIf marks node gated');
+
+    var ao = CFS_stepsFlowGraph.layoutWorkflowGraph([{ type: 'click' }], {
+      alwaysOnRules: [{ workflowId: 'wf_exit', runIf: '{{exit}} === sell' }],
+      getWorkflowName: function () { return 'Exit LP'; },
+    });
+    assertTrue(ao.nodes.some(function (n) { return n.kind === 'alwaysOn'; }), 'always-on header');
+    assertTrue(ao.edges.some(function (e) { return e.kind === 'dash' && e.label === 'monitor'; }), 'monitor edge');
+
+    if (typeof document !== 'undefined') {
+      var holder = document.createElement('div');
+      CFS_stepsFlowGraph.renderInto(holder, [{ type: 'click' }, { type: 'runWorkflow', workflowId: 'wf2' }]);
+      assertTrue(!!holder.querySelector('svg.steps-flow-svg'), 'renders svg');
+      assertTrue(holder.querySelectorAll('[data-flow-clickable="1"]').length >= 2, 'clickable step nodes');
+    }
+  }
+
 })(typeof window !== 'undefined' ? window : globalThis);
 

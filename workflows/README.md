@@ -49,3 +49,4 @@ Listed in **`workflows/manifest.json`** and auto-loaded into Library on side pan
 - **workflows/beehiiv-draft-post/** – beehiiv Visual Editor: blank draft, title, `/` (or inline +) Heading 1, leave as draft (no publish).
 - **workflows/bsc-v3-lp/** – PancakeSwap V3 concentrated LP (enter / monitor / exit-stable / restake). See `docs/BSC_V3_LP_WORKFLOWS.md`.
 - **workflows/bsc-infi-lp/** – PancakeSwap Infinity bin LP examples. See `docs/BSC_INFI_LP_WORKFLOWS.md`.
+- **workflows/campaign-submit/** – After a social post exists: Whop Content Rewards, Clipster.gg, Reellu.com (`wf_campaign_submit`, `wf_whop_content_rewards_submit`, `wf_clipster_submit`, `wf_reellu_submit`). Starter selectors — see **`workflows/campaign-submit/README.md`**.

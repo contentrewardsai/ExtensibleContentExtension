@@ -167,6 +167,9 @@
       if (imgEl) candidates = [{ element: imgEl, selector: null }];
     }
     if (candidates.length === 0) throw new Error('Element not found for click (tried ' + (action.selectors ? action.selectors.length : 0) + ' selectors)');
+    if (action.pick === 'last' && candidates.length > 1) {
+      candidates = candidates.slice().reverse();
+    }
 
     var lastError = null;
     for (var i = 0; i < candidates.length; i++) {

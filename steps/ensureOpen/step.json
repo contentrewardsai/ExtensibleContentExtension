@@ -2,7 +2,7 @@
   "id": "ensureOpen",
   "label": "Ensure open",
   "category": "interaction",
-  "description": "If the check element is already visible, skip. Otherwise click the opener (drawer, panel, + button) and wait until the check element is visible. Use when a later click only works after a panel is open, and clicking the opener while it is already open would close it.",
+  "description": "If the check element is already visible, skip. Otherwise click the opener (drawer, panel, + button) and wait until the check element is visible. Optional skipOpenIfSelectors avoid toggling a drawer that is already showing its cards. Optional fallbackDrag runs a dragDrop when the check target is still missing (for example add a 1 Column row so .empty-component exists). Use when a later click only works after a panel is open, and clicking the opener while it is already open would close it.",
   "defaultAction": {
     "type": "ensureOpen",
     "checkSelectors": [],

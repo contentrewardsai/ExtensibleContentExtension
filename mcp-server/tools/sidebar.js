@@ -5,6 +5,7 @@
  * aggregates/batches calls to the extensiblecontent.com backend.
  */
 import { z } from 'zod';
+import { relayBackendFetch } from './backend-fetch.js';
 
 /** In-memory sidebar registry. Sidebars register here and heartbeat periodically. */
 const localSidebars = new Map();
@@ -284,25 +285,3 @@ export function registerSidebarRoutes(app, authMiddleware, ctx) {
 }
 
 let _batchHeartbeatPending = false;
-
-/** Send an authenticated request to the backend via the relay WebSocket. */
-function relayBackendFetch(ctx, path, method, body) {
-  return new Promise((resolve, reject) => {
-    if (!ctx.isRelayConnected()) {
-      reject(new Error('Relay not connected'));
-      return;
-    }
-    // Use the BACKEND_FETCH reqType we added to the relay
-    const payload = { path, method, body };
-    // We need to use the raw relay request with reqType BACKEND_FETCH
-    // ctx.sendMessage sends chrome.runtime.sendMessage; we need relay-level
-    // For now, use sendMessage to forward to service worker which can proxy
-    // Actually, the relay handles BACKEND_FETCH directly, so we need relayRequest
-    if (typeof ctx._relayRequest === 'function') {
-      ctx._relayRequest('BACKEND_FETCH', payload).then(resolve).catch(reject);
-    } else {
-      // Fallback: not available yet, reject gracefully
-      reject(new Error('relayRequest not exposed on ctx'));
-    }
-  });
-}

@@ -8,6 +8,7 @@
   if (typeof window !== 'undefined') window.__CFS_contentScriptPlayerInstalled = true;
 
   let isPlaying = false;
+  let lastPlayError = '';
   let currentWorkflow = null;
   let currentRow = null;
   let currentRowIndex = 0;
@@ -78,6 +79,7 @@
         try { sendResponse(r); } catch (_) {}
       };
       isPlaying = true;
+      lastPlayError = '';
       const w = msg.workflow || {};
       currentWorkflow = { ...w, actions: w.actions || w.analyzed?.actions || [] };
       currentRow = msg.row || {};
@@ -116,6 +118,7 @@
         nestedWorkflowId: currentNestedPlay && currentNestedPlay.workflowId || '',
         nestedIndex: currentNestedPlay && currentNestedPlay.index != null ? currentNestedPlay.index : null,
         nestedTotal: currentNestedPlay && currentNestedPlay.total != null ? currentNestedPlay.total : null,
+        error: lastPlayError || '',
       });
     } else if (msg.type === 'GET_ELEMENT_TEXT') {
       try {
@@ -909,6 +912,12 @@
         } catch (_) {}
       }
     }
+    for (let k = 0; k < frames.length; k++) {
+      if (/page-builder\.leadconnectorhq\.com\/location/.test(frames[k].src || '')) return frames[k];
+    }
+    for (let m = 0; m < frames.length; m++) {
+      if (/leadconnectorhq\.com/.test(frames[m].src || '')) return frames[m];
+    }
     return frames.length === 1 ? frames[0] : null;
   }
 
@@ -1000,7 +1009,13 @@
             reject(new Error(STOPPED_MSG));
             return;
           }
-          iframe.contentWindow.postMessage({ [CFS_FRAME]: 1, kind: 'play-action', requestId: reqId, action: action }, frameTargetOrigin(iframe, action));
+          iframe.contentWindow.postMessage({
+            [CFS_FRAME]: 1,
+            kind: 'play-action',
+            requestId: reqId,
+            action: stampFramedActionRow(action),
+            row: currentRow && typeof currentRow === 'object' ? currentRow : {},
+          }, frameTargetOrigin(iframe, action));
         });
       });
     });
@@ -1031,21 +1046,26 @@
     const local = Object.assign({}, d.action);
     delete local.iframeSelectors;
     delete local.iframeFallbackSelectors;
-    delete local.inIframe;
-    delete local.frameUrl;
-    delete local.frameOrigin;
+    const incomingRow = (d.row && typeof d.row === 'object' && Object.keys(d.row).length)
+      ? d.row
+      : (local._playRow && typeof local._playRow === 'object' ? local._playRow : null);
     const cancelGen = framePlayCancelGeneration;
     framePlayActive++;
+    const prevRow = currentRow;
+    if (incomingRow) currentRow = incomingRow;
     Promise.resolve()
       .then(() => waitStepHandlersReady(STEP_HANDLERS_READY_TIMEOUT_MS))
       .then(() => ensureActionHandler(local && local.type))
       .then(() => {
         if (cancelGen !== framePlayCancelGeneration) throw new Error(STOPPED_MSG);
-        return waitForActionElementIfNeeded(local);
-      })
-      .then(() => {
-        if (cancelGen !== framePlayCancelGeneration) throw new Error(STOPPED_MSG);
-        return executeAction(local, {});
+        const frameApi = globalThis.CFS_frameActions;
+        if (frameApi && typeof frameApi.actionNeedsFrameDelegate === 'function' && frameApi.actionNeedsFrameDelegate(local, window.location.href)) {
+          return playActionInCrossOriginFrame(local);
+        }
+        return waitForActionElementIfNeeded(local).then(() => {
+          if (cancelGen !== framePlayCancelGeneration) throw new Error(STOPPED_MSG);
+          return executeAction(local, {});
+        });
       })
       .then(() => {
         try { srcWin.postMessage({ [CFS_FRAME_PLAY]: 1, kind: 'play-result', requestId: reqId, ok: true }, resultOrigin); } catch (_) {}
@@ -1054,6 +1074,7 @@
         try { srcWin.postMessage({ [CFS_FRAME_PLAY]: 1, kind: 'play-result', requestId: reqId, ok: false, error: formatErr(err) }, resultOrigin); } catch (_) {}
       })
       .finally(() => {
+        currentRow = prevRow;
         framePlayActive = Math.max(0, framePlayActive - 1);
       });
   });
@@ -1114,7 +1135,9 @@
           continue;
         } catch (err) {
           const rowFailureAction = (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || err?.rowFailureAction || 'stop';
-          sendResponse?.({ ok: false, error: formatErr(err), actionIndex, rowFailureAction });
+          lastPlayError = formatErr(err);
+          isPlaying = false;
+          sendResponse?.({ ok: false, error: lastPlayError, actionIndex, rowFailureAction });
           return;
         }
       }
@@ -1124,12 +1147,24 @@
           const nested = action.nestedWorkflow;
           if (!nested?.actions?.length) throw new Error('Nested workflow not found or empty');
           const nestedRow = applyRowMapping(currentRow || {}, action.rowMapping);
-          await runWorkflowActions(nested.actions, nestedRow);
+          const prevNested = currentNestedPlay;
+          currentNestedPlay = {
+            workflowId: action.workflowId || (nested && nested.id) || 'nested',
+            index: 0,
+            total: nested.actions.length,
+          };
+          try {
+            await runWorkflowActions(nested.actions, nestedRow);
+          } finally {
+            currentNestedPlay = prevNested;
+          }
           actionIndex++;
           continue;
         } catch (err) {
           const rowFailureAction = (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || err?.rowFailureAction || 'stop';
-          sendResponse?.({ ok: false, error: formatErr(err), actionIndex, rowFailureAction });
+          lastPlayError = formatErr(err);
+          isPlaying = false;
+          sendResponse?.({ ok: false, error: lastPlayError, actionIndex, rowFailureAction });
           return;
         }
       }
@@ -1204,7 +1239,7 @@
         if (action.delay && action.delay > 0) await sleep(action.delay);
         const frameApi = globalThis.CFS_frameActions;
         if (frameApi && typeof frameApi.actionNeedsFrameDelegate === 'function' && frameApi.actionNeedsFrameDelegate(action, window.location.href)) {
-          await playActionInCrossOriginFrame(action);
+          await playActionInCrossOriginFrame(stampFramedActionRow(action));
           await saveVariableIfNeeded(action);
           actionIndex++;
           continue;
@@ -1334,7 +1369,9 @@
           continue;
         }
         const rowFailureAction = (action.onFailure === 'skipRow' ? 'skip' : action.onFailure) || err?.rowFailureAction || 'stop';
-        sendResponse?.({ ok: false, error: formatErr(err), actionIndex, rowFailureAction });
+        lastPlayError = formatErr(err);
+        isPlaying = false;
+        sendResponse?.({ ok: false, error: lastPlayError, actionIndex, rowFailureAction });
         return;
       }
     }
@@ -1933,7 +1970,7 @@
         v = tr.getByLoosePath(row, parentKey);
       }
       if (v === undefined) v = row[parentKey];
-      result[nestedKey] = v;
+      if (v !== undefined) result[nestedKey] = v;
     }
     return result;
   }
@@ -2003,6 +2040,13 @@
           await runWorkflowPlanInProcess(a, currentRow || {});
         } else {
           if (a.delay && a.delay > 0) await sleep(a.delay);
+          const frameApi = globalThis.CFS_frameActions;
+          const delegate = frameApi && typeof frameApi.actionNeedsFrameDelegate === 'function' && frameApi.actionNeedsFrameDelegate(a, window.location.href);
+          if (delegate) {
+            await executeAction(a);
+            await waitForStability(a);
+            continue;
+          }
           if (a.type === 'ensureSelect' && (a.checkSelectors?.length || a.openSelectors?.length || a.fallbackSelectors?.length)) {
             const base = a.checkSelectors?.length ? a.checkSelectors : a.openSelectors || [];
             const sels = [...base, ...(a.fallbackSelectors || [])];
@@ -2074,10 +2118,23 @@
       iterations = Array.from({ length: count }, (_, i) => i);
     }
 
+    const prevLoopPlay = currentNestedPlay;
+    currentNestedPlay = {
+      workflowId: 'loop:' + (listVariable || 'count'),
+      index: 0,
+      total: iterations.length,
+    };
+    try {
     for (let i = 0; i < iterations.length; i++) {
       assertPlaying();
+      currentNestedPlay.index = i;
       const rowBase = currentRow && typeof currentRow === 'object' ? { ...currentRow } : {};
       if (listVariable) {
+        if (iterations[i] && typeof iterations[i] === 'object' && !Array.isArray(iterations[i])) {
+          Object.keys(iterations[i]).forEach(function (k) {
+            rowBase[k] = iterations[i][k];
+          });
+        }
         rowBase[itemVariable] = iterations[i];
         rowBase[indexVariable] = i;
       }
@@ -2129,6 +2186,9 @@
           await sleep(ms);
         }
       }
+    }
+    } finally {
+      currentNestedPlay = prevLoopPlay;
     }
   }
 
@@ -2485,6 +2545,7 @@
    */
   function getStepContext() {
     return {
+      get currentRow() { return currentRow || {}; },
       resolveElement: typeof resolveElement === 'function' ? resolveElement : null,
       resolveAllElements: typeof resolveAllElements === 'function' ? resolveAllElements : null,
       resolveElementForAction,
@@ -2515,7 +2576,6 @@
       sleep,
       assertPlaying,
       getRowValue,
-      currentRow: currentRow || {},
       currentRowIndex,
       currentWorkflow: currentWorkflow || null,
       personalInfo: (currentWorkflow && Array.isArray(currentWorkflow.personalInfo)) ? currentWorkflow.personalInfo : [],
@@ -2615,31 +2675,49 @@
   }
 
   /** Run the registered handler for this step. Handlers must throw on failure so the player can report actionIndex for error correction (scroll to step, Validate/Compare hint). */
+  function stampFramedActionRow(action) {
+    const row = currentRow && typeof currentRow === 'object' ? currentRow : {};
+    const next = Object.assign({}, action, { _playRow: row });
+    if (next.variableKey) {
+      const live = String(getRowValue(row, next.variableKey, next.placeholder, next.name, 'value') || '').trim();
+      if (live) next.recordedValue = live;
+    }
+    return next;
+  }
+
   async function executeAction(action, opts = {}) {
     if (!action) throw new Error('No action to execute');
-    const stepHandlers = getStepHandlers();
-    const { nextAction, prevAction } = opts;
-    const doc = document;
-    const row = currentRow || {};
-    const ctx = getStepContext();
-    ctx.nextAction = nextAction;
-    ctx.prevAction = prevAction;
-    let handler = stepHandlers[action.type];
-    if (!handler) {
-      await ensureActionHandler(action.type);
-      handler = getStepHandlers()[action.type];
-    }
-    if (!handler) {
-      const removed = typeof globalThis.CFS_removedStepTypes !== 'undefined' && globalThis.CFS_removedStepTypes instanceof Set
-        ? globalThis.CFS_removedStepTypes
-        : null;
-      if (removed && removed.has(action.type)) {
-        try { console.warn('[CFS] Skipping removed step type:', action.type); } catch (_) {}
+    try {
+      const frameApi = globalThis.CFS_frameActions;
+      if (frameApi && typeof frameApi.actionNeedsFrameDelegate === 'function' && frameApi.actionNeedsFrameDelegate(action, window.location.href)) {
+        await playActionInCrossOriginFrame(stampFramedActionRow(action));
         return;
       }
-      throw new Error('Unknown step type: "' + (action.type || '') + '". Check that the step is registered and the workflow uses a valid type.');
+      const stepHandlers = getStepHandlers();
+      const { nextAction, prevAction } = opts;
+      const ctx = getStepContext();
+      ctx.nextAction = nextAction;
+      ctx.prevAction = prevAction;
+      let handler = stepHandlers[action.type];
+      if (!handler) {
+        await ensureActionHandler(action.type);
+        handler = getStepHandlers()[action.type];
+      }
+      if (!handler) {
+        const removed = typeof globalThis.CFS_removedStepTypes !== 'undefined' && globalThis.CFS_removedStepTypes instanceof Set
+          ? globalThis.CFS_removedStepTypes
+          : null;
+        if (removed && removed.has(action.type)) {
+          try { console.warn('[CFS] Skipping removed step type:', action.type); } catch (_) {}
+          return;
+        }
+        throw new Error('Unknown step type: "' + (action.type || '') + '". Check that the step is registered and the workflow uses a valid type.');
+      }
+      await handler(action, { ...opts, ctx });
+    } catch (err) {
+      if (action.optional) return;
+      throw err;
     }
-    await handler(action, { ...opts, ctx });
   }
 
   async function saveVariableIfNeeded(action) {
@@ -2669,10 +2747,14 @@
   function getRowValue(row, ...keys) {
     if (!row || typeof row !== 'object') return '';
     for (const k of keys.filter(Boolean)) {
-      if (row[k] !== undefined) return row[k];
+      if (row[k] !== undefined && row[k] !== null) return row[k];
       const lower = (k || '').toLowerCase();
       const match = Object.keys(row).find(rk => (rk || '').toLowerCase() === lower);
-      if (match !== undefined) return row[match];
+      if (match !== undefined && row[match] !== undefined && row[match] !== null) return row[match];
+      if (String(k).indexOf('.') !== -1 && typeof CFS_templateResolver !== 'undefined' && CFS_templateResolver.getByLoosePath) {
+        const nested = CFS_templateResolver.getByLoosePath(row, k);
+        if (nested !== undefined && nested !== null && nested !== '') return nested;
+      }
     }
     return '';
   }
