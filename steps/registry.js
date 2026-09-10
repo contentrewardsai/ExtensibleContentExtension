@@ -1,6 +1,6 @@
 /**
  * Step handler registry. Each step plugin (steps/<id>/handler.js) registers its handler here
- * via __CFS_registerStepHandler(id, handler, meta). Optional meta: { needsElement?, handlesOwnWait?, closeUIAfterRun? }
+ * via __CFS_registerStepHandler(id, handler, meta). Optional meta: { needsElement?, handlesOwnWait?, closeUIAfterRun?, swTick? }
  * for player orchestration. See docs/STEP_PLUGINS.md and steps/README.md.
  */
 ;(function() {

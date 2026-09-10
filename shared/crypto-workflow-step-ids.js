@@ -91,6 +91,7 @@
     'jupiterPredictionTrade',
     'jupiterPredictionSearch',
     'pancakeV3RangeWatch',
+    'reconcileV3Positions',
     'bscV3LpWizard',
     'bscV3AutoApprove',
     'bscV3RebalanceOnce',

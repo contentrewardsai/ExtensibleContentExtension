@@ -1,6 +1,6 @@
 /**
  * LLM step: send prompt (with {{variable}} from row) to the configured backend (default: local LaMini in QC sandbox).
- * If Settings → LLM providers → Workflow default is a cloud provider with a saved API key, the service worker calls that API instead.
+ * If Settings → LLM providers → Workflow default is a cloud provider with a saved API key, the service worker calls that API instead. Content Rewards AI (`crai`) uses the backend Qwen 27B planner (Whop login + paid/trial).
  * Get response by type (boolean, text, or textWithFeedback), save to row variable(s).
  * LaMini runs in the QC sandbox (Transformers.js); download via project folder or scripts/download-lamini-model.sh.
  */
@@ -63,7 +63,7 @@
 
     const msgPayload = { type: 'CALL_LLM', prompt, responseType };
     const lp = (action.llmProvider || '').trim().toLowerCase();
-    if (lp === 'lamini' || lp === 'openai' || lp === 'claude' || lp === 'gemini' || lp === 'grok') {
+    if (lp === 'lamini' || lp === 'openai' || lp === 'claude' || lp === 'gemini' || lp === 'grok' || lp === 'crai') {
       msgPayload.llmProvider = lp;
     }
     if (action.llmOpenaiModel != null && String(action.llmOpenaiModel).trim() !== '') {

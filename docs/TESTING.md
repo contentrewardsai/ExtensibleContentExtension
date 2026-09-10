@@ -90,7 +90,7 @@ Quick manual checks after code or manifest changes. Run with the extension loade
 
 **Edge cases:** Import workflow, RUN_WORKFLOW invalid id, Copy/Paste workflow, Reload extension, Select on page.
 
-**Optional:** Schedule run, Quality check.
+**Optional:** Schedule run, Library Transcribe.
 
 For the full detailed checklist items, see the interactive E2E checklist under **Settings → Tests** (side panel **Settings** button), or on **`test/unit-tests.html`** after opening it from that section.
 
@@ -135,7 +135,7 @@ Alternatively, `npm run test:e2e:puppeteer` runs a Puppeteer-based suite (unit t
 
 All specs live under `test/e2e/*.spec.mjs` and use the shared fixture in `test/e2e/extension.fixture.mjs`.
 
-**Stable selectors (extension UI):** Canonical names live in **`test/e2e/cfs-e2e-testids.mjs`** (**`CFS_E2E_TESTID`**) — import there and in HTML. CI / **`npm run test:crypto`** runs **`npm run test:cfs-e2e-testids-wired`** so **`data-testid`** strings stay in sync with that module. **`cfs-sidepanel-settings`** appears twice (logged-in / logged-out); use **`.filter({ visible: true })`**. Also: **`cfs-settings-open-unit-tests-page`**, **`cfs-settings-crypto-ensure`** / **`fund-only`** / **`replace`**, **`cfs-run-crypto-tests`** / **`cfs-crypto-fund-only`** / **`cfs-crypto-replace-wallets`** on **`test/unit-tests.html`**.
+**Stable selectors (extension UI):** Canonical names live in **`test/e2e/cfs-e2e-testids.mjs`** (**`CFS_E2E_TESTID`**) — import there and in HTML. CI / **`npm run test:crypto`** runs **`npm run test:cfs-e2e-testids-wired`** so **`data-testid`** strings stay in sync with that module. **`cfs-sidepanel-settings`** appears twice (logged-in / logged-out); use **`.filter({ visible: true })`**. Also: **`cfs-realtime-feeds`** (Activity **Real-time data** shared-feed list), **`cfs-settings-open-unit-tests-page`**, **`cfs-hide-e2e-testing-workflows`** (Settings → Tests, hides E2E workflows from Plan and playback when checked), **`cfs-plan-workflow-search`**, **`cfs-settings-crypto-ensure`** / **`fund-only`** / **`replace`**, **`cfs-run-crypto-tests`** / **`cfs-crypto-fund-only`** / **`cfs-crypto-replace-wallets`** on **`test/unit-tests.html`**.
 
 ### Apify live E2E (opt-in)
 

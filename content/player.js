@@ -382,162 +382,6 @@
         .then(r => sendResponse({ ok: true, ready: !!r.ready, failed: !!r.failed }))
         .catch(e => sendResponse({ ok: false, error: formatErr(e) }));
       return true;
-    } else if (msg.type === 'GET_QC_INPUTS_OUTPUTS') {
-      const handleQc = async () => {
-        const cfg = msg.config || {};
-        const inputs = cfg.inputs || [];
-        const outputs = cfg.outputs || [];
-        const row = cfg.row || {};
-        const groupContainer = cfg.groupContainer;
-        const groupMode = cfg.groupMode ?? 'last';
-        const captureAudio = cfg.captureAudio !== false;
-
-        let groups = [];
-        if (groupContainer?.selectors?.length && typeof resolveAllElements === 'function') {
-          groups = resolveAllElements(groupContainer.selectors, document);
-          if (groupMode === 'matchPrompt') {
-            /* keep all groups; sidepanel will filter by row.text */
-          } else if (groupMode === 'first' && groups.length > 0) groups = [groups[0]];
-          else if (groupMode === 'last' && groups.length > 0) groups = [groups[groups.length - 1]];
-          else if (groupMode === 'all') { /* keep all */ }
-          else if (typeof groupMode === 'number' && groups[groupMode]) groups = [groups[groupMode]];
-        }
-        if (groups.length === 0) groups = [document];
-
-        const result = [];
-        for (const group of groups) {
-          const expected = [];
-          for (const inp of inputs) {
-            if (inp.source === 'variable' && inp.variableKey && row) {
-              expected.push(String(row[inp.variableKey] ?? '').trim());
-            } else if (inp.source === 'page' && inp.selectors?.length && typeof resolveElement === 'function') {
-              const el = resolveElement(inp.selectors, group);
-              const text = el ? (el.textContent || el.value || '').trim() : '';
-              if (text) expected.push(text);
-            }
-          }
-          const validExpected = expected.filter(Boolean);
-
-          const groupOutputs = [];
-          for (const o of outputs) {
-            const checkType = o.checkType || 'text';
-            if (checkType === 'presence') {
-              // Use the resolved group (may be data-index="1", "2", etc. for match-by-prompt).
-              // If group has no videos (e.g. div.fMgqiK), expand to its parent [data-index].
-              // Only override to most recent when single-group mode (first/0) and we want newest.
-              let scopeWithVideos = group && group.querySelector ? group : document;
-              const isSingleGroupCheck = groupMode !== 'matchPrompt' && (groups.length <= 1 || (groupMode === 'first' || groupMode === 0));
-              const virtuosoList = document.querySelector('[data-testid="virtuoso-item-list"]');
-              const mostRecentItem = virtuosoList
-                ? (virtuosoList.querySelector('[data-index="1"]') || virtuosoList.querySelector('[data-index]'))
-                : null;
-              if (isSingleGroupCheck && mostRecentItem) {
-                scopeWithVideos = mostRecentItem;
-              } else if (scopeWithVideos.querySelectorAll('video[src]').length === 0 && scopeWithVideos.closest) {
-                const expanded = scopeWithVideos.closest('[data-index]');
-                if (expanded) scopeWithVideos = expanded;
-              }
-              const toTry = [o.mediaSelectors, o.selectors].filter(Boolean);
-              let found = false;
-              for (const sel of toTry) {
-                if (sel?.length && typeof resolveElement === 'function') {
-                  const el = resolveElement(sel, scopeWithVideos);
-                  if (el) { found = true; break; }
-                }
-              }
-              if (!found && toTry.length === 0) {
-                found = scopeWithVideos.querySelector('video[src], audio[src]') != null;
-              }
-              groupOutputs.push({ checkType: 'presence', present: found });
-              continue;
-            }
-            if (checkType === 'audio') {
-              if (!captureAudio) {
-                groupOutputs.push({ checkType: 'audio', base64: null });
-                continue;
-              }
-              const toTry = (o.mediaSelectors?.length ? [o.mediaSelectors, o.selectors] : [o.selectors]).filter(Boolean);
-              let captured = false;
-              for (const s of toTry) {
-                if (!s?.length) continue;
-                try {
-                  const blob = await captureAudioFromElement(s, 10000, group);
-                  if (blob) {
-                    const dataUrl = await new Promise((res, rej) => {
-                      const reader = new FileReader();
-                      reader.onloadend = () => res(reader.result);
-                      reader.onerror = rej;
-                      reader.readAsDataURL(blob);
-                    });
-                    groupOutputs.push({ checkType: 'audio', base64: (dataUrl || '').split(',')[1], contentType: blob.type });
-                    captured = true;
-                    break;
-                  }
-                } catch (_) {}
-              }
-              if (!captured) groupOutputs.push({ checkType: 'audio', base64: null });
-            } else {
-              const sel = o.selectors;
-              let text = '';
-              if (sel?.length && typeof resolveElement === 'function') {
-                const el = resolveElement(sel, group);
-                text = el ? (el.textContent || el.value || '').trim() : '';
-              }
-              groupOutputs.push({ checkType: 'text', text: text || '' });
-            }
-          }
-          if (groupOutputs.length > 0) result.push({ expected: validExpected, outputs: groupOutputs });
-        }
-        return result;
-      };
-      handleQc()
-        .then(groups => sendResponse({ ok: true, groups }))
-        .catch(e => sendResponse({ ok: false, error: formatErr(e) }));
-      return true;
-    } else if (msg.type === 'GET_QC_CAPTURE_SINGLE_OUTPUT') {
-      const handleSingle = async () => {
-        const cfg = msg.config || {};
-        const groupIndex = cfg.groupIndex ?? 0;
-        const outputIndex = cfg.outputIndex ?? 0;
-        const outputs = cfg.outputs || [];
-        const groupContainer = cfg.groupContainer;
-        const groupMode = cfg.groupMode ?? 'last';
-
-        let groups = [];
-        if (groupContainer?.selectors?.length && typeof resolveAllElements === 'function') {
-          groups = resolveAllElements(groupContainer.selectors, document);
-          if (groupMode === 'first' && groups.length > 0) groups = [groups[0]];
-          else if (groupMode === 'last' && groups.length > 0) groups = [groups[groups.length - 1]];
-          else if (typeof groupMode === 'number' && groups[groupMode]) groups = [groups[groupMode]];
-        }
-        if (groups.length === 0) groups = [document];
-        const group = groups[groupIndex];
-        if (!group) return null;
-
-        const o = outputs[outputIndex];
-        if (!o || (o.checkType || 'text') !== 'audio') return null;
-        const toTry = (o.mediaSelectors?.length ? [o.mediaSelectors, o.selectors] : [o.selectors]).filter(Boolean);
-        for (const s of toTry) {
-          if (!s?.length) continue;
-          try {
-            const blob = await captureAudioFromElement(s, 10000, group);
-            if (blob) {
-              const dataUrl = await new Promise((res, rej) => {
-                const reader = new FileReader();
-                reader.onloadend = () => res(reader.result);
-                reader.onerror = rej;
-                reader.readAsDataURL(blob);
-              });
-              return { base64: (dataUrl || '').split(',')[1], contentType: blob.type };
-            }
-          } catch (_) {}
-        }
-        return null;
-      };
-      handleSingle()
-        .then(r => sendResponse({ ok: !!r, base64: r?.base64, contentType: r?.contentType }))
-        .catch(e => sendResponse({ ok: false, error: formatErr(e) }));
-      return true;
     } else if (msg.type === 'GET_VIDEO_METADATA') {
       const handleMeta = async () => {
         const cfg = msg.config || {};
@@ -607,38 +451,6 @@
         .then(meta => sendResponse({ ok: true, videos: meta }))
         .catch(e => sendResponse({ ok: false, error: formatErr(e) }));
       return true;
-    } else if (msg.type === 'GET_QC_ANALYZE_PAGE') {
-      const analyze = () => {
-        const media = document.querySelectorAll('video, audio');
-        if (media.length === 0) return { groups: [], hint: 'No video/audio elements found.' };
-        const byAncestor = new Map();
-        for (const el of media) {
-          let p = el.parentElement;
-          let depth = 0;
-          while (p && p !== document.body && depth < 8) {
-            const key = p;
-            const count = (byAncestor.get(key) || 0) + 1;
-            byAncestor.set(key, count);
-            p = p.parentElement;
-            depth++;
-          }
-        }
-        const candidates = [];
-        for (const [el, count] of byAncestor) {
-          if (count >= 1 && count <= 8) {
-            const children = el.querySelectorAll('video, audio');
-            if (children.length === count) candidates.push({ el, count });
-          }
-        }
-        candidates.sort((a, b) => a.count - b.count);
-        const groups = candidates.slice(-5).map((c) => ({ videoCount: c.count }));
-        return { groups, totalMedia: media.length, hint: groups.length ? `Found ${media.length} media in patterns of ${groups.map((g) => g.videoCount).join(', ')}.` : 'No clear group pattern.' };
-      };
-      try {
-        sendResponse({ ok: true, ...analyze() });
-      } catch (e) {
-        sendResponse({ ok: false, error: formatErr(e) });
-      }
     } else if (msg.type === 'SCROLL_TO_QC_RESULTS') {
       try {
         const list = document.querySelector('[data-testid="virtuoso-item-list"]');
@@ -1764,6 +1576,25 @@
         if (candidates.length === 0) {
           const empty = doc.querySelector('.empty-component, .empty-slot');
           if (empty && isElementVisible(empty)) candidates = [{ element: empty, selector: null }];
+        }
+      }
+      if (candidates.length === 0 && (type === 'wait' || type === 'waitForElement' || type === 'type')) {
+        var snapApiWait = globalThis.CFS_pageAgentSnapshot;
+        var lookSearch = type === 'type';
+        if (snapApiWait && typeof snapApiWait.selectorsLookLikeSearch === 'function') {
+          lookSearch = lookSearch || snapApiWait.selectorsLookLikeSearch(selectors);
+        }
+        if (!lookSearch && snapApiWait && typeof snapApiWait.isGoogleSearchUrl === 'function') {
+          try { lookSearch = snapApiWait.isGoogleSearchUrl(doc.location && doc.location.href); } catch (_) {}
+        }
+        if (lookSearch && snapApiWait && typeof snapApiWait.snapshotFromRoot === 'function' && typeof snapApiWait.pickSearchField === 'function') {
+          try {
+            var liveSnap = snapApiWait.snapshotFromRoot(doc, (doc.location && doc.location.href) || '');
+            var searchField = snapApiWait.pickSearchField(liveSnap && liveSnap._items ? liveSnap._items : (liveSnap && liveSnap.elements) || []);
+            if (searchField && searchField.el && isElementVisible(searchField.el)) {
+              candidates = [{ element: searchField.el, selector: null }];
+            }
+          } catch (_) {}
         }
       }
       if (candidates.length === 0 && type === 'type' && summary) {

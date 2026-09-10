@@ -775,6 +775,76 @@
     };
   }
 
+  function hasPaidOrTrialAccess(status) {
+    if (typeof global.cfsHasPaidOrTrialAccess === 'function') {
+      return global.cfsHasPaidOrTrialAccess(status);
+    }
+    if (!status || typeof status !== 'object') return false;
+    if (status.pro === true || status.has_upgraded === true || status.trial_active === true) return true;
+    const a = String(status.access || '').toLowerCase();
+    return a === 'paid' || a === 'trial' || a === 'project_member';
+  }
+
+  function agentPlannerSleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  async function pollAgentPlannerJob(jobId, opts) {
+    const signal = opts && opts.signal;
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      if (signal && signal.aborted) {
+        return { ok: false, error: 'Stopped', code: 'STOPPED', status: 0 };
+      }
+      await agentPlannerSleep(2000);
+      if (signal && signal.aborted) {
+        return { ok: false, error: 'Stopped', code: 'STOPPED', status: 0 };
+      }
+      const res = await safeApiFetch('/api/extension/agent-planner?jobId=' + encodeURIComponent(jobId));
+      if (!res.ok) return res;
+      if (res.done === true || res.ok === true || (res.text && res.status !== 'running')) {
+        const text = res.text != null ? String(res.text) : (res.result != null ? String(res.result) : '');
+        if (!text) return { ok: false, error: 'Cloud planner job finished empty' };
+        return { ok: true, text: text, source: 'clore', model: res.model || 'qwen38-27b' };
+      }
+      if (res.error) return { ok: false, error: String(res.error) };
+    }
+    return { ok: false, error: 'Cloud planner timed out', code: 'TIMEOUT' };
+  }
+
+  /**
+   * POST /api/extension/agent-planner (auth, paid/trial).
+   * Body `{ messages }`. Response `{ ok, text }` or `{ status: "running", jobId }` then poll.
+   * Server (other repo) occupies a Clore box, pins Qwen 3.8 (`qwen38-27b`), and returns assistant JSON.
+   */
+  async function agentPlanner(body, opts) {
+    const messages = body && Array.isArray(body.messages) ? body.messages : null;
+    if (!messages || !messages.length) {
+      return { ok: false, error: 'messages required', status: 0 };
+    }
+    const res = await safeApiFetch('/api/extension/agent-planner', {
+      method: 'POST',
+      body: JSON.stringify({ messages: messages }),
+    });
+    if (!res.ok) {
+      if (res.status === 401) return Object.assign({}, res, { code: 'ASK_LOGIN' });
+      if (res.status === 403) return Object.assign({}, res, { code: 'ASK_UPGRADE' });
+      if (res.status === 404) {
+        return Object.assign({}, res, {
+          code: 'CLORE_UNAVAILABLE',
+          error: res.error || 'Cloud planner is not available yet.',
+        });
+      }
+      return res;
+    }
+    if (res.status === 'running' && res.jobId) {
+      return pollAgentPlannerJob(res.jobId, opts);
+    }
+    const text = res.text != null ? String(res.text) : (res.result != null ? String(res.result) : '');
+    if (!text) return { ok: false, error: 'Cloud planner returned empty' };
+    return { ok: true, text: text, source: 'clore', model: res.model || 'qwen38-27b' };
+  }
+
   /**
    * GET /api/extension/user/default-project (auth)
    * @returns {Promise<{ ok: boolean, defaultProjectId?: string, error?: string }>}
@@ -959,16 +1029,35 @@
 
   function ghlMediaFromResponse(json) {
     json = json || {};
-    const mediaId = json.fileId || json._id || json.id || '';
-    const url = json.url || json.fileUrl || '';
+    if (json.data && typeof json.data === 'object' && !json.fileId && !json.id && !json._id) {
+      json = json.data;
+    }
+    if (json.file && typeof json.file === 'object' && !json.fileId && !json.id) {
+      json = json.file;
+    }
+    const mediaId = json.fileId || json._id || json.id || json.mediaId || '';
+    const url = json.url || json.fileUrl || json.path || '';
     return { mediaId: String(mediaId || ''), url: String(url || '') };
   }
 
-  async function uploadToGhlTarget(target, file, parentId) {
+  /**
+   * HighLevel's media library accepts `.m4a` in the UI, but the upload API often
+   * rejects or silently drops IANA `audio/mp4`. AAC in an MP4 container uploaded
+   * as `.mp4` / `video/mp4` shows up next to the source video.
+   */
+  function fileForGhlUpload(file) {
+    if (!file || !file.name) return file;
+    var name = String(file.name);
+    if (!/\.m4a$/i.test(name)) return file;
+    return new File([file], name.replace(/\.m4a$/i, '.mp4'), { type: 'video/mp4' });
+  }
+
+  async function postGhlMedia(target, file, parentId) {
     const form = new FormData();
     form.append('hosted', 'false');
     form.append('file', file, file.name);
     form.append('name', Date.now() + '_' + file.name);
+    form.append('contentType', file.type || 'application/octet-stream');
     if (parentId) form.append('parentId', parentId);
     const res = await fetch(target.upload_url, {
       method: 'POST',
@@ -979,11 +1068,35 @@
       },
       body: form,
     });
+    const text = await res.text().catch(function () { return ''; });
     if (!res.ok) {
-      const text = await res.text().catch(function () { return ''; });
       throw new Error('Upload failed (' + res.status + '): ' + (text || res.statusText));
     }
-    return ghlMediaFromResponse(await res.json());
+    var json = {};
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch (_) {
+      throw new Error('Upload failed: HighLevel returned a non-JSON response');
+    }
+    var out = ghlMediaFromResponse(json);
+    if (!out.mediaId && !out.url) {
+      throw new Error('Upload failed: HighLevel did not return a file id');
+    }
+    out.name = file.name;
+    return out;
+  }
+
+  async function uploadToGhlTarget(target, file, parentId) {
+    var prepared = fileForGhlUpload(file);
+    try {
+      return await postGhlMedia(target, prepared, parentId);
+    } catch (err) {
+      if (!/\.m4a$/i.test(file.name || '') || prepared === file) throw err;
+      var asM4a = new File([file], file.name, { type: 'audio/m4a' });
+      var out = await postGhlMedia(target, asM4a, parentId);
+      out.name = asM4a.name;
+      return out;
+    }
   }
 
   async function uploadToBox(connectionId, parentFolderId, file) {
@@ -1013,7 +1126,11 @@
     }
     const data = await res.json();
     const uploaded = data.entries && data.entries[0];
-    return { mediaId: uploaded && uploaded.id ? String(uploaded.id) : '', url: '' };
+    return {
+      mediaId: uploaded && uploaded.id ? String(uploaded.id) : '',
+      url: '',
+      name: (uploaded && uploaded.name) || file.name
+    };
   }
 
   async function uploadToSource(kind, sourceId, parentFolderId, file) {
@@ -1065,6 +1182,51 @@
       logoutOn401: false,
     });
     return { folderId: String((res && (res.folder_id || res.id)) || '') };
+  }
+
+  function sourceItemIsFolder(it) {
+    if (!it || typeof it !== 'object') return false;
+    return String(it.type || '') === 'folder' || it.is_folder === true;
+  }
+
+  function sourceItemName(it) {
+    return String((it && (it.name || it.filename)) || '');
+  }
+
+  function sourceItemId(it) {
+    return String((it && (it.id || it.fileId || it.folder_id)) || '');
+  }
+
+  /** Browse parent and return an existing folder with this name, or create it. */
+  async function ensureSourceFolderByName(kind, sourceId, parentFolderId, name) {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) throw new Error('Folder name is required');
+    const parent = parentFolderId || (kind === 'box' ? '0' : '');
+    try {
+      const items = await browseSource(kind, sourceId, parent);
+      const want = trimmed.toLowerCase();
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (sourceItemIsFolder(it) && sourceItemName(it).toLowerCase() === want) {
+          const id = sourceItemId(it);
+          if (id) return { folderId: id, created: false };
+        }
+      }
+    } catch (_) {}
+    const created = await createSourceFolder(kind, sourceId, parentFolderId, trimmed);
+    if (created && created.folderId) return { folderId: created.folderId, created: true };
+    try {
+      const items = await browseSource(kind, sourceId, parent);
+      const want = trimmed.toLowerCase();
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (sourceItemIsFolder(it) && sourceItemName(it).toLowerCase() === want) {
+          const id = sourceItemId(it);
+          if (id) return { folderId: id, created: false };
+        }
+      }
+    } catch (_) {}
+    throw new Error('Could not create folder "' + trimmed + '"');
   }
 
   async function deleteFromSource(kind, sourceId, mediaId, isFolder) {
@@ -1144,6 +1306,8 @@ global.ExtensionApi = {
     addRemoveSocialMedia,
 
     hasUpgraded,
+    hasPaidOrTrialAccess,
+    agentPlanner,
     canAddConnectedProfile,
     canAddBackendConnectedProfile,
     appendConnectedProfileIfUnderCap,
@@ -1161,6 +1325,7 @@ global.ExtensionApi = {
     getBoxDownloadUrl,
     uploadToSource,
     createSourceFolder,
+    ensureSourceFolderByName,
     deleteFromSource,
     sourceConnectUrls,
   };

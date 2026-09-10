@@ -13,6 +13,11 @@
       if (!u && action.variableKey) return 'Go to URL (from row: ' + action.variableKey + ')';
       return u ? 'Go to: ' + u.slice(0, 40) + (u.length > 40 ? '…' : '') : 'Go to URL';
     },
+    getVariableKey: function(action) {
+      if (action.fromCurrentUrl) return '';
+      if (action.url && String(action.url).trim()) return '';
+      return (action.variableKey || '').toString().trim();
+    },
     renderBody: function(action, i, wfId, totalCount, helpers) {
       var escapeHtml = helpers.escapeHtml;
       var url = (action.url || '').toString().trim();

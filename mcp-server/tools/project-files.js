@@ -69,27 +69,147 @@ export function registerProjectTools(server, ctx) {
     }
   );
 
+  function workflowHasRealtimeSources(wf) {
+    const actions = wf?.analyzed?.actions || wf?.actions || [];
+    const checks = actions.filter((a) => a && a.type === 'checkRealtimeData');
+    const srcKeys = ['followingSolanaWatch', 'followingBscWatch', 'followingAutomationSolana', 'followingAutomationBsc', 'fileWatch', 'priceRangeWatch', 'custom'];
+    const truthy = (v) => v === true || v === 'true' || v === 1 || v === '1';
+    if (checks.length) {
+      return checks.some((a) => srcKeys.some((k) => truthy(a[k])));
+    }
+    const sc = wf?.alwaysOn?.scopes || {};
+    return srcKeys.some((k) => truthy(sc[k]));
+  }
+
+  function workflowPaused(wf) {
+    const actions = wf?.analyzed?.actions || [];
+    const step = actions.find((a) => a && a.type === 'checkRealtimeData');
+    if (step && (step.alwaysOnEnabled === false || step.alwaysOnEnabled === 'false')) return true;
+    if (wf?.alwaysOn && wf.alwaysOn.enabled === false) return true;
+    return false;
+  }
+
+  function latestFamilyWorkflows(wfs) {
+    const best = Object.create(null);
+    for (const [id, wf] of Object.entries(wfs || {})) {
+      if (!wf || typeof wf !== 'object' || wf._testOnly) continue;
+      const fk = wf.initial_version ? String(wf.initial_version) : String(id);
+      const ver = Number.isFinite(parseInt(wf.version, 10)) ? parseInt(wf.version, 10) : 1;
+      const prev = best[fk];
+      if (!prev || ver >= prev.version) best[fk] = { id, wf, version: ver };
+    }
+    return Object.values(best);
+  }
+
+  function familyMemberIds(wfs, id, wf) {
+    const family = wf && wf.initial_version ? String(wf.initial_version) : String(id || '');
+    const out = [];
+    const seen = Object.create(null);
+    const add = (x) => {
+      const s = String(x || '').trim();
+      if (!s || seen[s]) return;
+      seen[s] = true;
+      out.push(s);
+    };
+    add(id);
+    add(family);
+    for (const [wid, w] of Object.entries(wfs || {})) {
+      if (!w || typeof w !== 'object' || w._testOnly) continue;
+      const fk = w.initial_version ? String(w.initial_version) : String(wid);
+      if (fk === family) add(wid);
+    }
+    return out;
+  }
+
+  function lastActivityForWorkflowFamily(activity, wfs, id, wf) {
+    const set = Object.create(null);
+    familyMemberIds(wfs, id, wf).forEach((mid) => {
+      set[String(mid)] = true;
+    });
+    const list = Array.isArray(activity) ? activity : [];
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (!e || typeof e !== 'object') continue;
+      const parent = e.workflowId != null ? String(e.workflowId) : '';
+      if (!parent || !set[parent]) continue;
+      if (
+        e.childWorkflowId ||
+        e.kind === 'oor_trigger' ||
+        e.kind === 'near_edge_trigger' ||
+        e.kind === 'monitor_child'
+      ) {
+        return e;
+      }
+    }
+    return null;
+  }
+
+  function lastPollHitForWorkflow(lastPoll, workflowId) {
+    if (!lastPoll || typeof lastPoll !== 'object') return null;
+    const id = String(workflowId || '');
+    const results = Array.isArray(lastPoll.results) ? lastPoll.results : [];
+    for (let i = 0; i < results.length; i++) {
+      if (results[i] && String(results[i].workflowId || '') === id) {
+        const hit = results[i];
+        return {
+          ts: lastPoll.ts,
+          ok: hit.ok,
+          idle: hit.idle,
+          reason: hit.reason,
+          error: hit.error,
+          positionCount: Array.isArray(hit.results) ? hit.results.length : 0,
+        };
+      }
+    }
+    if (!results.length && (lastPoll.idle === true || lastPoll.ok === false)) {
+      return {
+        ts: lastPoll.ts,
+        ok: lastPoll.ok,
+        idle: lastPoll.idle,
+        reason: lastPoll.reason,
+        error: lastPoll.error,
+      };
+    }
+    return null;
+  }
+
   /* ── list_always_on_workflows ── */
   server.tool(
     'list_always_on_workflows',
-    'List all workflows with always-on (background automation) enabled, showing their scopes, conditions, and project bindings.',
+    'List always-on workflow families (including paused). Returns scopes, settings, data rows (boundRows), last tick, and paused. Use set_always_on_data_row / set_always_on_bound_row to edit positions; set_always_on_settings for poll/gas; set_always_on_scope alwaysOnEnabled to pause without a dummy scope.',
     {},
     async () => {
-      const res = await ctx.readStorage(['workflows']);
+      const res = await ctx.readStorage(['workflows', 'cfsV3RangeWatchLastPoll', 'cfsAlwaysOnActivityLog']);
       const wfs = res?.data?.workflows;
       if (!wfs || typeof wfs !== 'object') {
         return { content: [{ type: 'text', text: JSON.stringify({ ok: true, count: 0, workflows: [] }, null, 2) }] };
       }
+      const lastPoll = res?.data?.cfsV3RangeWatchLastPoll || null;
+      const activity = Array.isArray(res?.data?.cfsAlwaysOnActivityLog) ? res.data.cfsAlwaysOnActivityLog : [];
       const results = [];
-      for (const [id, wf] of Object.entries(wfs)) {
-        if (!wf?.alwaysOn?.enabled) continue;
+      for (const { id, wf } of latestFamilyWorkflows(wfs)) {
+        if (!workflowHasRealtimeSources(wf)) continue;
+        const ao = wf.alwaysOn || {};
+        const paused = workflowPaused(wf);
+        const lastChild = lastActivityForWorkflowFamily(activity, wfs, id, wf);
+        const tickHit = lastPollHitForWorkflow(lastPoll, id);
         results.push({
           id,
           name: wf.name || id,
-          scopes: wf.alwaysOn.scopes || {},
-          conditions: wf.alwaysOn.conditions || {},
-          projectId: wf.alwaysOn.projectId || null,
-          pollIntervalMs: wf.alwaysOn.pollIntervalMs || null,
+          family: wf.initial_version || id,
+          paused,
+          enabled: !paused,
+          scopes: ao.scopes || {},
+          conditions: ao.conditions || {},
+          projectId: ao.projectId || null,
+          pollIntervalMs: ao.pollIntervalMs || null,
+          nearEdgePercent: ao.nearEdgePercent != null ? ao.nearEdgePercent : null,
+          gasReloadEnabled: ao.gasReloadEnabled === true || ao.gasReloadEnabled === 'true',
+          reconcileAutoTrackNew: ao.reconcileAutoTrackNew === true || ao.reconcileAutoTrackNew === 'true',
+          boundRows: Array.isArray(ao.boundRows) ? ao.boundRows : [],
+          boundRow: ao.boundRow && typeof ao.boundRow === 'object' ? ao.boundRow : null,
+          lastTick: tickHit,
+          lastChild: lastChild,
         });
       }
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, count: results.length, workflows: results }, null, 2) }] };
@@ -99,15 +219,19 @@ export function registerProjectTools(server, ctx) {
   /* ── set_always_on_scope ── */
   server.tool(
     'set_always_on_scope',
-    'Enable or disable a specific always-on scope on a workflow. Scopes: followingSolanaWatch, followingBscWatch, followingAutomationSolana, followingAutomationBsc, fileWatch, priceRangeWatch, custom. For V3 LP monitoring use priceRangeWatch + set_always_on_bound_row (v3PositionTokenId).',
+    'Enable or disable a real-time data source on a workflow by inserting/updating a checkRealtimeData step (then deriving alwaysOn). Scopes: followingSolanaWatch, followingBscWatch, followingAutomationSolana, followingAutomationBsc, fileWatch, priceRangeWatch, custom. For V3 LP monitoring use priceRangeWatch + set_always_on_bound_row (v3PositionTokenId). alwaysOnEnabled pauses/resumes the workflow without clearing sources — scope is optional when only pausing. Do not only set alwaysOn on the workflow blob. Child routing is Plan runWorkflow steps, not onOutOfRange JSON.',
     {
       workflowId: z.string().describe('Workflow ID'),
-      scope: z.enum(['followingSolanaWatch', 'followingBscWatch', 'followingAutomationSolana', 'followingAutomationBsc', 'fileWatch', 'priceRangeWatch', 'custom']).describe('Scope name'),
-      enabled: z.boolean().describe('Enable or disable this scope'),
+      scope: z.enum(['followingSolanaWatch', 'followingBscWatch', 'followingAutomationSolana', 'followingAutomationBsc', 'fileWatch', 'priceRangeWatch', 'custom']).optional().describe('Scope name. Optional when only setting alwaysOnEnabled (pause/resume).'),
+      enabled: z.boolean().optional().describe('Enable or disable this scope. Required when scope is set.'),
+      alwaysOnEnabled: z.boolean().optional().describe('Pause (false) or resume (true) this workflow without clearing sources. Can be set alone (no dummy scope).'),
       projectId: z.string().optional().describe('Project ID to bind (for fileWatch scope)'),
       pollIntervalMs: z.number().int().min(1000).optional().describe('Poll interval in ms (fileWatch / priceRangeWatch)'),
     },
-    async ({ workflowId, scope, enabled, projectId, pollIntervalMs }) => {
+    async ({ workflowId, scope, enabled, alwaysOnEnabled, projectId, pollIntervalMs }) => {
+      if (alwaysOnEnabled === undefined && (scope === undefined || enabled === undefined)) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'Provide scope+enabled, or alwaysOnEnabled to pause/resume' }, null, 2) }], isError: true };
+      }
       const storageRes = await ctx.readStorage(['workflows']);
       const wfs = storageRes?.data?.workflows;
       if (!wfs || !wfs[workflowId]) {
@@ -115,53 +239,139 @@ export function registerProjectTools(server, ctx) {
       }
 
       const wf = wfs[workflowId];
-      if (!wf.alwaysOn) wf.alwaysOn = { enabled: true, scopes: {}, conditions: {} };
+      if (!wf.analyzed || typeof wf.analyzed !== 'object') wf.analyzed = {};
+      if (!Array.isArray(wf.analyzed.actions)) wf.analyzed.actions = [];
+      let step = wf.analyzed.actions.find((a) => a && a.type === 'checkRealtimeData');
+      if (!step) {
+        step = {
+          type: 'checkRealtimeData',
+          alwaysOnEnabled: true,
+          followingSolanaWatch: false,
+          followingBscWatch: false,
+          followingAutomationSolana: false,
+          followingAutomationBsc: false,
+          fileWatch: false,
+          priceRangeWatch: false,
+          custom: false,
+        };
+        wf.analyzed.actions.unshift(step);
+      }
+      if (scope !== undefined && enabled !== undefined) {
+        step[scope] = enabled;
+      }
+      if (alwaysOnEnabled !== undefined) step.alwaysOnEnabled = alwaysOnEnabled;
+      else if (enabled) step.alwaysOnEnabled = true;
+      if (projectId !== undefined) step.projectId = projectId;
+      if (pollIntervalMs !== undefined) step.pollIntervalMs = pollIntervalMs;
+
+      if (!wf.alwaysOn || typeof wf.alwaysOn !== 'object') wf.alwaysOn = { scopes: {}, conditions: {} };
       if (!wf.alwaysOn.scopes) wf.alwaysOn.scopes = {};
-      wf.alwaysOn.enabled = true;
-      wf.alwaysOn.scopes[scope] = enabled;
+      if (scope !== undefined && enabled !== undefined) wf.alwaysOn.scopes[scope] = enabled;
+      const sc = wf.alwaysOn.scopes;
+      const switchOn = step.alwaysOnEnabled !== false;
+      wf.alwaysOn.enabled = !!(switchOn && (sc.followingSolanaWatch || sc.followingBscWatch || sc.followingAutomationSolana ||
+        sc.followingAutomationBsc || sc.fileWatch || sc.priceRangeWatch || sc.custom));
       if (projectId !== undefined) wf.alwaysOn.projectId = projectId;
       if (pollIntervalMs !== undefined) wf.alwaysOn.pollIntervalMs = pollIntervalMs;
 
-      // Save back via storage write
-      const writeRes = await ctx.writeStorage('workflows', wfs);
+      await ctx.writeStorage('workflows', wfs);
 
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, workflowId, scope, enabled, alwaysOn: wf.alwaysOn }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, workflowId, scope: scope || null, enabled: enabled ?? null, alwaysOnEnabled: step.alwaysOnEnabled !== false, alwaysOn: wf.alwaysOn, paused: step.alwaysOnEnabled === false }, null, 2) }] };
     }
   );
+
+  async function applyAlwaysOnBoundRow({ workflowId, fields, mode, kind, tokenId, oldTokenId, enablePriceRangeWatch, pollIntervalMs }) {
+    let bindMode = mode || '';
+    if (bindMode === 'upsert') bindMode = 'upsertPosition';
+    if (bindMode === 'remove') bindMode = 'removePosition';
+    if (bindMode === 'replace') bindMode = 'replaceTokenId';
+    const payload = {
+      type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
+      workflowId,
+      fields,
+      kind: kind || 'v3',
+      enablePriceRangeWatch: enablePriceRangeWatch !== false,
+    };
+    if (bindMode) payload.mode = bindMode;
+    if (tokenId) payload.tokenId = tokenId;
+    if (oldTokenId) payload.oldTokenId = oldTokenId;
+    if (pollIntervalMs != null) payload.pollIntervalMs = pollIntervalMs;
+    return ctx.sendMessage(payload);
+  }
+
+  const boundRowShape = {
+    workflowId: z.string().describe('Target workflow id (e.g. wf-bsc-v3-monitor)'),
+    fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).describe('Position fields (e.g. { v3PositionTokenId, v3Pool, exitBelowPolicy, fundMode })'),
+    mode: z.enum(['upsert', 'remove', 'replace', 'mergeLegacy', 'upsertPosition', 'removePosition', 'replaceTokenId']).optional()
+      .describe('upsert (default when id present), remove, replace (restake tokenId change), mergeLegacy'),
+    kind: z.enum(['v3', 'infi', 'clmm', 'raydiumClmm', 'dlmm', 'meteoraDlmm']).optional().describe('Position family (default v3; clmm/dlmm set checkRealtimeData priceRangeMode)'),
+    tokenId: z.string().optional().describe('Token id for remove mode'),
+    oldTokenId: z.string().optional().describe('Prior NFT id for replace mode'),
+    enablePriceRangeWatch: z.boolean().optional().describe('Enable alwaysOn + scopes.priceRangeWatch (default true)'),
+    pollIntervalMs: z.number().int().min(1000).optional().describe('alwaysOn.pollIntervalMs'),
+  };
 
   /* ── set_always_on_bound_row ── */
   server.tool(
     'set_always_on_bound_row',
-    'Upsert/remove/replace a position in alwaysOn.boundRows (CFS_ALWAYS_ON_MERGE_BOUND_ROW). Defaults to upsert by tokenId (does not wipe other positions). Legacy scalar boundRow is mirrored from primary. Modes: upsert|remove|replace|mergeLegacy. kind: v3|infi.',
-    {
-      workflowId: z.string().describe('Target workflow id (e.g. wf-bsc-v3-monitor)'),
-      fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).describe('Position fields (e.g. { v3PositionTokenId, v3Pool, exitBelowPolicy, fundMode })'),
-      mode: z.enum(['upsert', 'remove', 'replace', 'mergeLegacy', 'upsertPosition', 'removePosition', 'replaceTokenId']).optional()
-        .describe('upsert (default when id present), remove, replace (restake tokenId change), mergeLegacy'),
-      kind: z.enum(['v3', 'infi']).optional().describe('Position family (default v3)'),
-      tokenId: z.string().optional().describe('Token id for remove mode'),
-      oldTokenId: z.string().optional().describe('Prior NFT id for replace mode'),
-      enablePriceRangeWatch: z.boolean().optional().describe('Enable alwaysOn + scopes.priceRangeWatch (default true)'),
-      pollIntervalMs: z.number().int().min(1000).optional().describe('alwaysOn.pollIntervalMs'),
-    },
-    async ({ workflowId, fields, mode, kind, tokenId, oldTokenId, enablePriceRangeWatch, pollIntervalMs }) => {
-      let bindMode = mode || '';
-      if (bindMode === 'upsert') bindMode = 'upsertPosition';
-      if (bindMode === 'remove') bindMode = 'removePosition';
-      if (bindMode === 'replace') bindMode = 'replaceTokenId';
-      const payload = {
-        type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
-        workflowId,
-        fields,
-        kind: kind || 'v3',
-        enablePriceRangeWatch: enablePriceRangeWatch !== false,
-      };
-      if (bindMode) payload.mode = bindMode;
-      if (tokenId) payload.tokenId = tokenId;
-      if (oldTokenId) payload.oldTokenId = oldTokenId;
-      if (pollIntervalMs != null) payload.pollIntervalMs = pollIntervalMs;
-      const res = await ctx.sendMessage(payload);
+    'Upsert/remove/replace a position in alwaysOn.boundRows (CFS_ALWAYS_ON_MERGE_BOUND_ROW). Same as set_always_on_data_row. Also merges a checkRealtimeData price-range source (does not wipe boundRows). Defaults to upsert by tokenId. Modes: upsert|remove|replace|mergeLegacy. kind: v3|infi|clmm|dlmm. Do not teach agents to only set onOutOfRange JSON — child routing is Plan runWorkflow steps.',
+    boundRowShape,
+    async (args) => {
+      const res = await applyAlwaysOnBoundRow(args);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'set_always_on_data_row',
+    'Alias of set_always_on_bound_row: edit the always-on Data table (boundRows) — upsert/remove/replace a watch target. Prefer this over Advanced JSON.',
+    boundRowShape,
+    async (args) => {
+      const res = await applyAlwaysOnBoundRow(args);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], isError: !res.ok };
+    }
+  );
+
+  server.tool(
+    'set_always_on_settings',
+    'Set workflow-level always-on settings (poll, gas top-up, auto-track, near-edge, file-watch projectId). Does not wipe boundRows. Per-position fields use set_always_on_data_row.',
+    {
+      workflowId: z.string().describe('Workflow ID'),
+      pollIntervalMs: z.number().int().min(1000).optional(),
+      nearEdgePercent: z.union([z.string(), z.number()]).optional(),
+      gasReloadEnabled: z.boolean().optional(),
+      gasReloadBelowWei: z.string().optional(),
+      gasReloadTargetWei: z.string().optional(),
+      stableReserveWei: z.string().optional(),
+      reconcileAutoTrackNew: z.boolean().optional(),
+      projectId: z.string().optional().describe('File-watch project id'),
+    },
+    async ({ workflowId, pollIntervalMs, nearEdgePercent, gasReloadEnabled, gasReloadBelowWei, gasReloadTargetWei, stableReserveWei, reconcileAutoTrackNew, projectId }) => {
+      const storageRes = await ctx.readStorage(['workflows']);
+      const wfs = storageRes?.data?.workflows;
+      if (!wfs || !wfs[workflowId]) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'Workflow not found: ' + workflowId }, null, 2) }], isError: true };
+      }
+      const wf = wfs[workflowId];
+      if (!wf.alwaysOn || typeof wf.alwaysOn !== 'object') wf.alwaysOn = { scopes: {}, conditions: {} };
+      const ao = wf.alwaysOn;
+      if (pollIntervalMs != null) ao.pollIntervalMs = pollIntervalMs;
+      if (nearEdgePercent !== undefined) ao.nearEdgePercent = String(nearEdgePercent);
+      if (gasReloadEnabled !== undefined) ao.gasReloadEnabled = gasReloadEnabled;
+      if (gasReloadBelowWei !== undefined) ao.gasReloadBelowWei = gasReloadBelowWei;
+      if (gasReloadTargetWei !== undefined) ao.gasReloadTargetWei = gasReloadTargetWei;
+      if (stableReserveWei !== undefined) ao.stableReserveWei = stableReserveWei;
+      if (reconcileAutoTrackNew !== undefined) ao.reconcileAutoTrackNew = reconcileAutoTrackNew;
+      if (projectId !== undefined) ao.projectId = projectId;
+      const step = wf.analyzed && Array.isArray(wf.analyzed.actions)
+        ? wf.analyzed.actions.find((a) => a && a.type === 'checkRealtimeData')
+        : null;
+      if (step) {
+        if (pollIntervalMs != null) step.pollIntervalMs = pollIntervalMs;
+        if (projectId !== undefined) step.projectId = projectId;
+      }
+      await ctx.writeStorage('workflows', wfs);
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, workflowId, alwaysOn: ao }, null, 2) }] };
     }
   );
 

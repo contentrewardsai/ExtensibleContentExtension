@@ -2,7 +2,7 @@
   "id": "llm",
   "label": "Call LLM",
   "category": "data",
-  "description": "Send a prompt (with {{variables}} from the row) to the LLM backend from Settings (default: local LaMini) or override per step (LaMini / OpenAI / Claude / Gemini / Grok). Optional per-step model fields. Response types: true/false, plain text, or text with feedback. LaMini uses your project folder (~820MB) or scripts/download-lamini-model.sh.",
+  "description": "Send a prompt (with {{variables}} from the row) to the LLM backend from Settings (default: local LaMini) or override per step (LaMini / OpenAI / Claude / Gemini / Grok / Content Rewards AI). Optional per-step model fields. Response types: true/false, plain text, or text with feedback. LaMini uses your project folder (~820MB) or scripts/download-lamini-model.sh. Content Rewards AI uses Qwen 27B and requires a Whop login.",
   "defaultAction": {
     "type": "llm",
     "prompt": "Based on the following, answer the question.\n\nContent:\n{{content}}\n\nQuestion: Is this appropriate for our audience?",
@@ -18,7 +18,8 @@
       { "value": "openai", "label": "OpenAI" },
       { "value": "claude", "label": "Claude (Anthropic)" },
       { "value": "gemini", "label": "Gemini" },
-      { "value": "grok", "label": "Grok (xAI)" }
+      { "value": "grok", "label": "Grok (xAI)" },
+      { "value": "crai", "label": "Content Rewards AI (Qwen 27B)" }
     ]},
     { "key": "llmOpenaiModel", "label": "OpenAI model (this step only; optional)", "inputType": "text", "placeholder": "e.g. gpt-4o-mini", "maxLength": 256 },
     { "key": "llmModelOverride", "label": "Claude / Gemini / Grok model id (this step only; optional)", "inputType": "text", "maxLength": 256 },

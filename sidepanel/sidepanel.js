@@ -39,12 +39,19 @@
     jupiterPriceV3:1,jupiterTokenSearch:1,jupiterDCA:1,jupiterLimitOrder:1,
     jupiterEarn:1,jupiterFlashloan:1,jupiterPredictionTrade:1,jupiterPredictionSearch:1,
     pancakeV3RangeWatch:1,
+    reconcileV3Positions:1,
     pancakeInfiBinRangeWatch:1,
     walletApprove:1,
   };
   /* Load on startup + listen for changes */
   chrome.storage.local.get('cfsCryptoWeb3Enabled', (d) => {
     _cfsCryptoWeb3Enabled = d.cfsCryptoWeb3Enabled === true;
+  });
+  const CFS_HIDE_E2E_KEY = (window.CFS_navWorkflowFilter && window.CFS_navWorkflowFilter.STORAGE_KEY) || 'cfsHideE2eTestingWorkflows';
+  let hideE2eTestingWorkflows = true;
+  chrome.storage.local.get(CFS_HIDE_E2E_KEY, (d) => {
+    const F = window.CFS_navWorkflowFilter;
+    hideE2eTestingWorkflows = F ? F.hideEnabled(d[CFS_HIDE_E2E_KEY]) : d[CFS_HIDE_E2E_KEY] !== false;
   });
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.cfsCryptoWeb3Enabled) {
@@ -62,6 +69,24 @@
         try { renderFollowingFromCaches(); } catch (_) {}
       }
     }
+    if (changes[CFS_HIDE_E2E_KEY]) {
+      const F = window.CFS_navWorkflowFilter;
+      hideE2eTestingWorkflows = F
+        ? F.hideEnabled(changes[CFS_HIDE_E2E_KEY].newValue)
+        : changes[CFS_HIDE_E2E_KEY].newValue !== false;
+      try { renderWorkflowList(); } catch (_) {}
+      try { renderWorkflowSelects(); } catch (_) {}
+      try {
+        if (window.CFS_libraryCategories && typeof window.CFS_libraryCategories.refresh === 'function') {
+          window.CFS_libraryCategories.refresh();
+        }
+      } catch (_) {}
+      try {
+        if (window.CFS_planWorkflowPicker && typeof window.CFS_planWorkflowPicker.refresh === 'function') {
+          window.CFS_planWorkflowPicker.refresh();
+        }
+      } catch (_) {}
+    }
   });
 
   /** Parse Chrome version from navigator.userAgent. Returns 0 if unknown. */
@@ -76,6 +101,7 @@
   const workflowSelect = document.getElementById('workflowSelect');
   const planWorkflowFamily = document.getElementById('planWorkflowFamily');
   const planWorkflowVersion = document.getElementById('planWorkflowVersion');
+  const planNewWorkflowVersionBtn = document.getElementById('planNewWorkflowVersionBtn');
   const planDeleteWorkflowVersionBtn = document.getElementById('planDeleteWorkflowVersionBtn');
   const playbackWorkflow = document.getElementById('playbackWorkflow');
   const workflowList = document.getElementById('workflowList');
@@ -102,7 +128,6 @@
     } catch (_) {}
   }
   let stepHighlightInterval = null;
-  let generationHistory = [];
   /** When Run All Rows is in progress: { total, current, workflowId, workflowName }. Cleared when batch ends. */
   let batchRunInfo = null;
   /** When user clicked "Select on page" for a step: { wfId, stepIndex, field }. Cleared when PICK_ELEMENT_RESULT is received. */
@@ -221,9 +246,6 @@
           runId: meta.runId,
           recordingMode: meta.recordingMode,
           insertAtStep: meta.insertAtStep,
-          qualityCheckMode: meta.qualityCheckMode,
-          qualityCheckPhase: meta.qualityCheckPhase,
-          qualityCheckReplaceIndex: meta.qualityCheckReplaceIndex,
           startState: meta.startState,
           endState: meta.endState,
         };
@@ -239,9 +261,6 @@
         runId: session.runId,
         recordingMode: session.recordingMode,
         insertAtStep: session.insertAtStep,
-        qualityCheckMode: session.qualityCheckMode,
-        qualityCheckPhase: session.qualityCheckPhase,
-        qualityCheckReplaceIndex: session.qualityCheckReplaceIndex,
         startState: startState || framePayload?.startState,
         endState: endState || framePayload?.endState,
       };
@@ -313,6 +332,7 @@
     }
     document.querySelectorAll('.step-item.step-active').forEach((el) => el.classList.remove('step-active'));
     document.querySelectorAll('.step-active-indicator').forEach((el) => el.remove());
+    updatePageCompareSectionVisibility();
   }
 
   const MAX_RUN_HISTORY = 100;
@@ -1009,8 +1029,15 @@
         await refreshCurrentTabUrl();
       } catch (_) {}
       await applyRemovedStepsMigrationAndPersistIfNeeded();
+      try {
+        const aoMig = migrateAlwaysOnStepsIfNeeded();
+        if (aoMig && aoMig.changed) await chrome.storage.local.set({ workflows });
+      } catch (_) {}
       renderWorkflowList();
       renderWorkflowSelects();
+      if (window.CFS_libraryCategories && typeof window.CFS_libraryCategories.refresh === 'function') {
+        window.CFS_libraryCategories.refresh();
+      }
       if (typeof updateProjectFolderStatus === 'function') updateProjectFolderStatus();
       
       if (typeof updateWorkflowLastRunStatus === 'function') updateWorkflowLastRunStatus();
@@ -1120,12 +1147,34 @@
 
   /** Hide fixture / automation workflows from normal pickers — not arbitrary user names like "Crypto Test". */
   function isTestWorkflow(w) {
+    const F = window.CFS_navWorkflowFilter;
+    if (F && typeof F.isTestWorkflow === 'function') return F.isTestWorkflow(w);
     if (w && w._testOnly) return true;
     const name = (w && w.name) ? w.name.toLowerCase().trim() : '';
     if (!name) return false;
     if (/\be2e\b/.test(name)) return true;
     if (name === 'test' || /^test(\s|$|:|_|\.|-)/.test(name)) return true;
     return false;
+  }
+
+  function isHiddenFromUserNav(w) {
+    const F = window.CFS_navWorkflowFilter;
+    if (F && typeof F.isHiddenFromUserNav === 'function') {
+      return F.isHiddenFromUserNav(w, hideE2eTestingWorkflows);
+    }
+    return hideE2eTestingWorkflows && isTestWorkflow(w);
+  }
+
+  function navigableWorkflowIds() {
+    return Object.keys(workflows || {}).filter(function (id) {
+      return !isHiddenFromUserNav(workflows[id]);
+    });
+  }
+
+  function workflowMatchesTabOrigin(wf) {
+    if (!currentTabUrl || isRestrictedUrl(currentTabUrl)) return false;
+    const origin = wf && wf.urlPattern && wf.urlPattern.origin;
+    return !!(origin && urlMatchesPattern(currentTabUrl, origin));
   }
 
   function collectWorkflowCallIds(w) {
@@ -1139,7 +1188,7 @@
     if (!workflowList) return;
     workflowList.innerHTML = '';
     for (const [id, w] of Object.entries(workflows || {})) {
-      if (isTestWorkflow(w)) continue;
+      if (isHiddenFromUserNav(w)) continue;
       if (window.CFS_libraryCategories && typeof window.CFS_libraryCategories.matchesWorkflow === 'function' &&
           !window.CFS_libraryCategories.matchesWorkflow(w, id)) continue;
       let domain = w.urlPattern?.origin || '';
@@ -1269,6 +1318,30 @@
     return url && (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url.startsWith('about:'));
   }
 
+  /** Prefer the webpage tab, not the side panel / settings / chrome://. */
+  async function getWebpageTabForAgent() {
+    const isHttpTab = function (t) {
+      return !!(t && t.id && t.url && /^https?:/i.test(t.url) && !isRestrictedUrl(t.url));
+    };
+    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (isHttpTab(tab)) return tab;
+    const actives = await chrome.tabs.query({ active: true });
+    tab = actives.find(isHttpTab);
+    if (tab) return tab;
+    let winId = null;
+    try {
+      const w = await chrome.windows.getLastFocused();
+      if (w && w.id != null) winId = w.id;
+    } catch (_) {}
+    const inWin = winId != null
+      ? await chrome.tabs.query({ windowId: winId })
+      : await chrome.tabs.query({ currentWindow: true });
+    tab = (inWin || []).find(isHttpTab);
+    if (tab) return tab;
+    const all = await chrome.tabs.query({});
+    return (all || []).find(isHttpTab) || null;
+  }
+
   async function refreshCurrentTabUrl() {
     let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab?.url || isRestrictedUrl(tab.url)) {
@@ -1279,7 +1352,7 @@
   }
 
   function workflowMatchesCurrentTab(wf) {
-    /* Always-on monitors (V3 LP, file watch, etc.) must stay selectable even when the active tab is not PancakeSwap. */
+    /* Always-on workflows (V3 LP, file watch, etc.) must stay selectable even when the active tab is not PancakeSwap. */
     if (wf?.alwaysOn?.enabled === true) return true;
     if (!currentTabUrl) return true;
     const origin = wf?.urlPattern?.origin;
@@ -1289,7 +1362,7 @@
     return urlMatchesPattern(currentTabUrl, origin);
   }
 
-  /** True when Steps / Run UI is docked under Plan → Edit and Run (not only on Library tab). */
+  /** True when Steps / Run UI is under Plan → Edit and Run (not Library). */
   function isPlaybackBlockUnderPlanEditRun() {
     const slot = document.getElementById('planEditRunSlot');
     const block = document.getElementById('sharedPlaybackBlock');
@@ -1297,8 +1370,7 @@
   }
 
   /**
-   * The version dropdown (#playbackWorkflow) lives on the Library panel; Plan uses #workflowSelect.
-   * When both are visible in spirit (block under Plan), keep playback select aligned so Run / steps use the same workflow.
+   * Plan uses #workflowSelect (family/version picker). Keep #playbackWorkflow aligned so Run / steps use the same workflow.
    * @param {{ silent?: boolean }} opts - if silent, do not dispatch change (caller will render; avoids duplicate heavy refresh).
    */
   function applyPlanWorkflowSelectToPlaybackDropdown(opts) {
@@ -1381,15 +1453,23 @@
   }
 
   function updatePlanDeleteWorkflowVersionButton() {
+    const id = workflowSelect && workflowSelect.value;
+    const hasWf = !!(id && id !== '__new__' && workflows[id]);
+    if (planNewWorkflowVersionBtn) planNewWorkflowVersionBtn.disabled = !hasWf;
     const btn = planDeleteWorkflowVersionBtn;
-    if (!btn || !workflowSelect) return;
-    const id = workflowSelect.value;
-    if (!id || id === '__new__' || !workflows[id]) {
+    if (!btn) return;
+    if (!hasWf) {
       btn.disabled = true;
       return;
     }
     const ver = workflows[id].version ?? 1;
     btn.disabled = ver <= 1;
+  }
+
+  function refreshPlanWorkflowPickerUi() {
+    if (window.CFS_planWorkflowPicker && typeof window.CFS_planWorkflowPicker.refresh === 'function') {
+      window.CFS_planWorkflowPicker.refresh();
+    }
   }
 
   function populatePlanWorkflowPickerUi(filteredIds) {
@@ -1414,6 +1494,7 @@
       planWorkflowVersion.innerHTML = '';
       setPlanWorkflowVersionRowVisible(false);
       updatePlanDeleteWorkflowVersionButton();
+      refreshPlanWorkflowPickerUi();
       return;
     }
     setPlanWorkflowVersionRowVisible(true);
@@ -1424,6 +1505,7 @@
       planWorkflowVersion.innerHTML = '';
       setPlanWorkflowVersionRowVisible(false);
       updatePlanDeleteWorkflowVersionButton();
+      refreshPlanWorkflowPickerUi();
       return;
     }
     const famKey = w.initial_version ?? sel;
@@ -1436,18 +1518,17 @@
         fillPlanVersionOptions(groups[planWorkflowFamily.value], sel);
       }
       updatePlanDeleteWorkflowVersionButton();
+      refreshPlanWorkflowPickerUi();
       return;
     }
     planWorkflowFamily.value = famKey;
     fillPlanVersionOptions(groups[famKey], sel);
     updatePlanDeleteWorkflowVersionButton();
+    refreshPlanWorkflowPickerUi();
   }
 
   function syncPlanWorkflowPickersFromHiddenSelect() {
-    const filteredIds = Object.keys(workflows || {}).filter(function(id) {
-      return workflowMatchesCurrentTab(workflows[id]) && !isTestWorkflow(workflows[id]);
-    });
-    populatePlanWorkflowPickerUi(filteredIds);
+    populatePlanWorkflowPickerUi(navigableWorkflowIds());
   }
 
   function idsMatchingCurrentTabOrigin(idList) {
@@ -1524,7 +1605,7 @@
 
   function renderWorkflowSelects() {
     const ids = Object.keys(workflows || {});
-    const filteredIds = ids.filter(id => workflowMatchesCurrentTab(workflows[id]) && !isTestWorkflow(workflows[id]));
+    const filteredIds = navigableWorkflowIds();
     const newWfOption = '<option value="__new__">+ New workflow...</option>';
     const opts = filteredIds.map(id => `<option value="${escapeAttr(id)}">${escapeHtml((workflows[id]?.name || id))}</option>`).join('');
     if (workflowSelect) {
@@ -1536,7 +1617,7 @@
     }
     if (playbackWorkflow) {
       const prevPlaybackSel = playbackWorkflow.value;
-      const nonTestIds = ids.filter(id => !isTestWorkflow(workflows[id]));
+      const nonTestIds = ids.filter(id => !isHiddenFromUserNav(workflows[id]));
       const playbackOpts = nonTestIds.map((id) => {
         const w = workflows[id];
         const name = w?.name || id;
@@ -1556,12 +1637,7 @@
     renderWorkflowFormFields();
     renderWorkflowUrlPattern();
     renderWorkflowAlwaysOnPanel();
-    if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
     renderStepsList();
-    renderQualityInputsList();
-    renderQualityOutputsList();
-    renderQualityGroupContainer();
-    renderQualityStrategy();
     renderGenerationSettings();
     const wfId = workflowSelect?.value;
     const realWfId = wfId && wfId !== '__new__' ? wfId : '';
@@ -1571,8 +1647,6 @@
 
   function toggleNewWorkflowRow() {
     const isNew = workflowSelect?.value === '__new__';
-    const row = document.getElementById('newWorkflowRow');
-    if (row) row.style.display = isNew ? '' : 'none';
     const hint = document.getElementById('newWorkflowRecordHint');
     if (hint) hint.style.display = isNew ? '' : 'none';
   }
@@ -1596,6 +1670,7 @@
     const runs = document.getElementById('runsList');
     if (runs) runs.style.display = realWfId ? '' : 'none';
     toggleNewWorkflowRow();
+    updatePageCompareSectionVisibility();
   }
 
   const DEFAULT_GENERATION_SETTINGS = {
@@ -1726,6 +1801,64 @@
       }
     }
     return false;
+  }
+
+  var PAGE_COMPARE_STEP_TYPES = { comparePages: true, extractComputedStyles: true };
+
+  function workflowNeedsPageCompare(node, seen) {
+    if (!node) return false;
+    const actions = node.actions || (node.analyzed && node.analyzed.actions);
+    if (!Array.isArray(actions)) return false;
+    const visited = seen || new Set();
+    for (let i = 0; i < actions.length; i++) {
+      const a = actions[i];
+      if (!a || typeof a !== 'object') continue;
+      if (PAGE_COMPARE_STEP_TYPES[a.type]) return true;
+      if (a.type === 'loop' && workflowNeedsPageCompare({ actions: a.steps }, visited)) return true;
+      if (a.type === 'ifCondition') {
+        if (workflowNeedsPageCompare({ actions: a.thenSteps }, visited)) return true;
+        if (workflowNeedsPageCompare({ actions: a.elseSteps }, visited)) return true;
+      }
+      if (a.type === 'runWorkflow') {
+        if (a.nestedWorkflow && workflowNeedsPageCompare(a.nestedWorkflow, visited)) return true;
+        const nestedId = a.workflowId;
+        if (nestedId && !visited.has(nestedId) && workflows[nestedId]) {
+          visited.add(nestedId);
+          if (workflowNeedsPageCompare(workflows[nestedId], visited)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function isPlanRunOrRecordActive() {
+    if (recordingTabId != null) return true;
+    if (playbackTabId != null) return true;
+    if (batchRunInfo) return true;
+    const stopRec = document.getElementById('stopRecord');
+    if (stopRec && !stopRec.disabled) return true;
+    const doneBtn = document.getElementById('recordNextStepDone');
+    if (doneBtn && doneBtn.style.display !== 'none') return true;
+    const stopBtn = document.getElementById('stopPlayback');
+    if (stopBtn && stopBtn.style.display !== 'none') return true;
+    return false;
+  }
+
+  function updatePageCompareSectionVisibility() {
+    const el = document.getElementById('pageCompareSection');
+    if (!el) return;
+    let wfId = currentWorkflowId;
+    if (typeof getEffectiveWorkflowIdForPlaybackUi === 'function') {
+      wfId = getEffectiveWorkflowIdForPlaybackUi() || wfId;
+    }
+    if ((!wfId || wfId === '__new__') && workflowSelect && workflowSelect.value && workflowSelect.value !== '__new__') {
+      wfId = workflowSelect.value;
+    }
+    const wf = wfId && wfId !== '__new__' ? workflows[wfId] : null;
+    const show = !!(wf && workflowNeedsPageCompare(wf) && isPlanRunOrRecordActive());
+    el.hidden = !show;
+    el.setAttribute('aria-hidden', show ? 'false' : 'true');
+    el.style.display = show ? '' : 'none';
   }
 
   /** Long cap when workflow includes Apify (async runs can exceed 5 minutes). */
@@ -1916,34 +2049,63 @@
   }
 
   function getWorkflowVariableKeys(wf) {
+    if (typeof isPriceRangeAlwaysOnWorkflow === 'function' && isPriceRangeAlwaysOnWorkflow(wf)) {
+      const helper = window.CFS_v3MonitorSteps || window.__CFS_v3MonitorSteps;
+      if (helper && typeof helper.boundRowDataKeys === 'function') return helper.boundRowDataKeys(wf);
+    }
     const keys = new Map();
     const norm = (k) => (k || '').toLowerCase().trim();
     const genericKeys = new Set(['value', 'text', 'input']);
     const reg = window.__CFS_stepSidepanels || {};
+    function actionHasHardcodedUrl(a) {
+      if (!a) return false;
+      if (a.type === 'goToUrl' && a.fromCurrentUrl) return true;
+      if ((a.type === 'goToUrl' || a.type === 'openTab') && a.url && String(a.url).trim()) return true;
+      return false;
+    }
+    function isOutputOnlyRowKey(a, rowKey) {
+      if (!a || !rowKey) return false;
+      const save = a.saveAsVariable != null ? String(a.saveAsVariable).trim() : '';
+      if (!save || save !== String(rowKey).trim()) return false;
+      const inputKey = String(a.variableKey || a.urlVariableKey || '').trim();
+      return inputKey !== save;
+    }
     for (const a of wf?.analyzed?.actions || []) {
-      const stepReg = reg[a.type];
-      let rowKey = stepReg && stepReg.getVariableKey ? stepReg.getVariableKey(a) : (a.variableKey || a.placeholder || a.name || a.ariaLabel);
-      if (!rowKey && a.type === 'upload') rowKey = 'fileUrl';
-      if (rowKey) {
-        const n = norm(rowKey);
-        if (n.length >= 2 && !(genericKeys.has(n) && !(a.placeholder || a.name || a.ariaLabel))) {
-          let label = rowKey;
-          const stepPlaceholder = String(a.placeholder || a.name || a.ariaLabel || '').trim();
-          if (stepPlaceholder.length > 0) {
-            label = stepPlaceholder.length <= 50 ? stepPlaceholder : stepPlaceholder.slice(0, 47) + '…';
+      if (actionHasHardcodedUrl(a)) {
+        /* start URL is stored on the step — not a user/MCP input */
+      } else {
+        const stepReg = reg[a.type];
+        let rowKey = stepReg && stepReg.getVariableKey ? stepReg.getVariableKey(a) : (a.variableKey || a.placeholder || a.name || a.ariaLabel);
+        if (!rowKey && a.type === 'upload') rowKey = 'fileUrl';
+        if (rowKey && !isOutputOnlyRowKey(a, rowKey)) {
+          const n = norm(rowKey);
+          if (n.length >= 2 && !(genericKeys.has(n) && !(a.placeholder || a.name || a.ariaLabel))) {
+            let label = rowKey;
+            const stepPlaceholder = String(a.placeholder || a.name || a.ariaLabel || '').trim();
+            if (stepPlaceholder.length > 0) {
+              label = stepPlaceholder.length <= 50 ? stepPlaceholder : stepPlaceholder.slice(0, 47) + '…';
+            }
+            const hint = stepReg && stepReg.getVariableHint ? stepReg.getVariableHint(a) : (a.type === 'upload' || a.type === 'download' ? 'URL' : 'text');
+            const canonicalRowKey = keys.has(n) ? keys.get(n).rowKey : rowKey;
+            const existing = keys.get(n);
+            const bestPlaceholder = existing && existing.placeholderText && (!stepPlaceholder || existing.placeholderText.length >= stepPlaceholder.length)
+              ? existing.placeholderText
+              : (stepPlaceholder || label);
+            let defaultValue = existing && existing.defaultValue;
+            if (a.type === 'type' && a.recordedValue != null && String(a.recordedValue).trim() && String(a.recordedValue) !== 'undefined') {
+              if (defaultValue == null || defaultValue === '') defaultValue = String(a.recordedValue);
+            }
+            keys.set(n, { rowKey: canonicalRowKey, label, placeholderText: bestPlaceholder, type: a.type, hint, defaultValue: defaultValue });
           }
-          const hint = stepReg && stepReg.getVariableHint ? stepReg.getVariableHint(a) : (a.type === 'upload' || a.type === 'download' ? 'URL' : 'text');
-          const canonicalRowKey = keys.has(n) ? keys.get(n).rowKey : rowKey;
-          const existing = keys.get(n);
-          const bestPlaceholder = existing && existing.placeholderText && (!stepPlaceholder || existing.placeholderText.length >= stepPlaceholder.length)
-            ? existing.placeholderText
-            : (stepPlaceholder || label);
-          keys.set(n, { rowKey: canonicalRowKey, label, placeholderText: bestPlaceholder, type: a.type, hint });
         }
       }
+      const stepReg = reg[a.type];
       if (stepReg && stepReg.getExtraVariableKeys) {
         const extras = stepReg.getExtraVariableKeys(a);
         (extras || []).forEach(function(extra) {
+          const hint = extra.hint || 'text';
+          if (hint === 'response' || hint === 'status') return;
+          if (isOutputOnlyRowKey(a, extra.rowKey || extra.label)) return;
           const en = norm(extra.rowKey);
           if (en && !keys.has(en)) keys.set(en, { rowKey: extra.rowKey || extra.label, label: extra.label || extra.rowKey, type: a.type, hint: extra.hint || 'text' });
         });
@@ -1973,242 +2135,107 @@
     wf.csvColumns = keyObjects.map(k => k.rowKey || k.label).filter(Boolean);
   }
 
-  function readWorkflowFollowingAutomationFromUI() {
-    const pct = (v) => {
-      const n = parseFloat(String(v || '').trim());
-      return Number.isFinite(n) ? n : 100;
-    };
-    const slip = Math.min(10000, Math.max(0, parseInt(String(document.getElementById('wfCtSlip')?.value || '50'), 10) || 50));
-    return {
-      automationEnabled: document.getElementById('wfCtAutomationEnabled')?.checked === true,
-      paperMode: document.getElementById('wfCtPaper')?.checked === true,
-      jupiterWrapAndUnwrapSol: document.getElementById('wfCtJupWrap')?.checked !== false,
-      autoExecuteSwaps: document.getElementById('wfCtAutoExec')?.checked === true,
-      sizeMode: (document.getElementById('wfCtMode')?.value || 'proportional').trim().toLowerCase(),
-      quoteMint: (document.getElementById('wfCtQuote')?.value || '').trim(),
-      fixedAmountRaw: (document.getElementById('wfCtFixedRaw')?.value || '').trim(),
-      usdAmount: (document.getElementById('wfCtUsd')?.value || '').trim(),
-      proportionalScalePercent: pct(document.getElementById('wfCtPropPct')?.value),
-      slippageBps: slip,
-    };
+  function persistWorkflowAlwaysOnFromSteps(wf) {
+    const api = window.__CFS_alwaysOnFromSteps;
+    if (api && typeof api.applyDerivedAlwaysOn === 'function' && wf) {
+      api.applyDerivedAlwaysOn(wf);
+    }
+    return wf;
+  }
+
+  function migrateAlwaysOnStepsIfNeeded() {
+    const api = window.__CFS_alwaysOnFromSteps;
+    if (!api || typeof api.migrateWorkflowsAlwaysOnToSteps !== 'function') return { changed: false, count: 0 };
+    return api.migrateWorkflowsAlwaysOnToSteps(workflows);
   }
 
   async function saveWorkflowAlwaysOnFromUI() {
     const wfId = playbackWorkflow?.value;
     if (!wfId || !workflows[wfId]) return;
-    const wf = workflows[wfId];
-    const en = document.getElementById('wfAlwaysOnEnabled');
-    wf.alwaysOn = {
-      enabled: en && en.checked === true,
-      scopes: {
-        followingSolanaWatch: document.getElementById('wfScopeSolWatch')?.checked === true,
-        followingBscWatch: document.getElementById('wfScopeBscWatch')?.checked === true,
-        followingAutomationSolana: document.getElementById('wfScopeFollowingAutoSol')?.checked === true,
-        followingAutomationBsc: document.getElementById('wfScopeFollowingAutoBsc')?.checked === true,
-        fileWatch: document.getElementById('wfScopeFileWatch')?.checked === true,
-        priceRangeWatch: document.getElementById('wfScopePriceRange')?.checked === true,
-        custom: document.getElementById('wfScopeCustom')?.checked === true,
-      },
-      conditions: {
-        requireNonEmptyFollowingBundle: document.getElementById('wfCondNonEmpty')?.checked === true,
-        requireBscScanKeyForBsc: document.getElementById('wfCondBscKey')?.checked === true,
-      },
-      projectId: (document.getElementById('wfAlwaysOnProjectId')?.value || '').trim(),
-      pollIntervalMs: parseInt(
-        document.getElementById('wfAlwaysOnPollInterval')?.value ||
-        document.getElementById('wfAlwaysOnPollIntervalPr')?.value,
-        10
-      ) || 0,
-    };
-    if (document.getElementById('wfScopePriceRange')?.checked === true) {
-      const boundRaw = (document.getElementById('wfAlwaysOnBoundRowJson')?.value || '').trim();
-      const prwRaw = (document.getElementById('wfAlwaysOnPriceRangeJson')?.value || '').trim();
-      if (boundRaw) {
-        try { wf.alwaysOn.boundRow = JSON.parse(boundRaw); } catch (_) {}
-      } else if (wf.alwaysOn.boundRow) {
-        delete wf.alwaysOn.boundRow;
-      }
-      if (prwRaw) {
-        try { wf.alwaysOn.priceRangeWatch = JSON.parse(prwRaw); } catch (_) {}
-      } else if (wf.alwaysOn.priceRangeWatch) {
-        delete wf.alwaysOn.priceRangeWatch;
-      }
-    } else {
-      if (wf.alwaysOn.boundRow) delete wf.alwaysOn.boundRow;
-      if (wf.alwaysOn.priceRangeWatch) delete wf.alwaysOn.priceRangeWatch;
-    }
-    const sc = wf.alwaysOn.scopes || {};
-    if (sc.followingAutomationSolana || sc.followingAutomationBsc) {
-      wf.followingAutomation = readWorkflowFollowingAutomationFromUI();
-    } else if (wf.followingAutomation) {
-      delete wf.followingAutomation;
-    }
+    persistWorkflowAlwaysOnFromSteps(workflows[wfId]);
     try {
       await chrome.storage.local.set({ workflows });
     } catch (_) {}
   }
 
   function renderWorkflowAlwaysOnPanel() {
-    const details = document.getElementById('workflowAlwaysOnDetails');
-    const panel = document.getElementById('workflowAlwaysOnPanel');
-    if (!details || !panel) return;
-    const wfId = playbackWorkflow?.value;
-    const wf = wfId ? workflows[wfId] : null;
-    if (!wf) {
-      details.style.display = 'none';
-      return;
+    /* Background scopes live on the checkRealtimeData step, not a workflow panel. */
+  }
+
+  function readWorkflowFormRow() {
+    const row = {};
+    document.querySelectorAll('#workflowFormFields [data-key]').forEach(function(input) {
+      const key = input.getAttribute('data-key');
+      if (key) row[key] = input.value;
+    });
+    return row;
+  }
+
+  function syncWorkflowFormToCurrentRow() {
+    const row = readWorkflowFormRow();
+    if (!Object.keys(row).length) return;
+    if (importedRows.length === 0) {
+      importedRows = [Object.assign({}, row)];
+      currentRowIndex = 0;
+      skippedRowIndices = new Set();
+    } else if (importedRows[currentRowIndex]) {
+      Object.keys(row).forEach(function(k) {
+        importedRows[currentRowIndex][k] = row[k];
+      });
     }
-    details.style.display = '';
-    const ao = wf.alwaysOn && typeof wf.alwaysOn === 'object' ? wf.alwaysOn : {};
-    const en = ao.enabled === true;
-    const sc = ao.scopes || {};
-    const c = ao.conditions || {};
-    const ct = wf.followingAutomation && typeof wf.followingAutomation === 'object' ? wf.followingAutomation : {};
-    const cm = String(ct.sizeMode || 'proportional').toLowerCase();
-    const boundRowJson = ao.boundRow ? JSON.stringify(ao.boundRow, null, 2) : '';
-    const priceRangeJson = ao.priceRangeWatch ? JSON.stringify(ao.priceRangeWatch, null, 2) : '';
-    panel.innerHTML = `
-      <p style="margin:0 0 6px 0;">Opt-in per workflow. Manual run and Schedule are unchanged. When enabled, scopes control Pulse Following polling and Following automation in the service worker.</p>
-      <label class="pd-checkbox-label" style="display:block;margin-bottom:6px;"><input type="checkbox" id="wfAlwaysOnEnabled" ${en ? 'checked' : ''}> Always on (background)</label>
-      <div id="wfAlwaysOnScopes" style="margin-left:8px;margin-bottom:6px;">
-        <span class="hint" style="display:block;margin-bottom:4px;">Scopes</span>
-        <div id="wfScopesCryptoGroup" style="display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeSolWatch" ${sc.followingSolanaWatch ? 'checked' : ''}> Solana Following watch</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeBscWatch" ${sc.followingBscWatch ? 'checked' : ''}> BSC Following watch</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoSol" ${sc.followingAutomationSolana ? 'checked' : ''}> Following automation (Solana)</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFollowingAutoBsc" ${sc.followingAutomationBsc ? 'checked' : ''}> Following automation (BSC)</label>
-        </div>
-        <span class="hint" style="display:block;margin:8px 0 4px 0;border-top:1px solid var(--border);padding-top:6px;">Universal scopes</span>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeFileWatch" ${sc.fileWatch ? 'checked' : ''}> File watch (project import folder)</label>
-        <div id="wfScopesCryptoGroup2" style="display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopePriceRange" ${sc.priceRangeWatch ? 'checked' : ''}> Price range watch (DeFi position)</label>
-        </div>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfScopeCustom" ${sc.custom ? 'checked' : ''}> Custom trigger</label>
-      </div>
-      <div id="wfAlwaysOnProjectBind" style="margin-left:8px;margin-bottom:6px;display:${sc.fileWatch ? 'block' : 'none'};">
-        <span class="hint" style="display:block;margin-bottom:4px;">File watch settings</span>
-        <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnProjectId" style="min-width:90px;">Project ID</label><input type="text" id="wfAlwaysOnProjectId" value="${escapeHtml(ao.projectId || '')}" placeholder="Use selected project" style="flex:1;min-width:0;"></div>
-        <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnPollInterval" style="min-width:90px;">Poll ms</label><input type="number" id="wfAlwaysOnPollInterval" value="${ao.pollIntervalMs || ''}" placeholder="60000" min="1000" style="flex:1;max-width:120px;"></div>
-      </div>
-      <div id="wfAlwaysOnPriceRangeBind" style="margin-left:8px;margin-bottom:6px;display:${sc.priceRangeWatch ? 'block' : 'none'};">
-        <span class="hint" style="display:block;margin-bottom:4px;">Infinity bin range watch (background). See <code>docs/BSC_INFI_LP_WORKFLOWS.md</code>.</span>
-        <div class="form-row" style="margin-top:4px;"><label for="wfAlwaysOnPollIntervalPr" style="min-width:90px;">Poll ms</label><input type="number" id="wfAlwaysOnPollIntervalPr" value="${ao.pollIntervalMs || ''}" placeholder="60000" min="1000" style="flex:1;max-width:120px;"></div>
-        <label for="wfAlwaysOnBoundRowJson" class="hint" style="display:block;margin-top:6px;">boundRow (JSON)</label>
-        <textarea id="wfAlwaysOnBoundRowJson" rows="4" style="width:100%;font-family:ui-monospace,monospace;font-size:11px;" placeholder='{"positionNftId":"…","poolId":"…","lowerBinId":"…","upperBinId":"…","exitPolicy":"restake"}'>${escapeHtml(boundRowJson)}</textarea>
-        <label for="wfAlwaysOnPriceRangeJson" class="hint" style="display:block;margin-top:6px;">priceRangeWatch (JSON)</label>
-        <textarea id="wfAlwaysOnPriceRangeJson" rows="8" style="width:100%;font-family:ui-monospace,monospace;font-size:11px;" placeholder='{"infiPositionTokenId":"{{positionNftId}}","playbackStartUrl":"https://example.com","onOutOfRange":[{"runIf":"{{exitPolicy}} === restake","workflowId":"wf-bsc-infi-restake"}]}'>${escapeHtml(priceRangeJson)}</textarea>
-      </div>
-      <div id="wfAlwaysOnCondCrypto" style="margin-left:8px;margin-bottom:8px;display:${_cfsCryptoWeb3Enabled ? 'block' : 'none'};">
-        <span class="hint" style="display:block;margin-bottom:4px;">Conditions (optional)</span>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondNonEmpty" ${c.requireNonEmptyFollowingBundle ? 'checked' : ''}> Require non-empty Following bundle for selected chains</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCondBscKey" ${c.requireBscScanKeyForBsc ? 'checked' : ''}> Require a BSC indexer (QuickNode, Etherscan, Ankr, or Covalent)</label>
-      </div>
-      <div id="wfFollowingAutomationBox" style="margin-left:8px;padding-top:6px;border-top:1px solid var(--border);display:${_cfsCryptoWeb3Enabled && (sc.followingAutomationSolana || sc.followingAutomationBsc) ? 'block' : 'none'};">
-        <span class="hint" style="display:block;margin-bottom:4px;">Automation policy (requires <code>selectFollowingAccount</code> step matching a Pulse wallet)</span>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtAutomationEnabled" ${ct.automationEnabled !== false ? 'checked' : ''}> Enable automation for bound wallets</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtPaper" ${ct.paperMode === true ? 'checked' : ''}> Paper mode (size only, no sign)</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtJupWrap" ${ct.jupiterWrapAndUnwrapSol !== false ? 'checked' : ''}> Solana: Jupiter wrap/unwrap SOL</label>
-        <label class="pd-checkbox-label" style="display:block;"><input type="checkbox" id="wfCtAutoExec" ${ct.autoExecuteSwaps === true ? 'checked' : ''}> Auto-execute swaps</label>
-        <div class="form-row" style="margin-top:6px;flex-wrap:wrap;align-items:center;">
-          <label for="wfCtMode" style="min-width:90px;">Mode</label>
-          <select id="wfCtMode" style="flex:1;min-width:140px;padding:4px 8px;">
-            <option value="off" ${cm === 'off' ? 'selected' : ''}>Off</option>
-            <option value="proportional" ${cm === 'proportional' ? 'selected' : ''}>Proportional</option>
-            <option value="fixed_token" ${cm === 'fixed_token' ? 'selected' : ''}>Fixed token (raw)</option>
-            <option value="fixed_usd" ${cm === 'fixed_usd' ? 'selected' : ''}>Fixed USD</option>
-          </select>
-        </div>
-        <div class="form-row" style="margin-top:4px;"><label for="wfCtQuote" style="min-width:90px;">Quote mint / 0x</label><input type="text" id="wfCtQuote" value="${escapeHtml(ct.quoteMint || '')}" placeholder="WSOL / WBNB default if empty" style="flex:1;min-width:0;"></div>
-        <div class="form-row" style="margin-top:4px;"><label for="wfCtPropPct" style="min-width:90px;">Scale %</label><input type="text" id="wfCtPropPct" value="${escapeHtml(String(ct.proportionalScalePercent != null ? ct.proportionalScalePercent : 100))}" placeholder="100" style="flex:1;max-width:100px;"></div>
-        <div class="form-row" style="margin-top:4px;"><label for="wfCtFixedRaw" style="min-width:90px;">Fixed raw</label><input type="text" id="wfCtFixedRaw" value="${escapeHtml(ct.fixedAmountRaw || '')}" style="flex:1;min-width:0;"></div>
-        <div class="form-row" style="margin-top:4px;"><label for="wfCtUsd" style="min-width:90px;">USD</label><input type="text" id="wfCtUsd" value="${escapeHtml(ct.usdAmount || '')}" style="flex:1;min-width:0;"></div>
-        <div class="form-row" style="margin-top:4px;"><label for="wfCtSlip" style="min-width:90px;">Slippage bps</label><input type="text" id="wfCtSlip" value="${escapeHtml(String(ct.slippageBps != null ? ct.slippageBps : 50))}" style="flex:1;max-width:100px;"></div>
-      </div>
-    `;
-    const toggleFollowingAutomationBox = () => {
-      const sol = document.getElementById('wfScopeFollowingAutoSol')?.checked === true;
-      const bsc = document.getElementById('wfScopeFollowingAutoBsc')?.checked === true;
-      const box = document.getElementById('wfFollowingAutomationBox');
-      if (box) box.style.display = sol || bsc ? 'block' : 'none';
-    };
-    [
-      'wfAlwaysOnEnabled',
-      'wfScopeSolWatch',
-      'wfScopeBscWatch',
-      'wfScopeFollowingAutoSol',
-      'wfScopeFollowingAutoBsc',
-      'wfScopeFileWatch',
-      'wfScopePriceRange',
-      'wfScopeCustom',
-      'wfCondNonEmpty',
-      'wfCondBscKey',
-    ].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => {
-        if (id === 'wfScopeFollowingAutoSol' || id === 'wfScopeFollowingAutoBsc') toggleFollowingAutomationBox();
-        if (id === 'wfScopeFileWatch') {
-          const box = document.getElementById('wfAlwaysOnProjectBind');
-          if (box) box.style.display = document.getElementById('wfScopeFileWatch')?.checked ? 'block' : 'none';
-        }
-        if (id === 'wfScopePriceRange') {
-          const box = document.getElementById('wfAlwaysOnPriceRangeBind');
-          if (box) box.style.display = document.getElementById('wfScopePriceRange')?.checked ? 'block' : 'none';
-        }
-        void saveWorkflowAlwaysOnFromUI();
-      });
-    });
-    toggleFollowingAutomationBox();
-    [
-      'wfCtAutomationEnabled',
-      'wfCtPaper',
-      'wfCtJupWrap',
-      'wfCtAutoExec',
-      'wfCtMode',
-      'wfCtQuote',
-      'wfCtPropPct',
-      'wfCtFixedRaw',
-      'wfCtUsd',
-      'wfCtSlip',
-    ].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => {
-        void saveWorkflowAlwaysOnFromUI();
-      });
-      document.getElementById(id)?.addEventListener('blur', () => {
-        void saveWorkflowAlwaysOnFromUI();
-      });
-    });
-    // File watch project bind fields
-    ['wfAlwaysOnProjectId', 'wfAlwaysOnPollInterval', 'wfAlwaysOnPollIntervalPr'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => void saveWorkflowAlwaysOnFromUI());
-      document.getElementById(id)?.addEventListener('blur', () => void saveWorkflowAlwaysOnFromUI());
-    });
-    ['wfAlwaysOnBoundRowJson', 'wfAlwaysOnPriceRangeJson'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('blur', () => void saveWorkflowAlwaysOnFromUI());
-    });
+    const rowDataEl = document.getElementById('rowData');
+    if (rowDataEl && importedRows[currentRowIndex]) {
+      rowDataEl.value = JSON.stringify(importedRows[currentRowIndex], null, 2);
+    }
+    const rowNav = document.getElementById('rowNav');
+    if (rowNav) rowNav.style.display = importedRows.length > 0 ? 'flex' : 'none';
+    const wfId = (typeof getEffectiveWorkflowIdForPlaybackUi === 'function' && getEffectiveWorkflowIdForPlaybackUi()) || playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    if (wf && isPriceRangeAlwaysOnWorkflow(wf)) void persistAlwaysOnDataFromImportedRows(wf);
   }
 
   function renderWorkflowFormFields() {
     const container = document.getElementById('workflowFormFields');
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const keys = getWorkflowVariableKeys(wf);
-
+    if (!container) return;
+    const wfId = (typeof getEffectiveWorkflowIdForPlaybackUi === 'function' && getEffectiveWorkflowIdForPlaybackUi()) || playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    syncImportedRowsForWorkflow(wf, wfId);
+    const isAoData = isPriceRangeAlwaysOnWorkflow(wf);
+    const keys = wf ? getWorkflowVariableKeys(wf) : [];
+    container.style.display = '';
     if (keys.length === 0) {
-      container.innerHTML = '';
-      container.style.display = 'none';
+      container.innerHTML = '<p class="hint" style="margin:0;">No extra inputs for this workflow. Start URL and clicks stay on the steps. Use the buttons above if you still want batch rows.</p>';
       return;
     }
-
-    container.style.display = 'none'; /* hidden from UI */
-    const safeId = (k) => k.replace(/[^a-zA-Z0-9_-]/g, '_');
-    container.innerHTML = `
-      <label class="form-fields-label">Fill in fields to test:</label>
-      ${keys.map(({ rowKey, label, hint }) => `
-        <div class="form-field-row">
-          <label for="wf-field-${safeId(rowKey)}">${escapeHtml(label)}${hint === 'URL' ? ' (URL)' : ''}</label>
-          <input type="${hint === 'URL' ? 'url' : 'text'}" id="wf-field-${safeId(rowKey)}" data-key="${escapeHtml(rowKey)}" placeholder="${escapeHtml(label)}">
-        </div>
-      `).join('')}
-    `;
+    const current = (importedRows.length && importedRows[currentRowIndex]) ? importedRows[currentRowIndex] : {};
+    const safeId = (k) => String(k || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    container.innerHTML =
+      '<label class="form-fields-label">' + (isAoData ? 'Always-on data' : 'This run') + '</label>' +
+      '<p class="hint" style="margin:0 0 8px 0;font-size:11px;">' +
+      (isAoData
+        ? 'Live watch targets on alwaysOn.boundRows (same table as Activity / MCP). Edits persist immediately. Run Current Row debugs this position through the monitor steps.'
+        : 'Edit values for the current execution (MCP/user-supplied). Prefills use recorded defaults.') +
+      '</p>' +
+      keys.map(function(k) {
+        const rowKey = k.rowKey || k.label;
+        const val = current[rowKey] != null && current[rowKey] !== ''
+          ? current[rowKey]
+          : (k.defaultValue != null ? k.defaultValue : '');
+        const stepNums = typeof getStepNumbersForVariableKey === 'function' ? getStepNumbersForVariableKey(wf, rowKey) : [];
+        const stepHint = stepNums.length ? ' (step ' + stepNums.join(', ') + ')' : '';
+        const inputType = k.hint === 'URL' ? 'url' : 'text';
+        return '<div class="form-field-row">' +
+          '<label for="wf-field-' + safeId(rowKey) + '">' + escapeHtml(k.label || rowKey) + (k.hint === 'URL' ? ' (URL)' : '') + escapeHtml(stepHint) + '</label>' +
+          '<input type="' + inputType + '" id="wf-field-' + safeId(rowKey) + '" data-key="' + escapeAttr(rowKey) + '" placeholder="' + escapeAttr(k.placeholderText || k.label || rowKey) + '" value="' + escapeAttr(String(val)) + '">' +
+          '</div>';
+      }).join('');
+    container.querySelectorAll('[data-key]').forEach(function(input) {
+      input.addEventListener('input', syncWorkflowFormToCurrentRow);
+      input.addEventListener('change', function() {
+        syncWorkflowFormToCurrentRow();
+        if (typeof updateRowNavDisplay === 'function') updateRowNavDisplay();
+      });
+    });
   }
 
   function escapeHtml(s) {
@@ -2217,49 +2244,6 @@
 
   function escapeAttr(s) {
     return CFS_domUtils.escapeAttr(s);
-  }
-
-  /** Canonical form: QC config lives on the first qualityCheck step. Returns that step or null. */
-  function getQualityCheckStep(wf) {
-    return (wf?.analyzed?.actions || []).find((a) => a.type === 'qualityCheck') || null;
-  }
-
-  /** Gets or creates the qualityCheck step (inserted before delayBeforeNextRun or at end). Returns the step. */
-  function getOrCreateQualityCheckStep(wf) {
-    let step = getQualityCheckStep(wf);
-    if (step) return step;
-    const actions = wf?.analyzed?.actions || [];
-    if (!wf.analyzed) wf.analyzed = { actions: [] };
-    const arr = wf.analyzed.actions;
-    step = {
-      type: 'qualityCheck',
-      enabled: false,
-      inputs: [],
-      outputs: [],
-      groupContainer: null,
-      groupMode: 0,
-      threshold: 0.75,
-    };
-    const delayIdx = arr.findIndex((a) => a.type === 'delayBeforeNextRun');
-    arr.splice(delayIdx >= 0 ? delayIdx : arr.length, 0, step);
-    return step;
-  }
-
-  /** QC config: from first qualityCheck step only (canonical form). */
-  function getQualityCheckConfig(wf) {
-    const step = getQualityCheckStep(wf);
-    if (!step) return { enabled: false, inputs: [], outputs: [], groupContainer: null, groupMode: 0, threshold: 0.75 };
-    return step;
-  }
-
-  function formatSelectorForDisplay(selectors) {
-    if (!selectors || selectors.length === 0) return '(none)';
-    const sorted = [...selectors].sort((a, b) => (b.score || 0) - (a.score || 0));
-    const s = sorted[0];
-    if (!s) return '(none)';
-    if (typeof s.value === 'string') return s.value.length > 60 ? s.value.slice(0, 57) + '...' : s.value;
-    if (s.type === 'role' && s.value?.role) return `[role="${s.value.role}"]`;
-    return s.type || '(selector)';
   }
 
   function renderVariationReport(analyzed) {
@@ -2360,7 +2344,6 @@
         const panelTab = panel.getAttribute('data-tab');
         panel.style.display = panelTab === tabId ? '' : 'none';
       });
-      if (tabId !== 'automations' && typeof movePlaybackBlockTo === 'function') movePlaybackBlockTo('library');
       setChromeUpgradeVisibilityForTab(tabId);
       const showUpgrade = isChromeTooOld && RESTRICTED_TABS.includes(tabId);
       stopSidebarsPolling();
@@ -3014,7 +2997,7 @@
           parts.push('Watch and Following automation are off: add a workflow in Library.');
         } else if (autoRes.reason === 'no_always_on_workflow') {
           parts.push(
-            'Watch and Following automation are off: Always on is set but no scopes match. Adjust Library → Background automation, or clear Always on for legacy mode.',
+            'Watch and Following automation are off: always-on is set but no scopes match. Add a Check for real-time data step with Following sources, or remove that step for legacy mode.',
           );
         } else if (autoRes.reason === 'no_crypto_workflow_steps') {
           parts.push(
@@ -3102,11 +3085,23 @@
 
   function listAlwaysOnMonitorEntries() {
     const out = [];
-    const wfSource = typeof workflows === 'object' && workflows ? workflows : {};
-    Object.keys(wfSource).forEach((id) => {
-      const wf = wfSource[id];
-      if (!wf?.alwaysOn?.enabled) return;
-      const sc = wf.alwaysOn.scopes || {};
+    const aoApi = window.__CFS_alwaysOnFromSteps;
+    const stored = { workflows: typeof workflows === 'object' && workflows ? workflows : {}, cfsHideE2eTestingWorkflows: hideE2eTestingWorkflows };
+    const members =
+      aoApi && typeof aoApi.collectLatestFamilyWorkflows === 'function'
+        ? aoApi.collectLatestFamilyWorkflows(stored)
+        : Object.keys(stored.workflows).map((id) => ({ id: id, wf: stored.workflows[id] }));
+    members.forEach((member) => {
+      const id = member && member.id;
+      const wf = member && member.wf;
+      if (!id || !wf) return;
+      if (aoApi && typeof aoApi.workflowHasRealtimeSources === 'function') {
+        if (!aoApi.workflowHasRealtimeSources(wf)) return;
+      } else if (!wf?.alwaysOn) return;
+      const sc =
+        aoApi && typeof aoApi.scopesForWorkflow === 'function'
+          ? aoApi.scopesForWorkflow(wf)
+          : (wf.alwaysOn && wf.alwaysOn.scopes) || {};
       const hasScope =
         sc.followingSolanaWatch ||
         sc.followingBscWatch ||
@@ -3187,12 +3182,85 @@
       .join('');
   }
 
-  function alwaysOnBoundRowsList(ao) {
+  function isPriceRangeAlwaysOnWorkflow(wf) {
+    if (!wf) return false;
+    const aoApi = window.__CFS_alwaysOnFromSteps;
+    if (aoApi && typeof aoApi.scopesForWorkflow === 'function') {
+      const sc = aoApi.scopesForWorkflow(wf);
+      if (sc && sc.priceRangeWatch) return true;
+    }
+    return !!(wf.alwaysOn && wf.alwaysOn.scopes && wf.alwaysOn.scopes.priceRangeWatch);
+  }
+
+  function alwaysOnPriceRangeKindFromWorkflow(wf) {
+    const ao = wf && wf.alwaysOn;
+    const mode = String((ao && ao.priceRangeWatch && (ao.priceRangeWatch.mode || ao.priceRangeWatch.watchMode)) || '').toLowerCase();
+    if (/infi|infinity/.test(mode)) return 'infi';
+    if (mode === 'v3' || mode === 'pancake_v3') return 'v3';
+    const actions = (wf && wf.analyzed && wf.analyzed.actions) || [];
+    for (let i = 0; i < actions.length; i++) {
+      const t = actions[i] && actions[i].type;
+      if (t === 'pancakeInfiBinRangeWatch') return 'infi';
+    }
+    return 'v3';
+  }
+
+  function applyAlwaysOnPositionTokenId(row, tid, kind) {
+    const id = String(tid || '').trim();
+    if (!row || typeof row !== 'object') return;
+    if (kind === 'infi') {
+      row.infiPositionTokenId = id;
+      row.positionNftId = id;
+      if (row.v3PositionTokenId) delete row.v3PositionTokenId;
+    } else {
+      row.v3PositionTokenId = id;
+    }
+  }
+
+  let _alwaysOnDataWfId = '';
+
+  function syncImportedRowsForWorkflow(wf, wfId) {
+    const prevAo = _alwaysOnDataWfId;
+    if (isPriceRangeAlwaysOnWorkflow(wf) && wfId) {
+      if (_alwaysOnDataWfId !== wfId) {
+        const rows = alwaysOnBoundRowsList((wf && wf.alwaysOn) || {}, wf);
+        importedRows = rows.length ? rows.map((r) => Object.assign({}, r)) : [{}];
+        currentRowIndex = 0;
+        skippedRowIndices = new Set();
+        _alwaysOnDataWfId = wfId;
+      }
+      return true;
+    }
+    if (prevAo) {
+      importedRows = [];
+      currentRowIndex = 0;
+      skippedRowIndices = new Set();
+    }
+    _alwaysOnDataWfId = '';
+    return false;
+  }
+
+  async function persistAlwaysOnDataFromImportedRows(wf) {
+    if (!isPriceRangeAlwaysOnWorkflow(wf)) return;
+    if (!wf.alwaysOn || typeof wf.alwaysOn !== 'object') {
+      wf.alwaysOn = { enabled: true, scopes: { priceRangeWatch: true }, conditions: {} };
+    }
+    const rows = (importedRows || []).filter(function (r) {
+      return r && String(r.v3PositionTokenId || r.positionNftId || r.infiPositionTokenId || '').trim();
+    });
+    wf.alwaysOn.boundRows = rows;
+    const posApi = typeof CFS_ALWAYS_ON_BOUND_POSITIONS !== 'undefined' ? CFS_ALWAYS_ON_BOUND_POSITIONS : null;
+    const kind = alwaysOnPriceRangeKindFromWorkflow(wf);
+    if (posApi && typeof posApi.syncPrimaryBoundRow === 'function') posApi.syncPrimaryBoundRow(wf.alwaysOn, kind);
+    try {
+      await chrome.storage.local.set({ workflows: workflows });
+    } catch (_) {}
+  }
+
+  function alwaysOnBoundRowsList(ao, wf) {
     const api = typeof CFS_ALWAYS_ON_BOUND_POSITIONS !== 'undefined' ? CFS_ALWAYS_ON_BOUND_POSITIONS : null;
     if (api && typeof api.normalizeBoundPositions === 'function') {
-      const kind = ao && ao.priceRangeWatch && /infi|infinity/i.test(String(ao.priceRangeWatch.mode || ''))
-        ? 'infi'
-        : 'v3';
+      const kind = alwaysOnPriceRangeKindFromWorkflow(wf || { alwaysOn: ao });
       return api.normalizeBoundPositions(ao, kind);
     }
     if (Array.isArray(ao && ao.boundRows) && ao.boundRows.length) return ao.boundRows.slice();
@@ -3203,79 +3271,85 @@
   function buildAlwaysOnMonitorCardHtml(entry) {
     const { id, wf, sc } = entry;
     const ao = wf.alwaysOn || {};
-    const rows = alwaysOnBoundRowsList(ao);
+    const rows = alwaysOnBoundRowsList(ao, wf);
     const br = rows[0] || (ao.boundRow && typeof ao.boundRow === 'object' ? ao.boundRow : {});
     const scopes = alwaysOnScopeLabels(sc);
     const pollMs = ao.pollIntervalMs || (sc.priceRangeWatch ? 30000 : 60000);
-    const enabled = ao.enabled === true;
+    const aoApi = window.__CFS_alwaysOnFromSteps;
+    const enabled =
+      aoApi && typeof aoApi.workflowAlwaysOnEnabled === 'function'
+        ? aoApi.workflowAlwaysOnEnabled(wf)
+        : ao.enabled === true;
     let body = '';
     if (sc.priceRangeWatch) {
+      const gasOn = ao.gasReloadEnabled === true || ao.gasReloadEnabled === 'true';
+      const autoTrack = ao.reconcileAutoTrackNew === true || ao.reconcileAutoTrackNew === 'true';
       body +=
         '<div class="always-on-monitor-positions" data-testid="cfs-ao-bound-rows">' +
-        '<p class="hint" style="margin:0 0 6px;">Positions (' +
+        '<p class="hint" style="margin:0 0 6px;">Data (' +
         rows.length +
-        ') — restake fundMode on each card</p>';
+        ' position' +
+        (rows.length === 1 ? '' : 's') +
+        ') — same store as Plan Data / MCP</p>' +
+        '<div class="always-on-data-table-wrap"><table class="always-on-data-table"><thead><tr>' +
+        '<th>NFT</th><th>On</th><th>Status</th><th>Last tick</th><th>Below</th><th>Above</th><th>fund</th><th>−%</th><th>+%</th><th>Stable</th><th>Pool</th><th></th>' +
+        '</tr></thead><tbody>';
       rows.forEach((row, idx) => {
         const tid = String(row.v3PositionTokenId || row.infiPositionTokenId || row.positionNftId || '').trim();
         const paused = row.enabled === false || row.enabled === 'false';
         const fund = String(row.fundMode || 'stable').toLowerCase();
         body +=
-          '<div class="always-on-position-card" data-ao-pos-idx="' +
+          '<tr class="always-on-data-row always-on-position-card" data-ao-pos-idx="' +
           idx +
           '" data-ao-token-id="' +
           escapeAttr(tid) +
           '">' +
-          '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">' +
-          '<strong>#' +
-          escapeHtml(tid || '?') +
-          '</strong>' +
-          '<label class="hint"><input type="checkbox" data-ao-pos-field="enabled"' +
+          '<td><input type="text" data-ao-pos-field="v3PositionTokenId" value="' +
+          escapeAttr(tid) +
+          '" autocomplete="off"></td>' +
+          '<td><input type="checkbox" data-ao-pos-field="enabled"' +
           (paused ? '' : ' checked') +
-          '> Watch</label></div>' +
-          '<span class="hint">fundMode: ' +
-          escapeHtml(fund === 'bnb' ? 'uses BNB' : 'uses USDT/stable') +
-          ' · −' +
-          escapeHtml(String(row.rangePercentBelow || row.rangePercent || '')) +
-          '% / +' +
-          escapeHtml(String(row.rangePercentAbove || row.rangePercent || '')) +
-          '%</span>' +
-          '<div class="always-on-monitor-fields" style="margin-top:4px;">' +
-          '<label>Below</label><select data-ao-pos-field="exitBelowPolicy">' +
+          ' title="Watch"></td>' +
+          '<td class="always-on-data-status" data-ao-pos-status>—</td>' +
+          '<td class="always-on-data-last-tick" data-ao-pos-last-tick>—</td>' +
+          '<td><select data-ao-pos-field="exitBelowPolicy">' +
           alwaysOnPolicySelectHtml(row.exitBelowPolicy || 'sell_stable') +
-          '</select>' +
-          '<label>Above</label><select data-ao-pos-field="exitAbovePolicy">' +
+          '</select></td>' +
+          '<td><select data-ao-pos-field="exitAbovePolicy">' +
           alwaysOnPolicySelectHtml(row.exitAbovePolicy || 'restake') +
-          '</select>' +
-          '<label>fundMode</label><select data-ao-pos-field="fundMode">' +
+          '</select></td>' +
+          '<td><select data-ao-pos-field="fundMode">' +
           '<option value="stable"' +
           (fund !== 'bnb' ? ' selected' : '') +
           '>stable</option><option value="bnb"' +
           (fund === 'bnb' ? ' selected' : '') +
-          '>bnb</option></select>' +
-          '</div>' +
-          '<button type="button" class="btn btn-outline btn-small" data-ao-action="remove-position" data-ao-token-id="' +
+          '>bnb</option></select></td>' +
+          '<td><input type="text" data-ao-pos-field="rangePercentBelow" value="' +
+          escapeAttr(String(row.rangePercentBelow != null ? row.rangePercentBelow : row.rangePercent || '')) +
+          '" placeholder="5"></td>' +
+          '<td><input type="text" data-ao-pos-field="rangePercentAbove" value="' +
+          escapeAttr(String(row.rangePercentAbove != null ? row.rangePercentAbove : row.rangePercent || '')) +
+          '" placeholder="15"></td>' +
+          '<td><select data-ao-pos-field="stableToken">' +
+          alwaysOnStableSelectHtml(row.stableToken || AO_STABLE_TOKENS[0].addr) +
+          '</select></td>' +
+          '<td><input type="text" data-ao-pos-field="v3Pool" value="' +
+          escapeAttr(String(row.v3Pool || '')) +
+          '" autocomplete="off"></td>' +
+          '<td><button type="button" class="btn btn-outline btn-small" data-ao-action="remove-position" data-ao-token-id="' +
           escapeAttr(tid) +
-          '">Remove</button>' +
-          '</div>';
+          '">Remove</button></td></tr>';
       });
-      body += '</div>';
+      body += '</tbody></table></div>';
       body +=
-        '<div class="always-on-monitor-fields" style="margin-top:8px;">' +
-        '<label>Primary NFT (edit/add)</label><input type="text" data-ao-field="v3PositionTokenId" data-testid="cfs-ao-primary-token-id" value="' +
-        escapeAttr(String(br.v3PositionTokenId || br.infiPositionTokenId || br.positionNftId || '')) +
-        '" placeholder="7013364" autocomplete="off">' +
-        '<label>Below %</label><input type="text" data-ao-field="rangePercentBelow" value="' +
-        escapeAttr(String(br.rangePercentBelow != null ? br.rangePercentBelow : '')) +
-        '" placeholder="5">' +
-        '<label>Above %</label><input type="text" data-ao-field="rangePercentAbove" value="' +
-        escapeAttr(String(br.rangePercentAbove != null ? br.rangePercentAbove : '')) +
-        '" placeholder="15">' +
-        '<label>Stable</label><select data-ao-field="stableToken">' +
-        alwaysOnStableSelectHtml(br.stableToken || AO_STABLE_TOKENS[0].addr) +
-        '</select>' +
-        '<label>V3 pool</label><input type="text" data-ao-field="v3Pool" value="' +
-        escapeAttr(String(br.v3Pool || '')) +
-        '" autocomplete="off">' +
+        '<div class="always-on-monitor-fields always-on-add-row" style="margin-top:8px;">' +
+        '<label>Add NFT</label><input type="text" data-ao-field="v3PositionTokenId" data-testid="cfs-ao-primary-token-id" value="" placeholder="7013364" autocomplete="off">' +
+        '<button type="button" class="btn btn-outline btn-small" data-ao-action="add-position">Add row</button>' +
+        '</div></div>';
+      body +=
+        '<div class="always-on-settings-strip">' +
+        '<p class="hint" style="margin:0 0 6px;">Workflow settings (not per NFT)</p>' +
+        '<div class="always-on-monitor-fields">' +
         '<label>Poll ms</label><input type="number" data-ao-field="pollIntervalMs" min="1000" value="' +
         escapeAttr(String(pollMs)) +
         '">' +
@@ -3284,24 +3358,16 @@
           String(
             ao.nearEdgePercent != null && String(ao.nearEdgePercent).trim() !== ''
               ? ao.nearEdgePercent
-              : br.nearEdgePercent != null
-                ? br.nearEdgePercent
-                : '',
+              : '',
           ),
         ) +
         '" placeholder="off — e.g. 2" autocomplete="off" title="While still in range, fire below/above policy when within this % of an edge (Pancake min/max labels)">' +
-        '</div>';
-      body +=
-        '<p class="hint" style="margin:0 0 8px;">Near-edge: blank = only hard out-of-range (Inactive). Set e.g. <code>2</code> to run exit/restake policies before price fully breaks the range (avoids sitting 100% in one token).</p>';
-      const gasOn = ao.gasReloadEnabled === true || ao.gasReloadEnabled === 'true';
-      const autoTrack = ao.reconcileAutoTrackNew === true || ao.reconcileAutoTrackNew === 'true';
-      body +=
+        '</div>' +
+        '<p class="hint" style="margin:0 0 8px;">Near-edge: blank = only hard out-of-range (Inactive). Child routing is Plan → Steps (<code>runWorkflow</code> + <code>runIf</code>). Poll, policies, and NFT fields apply when you click <strong>Save rules</strong>; Enabled still saves immediately.</p>' +
         '<label class="pd-checkbox-label" style="display:block;margin:8px 0;" data-testid="cfs-ao-auto-track">' +
         '<input type="checkbox" data-ao-field="reconcileAutoTrackNew"' +
         (autoTrack ? ' checked' : '') +
-        '> Auto-track new on-chain NFTs (reconcileAutoTrackNew)</label>' +
-        '<p class="hint" style="margin:0 0 8px;">When on, Reconcile / watch adds untracked V3 NFTs to boundRows using primary policies. Off = banner + manual Add only.</p>';
-      body +=
+        '> Auto-track new on-chain NFTs</label>' +
         '<details data-testid="cfs-ao-gas-topup"><summary>BNB gas top-up from stable</summary>' +
         '<div class="always-on-monitor-fields">' +
         '<label class="pd-checkbox-label"><input type="checkbox" data-ao-field="gasReloadEnabled"' +
@@ -3316,24 +3382,30 @@
         '<label>Stable reserve wei</label><input type="text" data-ao-field="stableReserveWei" value="' +
         escapeAttr(String(ao.stableReserveWei || '')) +
         '" placeholder="0">' +
-        '</div></details>';
+        '</div></details></div>';
       body +=
         '<p class="hint" data-testid="cfs-ao-watchdog-hint" data-ao-watchdog-hint>MCP watchdog: …</p>';
       body +=
         '<div id="ao-reconcile-banner-' +
         escapeAttr(id) +
         '" class="always-on-reconcile-banner" data-testid="cfs-ao-reconcile-banner" hidden></div>';
-      body +=
-        '<details><summary>Advanced JSON</summary>' +
-        '<label class="hint">boundRows</label><textarea data-ao-field="boundRowsJson" rows="5">' +
-        escapeHtml(JSON.stringify(rows, null, 2)) +
-        '</textarea>' +
-        '<label class="hint">boundRow (primary mirror)</label><textarea data-ao-field="boundRowJson" rows="3">' +
-        escapeHtml(JSON.stringify(br, null, 2)) +
-        '</textarea>' +
-        '<label class="hint">priceRangeWatch</label><textarea data-ao-field="priceRangeWatchJson" rows="5">' +
-        escapeHtml(ao.priceRangeWatch ? JSON.stringify(ao.priceRangeWatch, null, 2) : '') +
-        '</textarea></details>';
+      let debugJson = false;
+      try {
+        debugJson = window.localStorage && window.localStorage.getItem('cfsAoDebugJson') === '1';
+      } catch (_) {}
+      if (debugJson) {
+        body +=
+          '<details><summary>Advanced JSON (debug)</summary>' +
+          '<label class="hint">boundRows</label><textarea data-ao-field="boundRowsJson" rows="5">' +
+          escapeHtml(JSON.stringify(rows, null, 2)) +
+          '</textarea>' +
+          '<label class="hint">boundRow (primary mirror)</label><textarea data-ao-field="boundRowJson" rows="3">' +
+          escapeHtml(JSON.stringify(br, null, 2)) +
+          '</textarea>' +
+          '<label class="hint">priceRangeWatch</label><textarea data-ao-field="priceRangeWatchJson" rows="5">' +
+          escapeHtml(ao.priceRangeWatch ? JSON.stringify(ao.priceRangeWatch, null, 2) : '') +
+          '</textarea></details>';
+      }
     } else if (sc.fileWatch) {
       body +=
         '<div class="always-on-monitor-fields">' +
@@ -3343,14 +3415,16 @@
         '<label>Poll ms</label><input type="number" data-ao-field="pollIntervalMs" min="1000" value="' +
         escapeAttr(String(pollMs)) +
         '">' +
-        '</div>';
+        '</div>' +
+        '<p class="hint" style="margin:0 0 8px;">Edits apply when you click Save rules (Enabled saves immediately).</p>';
     } else {
       body +=
         '<div class="always-on-monitor-fields">' +
         '<label>Poll ms</label><input type="number" data-ao-field="pollIntervalMs" min="1000" value="' +
         escapeAttr(String(pollMs)) +
         '">' +
-        '</div>';
+        '</div>' +
+        '<p class="hint" style="margin:0 0 8px;">Edits apply when you click Save rules (Enabled saves immediately).</p>';
     }
     const mainnetBtn = sc.priceRangeWatch
       ? '<button type="button" class="btn btn-outline btn-small" data-ao-action="use-mainnet" data-ao-mainnet-btn hidden title="Set Settings BSC chainId 56 + mainnet RPC">Use BSC mainnet</button>'
@@ -3360,11 +3434,11 @@
       : '';
     const actions =
       '<div class="always-on-monitor-actions">' +
-      '<button type="button" class="btn btn-primary btn-small" data-ao-action="save">Save rules</button>' +
+      '<button type="button" class="btn btn-primary btn-small" data-ao-action="save" data-testid="cfs-ao-save-rules">Save rules</button>' +
       '<button type="button" class="btn btn-outline btn-small" data-ao-action="refresh">Refresh now</button>' +
       reconcileBtn +
       mainnetBtn +
-      '<button type="button" class="btn btn-outline btn-small" data-ao-action="open-library">Open in Library</button>' +
+      '<button type="button" class="btn btn-outline btn-small" data-ao-action="open-plan">Open in Plan</button>' +
       '</div>' +
       '<p class="always-on-monitor-msg" data-ao-msg hidden></p>';
 
@@ -3375,6 +3449,7 @@
       '<div class="always-on-monitor-card-head">' +
       '<div><p class="always-on-monitor-card-title">' +
       escapeHtml(wf.name || id) +
+      (enabled ? '' : ' <span class="always-on-paused-badge">Paused</span>') +
       '</p><p class="always-on-monitor-scopes">' +
       escapeHtml(scopes.join(' · ') || 'no scopes') +
       '</p></div>' +
@@ -3586,15 +3661,35 @@
       const wid = card.getAttribute('data-ao-wf') || '';
       const entry = byId[wid];
       const statusEl = card.querySelector('[data-ao-status]');
-      if (!statusEl) return;
       if (!entry) {
-        statusEl.textContent = 'Workflow no longer always-on (reload monitors).';
-        statusEl.className = 'always-on-monitor-status';
+        if (statusEl) {
+          statusEl.textContent = 'Workflow no longer always-on (reload monitors).';
+          statusEl.className = 'always-on-monitor-status';
+        }
         return;
       }
       const st = formatAlwaysOnStatusForCard(entry, snaps);
-      statusEl.textContent = st.text;
-      statusEl.className = 'always-on-monitor-status' + (st.cls ? ' ' + st.cls : '');
+      if (statusEl) {
+        statusEl.textContent = st.text;
+        statusEl.className = 'always-on-monitor-status' + (st.cls ? ' ' + st.cls : '');
+      }
+      const helper = window.CFS_v3MonitorSteps || window.__CFS_v3MonitorSteps;
+      if (helper && typeof helper.positionStatusFromLastPoll === 'function') {
+        card.querySelectorAll('.always-on-data-row[data-ao-token-id]').forEach((rowEl) => {
+          const tid = rowEl.getAttribute('data-ao-token-id') || '';
+          const posSt = helper.positionStatusFromLastPoll(snaps.v3, wid, tid);
+          const statusCell = rowEl.querySelector('[data-ao-pos-status]');
+          const tickCell = rowEl.querySelector('[data-ao-pos-last-tick]');
+          if (statusCell) {
+            statusCell.textContent = posSt.status || '—';
+            statusCell.className = 'always-on-data-status' + (posSt.cls ? ' ' + posSt.cls : '');
+          }
+          if (tickCell) {
+            tickCell.textContent =
+              posSt.lastTickTs != null ? new Date(posSt.lastTickTs).toLocaleString() : '—';
+          }
+        });
+      }
       const mainnetBtn = card.querySelector('[data-ao-mainnet-btn]');
       if (mainnetBtn) {
         const host = String(snaps.bscRpcHost || '').toLowerCase();
@@ -3606,6 +3701,26 @@
         mainnetBtn.hidden = !needsMainnet;
       }
     });
+  }
+
+  function markAlwaysOnCardDirty(card) {
+    if (!card) return;
+    card.classList.add('is-dirty');
+    const saveBtn = card.querySelector('[data-ao-action="save"]');
+    if (saveBtn && !saveBtn.dataset.aoSaveLabel) {
+      saveBtn.dataset.aoSaveLabel = saveBtn.textContent || 'Save rules';
+      saveBtn.textContent = 'Save rules *';
+    }
+  }
+
+  function clearAlwaysOnCardDirty(card) {
+    if (!card) return;
+    card.classList.remove('is-dirty');
+    const saveBtn = card.querySelector('[data-ao-action="save"]');
+    if (saveBtn && saveBtn.dataset.aoSaveLabel) {
+      saveBtn.textContent = saveBtn.dataset.aoSaveLabel;
+      delete saveBtn.dataset.aoSaveLabel;
+    }
   }
 
   function setAlwaysOnMonitorMsg(card, text, kind) {
@@ -3627,7 +3742,13 @@
     const ao = wf.alwaysOn;
     if (!ao.scopes || typeof ao.scopes !== 'object') ao.scopes = {};
     const enabledEl = card.querySelector('[data-ao-field="enabled"]');
-    ao.enabled = enabledEl ? enabledEl.checked === true : true;
+    const enabledOn = enabledEl ? enabledEl.checked === true : true;
+    const aoApi = window.__CFS_alwaysOnFromSteps;
+    if (aoApi && typeof aoApi.setCheckStepsAlwaysOnEnabled === 'function') {
+      aoApi.setCheckStepsAlwaysOnEnabled(wf, enabledOn);
+    } else {
+      ao.enabled = enabledOn;
+    }
     const pollEl = card.querySelector('[data-ao-field="pollIntervalMs"]');
     if (pollEl) {
       const n = parseInt(pollEl.value, 10);
@@ -3660,7 +3781,7 @@
           return;
         }
       }
-      ['v3PositionTokenId', 'exitBelowPolicy', 'exitAbovePolicy', 'rangePercent', 'rangePercentBelow', 'rangePercentAbove', 'stableToken', 'v3Pool', 'nearEdgePercent'].forEach(
+      ['exitBelowPolicy', 'exitAbovePolicy', 'rangePercent', 'rangePercentBelow', 'rangePercentAbove', 'stableToken', 'v3Pool', 'nearEdgePercent'].forEach(
         (k) => {
           const el = card.querySelector('[data-ao-field="' + k + '"]');
           if (el) br[k] = String(el.value || '').trim();
@@ -3668,22 +3789,44 @@
       );
       const nearEdgeEl = card.querySelector('[data-ao-field="nearEdgePercent"]');
       if (nearEdgeEl) ao.nearEdgePercent = String(nearEdgeEl.value || '').trim();
-      // Per-position pause / policy edits
-      card.querySelectorAll('.always-on-position-card[data-ao-token-id]').forEach((posCard) => {
-        const tid = posCard.getAttribute('data-ao-token-id') || '';
-        if (!tid || !Array.isArray(ao.boundRows)) return;
-        const row = ao.boundRows.find(
-          (r) =>
-            String(r.v3PositionTokenId || r.positionNftId || r.infiPositionTokenId || '').trim() === tid,
-        );
-        if (!row) return;
+      const kind = alwaysOnPriceRangeKindFromWorkflow(wf);
+      // Per-position table edits
+      const nextRows = [];
+      card.querySelectorAll('.always-on-data-row[data-ao-token-id], .always-on-position-card[data-ao-token-id]').forEach((posCard) => {
+        const existingTid = posCard.getAttribute('data-ao-token-id') || '';
+        const prev =
+          (Array.isArray(ao.boundRows) &&
+            ao.boundRows.find(
+              (r) =>
+                String(r.v3PositionTokenId || r.positionNftId || r.infiPositionTokenId || '').trim() === existingTid,
+            )) ||
+          {};
+        const row = Object.assign({}, prev);
+        const idEl = posCard.querySelector('[data-ao-pos-field="v3PositionTokenId"]');
+        if (idEl) applyAlwaysOnPositionTokenId(row, idEl.value, kind);
         const en = posCard.querySelector('[data-ao-pos-field="enabled"]');
         if (en) row.enabled = en.checked === true;
-        ['exitBelowPolicy', 'exitAbovePolicy', 'fundMode'].forEach((k) => {
+        ['exitBelowPolicy', 'exitAbovePolicy', 'fundMode', 'rangePercentBelow', 'rangePercentAbove', 'stableToken', 'v3Pool'].forEach((k) => {
           const el = posCard.querySelector('[data-ao-pos-field="' + k + '"]');
           if (el) row[k] = String(el.value || '').trim();
         });
+        if (String(row.v3PositionTokenId || row.positionNftId || row.infiPositionTokenId || '').trim()) nextRows.push(row);
       });
+      if (nextRows.length || card.querySelector('.always-on-data-row, .always-on-data-table')) {
+        ao.boundRows = nextRows;
+        const posApi = typeof CFS_ALWAYS_ON_BOUND_POSITIONS !== 'undefined' ? CFS_ALWAYS_ON_BOUND_POSITIONS : null;
+        if (posApi && typeof posApi.syncPrimaryBoundRow === 'function') {
+          posApi.syncPrimaryBoundRow(ao, kind);
+          br = ao.boundRow && typeof ao.boundRow === 'object' ? ao.boundRow : br;
+        }
+      }
+      if (kind === 'infi' && br) {
+        applyAlwaysOnPositionTokenId(
+          br,
+          br.infiPositionTokenId || br.positionNftId || br.v3PositionTokenId,
+          'infi',
+        );
+      }
       ao.boundRow = br;
       const gasEn = card.querySelector('[data-ao-field="gasReloadEnabled"]');
       ao.gasReloadEnabled = gasEn ? gasEn.checked === true : false;
@@ -3712,10 +3855,8 @@
       const merge = await cfsSendServiceWorkerMessage({
         type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
         workflowId: wid,
-        mode: br.v3PositionTokenId || br.positionNftId ? 'upsertPosition' : 'mergeLegacy',
-        kind: /infi|infinity/i.test(String((ao.priceRangeWatch && ao.priceRangeWatch.mode) || ''))
-          ? 'infi'
-          : 'v3',
+        mode: br.v3PositionTokenId || br.positionNftId || br.infiPositionTokenId ? 'upsertPosition' : 'mergeLegacy',
+        kind: alwaysOnPriceRangeKindFromWorkflow(wf),
         enablePriceRangeWatch: true,
         pollIntervalMs: ao.pollIntervalMs || 30000,
         fields: br,
@@ -3739,6 +3880,7 @@
         workflows[wid].alwaysOn.boundRows = merge.boundRows;
       }
       setAlwaysOnMonitorMsg(card, 'Rules saved. Watch will use them on the next poll.', 'success');
+      clearAlwaysOnCardDirty(card);
       await cfsSendServiceWorkerMessage({ type: 'CFS_V3_RANGE_WATCH_REFRESH_NOW' });
       try {
         await renderAlwaysOnMonitorsPanel({ force: true, skipReconcile: true });
@@ -3753,6 +3895,7 @@
         return;
       }
       setAlwaysOnMonitorMsg(card, 'Saved.', 'success');
+      clearAlwaysOnCardDirty(card);
     }
     if (typeof renderWorkflowAlwaysOnPanel === 'function' && playbackWorkflow?.value === wid) {
       try {
@@ -3851,13 +3994,15 @@
     const wid = card.getAttribute('data-ao-wf') || '';
     const tid = String(tokenId || '').trim();
     if (!tid) return;
+    const kind = alwaysOnPriceRangeKindFromWorkflow(workflows[wid]);
+    const fields = kind === 'infi' ? { infiPositionTokenId: tid, positionNftId: tid } : { v3PositionTokenId: tid };
     const res = await cfsSendServiceWorkerMessage({
       type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
       workflowId: wid,
       mode: 'removePosition',
-      kind: 'v3',
+      kind: kind,
       tokenId: tid,
-      fields: { v3PositionTokenId: tid },
+      fields: fields,
     });
     if (!res || res.ok === false) {
       setAlwaysOnMonitorMsg(card, (res && res.error) || 'Remove failed', 'error');
@@ -3876,15 +4021,19 @@
     const tid = String(tokenId || '').trim();
     if (!tid) return;
     const wf = workflows[wid];
-    const primary = alwaysOnBoundRowsList((wf && wf.alwaysOn) || {})[0] || {};
+    const kind = alwaysOnPriceRangeKindFromWorkflow(wf);
+    const primary = alwaysOnBoundRowsList((wf && wf.alwaysOn) || {}, wf)[0] || {};
+    const idFields =
+      kind === 'infi'
+        ? { infiPositionTokenId: tid, positionNftId: tid }
+        : { v3PositionTokenId: tid };
     const res = await cfsSendServiceWorkerMessage({
       type: 'CFS_ALWAYS_ON_MERGE_BOUND_ROW',
       workflowId: wid,
       mode: 'upsertPosition',
-      kind: 'v3',
+      kind: kind,
       enablePriceRangeWatch: true,
-      fields: {
-        v3PositionTokenId: tid,
+      fields: Object.assign({}, idFields, {
         exitBelowPolicy: primary.exitBelowPolicy || 'sell_stable',
         exitAbovePolicy: primary.exitAbovePolicy || 'restake',
         stableToken: primary.stableToken || AO_STABLE_TOKENS[0].addr,
@@ -3892,7 +4041,7 @@
         rangePercentAbove: primary.rangePercentAbove || '15',
         fundMode: primary.fundMode || 'stable',
         enabled: 'true',
-      },
+      }),
     });
     if (!res || res.ok === false) {
       setAlwaysOnMonitorMsg(card, (res && res.error) || 'Add failed', 'error');
@@ -3927,10 +4076,10 @@
     );
   }
 
-  function openAlwaysOnMonitorInLibrary(wid) {
+  function openAlwaysOnMonitorInPlan(wid) {
     if (!wid || !workflows[wid]) return;
     try {
-      document.querySelector('.header-tab[data-tab="library"]')?.click();
+      document.querySelector('.header-tab[data-tab="automations"]')?.click();
     } catch (_) {}
     if (playbackWorkflow) {
       playbackWorkflow.value = wid;
@@ -3940,9 +4089,10 @@
       workflowSelect.value = wid;
       workflowSelect.dispatchEvent(new Event('change'));
     }
-    try {
-      document.getElementById('workflowAlwaysOnDetails')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    } catch (_) {}
+  }
+
+  function openAlwaysOnMonitorInLibrary(wid) {
+    openAlwaysOnMonitorInPlan(wid);
   }
 
   function ensureAlwaysOnMonitorsDelegation() {
@@ -3962,9 +4112,17 @@
       if (action === 'save') void saveAlwaysOnMonitorCard(card);
       else if (action === 'refresh') void refreshAlwaysOnMonitorCard(card);
       else if (action === 'use-mainnet') void switchAlwaysOnMonitorToBscMainnet(card);
-      else if (action === 'open-library') openAlwaysOnMonitorInLibrary(wid);
+      else if (action === 'open-library' || action === 'open-plan') openAlwaysOnMonitorInPlan(wid);
       else if (action === 'reconcile') void reconcileAlwaysOnMonitorCard(card);
-      else if (action === 'remove-position') {
+      else if (action === 'add-position') {
+        const inp = card.querySelector('[data-testid="cfs-ao-primary-token-id"]');
+        const tid = inp ? String(inp.value || '').trim() : '';
+        if (!tid) {
+          setAlwaysOnMonitorMsg(card, 'Enter an NFT id to add.', 'error');
+          return;
+        }
+        void trackUntrackedAlwaysOnPosition(card, tid);
+      } else if (action === 'remove-position') {
         const tid = btn.getAttribute('data-ao-token-id') || '';
         void removeAlwaysOnMonitorPosition(card, tid);
       } else if (action === 'track-untracked') {
@@ -3975,10 +4133,24 @@
     list.addEventListener('change', (ev) => {
       const t = ev.target;
       if (!(t instanceof Element)) return;
-      if (t.getAttribute('data-ao-field') !== 'enabled') return;
+      const field = t.getAttribute('data-ao-field') || t.getAttribute('data-ao-pos-field');
+      if (!field) return;
       const card = t.closest('.always-on-monitor-card');
       if (!card) return;
-      void saveAlwaysOnMonitorCard(card);
+      if (field === 'enabled') {
+        void saveAlwaysOnMonitorCard(card);
+        return;
+      }
+      markAlwaysOnCardDirty(card);
+    });
+    list.addEventListener('input', (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      const field = t.getAttribute('data-ao-field') || t.getAttribute('data-ao-pos-field');
+      if (!field || field === 'enabled') return;
+      const card = t.closest('.always-on-monitor-card');
+      if (!card) return;
+      markAlwaysOnCardDirty(card);
     });
   }
 
@@ -4120,8 +4292,30 @@
     } catch (_) {}
   }
 
+  async function maybeMigrateAlwaysOnMonitorWorkflows() {
+    const helper = window.CFS_v3MonitorSteps || window.__CFS_v3MonitorSteps;
+    if (!helper || typeof helper.migrateStoredV3MonitorPrefix !== 'function') return false;
+    let changed = false;
+    Object.keys(workflows || {}).forEach((id) => {
+      const wf = workflows[id];
+      if (!wf || wf._testOnly) return;
+      const prefix = helper.migrateStoredV3MonitorPrefix(wf);
+      const oor =
+        typeof helper.migrateOnOutOfRangeToRunWorkflowSteps === 'function'
+          ? helper.migrateOnOutOfRangeToRunWorkflowSteps(wf)
+          : null;
+      if ((prefix && prefix.migrated) || (oor && oor.migrated)) changed = true;
+    });
+    if (!changed) return false;
+    try {
+      await chrome.storage.local.set({ workflows: workflows });
+    } catch (_) {}
+    return true;
+  }
+
   async function renderAlwaysOnMonitorsPanel(opts) {
-    const force = !!(opts && opts.force);
+    const migrated = await maybeMigrateAlwaysOnMonitorWorkflows();
+    const force = !!(opts && opts.force) || migrated;
     const skipReconcile = !!(opts && opts.skipReconcile);
     const skipWakePoll = !!(opts && opts.skipWakePoll);
     const list = document.getElementById('alwaysOnMonitorsList');
@@ -4146,7 +4340,7 @@
     _alwaysOnMonitorsRenderedIds = idsKey;
     if (!entries.length) {
       list.innerHTML =
-        '<p class="always-on-monitors-empty">No always-on monitors yet. Enable Always on + a scope on a Library workflow (e.g. BSC V3 LP monitor).</p>';
+        '<p class="always-on-monitors-empty">No always-on monitors yet. Add a Check for real-time data step on a Plan workflow (e.g. BSC V3 LP monitor).</p>';
       await renderAlwaysOnLpActivityList();
       return;
     }
@@ -4162,6 +4356,95 @@
     }
   }
 
+  function escapeHtmlFeed(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatFeedPollTs(poll) {
+    if (!poll || poll.ts == null) return 'never';
+    try {
+      return new Date(poll.ts).toLocaleString();
+    } catch (_) {
+      return String(poll.ts);
+    }
+  }
+
+  async function renderRealtimeFeedsList() {
+    const list = document.getElementById('realtimeFeedsList');
+    if (!list) return;
+    const RF = window.CFS_realtimeFeeds;
+    if (!RF || typeof RF.collectFeeds !== 'function') {
+      list.innerHTML = '';
+      return;
+    }
+    let stored = {};
+    try {
+      stored = await chrome.storage.local.get([
+        'workflows',
+        'cfsHideE2eTestingWorkflows',
+        'cfsPulseSolanaWatchBundle',
+        'cfsPulseBscWatchBundle',
+        'cfsSolanaWatchLastPoll',
+        'cfsBscWatchLastPoll',
+        'cfsFileWatchLastPoll',
+        'cfsV3RangeWatchLastPoll',
+        'cfsInfiBinRangeWatchLastPoll',
+        'cfsCustomRealtimeLastPoll',
+        'cfsClmmRangeWatchLastPoll',
+        'cfsDlmmRangeWatchLastPoll',
+        'cfsCryptoWeb3Enabled',
+      ]);
+    } catch (_) {}
+    if (!stored.workflows) stored.workflows = workflows;
+    const cryptoOn = stored.cfsCryptoWeb3Enabled === true || _cfsCryptoWeb3Enabled;
+    const feeds = RF.collectFeeds(stored).filter(function (f) {
+      if (!cryptoOn && (f.source === 'followingSolana' || f.source === 'followingBsc' ||
+          f.source === 'v3' || f.source === 'infi' || f.source === 'raydiumClmm' || f.source === 'meteoraDlmm')) {
+        return false;
+      }
+      return true;
+    });
+    if (!feeds.length) {
+      list.innerHTML = '<p class="always-on-monitors-empty">No shared feeds yet. Add a Check for real-time data step.</p>';
+      return;
+    }
+    const customMap = stored.cfsCustomRealtimeLastPoll && typeof stored.cfsCustomRealtimeLastPoll === 'object'
+      ? stored.cfsCustomRealtimeLastPoll
+      : {};
+    list.innerHTML = feeds.map(function (f) {
+      var poll = stored[f.lastPollKey] || null;
+      if ((f.source === 'customHttp' || f.source === 'customWs') && customMap && f.key) {
+        poll = customMap[f.key] || poll;
+      }
+      var consumers = (f.consumerFamilies || []).map(function (c) { return c.name; }).join(', ') || '—';
+      var extra = '';
+      if (f.displayUrl) extra += ' · ' + escapeHtmlFeed(f.displayUrl);
+      if (f.projectId) extra += ' · project ' + escapeHtmlFeed(f.projectId);
+      if (f.poolId && f.poolId !== 'unbound') extra += ' · pool ' + escapeHtmlFeed(String(f.poolId).slice(0, 12));
+      if (f.lbPair && f.lbPair !== 'unbound') extra += ' · pair ' + escapeHtmlFeed(String(f.lbPair).slice(0, 12));
+      if (f.needsSidePanel) extra += ' · needs side panel open';
+      var status = poll && poll.ok === false ? 'error' : (poll && poll.idle ? 'idle' : 'ok');
+      var detail = '';
+      if (poll && poll.error) detail = escapeHtmlFeed(String(poll.error).slice(0, 80));
+      else if (poll && poll.inRange === false) detail = 'out of range';
+      else if (poll && poll.inRange === true) detail = 'in range';
+      return (
+        '<div class="realtime-feed-row">' +
+        '<div class="realtime-feed-row-title">' + escapeHtmlFeed(f.label || f.source) + extra + '</div>' +
+        '<div class="realtime-feed-row-meta">Last: ' + escapeHtmlFeed(formatFeedPollTs(poll)) +
+        (status !== 'ok' ? ' · ' + status : '') +
+        (detail ? ' · ' + detail : '') +
+        '</div>' +
+        '<div class="realtime-feed-row-consumers">Consumers: ' + escapeHtmlFeed(consumers) + '</div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
   async function refreshPulseWatchActivityPanel() {
     const el = document.getElementById('pulseWatchActivityList');
     if (!el) return;
@@ -4173,10 +4456,11 @@
     await updatePulseWatchStatusBanner();
     await updatePulseWatchLastPollLine();
     await updatePulseWatchBundleLine();
+    await renderRealtimeFeedsList();
     await renderAlwaysOnMonitorsPanel();
 
     if (!_cfsCryptoWeb3Enabled) {
-      el.innerHTML = '<p class="hint">Crypto off — Following event feed hidden. Always-on monitors (e.g. file watch) are above.</p>';
+      el.innerHTML = '<p class="hint">Crypto off — Following event feed hidden. Always-on workflows (e.g. file watch) are above.</p>';
       return;
     }
     try {
@@ -6230,7 +6514,7 @@
   document.getElementById('openContentRewardsLink')?.addEventListener('click', (e) => {
     e.preventDefault();
     const url = (typeof WhopAuthConfig !== 'undefined' && WhopAuthConfig.CONTENT_REWARDS_AI_URL)
-      || 'https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/';
+      || 'https://www.contentrewardsai.com/app';
     chrome.tabs.create({ url });
   });
 
@@ -6357,6 +6641,25 @@
     fetchWorkflowsFromBackend();
     setStatus('Saved as v' + newVersion + ' and synced to backend. Use Save to folder to create workflows/{slug}/ in your project.', 'success');
     persistWorkflowToProjectFolder(newId);
+    return newId;
+  }
+
+  async function createNewVersionForUi(wfId) {
+    if (!wfId || wfId === '__new__' || !workflows[wfId]) {
+      setStatus('Select a workflow first.', 'error');
+      return null;
+    }
+    const newId = await saveAsNewVersion(wfId);
+    if (!newId) return null;
+    if (playbackWorkflow && workflows[newId]) playbackWorkflow.value = newId;
+    if (workflowSelect) {
+      workflowSelect.value = newId;
+      syncPlanWorkflowPickersFromHiddenSelect();
+      renderRunsList(newId);
+    }
+    renderStepsList();
+    renderWorkflowFormFields();
+    updatePlanRecordUiForSelection(newId);
     return newId;
   }
 
@@ -6508,7 +6811,7 @@
       let next = remaining[0] || null;
       if (!next) {
         const any = Object.keys(workflows).find(function(id) {
-          return !isTestWorkflow(workflows[id]);
+          return !isHiddenFromUserNav(workflows[id]);
         });
         next = any || null;
       }
@@ -6762,7 +7065,7 @@
         } catch (_) {}
       }
     }
-    setStatus('Choose your project folder; workflows/ will be created as a subfolder there.', '');
+    setStatus('Choose your local folder; workflows/ will be created as a subfolder there.', '');
     /* Use the previously stored handle as startIn so the picker opens to the
        last-used folder instead of the user's home directory. */
     var pickerOpts = { mode: 'readwrite' };
@@ -6792,7 +7095,7 @@
     const folderHint = document.getElementById('projectFolderHint');
     const recordingWrap = document.getElementById('recordingRequiresProjectFolder');
     getStoredProjectFolderHandle().then((h) => {
-      if (el) el.textContent = h ? 'Project folder set.' : 'Not set — optional for disk files; workflows save in this browser and to your account when signed in.';
+      if (el) el.textContent = h ? 'Local folder set.' : 'Not set — optional for disk files; workflows save in this browser and to your account when signed in.';
       if (elAuth) {
         elAuth.textContent = h ? '✓ Set' : '✗ Not set';
         elAuth.className = 'project-folder-status-auth hint' + (h ? ' project-folder-set' : ' project-folder-not-set');
@@ -6841,8 +7144,9 @@
     const setUnavailable = (show, text, opts) => {
       const withSettingsLink = opts && opts.withSettingsLink;
       unavailableEl.style.display = show ? 'block' : 'none';
-      wrapEl.style.display = show ? 'none' : '';
-      wrapEl.setAttribute('aria-hidden', show ? 'true' : 'false');
+      /* Run on this tab (local Llama / Clore) stays available without LaMini. */
+      wrapEl.style.display = '';
+      wrapEl.setAttribute('aria-hidden', 'false');
       if (unavailableTextEl) {
         if (!show) {
           unavailableTextEl.textContent = '';
@@ -6883,17 +7187,33 @@
         gemini: 'cfsLlmGeminiKey',
         grok: 'cfsLlmGrokKey',
       };
+      if (chatProvider === 'crai') {
+        const loggedIn =
+          typeof ExtensionApi !== 'undefined' &&
+          typeof ExtensionApi.isLoggedIn === 'function' &&
+          (await ExtensionApi.isLoggedIn());
+        if (!loggedIn) {
+          setUnavailable(
+            true,
+            'Local AI Chat uses Content Rewards AI (Qwen 27B). Sign in with Whop to use it.',
+            { withSettingsLink: true }
+          );
+          return;
+        }
+        setUnavailable(false, '');
+        return;
+      }
       if (chatProvider !== 'lamini' && keyByProv[chatProvider]) {
-        const label =
-          chatProvider === 'openai'
-            ? 'OpenAI'
-            : chatProvider === 'claude'
-              ? 'Claude (Anthropic)'
-              : chatProvider === 'gemini'
-                ? 'Gemini'
-                : 'Grok (xAI)';
         const rawKey = String(llmSt[keyByProv[chatProvider]] || '').trim();
         if (rawKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+          const label =
+            chatProvider === 'openai'
+              ? 'OpenAI'
+              : chatProvider === 'claude'
+                ? 'Claude (Anthropic)'
+                : chatProvider === 'gemini'
+                  ? 'Gemini'
+                  : 'Grok (xAI)';
           setUnavailable(
             true,
             'Local AI Chat uses ' +
@@ -6901,14 +7221,6 @@
               ' but the saved API key exceeds ' +
               CFS_LLM_API_KEY_MAX_CHARS +
               ' characters.',
-            { withSettingsLink: true }
-          );
-          return;
-        }
-        if (!rawKey.length) {
-          setUnavailable(
-            true,
-            'Local AI Chat uses ' + label + ' but no API key is saved.',
             { withSettingsLink: true }
           );
           return;
@@ -6932,7 +7244,7 @@
       if (!h) {
         setUnavailable(
           true,
-          'Local AI Chat uses the LaMini model in your project folder when the chat provider is LaMini (local). Set a project folder above, then use Download LaMini (~820MB) when it appears — or choose a cloud provider in Settings → LLM providers → Local AI Chat default.'
+          'Local AI Chat uses the LaMini model in your local folder when the chat provider is LaMini (local). Set a local folder above, then use Download LaMini (~820MB) when it appears — or choose a cloud provider in Settings → LLM providers → Local AI Chat default.'
         );
         return;
       }
@@ -6945,7 +7257,7 @@
       }
       setUnavailable(false, '');
     } catch (_) {
-      setUnavailable(true, 'Could not check the LaMini model. Set your project folder and try Download LaMini.');
+      setUnavailable(true, 'Could not check the LaMini model. Set your local folder and try Download LaMini.');
     }
   }
 
@@ -6953,7 +7265,7 @@
     return (async () => {
       const h = await getStoredProjectFolderHandle();
       if (!h) {
-        setStatus('Set project folder first.', 'error');
+        setStatus('Set local folder first.', 'error');
         return;
       }
       if (typeof cfsEnsureLaminiDirTree !== 'function' || typeof cfsDownloadXenovaLaminiIfNeeded !== 'function') {
@@ -7109,270 +7421,313 @@
     } catch (_) {}
   }
 
-  async function writeMediaCaptureToRunsDir(runsDir, runId, dataUrl, mimeHint) {
-    if (!dataUrl || !runsDir) return null;
-    try {
-      const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
-      if (!blob) return null;
-      const mediaCaptureMimeType = blob.type || mimeHint || 'video/webm';
-      const rid = String(runId || Date.now()).replace(/^run_/, '');
-      const mediaCaptureFile = 'run-' + rid + '-capture.webm';
-      const capHandle = await runsDir.getFileHandle(mediaCaptureFile, { create: true });
-      const capW = await capHandle.createWritable();
-      await capW.write(await blob.arrayBuffer());
-      await capW.close();
-      return { mediaCaptureFile, mediaCaptureMimeType };
-    } catch (_) {}
-    return null;
+  async function writeBlobToDirHandle(dir, filename, blob) {
+    if (!dir || !filename || !blob || blob.size < 1) return false;
+    const fh = await dir.getFileHandle(filename, { create: true });
+    const w = await fh.createWritable();
+    await w.write(await blob.arrayBuffer());
+    await w.close();
+    return true;
   }
 
-  async function writeWebcamCaptureToRunsDir(runsDir, runId, dataUrl, mimeHint) {
-    if (!dataUrl || !runsDir) return null;
-    try {
-      const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
-      if (!blob) return null;
-      const webcamCaptureMimeType = blob.type || mimeHint || 'video/webm';
-      const rid = String(runId || Date.now()).replace(/^run_/, '');
-      const webcamCaptureFile = 'run-' + rid + '-webcam.webm';
-      const wh = await runsDir.getFileHandle(webcamCaptureFile, { create: true });
-      const w = await wh.createWritable();
-      await w.write(await blob.arrayBuffer());
-      await w.close();
-      return { webcamCaptureFile, webcamCaptureMimeType };
-    } catch (_) {}
-    return null;
+  async function getWorkflowProjectFolderHandle(folderId, create) {
+    if (typeof showDirectoryPicker === 'undefined') return null;
+    const projectRoot = await getStoredProjectFolderHandle();
+    if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
+    const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return null;
+    const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: !!create });
+    return wfDir.getDirectoryHandle(folderId, { create: !!create });
   }
 
-  async function writeMediaCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint) {
-    if (!blob || blob.size < 1 || !runsDir) return null;
-    try {
-      const mediaCaptureMimeType = blob.type || mimeHint || 'video/webm';
-      const rid = String(runId || Date.now()).replace(/^run_/, '');
-      const mediaCaptureFile = 'run-' + rid + '-capture.webm';
-      const capHandle = await runsDir.getFileHandle(mediaCaptureFile, { create: true });
-      const capW = await capHandle.createWritable();
-      await capW.write(await blob.arrayBuffer());
-      await capW.close();
-      return { mediaCaptureFile, mediaCaptureMimeType };
-    } catch (_) {}
-    return null;
+  async function getOrCreateRecordingDir(folderHandle, runId, create) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    const segs = layout
+      ? layout.localRecordingDirSegments('', runId)
+      : ['recordings', String(runId || Date.now()).replace(/^run_/, '')];
+    let dir = folderHandle;
+    for (let i = 0; i < segs.length; i++) {
+      dir = await dir.getDirectoryHandle(segs[i], { create: !!create });
+    }
+    return dir;
   }
 
-  async function writeWebcamCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint) {
-    if (!blob || blob.size < 1 || !runsDir) return null;
-    try {
-      const webcamCaptureMimeType = blob.type || mimeHint || 'video/webm';
-      const rid = String(runId || Date.now()).replace(/^run_/, '');
-      const webcamCaptureFile = 'run-' + rid + '-webcam.webm';
-      const wh = await runsDir.getFileHandle(webcamCaptureFile, { create: true });
-      const w = await wh.createWritable();
-      await w.write(await blob.arrayBuffer());
-      await w.close();
-      return { webcamCaptureFile, webcamCaptureMimeType };
-    } catch (_) {}
-    return null;
-  }
-
-  async function writeWorkflowRunMediaCapture(wfId, runId, dataUrl, mimeHint) {
-    if (!dataUrl || typeof showDirectoryPicker !== 'function') return null;
-    try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
-      const folderId = getWorkflowFolderId(wfId);
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      const capInfo = await writeMediaCaptureToRunsDir(runsDir, runId, dataUrl, mimeHint);
-      if (capInfo && capInfo.mediaCaptureFile) {
-        const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
-        if (blob && blob.size > 0) {
-          const t = (blob.type || mimeHint || '').toLowerCase();
-          if (t.indexOf('audio') !== 0) {
-            const audioInfo = await extractAndWriteRunCaptureAudioM4a(runsDir, runId, blob);
-            if (audioInfo) return { ...capInfo, ...audioInfo };
-          }
-        }
-      }
-      return capInfo;
-    } catch (_) {}
-    return null;
-  }
-
-  async function writeWorkflowRunWebcamCapture(wfId, runId, dataUrl, mimeHint) {
-    if (!dataUrl || typeof showDirectoryPicker !== 'function') return null;
-    try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
-      const folderId = getWorkflowFolderId(wfId);
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      return await writeWebcamCaptureToRunsDir(runsDir, runId, dataUrl, mimeHint);
-    } catch (_) {}
-    return null;
-  }
-
-  /** Demux tab/screen capture (video+mic+system audio) to a standalone M4A next to the WebM. */
-  async function extractAndWriteRunCaptureAudioM4a(runsDir, runId, sourceBlob) {
-    if (!runsDir || !sourceBlob || sourceBlob.size < 64) return null;
+  async function extractAndWriteRunCaptureAudioM4a(recDir, runId, sourceBlob) {
+    if (!recDir || !sourceBlob || sourceBlob.size < 64) return null;
     const ff = globalThis.FFmpegLocal;
     if (!ff || typeof ff.convertToM4a !== 'function') return null;
+    const layout = globalThis.CFS_workflowRunMedia;
+    const audioName = (layout && layout.FILE_AUDIO) || 'audio.m4a';
     try {
       const res = await ff.convertToM4a(sourceBlob, () => {});
       if (!res || !res.ok || !res.blob || res.blob.size < 32) return null;
-      const rid = String(runId || Date.now()).replace(/^run_/, '');
-      const mediaCaptureAudioFile = 'run-' + rid + '-audio.m4a';
-      const fh = await runsDir.getFileHandle(mediaCaptureAudioFile, { create: true });
-      const w = await fh.createWritable();
-      await w.write(await res.blob.arrayBuffer());
-      await w.close();
-      return { mediaCaptureAudioFile, mediaCaptureAudioMimeType: 'audio/mp4' };
+      if (!(await writeBlobToDirHandle(recDir, audioName, res.blob))) return null;
+      return { mediaCaptureAudioFile: audioName, mediaCaptureAudioMimeType: 'audio/mp4', audioBlob: res.blob };
     } catch (_) {
       return null;
     }
   }
 
-  async function writeRunToProjectFolder(wfId, run, url) {
-    if (typeof showDirectoryPicker !== 'function') return null;
+  async function uploadRunMediaToHighLevel(folderId, runId, files) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    if (!layout || typeof ExtensionApi === 'undefined' || !ExtensionApi.uploadToSource) return null;
+    let loggedIn = false;
     try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
-      const folderId = getWorkflowFolderId(wfId);
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      const capInfo =
-        run._mediaCaptureBlob && run._mediaCaptureBlob.size > 0
-          ? await writeMediaCaptureBlobToRunsDir(
-              runsDir,
-              run.runId,
-              run._mediaCaptureBlob,
-              run._mediaCaptureMimeType
-            )
-          : run._mediaCaptureDataUrl
-            ? await writeMediaCaptureToRunsDir(
-                runsDir,
-                run.runId,
-                run._mediaCaptureDataUrl,
-                run._mediaCaptureMimeType
-              )
-            : null;
-      const webInfo =
-        run._webcamCaptureBlob && run._webcamCaptureBlob.size > 0
-          ? await writeWebcamCaptureBlobToRunsDir(
-              runsDir,
-              run.runId,
-              run._webcamCaptureBlob,
-              run._webcamCaptureMimeType
-            )
-          : run._webcamCaptureDataUrl
-            ? await writeWebcamCaptureToRunsDir(
-                runsDir,
-                run.runId,
-                run._webcamCaptureDataUrl,
-                run._webcamCaptureMimeType
-              )
-            : null;
-      let audioInfo = null;
-      if (capInfo && capInfo.mediaCaptureFile) {
-        const mimeHint = run._mediaCaptureMimeType || capInfo.mediaCaptureMimeType || 'video/webm';
-        const blobForAudio =
-          run._mediaCaptureBlob && run._mediaCaptureBlob.size > 0
-            ? run._mediaCaptureBlob
-            : run._mediaCaptureDataUrl
-              ? safeBase64ToBlob(run._mediaCaptureDataUrl, mimeHint)
-              : null;
-        if (blobForAudio && blobForAudio.size > 0) {
-          const t = (blobForAudio.type || mimeHint || '').toLowerCase();
-          if (t.indexOf('audio') !== 0) {
-            audioInfo = await extractAndWriteRunCaptureAudioM4a(runsDir, run.runId, blobForAudio);
+      loggedIn = typeof ExtensionApi.isLoggedIn === 'function' && (await ExtensionApi.isLoggedIn());
+    } catch (_) {}
+    if (!loggedIn) return null;
+    let accounts;
+    try {
+      accounts = await ExtensionApi.getSourceAccounts();
+    } catch (_) {
+      return null;
+    }
+    const dest = layout.pickHighLevelDest(accounts, ExtensionApi);
+    if (!dest) return null;
+    const names = layout.ghlFolderNames(folderId, runId);
+    const ensure = ExtensionApi.ensureSourceFolderByName;
+    if (typeof ensure !== 'function') return null;
+    try {
+      const root = await ensure(dest.kind, dest.id, '', names.root);
+      const wfFolder = await ensure(dest.kind, dest.id, root.folderId, names.workflow);
+      const runFolder = await ensure(dest.kind, dest.id, wfFolder.folderId, names.run);
+      const out = {
+        mediaCaptureSource: { kind: dest.kind, sourceId: dest.id, folderId: runFolder.folderId, name: dest.name },
+      };
+      async function put(blob, filename, mime, idKey, urlKey) {
+        if (!blob || blob.size < 1) return;
+        const file = new File([blob], filename, { type: blob.type || mime || 'video/webm' });
+        const up = await ExtensionApi.uploadToSource(dest.kind, dest.id, runFolder.folderId, file);
+        if (up && up.mediaId) out[idKey] = up.mediaId;
+        if (up && up.url) out[urlKey] = up.url;
+      }
+      await put(files.mainBlob, layout.FILE_CAPTURE, files.mainMime, 'mediaCaptureMediaId', 'mediaCaptureUrl');
+      await put(files.screenBlob, layout.FILE_SCREEN, files.screenMime, 'screenCaptureMediaId', 'screenCaptureUrl');
+      await put(files.webcamBlob, layout.FILE_WEBCAM, files.webcamMime, 'webcamCaptureMediaId', 'webcamCaptureUrl');
+      await put(files.systemBlob, layout.FILE_SYSTEM, files.systemMime, 'systemCaptureMediaId', 'systemCaptureUrl');
+      await put(files.micBlob, layout.FILE_MIC, files.micMime, 'micCaptureMediaId', 'micCaptureUrl');
+      await put(files.audioBlob, layout.FILE_AUDIO, 'audio/mp4', 'mediaCaptureAudioMediaId', 'mediaCaptureAudioUrl');
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function writeRunMediaLocal(folderId, runId, files, runPayload) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    if (!layout) return null;
+    try {
+      const folderHandle = await getWorkflowProjectFolderHandle(folderId, true);
+      if (!folderHandle) return null;
+      const recDir = await getOrCreateRecordingDir(folderHandle, runId, true);
+      const out = { mediaCaptureDir: layout.LOCAL_RECORDINGS_DIR + '/' + layout.safeRunDirName(runId) };
+      async function writeStem(blob, filename, mime, fileKey, mimeKey) {
+        if (!blob || blob.size < 1) return;
+        if (await writeBlobToDirHandle(recDir, filename, blob)) {
+          out[fileKey] = filename;
+          out[mimeKey] = mime || blob.type || 'video/webm';
+        }
+      }
+      await writeStem(files.mainBlob, layout.FILE_CAPTURE, files.mainMime, 'mediaCaptureFile', 'mediaCaptureMimeType');
+      await writeStem(files.screenBlob, layout.FILE_SCREEN, files.screenMime, 'screenCaptureFile', 'screenCaptureMimeType');
+      await writeStem(files.webcamBlob, layout.FILE_WEBCAM, files.webcamMime, 'webcamCaptureFile', 'webcamCaptureMimeType');
+      await writeStem(files.systemBlob, layout.FILE_SYSTEM, files.systemMime, 'systemCaptureFile', 'systemCaptureMimeType');
+      await writeStem(files.micBlob, layout.FILE_MIC, files.micMime, 'micCaptureFile', 'micCaptureMimeType');
+      if (out.mediaCaptureFile && files.mainBlob) {
+        const t = (files.mainMime || files.mainBlob.type || '').toLowerCase();
+        if (t.indexOf('audio') !== 0) {
+          if (files.audioBlob && files.audioBlob.size > 32) {
+            const audioName = layout.FILE_AUDIO;
+            if (await writeBlobToDirHandle(recDir, audioName, files.audioBlob)) {
+              out.mediaCaptureAudioFile = audioName;
+              out.mediaCaptureAudioMimeType = 'audio/mp4';
+            }
+          } else {
+            const audioInfo = await extractAndWriteRunCaptureAudioM4a(recDir, runId, files.mainBlob);
+            if (audioInfo) {
+              out.mediaCaptureAudioFile = audioInfo.mediaCaptureAudioFile;
+              out.mediaCaptureAudioMimeType = audioInfo.mediaCaptureAudioMimeType;
+              files.audioBlob = audioInfo.audioBlob;
+            }
           }
         }
       }
-      const mediaCaptureFile = capInfo?.mediaCaptureFile || null;
-      const mediaCaptureMimeType = capInfo?.mediaCaptureMimeType || null;
-      const webcamCaptureFile = webInfo?.webcamCaptureFile || null;
-      const webcamCaptureMimeType = webInfo?.webcamCaptureMimeType || null;
-      const mediaCaptureAudioFile = audioInfo?.mediaCaptureAudioFile || null;
-      const mediaCaptureAudioMimeType = audioInfo?.mediaCaptureAudioMimeType || null;
-      const runPayload = {
-        runId: run.runId,
-        workflowId: wfId,
-        actions: run.actions,
-        url: run.url || url || '',
-        startState: run.startState,
-        endState: run.endState,
-        recordedAt: new Date().toISOString(),
-        ...(mediaCaptureFile ? { mediaCaptureFile, mediaCaptureMimeType } : {}),
-        ...(mediaCaptureAudioFile ? { mediaCaptureAudioFile, mediaCaptureAudioMimeType } : {}),
-        ...(webcamCaptureFile ? { webcamCaptureFile, webcamCaptureMimeType } : {}),
-        ...(run.mediaCaptureStartEpochMs != null && Number.isFinite(run.mediaCaptureStartEpochMs)
-          ? { mediaCaptureStartEpochMs: run.mediaCaptureStartEpochMs }
-          : {}),
-      };
-      const fileName = 'run-' + (run.runId || Date.now()) + '.json';
-      const fileHandle = await runsDir.getFileHandle(fileName, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(JSON.stringify(runPayload, null, 2));
-      await writable.close();
-      delete run._mediaCaptureBlob;
-      delete run._webcamCaptureBlob;
-      return {
-        mediaCaptureFile,
-        mediaCaptureMimeType,
-        mediaCaptureAudioFile,
-        mediaCaptureAudioMimeType,
-        webcamCaptureFile,
-        webcamCaptureMimeType,
-      };
+      if (runPayload) {
+        try {
+          const json = JSON.stringify(Object.assign({}, runPayload, out), null, 2);
+          const fh = await recDir.getFileHandle(layout.FILE_META, { create: true });
+          const w = await fh.createWritable();
+          await w.write(json);
+          await w.close();
+        } catch (_) {}
+      }
+      if (out.mediaCaptureFile || out.webcamCaptureFile || out.screenCaptureFile || out.systemCaptureFile || out.micCaptureFile) return out;
     } catch (_) {}
     return null;
+  }
+
+  async function persistWorkflowRunMedia(wfId, runId, files, extraRunFields) {
+    const folderId = getWorkflowFolderId(wfId);
+    const layout = globalThis.CFS_workflowRunMedia;
+    files = files || {};
+    const hasMedia = ['mainBlob', 'webcamBlob', 'screenBlob', 'systemBlob', 'micBlob'].some(function (k) {
+      return files[k] && files[k].size > 0;
+    });
+    if (hasMedia && files.mainBlob && !files.audioBlob) {
+      const t = (files.mainMime || files.mainBlob.type || '').toLowerCase();
+      if (t.indexOf('audio') !== 0) {
+        const ff = globalThis.FFmpegLocal;
+        if (ff && typeof ff.convertToM4a === 'function') {
+          try {
+            const demux = await ff.convertToM4a(files.mainBlob, () => {});
+            if (demux && demux.ok && demux.blob && demux.blob.size > 32) files.audioBlob = demux.blob;
+          } catch (_) {}
+        }
+      }
+    }
+    const runPayload = Object.assign({
+      runId: runId,
+      workflowId: wfId,
+      recordedAt: new Date().toISOString(),
+    }, extraRunFields || {});
+    const localMeta = await writeRunMediaLocal(folderId, runId, files, runPayload);
+    const ghlMeta = hasMedia ? await uploadRunMediaToHighLevel(folderId, runId, files) : null;
+    const merged = Object.assign({}, localMeta || {}, ghlMeta || {});
+    if (!merged.mediaCaptureFile && localMeta && localMeta.mediaCaptureFile) merged.mediaCaptureFile = localMeta.mediaCaptureFile;
+    if (layout && (merged.mediaCaptureFile || merged.webcamCaptureFile || merged.screenCaptureFile || merged.systemCaptureFile || merged.micCaptureFile || merged.mediaCaptureUrl || merged.webcamCaptureUrl || merged.screenCaptureUrl || merged.systemCaptureUrl || merged.micCaptureUrl)) {
+      if (!merged.mediaCaptureDir) merged.mediaCaptureDir = layout.LOCAL_RECORDINGS_DIR + '/' + layout.safeRunDirName(runId);
+      if (!merged.mediaCaptureFile && merged.mediaCaptureUrl) merged.mediaCaptureFile = layout.FILE_CAPTURE;
+      if (!merged.webcamCaptureFile && merged.webcamCaptureUrl) merged.webcamCaptureFile = layout.FILE_WEBCAM;
+      if (!merged.screenCaptureFile && merged.screenCaptureUrl) merged.screenCaptureFile = layout.FILE_SCREEN;
+      if (!merged.systemCaptureFile && merged.systemCaptureUrl) merged.systemCaptureFile = layout.FILE_SYSTEM;
+      if (!merged.micCaptureFile && merged.micCaptureUrl) merged.micCaptureFile = layout.FILE_MIC;
+    }
+    merged.savedToFolder = !!(localMeta && (localMeta.mediaCaptureFile || localMeta.webcamCaptureFile || localMeta.screenCaptureFile || localMeta.systemCaptureFile || localMeta.micCaptureFile));
+    merged.savedToHighLevel = !!(ghlMeta && (ghlMeta.mediaCaptureUrl || ghlMeta.webcamCaptureUrl || ghlMeta.screenCaptureUrl || ghlMeta.systemCaptureUrl || ghlMeta.micCaptureUrl || ghlMeta.mediaCaptureMediaId || ghlMeta.webcamCaptureMediaId || ghlMeta.screenCaptureMediaId || ghlMeta.systemCaptureMediaId || ghlMeta.micCaptureMediaId));
+    return (merged.savedToFolder || merged.savedToHighLevel) ? merged : null;
+  }
+
+  async function blobsFromRunTemp(run) {
+    const files = { mainBlob: null, webcamBlob: null, screenBlob: null, systemBlob: null, micBlob: null, mainMime: '', webcamMime: '', screenMime: '', systemMime: '', micMime: '' };
+    function fromTemp(blobKey, urlKey, mimeKey, outBlob, outMime, fallbackMime) {
+      if (run && run[blobKey] && run[blobKey].size > 0) {
+        files[outBlob] = run[blobKey];
+        files[outMime] = run[mimeKey] || run[blobKey].type || fallbackMime;
+      } else if (run && run[urlKey]) {
+        files[outBlob] = safeBase64ToBlob(run[urlKey], run[mimeKey] || fallbackMime);
+        files[outMime] = run[mimeKey] || (files[outBlob] && files[outBlob].type) || fallbackMime;
+      }
+    }
+    fromTemp('_mediaCaptureBlob', '_mediaCaptureDataUrl', '_mediaCaptureMimeType', 'mainBlob', 'mainMime', 'video/webm');
+    fromTemp('_webcamCaptureBlob', '_webcamCaptureDataUrl', '_webcamCaptureMimeType', 'webcamBlob', 'webcamMime', 'video/webm');
+    fromTemp('_screenCaptureBlob', '_screenCaptureDataUrl', '_screenCaptureMimeType', 'screenBlob', 'screenMime', 'video/webm');
+    fromTemp('_systemCaptureBlob', '_systemCaptureDataUrl', '_systemCaptureMimeType', 'systemBlob', 'systemMime', 'audio/webm');
+    fromTemp('_micCaptureBlob', '_micCaptureDataUrl', '_micCaptureMimeType', 'micBlob', 'micMime', 'audio/webm');
+    return files;
+  }
+
+  async function writeMediaCaptureToRunsDir(runsDir, runId, dataUrl, mimeHint) {
+    const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
+    if (!blob) return null;
+    return writeMediaCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint);
+  }
+
+  async function writeWebcamCaptureToRunsDir(runsDir, runId, dataUrl, mimeHint) {
+    const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
+    if (!blob) return null;
+    return writeWebcamCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint);
+  }
+
+  async function writeMediaCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    const name = (layout && layout.FILE_CAPTURE) || 'capture.webm';
+    if (!(await writeBlobToDirHandle(runsDir, name, blob))) return null;
+    return { mediaCaptureFile: name, mediaCaptureMimeType: blob.type || mimeHint || 'video/webm' };
+  }
+
+  async function writeWebcamCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    const name = (layout && layout.FILE_WEBCAM) || 'webcam.webm';
+    if (!(await writeBlobToDirHandle(runsDir, name, blob))) return null;
+    return { webcamCaptureFile: name, webcamCaptureMimeType: blob.type || mimeHint || 'video/webm' };
+  }
+
+  async function writeWorkflowRunMediaCapture(wfId, runId, dataUrl, mimeHint) {
+    const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
+    if (!blob) return null;
+    return persistWorkflowRunMedia(wfId, runId, { mainBlob: blob, mainMime: mimeHint || blob.type || 'video/webm' });
+  }
+
+  async function writeWorkflowRunWebcamCapture(wfId, runId, dataUrl, mimeHint) {
+    const blob = safeBase64ToBlob(dataUrl, mimeHint || 'video/webm');
+    if (!blob) return null;
+    return persistWorkflowRunMedia(wfId, runId, { webcamBlob: blob, webcamMime: mimeHint || blob.type || 'video/webm' });
+  }
+
+  async function writeRunToProjectFolder(wfId, run, url) {
+    const files = await blobsFromRunTemp(run);
+    if (!['mainBlob', 'webcamBlob', 'screenBlob', 'systemBlob', 'micBlob'].some(function (k) { return files[k] && files[k].size > 0; })) {
+      return null;
+    }
+    const meta = await persistWorkflowRunMedia(wfId, run && run.runId, files, {
+      actions: run && run.actions,
+      url: (run && run.url) || url || '',
+      startState: run && run.startState,
+      endState: run && run.endState,
+      mediaCaptureStartEpochMs: run && run.mediaCaptureStartEpochMs,
+    });
+    delete run._mediaCaptureBlob;
+    delete run._webcamCaptureBlob;
+    delete run._screenCaptureBlob;
+    delete run._systemCaptureBlob;
+    delete run._micCaptureBlob;
+    return meta;
   }
 
   async function writeWorkflowRunMediaCaptureBlob(wfId, runId, blob, mimeHint) {
-    if (!blob || blob.size < 1 || typeof showDirectoryPicker === 'undefined') return null;
-    try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
-      const folderId = getWorkflowFolderId(wfId);
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      const capInfo = await writeMediaCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint);
-      if (capInfo && capInfo.mediaCaptureFile && blob && blob.size > 0) {
-        const t = (blob.type || mimeHint || '').toLowerCase();
-        if (t.indexOf('audio') !== 0) {
-          const audioInfo = await extractAndWriteRunCaptureAudioM4a(runsDir, runId, blob);
-          if (audioInfo) return { ...capInfo, ...audioInfo };
-        }
-      }
-      return capInfo;
-    } catch (_) {}
-    return null;
+    if (!blob || blob.size < 1) return null;
+    return persistWorkflowRunMedia(wfId, runId, { mainBlob: blob, mainMime: mimeHint || blob.type || 'video/webm' });
   }
 
   async function writeWorkflowRunWebcamCaptureBlob(wfId, runId, blob, mimeHint) {
-    if (!blob || blob.size < 1 || typeof showDirectoryPicker === 'undefined') return null;
+    if (!blob || blob.size < 1) return null;
+    return persistWorkflowRunMedia(wfId, runId, { webcamBlob: blob, webcamMime: mimeHint || blob.type || 'video/webm' });
+  }
+
+  async function deletePersistedRunMedia(wfId, run) {
+    if (!run) return;
+    const folderId = getWorkflowFolderId(wfId);
+    const layout = globalThis.CFS_workflowRunMedia;
+    const rid = layout ? layout.safeRunDirName(run.runId) : String(run.runId || '').replace(/^run_/, '');
     try {
-      const projectRoot = await getStoredProjectFolderHandle();
-      if (!projectRoot || typeof projectRoot.requestPermission !== 'function') return null;
-      const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') return null;
-      const folderId = getWorkflowFolderId(wfId);
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      return await writeWebcamCaptureBlobToRunsDir(runsDir, runId, blob, mimeHint);
+      const folderHandle = await getWorkflowProjectFolderHandle(folderId, false);
+      if (folderHandle) {
+        try {
+          const recRoot = await folderHandle.getDirectoryHandle((layout && layout.LOCAL_RECORDINGS_DIR) || 'recordings', { create: false });
+          await recRoot.removeEntry(rid, { recursive: true });
+        } catch (_) {}
+        if (run.mediaCaptureFile || run.webcamCaptureFile || run.mediaCaptureAudioFile) {
+          try {
+            const runsDir = await folderHandle.getDirectoryHandle('runs', { create: false });
+            const legacy = [run.mediaCaptureFile, run.webcamCaptureFile, run.mediaCaptureAudioFile, 'run-' + rid + '.json'];
+            for (let i = 0; i < legacy.length; i++) {
+              if (!legacy[i] || String(legacy[i]).indexOf('/') >= 0) continue;
+              try { await runsDir.removeEntry(String(legacy[i])); } catch (_) {}
+            }
+          } catch (_) {}
+        }
+      }
     } catch (_) {}
-    return null;
+    const src = run.mediaCaptureSource;
+    if (src && src.kind && typeof ExtensionApi !== 'undefined' && ExtensionApi.deleteFromSource) {
+      const ids = [run.mediaCaptureMediaId, run.webcamCaptureMediaId, run.mediaCaptureAudioMediaId, run.screenCaptureMediaId, run.systemCaptureMediaId, run.micCaptureMediaId].filter(Boolean);
+      for (let i = 0; i < ids.length; i++) {
+        try { await ExtensionApi.deleteFromSource(src.kind, src.sourceId, ids[i], false); } catch (_) {}
+      }
+      if (src.folderId) {
+        try { await ExtensionApi.deleteFromSource(src.kind, src.sourceId, src.folderId, true); } catch (_) {}
+      }
+    }
   }
 
   async function saveWorkflowToFolder(wfId) {
@@ -8274,8 +8629,6 @@
     const messagesEl = document.getElementById('llmChatMessages');
     const inputEl = document.getElementById('llmChatInput');
     const sendBtn = document.getElementById('llmChatSendBtn');
-    const submitQuestionBtn = document.getElementById('llmChatSubmitQuestionBtn');
-    const limitQaToSiteEl = document.getElementById('llmChatLimitQaToSite');
     const statusEl = document.getElementById('llmChatStatus');
     if (!messagesEl || !inputEl || !sendBtn) return;
 
@@ -8323,6 +8676,562 @@
       statusEl.className = 'hint llm-chat-status' + (type ? ' ' + type : '');
       statusEl.style.display = msg ? 'block' : 'none';
     }
+
+    const runOnTabBtn = document.getElementById('llmChatRunOnTabBtn');
+    const stopAgentBtn = document.getElementById('llmChatStopAgentBtn');
+    const saveAsWfEl = document.getElementById('llmChatSaveAsWorkflow');
+    let agentAbort = false;
+    const MAX_AGENT_TURNS = 25;
+
+    async function getLocalAiChatBackend() {
+      const st = await chrome.storage.local.get([
+        'cfsLlmChatProvider',
+        'cfsLlmOpenaiKey',
+        'cfsLlmAnthropicKey',
+        'cfsLlmGeminiKey',
+        'cfsLlmGrokKey',
+      ]);
+      const provider = String(st.cfsLlmChatProvider || 'lamini').toLowerCase();
+      const keyBy = {
+        openai: 'cfsLlmOpenaiKey',
+        claude: 'cfsLlmAnthropicKey',
+        gemini: 'cfsLlmGeminiKey',
+        grok: 'cfsLlmGrokKey',
+      };
+      if (provider === 'crai') {
+        return { kind: 'crai', provider: 'crai' };
+      }
+      if (keyBy[provider]) {
+        return { kind: 'cloud', provider: provider };
+      }
+      return { kind: 'lamini', provider: 'lamini' };
+    }
+
+    async function planPageAgentTurn(messages, backend) {
+      if (backend && (backend.kind === 'cloud' || backend.kind === 'crai')) {
+        const res = await sendRuntimeMessage({
+          type: 'CALL_REMOTE_LLM_CHAT',
+          messages: messages,
+          options: { max_new_tokens: 128, temperature: 0.2, pageAgent: true },
+        });
+        if (!res || !res.ok) {
+          return {
+            ok: false,
+            error: (res && res.error) || (backend.kind === 'crai' ? 'Content Rewards AI planner failed' : 'Cloud planner failed'),
+            modelKey: backend.provider,
+            code: res && res.code,
+            trial_checkout_url: res && res.trial_checkout_url,
+          };
+        }
+        const textOut = String((res.result && res.result.text) || res.text || '').trim();
+        const usedFallback = !!(res.usedFallback || (res.result && res.result.usedFallback));
+        const fallbackKind = res.fallback || (res.result && res.result.fallback);
+        return {
+          ok: !!textOut,
+          text: textOut,
+          source: usedFallback ? (fallbackKind === 'crai' ? 'crai' : 'lamini') : (backend.kind === 'crai' ? 'crai' : 'cloud'),
+          model: (res.result && res.result.model) || (backend.kind === 'crai' ? 'qwen38-27b' : backend.provider),
+          modelKey: backend.provider,
+          usedFallback: usedFallback,
+          fallback: fallbackKind,
+          error: textOut ? undefined : 'Empty planner reply',
+        };
+      }
+      const planner = await sendRuntimeMessage({
+        type: 'CFS_AGENT_PLANNER',
+        messages: messages,
+      });
+      if (!planner) return { ok: false, error: 'Planner failed' };
+      const textOut = String((planner.result && planner.result.text) || planner.text || '').trim();
+      return {
+        ok: !!(planner.ok && textOut),
+        text: textOut,
+        source: planner.source || 'lamini',
+        model: planner.model || planner.modelKey,
+        modelKey: planner.modelKey,
+        usedFallback: !!planner.usedFallback,
+        fallback: planner.fallback,
+        error: planner.ok && textOut ? undefined : (planner.error || 'Empty planner reply'),
+        code: planner.code,
+        trial_checkout_url: planner.trial_checkout_url,
+      };
+    }
+
+    function setAgentRunning(running) {
+      if (runOnTabBtn) runOnTabBtn.disabled = running;
+      if (sendBtn) sendBtn.disabled = running;
+      if (stopAgentBtn) stopAgentBtn.style.display = running ? '' : 'none';
+      if (inputEl) inputEl.disabled = running;
+    }
+
+    function sendRuntimeMessage(payload) {
+      return new Promise(function (resolve) {
+        chrome.runtime.sendMessage(payload, function (res) {
+          resolve(res);
+        });
+      });
+    }
+
+    function handlePlannerGate(res) {
+      if (!res || res.ok) return false;
+      if (res.code === 'LLAMA_NOT_DOWNLOADED') {
+        const which = res.modelKey === 'qwen7b' ? 'Qwen 2.5 7B' : 'Qwen3 4B';
+        setChatStatus(which + ' is not downloaded. Use the Download button — no Whop login required.', 'error');
+        return true;
+      }
+      if (res.code === 'ASK_LOGIN') {
+        setChatStatus('Sign in to use Content Rewards AI (Qwen 27B).', 'error');
+        if (typeof openWhopLoginTab === 'function') openWhopLoginTab();
+        return true;
+      }
+      if (res.code === 'ASK_UPGRADE') {
+        setChatStatus('Sign in and upgrade to use Content Rewards AI (Qwen 27B).', 'error');
+        if (typeof ExtensionApi !== 'undefined' && ExtensionApi.hasUpgraded) {
+          ExtensionApi.hasUpgraded().then(function (up) {
+            if (typeof openTrialCheckoutOrLogin === 'function') openTrialCheckoutOrLogin(up);
+          }).catch(function () {
+            if (typeof openTrialCheckoutOrLogin === 'function') openTrialCheckoutOrLogin(null);
+          });
+        } else if (typeof openTrialCheckoutOrLogin === 'function') {
+          openTrialCheckoutOrLogin(null);
+        }
+        return true;
+      }
+      if (res.code === 'CLORE_UNAVAILABLE') {
+        setChatStatus((res.error) || 'Content Rewards GPU is not available right now. Try again later.', 'error');
+        return true;
+      }
+      return false;
+    }
+
+
+    async function runAgentOnTab() {
+      const text = (inputEl && inputEl.value ? inputEl.value : '').trim();
+      if (!text) {
+        setChatStatus('Enter a task first.', 'error');
+        return;
+      }
+      const tab = await getWebpageTabForAgent();
+      if (!tab || !tab.id) {
+        setChatStatus('Open a regular website first (not chrome://).', 'error');
+        return;
+      }
+      const snapApi = typeof CFS_pageAgentSnapshot !== 'undefined' ? CFS_pageAgentSnapshot : null;
+      if (!snapApi) {
+        setChatStatus('Page snapshot helper not loaded.', 'error');
+        return;
+      }
+      const hops = typeof snapApi.splitLocalAiHops === 'function'
+        ? snapApi.splitLocalAiHops(text)
+        : [{ kind: 'chat', text: text }];
+      agentAbort = false;
+      setAgentRunning(true);
+      chatHistory.push({ role: 'user', content: text });
+      inputEl.value = '';
+      renderChatMessages();
+      const backend = await getLocalAiChatBackend();
+      const backendLabel =
+        backend.kind === 'crai'
+          ? 'Content Rewards AI'
+          : backend.kind === 'cloud'
+            ? backend.provider
+            : 'LaMini';
+      setChatStatus('Starting on the current tab (' + backendLabel + ')…', 'loading');
+
+      function waitTabComplete(tabId, timeoutMs) {
+        return new Promise(function (resolve) {
+          var finished = false;
+          function done() {
+            if (finished) return;
+            finished = true;
+            try { chrome.tabs.onUpdated.removeListener(onUpdated); } catch (_) {}
+            resolve();
+          }
+          function onUpdated(id, info) {
+            if (id === tabId && info && info.status === 'complete') done();
+          }
+          chrome.tabs.onUpdated.addListener(onUpdated);
+          chrome.tabs.get(tabId, function (t) {
+            if (t && t.status === 'complete') done();
+          });
+          setTimeout(done, timeoutMs || 15000);
+        });
+      }
+
+      let startedRecorder = false;
+      let workingTab = tab;
+      try {
+        async function refreshWorkingTab() {
+          const refreshed = await chrome.tabs.get(workingTab.id);
+          if (refreshed) workingTab = refreshed;
+        }
+
+        async function snapshotTab() {
+          await ensureContentScriptLoaded(workingTab.id);
+          return chrome.tabs.sendMessage(workingTab.id, { type: 'CFS_PAGE_AGENT_SNAPSHOT' });
+        }
+
+        async function actOnTab(action, index, actText) {
+          return chrome.tabs.sendMessage(workingTab.id, {
+            type: 'CFS_PAGE_AGENT_ACT',
+            action: action,
+            index: index,
+            text: actText,
+          });
+        }
+
+        async function generateChatText(prompt) {
+          const messages = [
+            { role: 'system', content: 'You are a helpful copywriting assistant. Reply with only the text to type, no quotes or labels.' },
+            { role: 'user', content: prompt },
+          ];
+          const useRemote = backend.kind === 'cloud' || backend.kind === 'crai';
+          const res = useRemote
+            ? await sendRuntimeMessage({ type: 'CALL_REMOTE_LLM_CHAT', messages: messages, options: { max_new_tokens: 256, temperature: 0.7 } })
+            : await sendRuntimeMessage({ type: 'QC_CALL', method: 'generateChat', args: [messages, { max_new_tokens: 256, temperature: 0.7 }] });
+          return String((res && res.result && res.result.text) || (res && res.text) || '').trim();
+        }
+
+        function matchingPageText(snap, needle) {
+          const want = String(needle || '').toLowerCase();
+          let els = snap && snap.elements ? snap.elements.slice() : [];
+          if (want) {
+            const filtered = els.filter(function (e) {
+              const name = String((e && e.name) || '').toLowerCase();
+              const val = String((e && e.value) || '').toLowerCase();
+              return name.indexOf(want) >= 0 || val.indexOf(want) >= 0 || want.indexOf(name) >= 0;
+            });
+            if (filtered.length) els = filtered;
+          }
+          return snapApi.formatSnapshotForPrompt({
+            ok: true,
+            url: snap && snap.url,
+            title: snap && snap.title,
+            elements: els,
+          }, { maxElements: 20, maxChars: 1600 });
+        }
+
+        async function planShortClick(shortTask, snap, needle) {
+          const pageText = matchingPageText(snap, needle);
+          const messages = (backend.kind === 'cloud' || backend.kind === 'crai')
+            ? [
+              { role: 'system', content: snapApi.plannerSystemPrompt() },
+              { role: 'user', content: 'Task: ' + shortTask + '\n\n' + pageText },
+            ]
+            : [
+              { role: 'user', content: 'Task: ' + shortTask + '\n\n' + pageText },
+            ];
+          const plan = await planPageAgentTurn(messages, backend);
+          if (!plan || !plan.ok) return { ok: false, error: (plan && plan.error) || 'Planner failed', plan: plan };
+          const parsed = snapApi.parsePlannerReply(plan.text);
+          if (!parsed.ok) {
+            chatHistory.push({ role: 'assistant', content: String(plan.text || ''), model: backendLabel });
+            renderChatMessages();
+            return { ok: false, error: 'Planner reply was not an action. Stopping.', prose: true };
+          }
+          return { ok: true, parsed: parsed, plan: plan };
+        }
+
+        const searchHop = hops.find(function (h) { return h && h.kind === 'search'; });
+        const searchTask = searchHop
+          ? { engine: 'google', query: searchHop.query, url: searchHop.url || 'https://www.google.com/' }
+          : (typeof snapApi.parseWebSearchTask === 'function' ? snapApi.parseWebSearchTask(text) : null);
+
+        for (let hi = 0; hi < hops.length; hi++) {
+          const hop = hops[hi];
+          if (!hop || hop.kind === 'chat') continue;
+          if (hop.kind === 'navigate' && hop.url) {
+            setChatStatus('Opening ' + hop.url + '…', 'loading');
+            await chrome.tabs.update(workingTab.id, { url: hop.url });
+            await waitTabComplete(workingTab.id, 20000);
+            await new Promise(function (r) { setTimeout(r, 700); });
+            await refreshWorkingTab();
+            chatHistory.push({ role: 'assistant', content: 'go to ' + hop.url, model: 'page agent' });
+            renderChatMessages();
+          }
+        }
+        await ensureContentScriptLoaded(workingTab.id);
+        if (saveAsWfEl && saveAsWfEl.checked) {
+          let wfId = workflowSelect && workflowSelect.value;
+          if (!wfId || wfId === '__new__') {
+            if (typeof createPlanWorkflow === 'function') {
+              const created = await createPlanWorkflow();
+              wfId = created && created.id;
+            }
+          }
+          if (wfId && typeof recordingSessionBeginPromise === 'function') {
+            const runId = 'agent_' + Date.now();
+            await recordingSessionBeginPromise({
+              tabId: workingTab.id,
+              workflowId: wfId,
+              runId: runId,
+              recordingMode: 'replace',
+            });
+            if (typeof injectRecorderIntoAllFrames === 'function') {
+              await injectRecorderIntoAllFrames(workingTab.id);
+            }
+            await chrome.tabs.sendMessage(workingTab.id, {
+              type: 'RECORDER_START',
+              workflowId: wfId,
+              runId: runId,
+              recordingMode: 'replace',
+            });
+            recordingTabId = workingTab.id;
+            startedRecorder = true;
+            const startRec = document.getElementById('startRecord');
+            const stopRec = document.getElementById('stopRecord');
+            if (startRec) startRec.disabled = true;
+            if (stopRec) stopRec.disabled = false;
+          }
+        }
+
+        if (searchTask && typeof snapApi.isGoogleSearchUrl === 'function' && !snapApi.isGoogleSearchUrl(workingTab.url)) {
+          setChatStatus('Opening Google…', 'loading');
+          await chrome.tabs.update(workingTab.id, { url: searchTask.url });
+          await waitTabComplete(workingTab.id, 20000);
+          await new Promise(function (r) { setTimeout(r, 700); });
+          await refreshWorkingTab();
+          await ensureContentScriptLoaded(workingTab.id);
+        }
+
+        let hopFailed = false;
+        for (let hi = 0; hi < hops.length; hi++) {
+          if (agentAbort) {
+            setChatStatus('Stopped.', '');
+            hopFailed = true;
+            break;
+          }
+          const hop = hops[hi];
+          if (!hop || hop.kind === 'chat' || hop.kind === 'navigate') continue;
+
+          if (hop.kind === 'search' && searchTask) {
+            const snap0 = await snapshotTab();
+            const field = snap0 && snap0.ok && typeof snapApi.pickSearchField === 'function'
+              ? snapApi.pickSearchField(snap0.elements)
+              : null;
+            if (field && field.index) {
+              setChatStatus('Typing search on Google…', 'loading');
+              const typed = await actOnTab('type', field.index, searchTask.query);
+              if (typed && typed.ok) {
+                chatHistory.push({
+                  role: 'assistant',
+                  content: 'type[' + field.index + '] ' + searchTask.query,
+                  model: 'page agent',
+                });
+                renderChatMessages();
+                setChatStatus('Searched Google for “' + searchTask.query + '”.', 'success');
+                continue;
+              }
+            }
+            setChatStatus('Could not find the search box.', 'error');
+            hopFailed = true;
+            break;
+          }
+
+          if (hop.kind === 'type_literal' || hop.kind === 'compose_type') {
+            let typeText = hop.text || '';
+            if (hop.kind === 'compose_type') {
+              setChatStatus('Writing text with ' + backendLabel + '…', 'loading');
+              typeText = await generateChatText(hop.prompt || text);
+              if (!typeText) {
+                setChatStatus('Could not generate text to type.', 'error');
+                hopFailed = true;
+                break;
+              }
+            }
+            const snapT = await snapshotTab();
+            const field = snapT && snapT.ok && typeof snapApi.pickTypableField === 'function'
+              ? snapApi.pickTypableField(snapT.elements, hop.hint)
+              : (snapApi.pickSearchField ? snapApi.pickSearchField(snapT && snapT.elements) : null);
+            if (!field || !field.index) {
+              setChatStatus('No input field on this page to type into.', 'error');
+              hopFailed = true;
+              break;
+            }
+            const typed = await actOnTab('type', field.index, typeText);
+            if (!typed || !typed.ok) {
+              setChatStatus((typed && typed.error) || 'Type failed', 'error');
+              hopFailed = true;
+              break;
+            }
+            chatHistory.push({
+              role: 'assistant',
+              content: (hop.kind === 'compose_type' ? typeText : ('type[' + field.index + '] ' + typeText)),
+              model: hop.kind === 'compose_type' ? backendLabel : 'page agent',
+            });
+            renderChatMessages();
+            setChatStatus('Typed into the mapped field.', 'success');
+            await new Promise(function (r) { setTimeout(r, 400); });
+            continue;
+          }
+
+          if (hop.kind === 'click_find') {
+            const needle = hop.needle || '';
+            setChatStatus('Finding “' + needle + '”…', 'loading');
+            const clicked = await actOnTab('clickText', 0, needle);
+            if (clicked && clicked.ok) {
+              chatHistory.push({ role: 'assistant', content: 'click “' + needle + '”', model: 'page agent' });
+              renderChatMessages();
+              setChatStatus('Clicked “' + needle + '”.', 'success');
+              await new Promise(function (r) { setTimeout(r, 700); });
+              await refreshWorkingTab();
+              continue;
+            }
+            const snapC = await snapshotTab();
+            if (!snapC || !snapC.ok) {
+              setChatStatus((snapC && snapC.error) || 'Could not read the page.', 'error');
+              hopFailed = true;
+              break;
+            }
+            const want = String(needle).toLowerCase();
+            const matches = (snapC.elements || []).filter(function (e) {
+              const name = String((e && e.name) || '').toLowerCase();
+              return name && (name.indexOf(want) >= 0 || want.indexOf(name) >= 0);
+            });
+            if (matches.length === 1 && matches[0].index) {
+              const one = await actOnTab('click', matches[0].index, '');
+              if (one && one.ok) {
+                chatHistory.push({ role: 'assistant', content: 'click[' + matches[0].index + ']', model: 'page agent' });
+                renderChatMessages();
+                setChatStatus('Clicked “' + needle + '”.', 'success');
+                await new Promise(function (r) { setTimeout(r, 700); });
+                continue;
+              }
+            }
+            if (matches.length > 1 || !matches.length) {
+              setChatStatus('Choosing among page matches with ' + backendLabel + '…', 'loading');
+              const planned = await planShortClick('click the ' + needle, snapC, needle);
+              if (handlePlannerGate(planned.plan)) {
+                hopFailed = true;
+                break;
+              }
+              if (!planned.ok) {
+                setChatStatus(planned.error || 'Could not click that item.', 'error');
+                hopFailed = true;
+                break;
+              }
+              const parsed = planned.parsed;
+              if (parsed.action === 'done') {
+                setChatStatus('Done.', 'success');
+                continue;
+              }
+              const act = await actOnTab(parsed.action, parsed.index, parsed.text);
+              if (!act || !act.ok) {
+                setChatStatus((act && act.error) || 'Action failed', 'error');
+                hopFailed = true;
+                break;
+              }
+              chatHistory.push({
+                role: 'assistant',
+                content: parsed.action + (parsed.index ? '[' + parsed.index + ']' : ''),
+                model: backendLabel,
+              });
+              renderChatMessages();
+              setChatStatus('Clicked “' + needle + '”.', 'success');
+              await new Promise(function (r) { setTimeout(r, 700); });
+              continue;
+            }
+            setChatStatus('Could not find “' + needle + '” on this page.', 'error');
+            hopFailed = true;
+            break;
+          }
+        }
+        if (!hopFailed && !agentAbort) {
+          const didWork = hops.some(function (h) { return h && h.kind !== 'chat'; });
+          if (didWork) setChatStatus('Done.', 'success');
+        }
+      } catch (e) {
+        setChatStatus((e && e.message) || 'Agent failed', 'error');
+      } finally {
+        try { await sendRuntimeMessage({ type: 'CFS_AGENT_PLANNER_STOP' }); } catch (_) {}
+        if (startedRecorder) {
+          try {
+            const tabId = workingTab && workingTab.id;
+            let mergeRes = null;
+            if (tabId && typeof stopRecordingAndMergeFromTab === 'function') {
+              try { mergeRes = await stopRecordingAndMergeFromTab(tabId); } catch (_) { mergeRes = null; }
+            }
+            const wfId = workflowSelect && workflowSelect.value;
+            const wf = wfId && workflows[wfId];
+            if (wf && mergeRes && mergeRes.ok && Array.isArray(mergeRes.actions) && mergeRes.actions.length) {
+              wf.runs = wf.runs || [];
+              wf.runs.push({
+                runId: mergeRes.runId,
+                actions: mergeRes.actions,
+                url: workingTab && workingTab.url,
+                startState: mergeRes.startState,
+                endState: mergeRes.endState,
+              });
+              workflows[wfId] = wf;
+              await chrome.storage.local.set({ workflows });
+              if (typeof renderRunsList === 'function') renderRunsList(wfId);
+            }
+            recordingTabId = null;
+            const startRec = document.getElementById('startRecord');
+            const stopRec = document.getElementById('stopRecord');
+            if (startRec) startRec.disabled = false;
+            if (stopRec) stopRec.disabled = true;
+            const hasActions = wf && (wf.runs || []).some(function (r) { return r && (r.actions || []).length; });
+            if (hasActions && wf && !wf._testOnly && typeof analyzeCurrentPlanWorkflow === 'function') {
+              try {
+                const analyzed = await analyzeCurrentPlanWorkflow({ silent: true });
+                if (analyzed && analyzed.ok) {
+                  setChatStatus('Saved and analyzed ' + analyzed.actionCount + ' steps', 'success');
+                } else if (analyzed && !analyzed.skipped) {
+                  setChatStatus('Saved (analyze failed: ' + (analyzed.error || 'unknown') + ')', 'error');
+                }
+              } catch (ae) {
+                setChatStatus('Saved (analyze failed: ' + ((ae && ae.message) || ae) + ')', 'error');
+              }
+            }
+          } catch (_) {
+            const stopRec = document.getElementById('stopRecord');
+            if (stopRec) stopRec.click();
+          }
+        }
+        setAgentRunning(false);
+      }
+    }
+
+    async function submitLocalAi() {
+      const typed = (inputEl && inputEl.value ? inputEl.value : '').trim();
+      if (!typed) {
+        if (lastChatWorkflowPlan && lastChatWorkflowPlan.length) {
+          setChatStatus('Running on the current tab…', 'loading');
+          await runChatWorkflowPlan(lastChatWorkflowPlan);
+          setChatStatus('Finished on the current tab.', '');
+          return;
+        }
+        setChatStatus('Enter a task first.', 'error');
+        return;
+      }
+      const snapApi = typeof CFS_pageAgentSnapshot !== 'undefined' ? CFS_pageAgentSnapshot : null;
+      const hops = snapApi && typeof snapApi.splitLocalAiHops === 'function'
+        ? snapApi.splitLocalAiHops(typed)
+        : [{ kind: 'chat', text: typed }];
+      if (hops.length === 1 && hops[0] && hops[0].kind === 'chat') {
+        if (snapApi && typeof snapApi.looksLikeFailedBrowse === 'function' && snapApi.looksLikeFailedBrowse(typed)) {
+          setChatStatus('Not a site I can open', 'error');
+          return;
+        }
+        return sendChat();
+      }
+      return runAgentOnTab();
+    }
+
+    function onRunClick() {
+      submitLocalAi().catch(function (e) {
+        setChatStatus((e && e.message) || 'Send failed', 'error');
+        setAgentRunning(false);
+      });
+    }
+
+    runOnTabBtn?.addEventListener('click', onRunClick);
+    stopAgentBtn?.addEventListener('click', function () {
+      agentAbort = true;
+      chrome.runtime.sendMessage({ type: 'CFS_AGENT_PLANNER_STOP' }, function () {});
+      setChatStatus('Stopping…', '');
+    });
 
     function buildLlmChatQaMatchesHtml(m) {
       const list = m.qaMatches;
@@ -8478,7 +9387,6 @@
         btn.disabled = true;
         try {
           const result = await addWorkflowAnswer(questionId, wfId, wf.name || wfId);
-          if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
           if (typeof renderWorkflowQuestionsList === 'function') await renderWorkflowQuestionsList();
           applyWorkflowAnswerSubmitStatus(result);
         } catch (err) {
@@ -8501,10 +9409,10 @@
       inputEl.value = '';
       renderChatMessages();
       sendBtn.disabled = true;
+      if (runOnTabBtn) runOnTabBtn.disabled = true;
       setChatStatus('Generating…', 'loading');
 
-      const limitSite = limitQaToSiteEl && limitQaToSiteEl.checked === true;
-      const qaData = await fetchLlmChatQaData(text, limitSite);
+      const qaData = { contextString: '', matches: [], userQuery: text };
       const messages = [
         {
           role: 'system',
@@ -8520,9 +9428,8 @@
         ...chatHistory,
       ];
 
-      const llmChatStore = await chrome.storage.local.get(['cfsLlmChatProvider']);
-      const chatProv = String(llmChatStore.cfsLlmChatProvider || 'lamini').toLowerCase();
-      const useRemoteChat = chatProv === 'openai' || chatProv === 'claude' || chatProv === 'gemini' || chatProv === 'grok';
+      const chatBackend = await getLocalAiChatBackend();
+      const useRemoteChat = chatBackend.kind === 'cloud' || chatBackend.kind === 'crai';
 
       try {
         const response = await new Promise(function(resolve) {
@@ -8555,6 +9462,11 @@
         }
 
         if (!response || !response.ok) {
+          if (handlePlannerGate(response)) {
+            chatHistory.pop();
+            renderChatMessages();
+            return;
+          }
           setChatStatus(response?.error || 'Generation failed', 'error');
           chatHistory.pop();
           renderChatMessages();
@@ -8563,6 +9475,17 @@
 
         const assistantText = (response.result?.text || '').trim();
         const modelUsed = response.result?.model || '';
+        if (response.usedFallback) {
+          const fbLabel = response.fallback === 'crai' ? 'Content Rewards AI' : 'LaMini';
+          setChatStatus(
+            'Paid model failed' +
+              (response.paidError ? ' (' + String(response.paidError).slice(0, 120) + ')' : '') +
+              '. Used ' +
+              fbLabel +
+              ' instead.',
+            ''
+          );
+        }
         chatHistory.push({
           role: 'assistant',
           content: assistantText || '(No response)',
@@ -8580,8 +9503,8 @@
         if (parsedPlan && parsedPlan.ok) {
           lastChatWorkflowPlan = parsedPlan.next;
           if (runPlanBtn) {
-            runPlanBtn.style.display = '';
-            runPlanBtn.disabled = false;
+            runPlanBtn.style.display = 'none';
+            runPlanBtn.hidden = true;
           }
           if (/\b(run|place|execute|dispatch)\b/i.test(text)) {
             setChatStatus('Running workflow plan…', 'loading');
@@ -8592,7 +9515,7 @@
               setChatStatus((planErr && planErr.message) || 'Plan run failed', 'error');
             }
           } else {
-            setChatStatus('Workflow plan ready — click Run workflow plan.', '');
+            setChatStatus('Workflow plan ready — click Send to play it on the current tab.', '');
           }
         } else if (runPlanBtn) {
           runPlanBtn.style.display = 'none';
@@ -8603,61 +9526,16 @@
         renderChatMessages();
       } finally {
         sendBtn.disabled = false;
+        if (runOnTabBtn) runOnTabBtn.disabled = false;
       }
     }
 
-    submitQuestionBtn?.addEventListener('click', async function() {
-      let lastUser = '';
-      for (let i = chatHistory.length - 1; i >= 0; i--) {
-        if (chatHistory[i].role === 'user') {
-          lastUser = typeof chatHistory[i].content === 'string' ? chatHistory[i].content.trim() : '';
-          break;
-        }
-      }
-      if (!lastUser) {
-        setChatStatus('No user message in chat yet.', 'error');
-        if (typeof setStatus === 'function') setStatus('No user message in chat yet.', 'error');
-        return;
-      }
-      submitQuestionBtn.disabled = true;
-      try {
-        let domain;
-        if (limitQaToSiteEl && limitQaToSiteEl.checked === true) {
-          domain = await getCurrentTabDomain();
-        }
-        await addWorkflowQuestion(lastUser, domain || undefined);
-        if (typeof renderWorkflowQuestionsList === 'function') await renderWorkflowQuestionsList();
-        setChatStatus('');
-        if (typeof setStatus === 'function') {
-          setStatus('Question added from chat. Link a workflow as answer from the workflow section.', 'success');
-        }
-      } catch (err) {
-        const errMsg = (err && err.message) || 'Could not submit question.';
-        setChatStatus(errMsg, 'error');
-        if (typeof setStatus === 'function') setStatus(errMsg, 'error');
-      } finally {
-        submitQuestionBtn.disabled = false;
-      }
-    });
-
-    document.getElementById('llmChatRunPlanBtn')?.addEventListener('click', async function() {
-      if (!lastChatWorkflowPlan || !lastChatWorkflowPlan.length) {
-        setChatStatus('No workflow plan in the last reply.', 'error');
-        return;
-      }
-      setChatStatus('Running workflow plan…', 'loading');
-      try {
-        await runChatWorkflowPlan(lastChatWorkflowPlan);
-        setChatStatus('Workflow plan finished.', '');
-      } catch (planErr) {
-        setChatStatus((planErr && planErr.message) || 'Plan run failed', 'error');
-      }
-    });
+    document.getElementById('llmChatRunPlanBtn')?.addEventListener('click', onRunClick);
     sendBtn.addEventListener('click', sendChat);
     inputEl.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendChat();
+        onRunClick();
       }
     });
   })();
@@ -8784,6 +9662,7 @@
         runBtn.disabled = false;
       }
     });
+    updatePageCompareSectionVisibility();
   })();
 
   async function renderQaQuestionsToAnswer() {
@@ -8863,35 +9742,6 @@
       const answeredBy = names.length ? 'Answered by: ' + names.join(', ') : 'No answers yet';
       return '<div class="workflow-question-item" style="margin:6px 0;padding:6px;background:var(--bg-secondary,#f5f5f5);border-radius:4px;"><div style="font-weight:500;">' + escapeHtml(q.text) + '</div><div class="hint" style="font-size:11px;margin-top:4px;">' + escapeHtml(answeredBy) + '</div></div>';
     }).join('');
-  }
-  function renderWorkflowAnswerTo() {
-    const wfId = (workflowSelect && workflowSelect.value && workflowSelect.value !== '__new__')
-      ? workflowSelect.value
-      : playbackWorkflow?.value;
-    const wf = wfId ? workflows?.[wfId] : null;
-    const wrap = document.getElementById('workflowAnswerToWrap');
-    const select = document.getElementById('workflowAnswerToSelect');
-    const answersList = document.getElementById('workflowAnswersList');
-    if (!wrap || !select) return;
-    wrap.style.display = (wfId && wf) ? 'block' : 'none';
-    if (!wfId || !wf) return;
-    (async function() {
-      const questions = await loadWorkflowQuestions();
-      const answers = await loadWorkflowAnswers();
-      const forThis = answers.filter(function(a) { return a.workflowId === wfId; });
-      select.innerHTML = '<option value="">— choose question —</option>' + questions.map(function(q) {
-        return '<option value="' + escapeAttr(q.id) + '">' + escapeHtml(q.text.length > 60 ? q.text.slice(0, 60) + '…' : q.text) + '</option>';
-      }).join('');
-      if (answersList) {
-        if (!forThis.length) answersList.textContent = '';
-        else answersList.textContent = 'This workflow answers: ' + forThis.map(function(a) {
-          const q = questions.find(function(qq) { return qq.id === a.questionId; });
-          let t = q ? q.text : a.questionId;
-          t = t.length > 50 ? t.slice(0, 50) + '…' : t;
-          return a.pendingKbReview ? t + ' (pending review)' : t;
-        }).join('; ');
-      }
-    })();
   }
 
   /** Open /extension/login with the same nonce handshake as Login with Whop. Optional intent=trial for copy. */
@@ -9116,18 +9966,6 @@
     if (typeof renderWorkflowQuestionsList === 'function') await renderWorkflowQuestionsList();
     setStatus('Question added. Link a workflow as answer from the workflow section.', 'success');
   });
-  document.getElementById('submitWorkflowAsAnswerBtn')?.addEventListener('click', async () => {
-    const questionId = document.getElementById('workflowAnswerToSelect')?.value?.trim();
-    const wfId = playbackWorkflow?.value;
-    const wf = wfId ? workflows?.[wfId] : null;
-    if (!questionId) { setStatus('Choose a question first.', 'error'); return; }
-    if (!wfId || !wf) { setStatus('Select a workflow first.', 'error'); return; }
-    const result = await addWorkflowAnswer(questionId, wfId, wf.name || wfId);
-    renderWorkflowAnswerTo();
-    if (typeof renderWorkflowQuestionsList === 'function') await renderWorkflowQuestionsList();
-    applyWorkflowAnswerSubmitStatus(result);
-  });
-
   function triggerQaSearch() {
     const input = document.getElementById('qaQuestionInput');
     const query = input && input.value ? input.value.trim() : '';
@@ -9354,7 +10192,7 @@
       if (!syncFileSummaryEl) return;
       const root = await getStoredProjectFolderHandle();
       if (!root) {
-        syncFileSummaryEl.textContent = 'Sync file: set project folder to read ' + GH.SYNC_STATE_FILENAME + '.';
+        syncFileSummaryEl.textContent = 'Sync file: set local folder to read ' + GH.SYNC_STATE_FILENAME + '.';
         return;
       }
       const file = await GH.readSyncStateFile(root);
@@ -9387,7 +10225,7 @@
           await persistRepoFields();
           const root = await getStoredProjectFolderHandle();
           if (!root) {
-            ghStatus('Set your project folder (extension root) to use ' + GH.SYNC_STATE_FILENAME + ' for the baseline.');
+            ghStatus('Set your local folder (extension root) to use ' + GH.SYNC_STATE_FILENAME + ' for the baseline.');
             return;
           }
           const remote = await GH.getLatestCommit(owner, repo, branch, tok);
@@ -9437,7 +10275,7 @@
           await persistRepoFields();
           const root = await getStoredProjectFolderHandle();
           if (!root) {
-            ghStatus('Set your project folder first — baseline is saved to ' + GH.SYNC_STATE_FILENAME + ' there.');
+            ghStatus('Set your local folder first — baseline is saved to ' + GH.SYNC_STATE_FILENAME + ' there.');
             return;
           }
           const remote = await GH.getLatestCommit(owner, repo, branch, getTok());
@@ -9466,7 +10304,7 @@
         await persistRepoFields();
         const root = await getStoredProjectFolderHandle();
         if (!root) {
-          setStatus('Set your project folder first (extension root for updates).', 'error');
+          setStatus('Set your local folder first (extension root for updates).', 'error');
           ghStatus('No project folder.');
           return;
         }
@@ -9518,7 +10356,7 @@
         await persistRepoFields();
         const root = await getStoredProjectFolderHandle();
         if (!root) {
-          setStatus('Set your project folder first.', 'error');
+          setStatus('Set your local folder first.', 'error');
           ghStatus('No project folder.');
           return;
         }
@@ -9561,10 +10399,10 @@
   })();
 
   document.getElementById('testsBtn')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html#tab-tests') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html#tab-mcp') });
   });
   document.getElementById('testsBtnLoggedOut')?.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html#tab-tests') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings/settings.html#tab-mcp') });
   });
 
 
@@ -9599,28 +10437,332 @@
     return dir;
   }
 
-  async function writeSourceRecordingFile(filename, blob) {
+  async function writeSourceRecordingFile(filename, blob, subdir) {
     if (!blob || !blob.size || !filename) return { ok: false };
     const safeName = String(filename).replace(/[/\\]/g, '-');
+    const safeSub = subdir ? String(subdir).replace(/[/\\]/g, '-') : '';
     try {
       const projectRoot = await getStoredProjectFolderHandle();
       if (projectRoot && typeof projectRoot.requestPermission === 'function') {
         const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
         if (perm === 'granted') {
           const segs = uploadsPathSegments.length ? uploadsPathSegments.slice() : ['recordings'];
-          const dir = await getUploadsDir(projectRoot, segs);
+          let dir = await getUploadsDir(projectRoot, segs);
+          if (dir && safeSub) dir = await dir.getDirectoryHandle(safeSub, { create: true });
           if (dir) {
             const fh = await dir.getFileHandle(safeName, { create: true });
             const writable = await fh.createWritable();
             await writable.write(blob);
             await writable.close();
             if (typeof refreshUploadsList === 'function') refreshUploadsList();
-            return { ok: true, where: 'uploads/' + segs.join('/') + '/' + safeName };
+            const rel = 'uploads/' + segs.join('/') + '/' + (safeSub ? safeSub + '/' : '') + safeName;
+            return { ok: true, where: rel };
           }
         }
       }
     } catch (_) {}
     return { ok: false };
+  }
+
+  async function writeUploadsFile(filename, blob, pathSegments) {
+    const safeName = String(filename || '').replace(/[/\\]/g, '-');
+    const segs = Array.isArray(pathSegments) && pathSegments.length
+      ? pathSegments.slice()
+      : (uploadsPathSegments || []).slice();
+    if (!safeName || !blob || !blob.size || !segs.length) {
+      return { ok: false, error: 'No folder to write to' };
+    }
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (!projectRoot) return { ok: false, error: 'Project folder not set' };
+      if (typeof projectRoot.requestPermission === 'function') {
+        const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') return { ok: false, error: 'Permission denied' };
+      }
+      const dir = await getUploadsDir(projectRoot, segs);
+      if (!dir) return { ok: false, error: 'Could not open folder' };
+      const fh = await dir.getFileHandle(safeName, { create: true });
+      const writable = await fh.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      if (typeof refreshUploadsList === 'function') refreshUploadsList();
+      return { ok: true, where: 'uploads/' + segs.join('/') + '/' + safeName };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || String(e) };
+    }
+  }
+
+  async function listUploadsFiles(pathSegments) {
+    const segs = Array.isArray(pathSegments) && pathSegments.length
+      ? pathSegments.slice()
+      : (uploadsPathSegments || []).slice();
+    if (!segs.length) return [];
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (!projectRoot) return [];
+      const dir = await getUploadsDir(projectRoot, segs);
+      if (!dir) return [];
+      const out = [];
+      for await (const [name, handle] of dir.entries()) {
+        if (handle && handle.kind === 'file') out.push({ name: name, type: 'file', id: name, url: '' });
+      }
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function readUploadsFile(filename, pathSegments) {
+    const safeName = String(filename || '').replace(/[/\\]/g, '-');
+    const segs = Array.isArray(pathSegments) && pathSegments.length
+      ? pathSegments.slice()
+      : (uploadsPathSegments || []).slice();
+    if (!safeName || !segs.length) return null;
+    try {
+      const projectRoot = await getStoredProjectFolderHandle();
+      if (!projectRoot) return null;
+      const dir = await getUploadsDir(projectRoot, segs);
+      if (!dir) return null;
+      const fh = await dir.getFileHandle(safeName, { create: false });
+      return await fh.getFile();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  let libraryPreviewObjectUrls = [];
+  let libraryPreviewPlayingAll = false;
+
+  function libraryMediaKindFromName(name, mime) {
+    const ct = String(mime || '').toLowerCase();
+    if (ct.indexOf('video/') === 0) return 'video';
+    if (ct.indexOf('audio/') === 0) return 'audio';
+    if (ct.indexOf('image/') === 0) return 'image';
+    const ext = String(name || '').split('.').pop().toLowerCase();
+    if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'avi', 'mpg', 'mpeg'].indexOf(ext) >= 0) return 'video';
+    if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wma'].indexOf(ext) >= 0) return 'audio';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'avif'].indexOf(ext) >= 0) return 'image';
+    return '';
+  }
+
+  function revokeLibraryPreviewUrls() {
+    libraryPreviewObjectUrls.forEach(function (u) {
+      try { URL.revokeObjectURL(u); } catch (_) {}
+    });
+    libraryPreviewObjectUrls = [];
+  }
+
+  function libraryPreviewPlayersList() {
+    const media = document.getElementById('libraryMediaPreviewMedia');
+    if (!media) return [];
+    return Array.prototype.slice.call(media.querySelectorAll('video, audio'));
+  }
+
+  function closeLibraryMediaPreview() {
+    const wrap = document.getElementById('libraryMediaPreview');
+    const media = document.getElementById('libraryMediaPreviewMedia');
+    const playBtn = document.getElementById('libraryMediaPreviewPlay');
+    const playAllWrap = document.getElementById('libraryMediaPreviewPlayAllWrap');
+    libraryPreviewPlayersList().forEach(function (el) {
+      try { el.pause(); } catch (_) {}
+      el.removeAttribute('src');
+      try { el.load(); } catch (_) {}
+    });
+    if (media) media.innerHTML = '';
+    revokeLibraryPreviewUrls();
+    libraryPreviewPlayingAll = false;
+    if (playBtn) {
+      playBtn.hidden = true;
+      playBtn.textContent = 'Play';
+    }
+    if (playAllWrap) playAllWrap.hidden = true;
+    if (wrap) wrap.hidden = true;
+  }
+
+  function applyLibraryPreviewPlayAllMode() {
+    const playAll = document.getElementById('libraryMediaPreviewPlayAll');
+    const playBtn = document.getElementById('libraryMediaPreviewPlay');
+    const together = !!(playAll && playAll.checked);
+    const players = libraryPreviewPlayersList();
+    players.forEach(function (el) {
+      el.controls = !together;
+      if (together) {
+        try { el.pause(); } catch (_) {}
+      }
+    });
+    if (playBtn) {
+      playBtn.hidden = !(together && players.length > 1);
+      playBtn.textContent = 'Play';
+    }
+    libraryPreviewPlayingAll = false;
+  }
+
+  async function playLibraryPreviewTogether() {
+    const players = libraryPreviewPlayersList();
+    const playBtn = document.getElementById('libraryMediaPreviewPlay');
+    if (!players.length) return;
+    if (libraryPreviewPlayingAll) {
+      players.forEach(function (el) {
+        try { el.pause(); } catch (_) {}
+      });
+      libraryPreviewPlayingAll = false;
+      if (playBtn) playBtn.textContent = 'Play';
+      return;
+    }
+    players.forEach(function (el) {
+      try { el.currentTime = 0; } catch (_) {}
+    });
+    for (let i = 0; i < players.length; i++) {
+      try {
+        await players[i].play();
+      } catch (_) {}
+    }
+    libraryPreviewPlayingAll = true;
+    if (playBtn) playBtn.textContent = 'Pause';
+  }
+
+  function mountLibraryPreviewElement(kind, url, name) {
+    let el;
+    if (kind === 'audio') {
+      el = document.createElement('audio');
+      el.controls = true;
+    } else if (kind === 'image') {
+      el = document.createElement('img');
+      el.alt = name || 'Preview';
+    } else {
+      el = document.createElement('video');
+      el.controls = true;
+      el.playsInline = true;
+    }
+    el.src = url;
+    return el;
+  }
+
+  function showLibraryMediaPreview(name, url, kind) {
+    showLibraryMediaTracksPreview(name, [{ label: name || 'Preview', kind: kind || libraryMediaKindFromName(name, ''), url: url }]);
+  }
+
+  function showLibraryMediaTracksPreview(title, tracks) {
+    const wrap = document.getElementById('libraryMediaPreview');
+    const media = document.getElementById('libraryMediaPreviewMedia');
+    const nameEl = document.getElementById('libraryMediaPreviewName');
+    const playAllWrap = document.getElementById('libraryMediaPreviewPlayAllWrap');
+    const playAll = document.getElementById('libraryMediaPreviewPlayAll');
+    const playBtn = document.getElementById('libraryMediaPreviewPlay');
+    const list = (tracks || []).filter(function (t) { return t && t.url; });
+    if (!wrap || !media || !list.length) return;
+    closeLibraryMediaPreview();
+    if (nameEl) nameEl.textContent = title || 'Preview';
+    const multi = list.length > 1;
+    if (playAllWrap) playAllWrap.hidden = !multi;
+    if (playAll) playAll.checked = multi;
+    if (multi) {
+      const grid = document.createElement('div');
+      grid.className = 'library-media-tracks';
+      list.forEach(function (t) {
+        const row = document.createElement('div');
+        row.className = 'library-media-track';
+        const lab = document.createElement('div');
+        lab.className = 'library-media-track-label';
+        lab.textContent = t.label || t.role || 'Track';
+        const el = mountLibraryPreviewElement(t.kind, t.url, t.label);
+        if (String(t.url).indexOf('blob:') === 0) libraryPreviewObjectUrls.push(t.url);
+        row.appendChild(lab);
+        row.appendChild(el);
+        grid.appendChild(row);
+      });
+      media.appendChild(grid);
+      applyLibraryPreviewPlayAllMode();
+      if (playAll && playAll.checked) playLibraryPreviewTogether();
+    } else {
+      const t = list[0];
+      const el = mountLibraryPreviewElement(t.kind, t.url, t.label || title);
+      if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.autoplay = true;
+      media.appendChild(el);
+      if (String(t.url).indexOf('blob:') === 0) libraryPreviewObjectUrls.push(t.url);
+      if (playBtn) playBtn.hidden = true;
+    }
+    wrap.hidden = false;
+    wrap.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function previewLocalRecordingDir(dirHandle, title) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    if (!layout || typeof layout.tracksFromFilenames !== 'function') return false;
+    const names = [];
+    const filesByName = {};
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== 'file') continue;
+      names.push(name);
+      filesByName[name] = handle;
+    }
+    const tracks = layout.tracksFromFilenames(names);
+    if (!tracks.length) return false;
+    const resolved = [];
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      const fh = filesByName[t.file];
+      if (!fh) continue;
+      const file = await fh.getFile();
+      const url = URL.createObjectURL(file);
+      resolved.push({ role: t.role, label: t.label, kind: t.kind, url: url });
+    }
+    if (!resolved.length) return false;
+    showLibraryMediaTracksPreview(title, resolved);
+    return true;
+  }
+
+  document.getElementById('libraryMediaPreviewClose')?.addEventListener('click', closeLibraryMediaPreview);
+  document.getElementById('libraryMediaPreviewPlay')?.addEventListener('click', function () {
+    playLibraryPreviewTogether();
+  });
+  document.getElementById('libraryMediaPreviewPlayAll')?.addEventListener('change', applyLibraryPreviewPlayAllMode);
+
+  async function getWritableUploadsDir(pathSegments) {
+    const projectRoot = await getStoredProjectFolderHandle();
+    if (!projectRoot) throw new Error('Project folder not set.');
+    const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') throw new Error('Permission denied');
+    const d = await getUploadsDir(projectRoot, pathSegments);
+    if (!d) throw new Error('Could not open folder');
+    return d;
+  }
+
+  async function deleteLocalUploadsEntry(name, kind) {
+    closeLibraryMediaPreview();
+    const d = await getWritableUploadsDir(uploadsPathSegments);
+    if (kind === 'directory') await d.removeEntry(name, { recursive: true });
+    else await d.removeEntry(name);
+  }
+
+  async function deleteLocalRecordingSession(dirHandle, trackFiles) {
+    closeLibraryMediaPreview();
+    const layout = globalThis.CFS_workflowRunMedia;
+    const folderName = uploadsPathSegments.length ? uploadsPathSegments[uploadsPathSegments.length - 1] : '';
+    const isSessionFolder = uploadsPathSegments.length > 1 && layout && typeof layout.isRecordingSessionName === 'function'
+      && layout.isRecordingSessionName(folderName);
+    if (isSessionFolder) {
+      const parentSegs = uploadsPathSegments.slice(0, -1);
+      const parent = await getWritableUploadsDir(parentSegs);
+      await parent.removeEntry(folderName, { recursive: true });
+      uploadsPathSegments = parentSegs;
+      return folderName;
+    }
+    const names = (trackFiles || []).map(function (t) { return t.file; }).filter(Boolean);
+    for (let i = 0; i < names.length; i++) {
+      try { await dirHandle.removeEntry(names[i]); } catch (_) {}
+    }
+    return names.length ? (names.length + ' file(s)') : '';
+  }
+
+  function appendUploadsDeleteButton(row, label, title, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline btn-small';
+    btn.textContent = label || 'Delete';
+    btn.title = title || 'Delete';
+    btn.addEventListener('click', onClick);
+    row.appendChild(btn);
   }
 
   function resolveProfileId(profileId, profileName) {
@@ -9648,7 +10790,7 @@
     const emptyEl = document.getElementById('uploadsEmpty');
     const projectRoot = await getStoredProjectFolderHandle();
     if (!projectRoot) {
-      if (pathBar) pathBar.textContent = 'Set project folder first.';
+      if (pathBar) pathBar.textContent = 'Set local folder first.';
       if (listEl) listEl.innerHTML = '';
       if (parentRow) parentRow.style.display = 'none';
       if (emptyEl) emptyEl.style.display = 'block';
@@ -9723,18 +10865,51 @@
     });
     if (!listEl) return;
     listEl.innerHTML = '';
+    closeLibraryMediaPreview();
     if (emptyEl) emptyEl.style.display = entries.length ? 'none' : 'block';
+    const layout = globalThis.CFS_workflowRunMedia;
+    const fileNames = entries.filter(function (e) { return e.kind === 'file'; }).map(function (e) { return e.name; });
+    const sessionTracks = layout && typeof layout.tracksFromFilenames === 'function' ? layout.tracksFromFilenames(fileNames) : [];
+    if (sessionTracks.length >= 2) {
+      const sessionRow = document.createElement('div');
+      sessionRow.className = 'uploads-entry';
+      const sessionLabel = document.createElement('span');
+      sessionLabel.className = 'uploads-entry-name';
+      sessionLabel.textContent = '🎬 Recording (' + sessionTracks.length + ' tracks)';
+      sessionRow.appendChild(sessionLabel);
+      const previewAll = document.createElement('button');
+      previewAll.type = 'button';
+      previewAll.className = 'btn btn-outline btn-small';
+      previewAll.textContent = 'Preview all';
+      previewAll.title = 'Play webcam, screen, computer audio, and microphone together or one at a time';
+      previewAll.addEventListener('click', function () {
+        (async function () {
+          const ok = await previewLocalRecordingDir(dir, uploadsPathSegments[uploadsPathSegments.length - 1] || 'Recording');
+          if (!ok) setStatus('No playable recording tracks in this folder.', 'error');
+        })();
+      });
+      sessionRow.appendChild(previewAll);
+      appendUploadsDeleteButton(sessionRow, 'Delete', 'Delete this recording', function () {
+        (async function () {
+          const folderName = uploadsPathSegments[uploadsPathSegments.length - 1] || 'this recording';
+          if (!window.confirm('Delete recording "' + folderName + '" and all of its files? This cannot be undone.')) return;
+          try {
+            const deleted = await deleteLocalRecordingSession(dir, sessionTracks);
+            setStatus(deleted ? ('Deleted ' + deleted + '.') : 'Deleted recording.', 'success');
+            refreshUploadsList();
+          } catch (err) {
+            setStatus('Delete failed: ' + (err.message || err), 'error');
+          }
+        })();
+      });
+      listEl.appendChild(sessionRow);
+    }
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       const row = document.createElement('div');
       row.className = 'uploads-entry';
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color,#eee);';
       const label = document.createElement('span');
-      label.style.flex = '1';
-      label.style.minWidth = '0';
-      label.style.overflow = 'hidden';
-      label.style.textOverflow = 'ellipsis';
-      label.style.whiteSpace = 'nowrap';
+      label.className = 'uploads-entry-name';
       if (e.kind === 'directory') {
         // Clickable folder name
         const folderLink = document.createElement('a');
@@ -9765,7 +10940,107 @@
           refreshUploadsList();
         });
         row.appendChild(openBtn);
+        if (layout && typeof layout.isRecordingSessionName === 'function' && layout.isRecordingSessionName(e.name)) {
+          const previewFolderBtn = document.createElement('button');
+          previewFolderBtn.type = 'button';
+          previewFolderBtn.className = 'btn btn-outline btn-small';
+          previewFolderBtn.textContent = 'Preview';
+          previewFolderBtn.title = 'Play the recording tracks in this folder';
+          previewFolderBtn.addEventListener('click', function () {
+            (async function () {
+              try {
+                const root = await getStoredProjectFolderHandle();
+                if (!root) { setStatus('Project folder not set.', 'error'); return; }
+                const d = await getUploadsDir(root, uploadsPathSegments);
+                if (!d) return;
+                const child = await d.getDirectoryHandle(e.name, { create: false });
+                const ok = await previewLocalRecordingDir(child, e.name);
+                if (!ok) setStatus('No playable recording tracks in this folder.', 'error');
+              } catch (err) {
+                setStatus('Preview failed: ' + (err.message || err), 'error');
+              }
+            })();
+          });
+          row.appendChild(previewFolderBtn);
+        }
+        const recFolder = layout && typeof layout.isRecordingSessionName === 'function' && layout.isRecordingSessionName(e.name);
+        appendUploadsDeleteButton(row, 'Delete', recFolder ? 'Delete this recording' : 'Delete this folder', function () {
+          (async function () {
+            const msg = recFolder
+              ? 'Delete recording "' + e.name + '" and all of its files? This cannot be undone.'
+              : 'Delete folder "' + e.name + '" and everything in it? This cannot be undone.';
+            if (!window.confirm(msg)) return;
+            try {
+              await deleteLocalUploadsEntry(e.name, 'directory');
+              setStatus('Deleted "' + e.name + '".', 'success');
+              refreshUploadsList();
+            } catch (err) {
+              setStatus('Delete failed: ' + (err.message || err), 'error');
+            }
+          })();
+        });
       } else {
+        const kind = libraryMediaKindFromName(e.name, '');
+        if (kind) {
+          const previewBtn = document.createElement('button');
+          previewBtn.type = 'button';
+          previewBtn.className = 'btn btn-outline btn-small';
+          previewBtn.textContent = 'Preview';
+          previewBtn.title = 'Play this file in the side panel';
+          previewBtn.dataset.name = e.name;
+          previewBtn.addEventListener('click', function () {
+            (async function () {
+              const root = await getStoredProjectFolderHandle();
+              if (!root) { setStatus('Project folder not set.', 'error'); return; }
+              const d = await getUploadsDir(root, uploadsPathSegments);
+              if (!d) return;
+              try {
+                const fh = await d.getFileHandle(e.name, { create: false });
+                const file = await fh.getFile();
+                const url = URL.createObjectURL(file);
+                showLibraryMediaPreview(e.name, url, libraryMediaKindFromName(e.name, file.type));
+              } catch (err) {
+                setStatus('Preview failed: ' + (err.message || err), 'error');
+              }
+            })();
+          });
+          row.appendChild(previewBtn);
+          if (kind === 'audio' || kind === 'video') {
+            const transcribeBtn = document.createElement('button');
+            transcribeBtn.type = 'button';
+            transcribeBtn.className = 'btn btn-outline btn-small';
+            transcribeBtn.textContent = 'Transcribe';
+            transcribeBtn.title = 'Send this file to Transcribe below';
+            transcribeBtn.addEventListener('click', function () {
+              (async function () {
+                const root = await getStoredProjectFolderHandle();
+                if (!root) { setStatus('Project folder not set.', 'error'); return; }
+                const d = await getUploadsDir(root, uploadsPathSegments);
+                if (!d) return;
+                try {
+                  const fh = await d.getFileHandle(e.name, { create: false });
+                  const file = await fh.getFile();
+                  const api = window.CFS_libraryTranscribe;
+                  if (!api || typeof api.setSource !== 'function') {
+                    setStatus('Transcribe panel is not available.', 'error');
+                    return;
+                  }
+                  api.setSource({
+                    name: e.name,
+                    blob: file,
+                    kind: 'local',
+                    pathSegments: uploadsPathSegments.slice(),
+                    mediaType: libraryMediaKindFromName(e.name, file.type)
+                  });
+                  setStatus('Ready to transcribe “' + e.name + '”.', 'success');
+                } catch (err) {
+                  setStatus('Transcribe failed: ' + (err.message || err), 'error');
+                }
+              })();
+            });
+            row.appendChild(transcribeBtn);
+          }
+        }
         const dlBtn = document.createElement('button');
         dlBtn.type = 'button';
         dlBtn.className = 'btn btn-outline btn-small';
@@ -9795,6 +11070,18 @@
           })();
         });
         row.appendChild(dlBtn);
+        appendUploadsDeleteButton(row, 'Delete', 'Delete this file', function () {
+          (async function () {
+            if (!window.confirm('Delete "' + e.name + '"? This cannot be undone.')) return;
+            try {
+              await deleteLocalUploadsEntry(e.name, 'file');
+              setStatus('Deleted "' + e.name + '".', 'success');
+              refreshUploadsList();
+            } catch (err) {
+              setStatus('Delete failed: ' + (err.message || err), 'error');
+            }
+          })();
+        });
       }
       listEl.appendChild(row);
     }
@@ -9815,7 +11102,7 @@
     const safe = name.trim().replace(/[/\\?*:|<>"]/g, '_');
     if (!safe) { setStatus('Invalid name.', 'error'); return; }
     const projectRoot = await getStoredProjectFolderHandle();
-    if (!projectRoot) { setStatus('Set project folder first.', 'error'); return; }
+    if (!projectRoot) { setStatus('Set local folder first.', 'error'); return; }
     try {
       const perm = await projectRoot.requestPermission({ mode: 'readwrite' });
       if (perm !== 'granted') throw new Error('Permission denied');
@@ -9831,7 +11118,7 @@
 
   document.getElementById('uploadsUploadBtn')?.addEventListener('click', async function() {
     const projectRoot = await getStoredProjectFolderHandle();
-    if (!projectRoot) { setStatus('Set project folder first.', 'error'); return; }
+    if (!projectRoot) { setStatus('Set local folder first.', 'error'); return; }
     if (!uploadsPathSegments.length) { setStatus('Open a project first (click one above).', 'error'); return; }
     if (typeof showOpenFilePicker !== 'function') {
       setStatus('Upload requires a browser that supports File System Access API (Chrome/Edge).', 'error');
@@ -10170,9 +11457,12 @@
   });
 
   document.getElementById('exportWorkflowJson')?.addEventListener('click', async () => {
-    const wfId = playbackWorkflow?.value || Object.keys(workflows || {})[0];
+    const planId = workflowSelect?.value;
+    const wfId = (planId && planId !== '__new__' && workflows[planId])
+      ? planId
+      : (playbackWorkflow?.value || Object.keys(workflows || {})[0]);
     if (!wfId || !workflows[wfId]) {
-      setStatus('No workflow to export.', 'error');
+      setStatus('Select a workflow first.', 'error');
       return;
     }
     const wf = workflows[wfId];
@@ -10269,7 +11559,6 @@
     renderRunsList(realWfId);
     renderRecordingMode();
     renderWorkflowUrlPattern();
-    if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
     updatePlanRecordUiForSelection(realWfId);
     void syncAutoDiscoveryState();
     if (realWfId) persistSelectedWorkflowId(realWfId);
@@ -10280,9 +11569,7 @@
 
   planWorkflowFamily?.addEventListener('change', function() {
     if (!workflowSelect || !planWorkflowFamily) return;
-    const filteredIds = Object.keys(workflows || {}).filter(function(id) {
-      return workflowMatchesCurrentTab(workflows[id]) && !isTestWorkflow(workflows[id]);
-    });
+    const filteredIds = navigableWorkflowIds();
     if (planWorkflowFamily.value === '__new__') {
       workflowSelect.value = '__new__';
     } else {
@@ -10307,6 +11594,11 @@
     if (!id || !workflows[id]) return;
     workflowSelect.value = id;
     workflowSelect.dispatchEvent(new Event('change'));
+  });
+
+  planNewWorkflowVersionBtn?.addEventListener('click', async function() {
+    const wfId = workflowSelect && workflowSelect.value;
+    await createNewVersionForUi(wfId);
   });
 
   planDeleteWorkflowVersionBtn?.addEventListener('click', async function() {
@@ -10341,22 +11633,21 @@
   function movePlaybackBlockTo(destination) {
     const block = document.getElementById('sharedPlaybackBlock');
     if (!block) return;
-    if (destination === 'plan') {
-      const slot = document.getElementById('planEditRunSlot');
-      if (slot && block.parentNode !== slot) {
-        slot.appendChild(block);
-        const wfId = workflowSelect?.value;
-        if (wfId && wfId !== '__new__' && playbackWorkflow) {
-          playbackWorkflow.value = wfId;
-          playbackWorkflow.dispatchEvent(new Event('change'));
-        }
-      }
-    } else {
-      const slot = document.getElementById('libraryPlaybackSlot');
-      if (slot && block.parentNode !== slot) {
-        slot.appendChild(block);
+    if (destination !== 'plan') return;
+    const slot = document.getElementById('planEditRunSlot');
+    if (slot && !slot.contains(block)) {
+      slot.appendChild(block);
+      const wfId = workflowSelect?.value;
+      if (wfId && wfId !== '__new__' && playbackWorkflow) {
+        playbackWorkflow.value = wfId;
+        playbackWorkflow.dispatchEvent(new Event('change'));
       }
     }
+  }
+
+  function showPlanEditAndRunSubtab() {
+    const editTab = document.querySelector('#planWorkflowSubTabs .sub-tab[data-subtab="editrun"]');
+    if (editTab && !editTab.classList.contains('active')) editTab.click();
   }
 
   document.querySelectorAll('#planWorkflowSubTabs .sub-tab').forEach(function(tab) {
@@ -10371,8 +11662,6 @@
         movePlaybackBlockTo('plan');
         applyPlanWorkflowSelectToPlaybackDropdown({ silent: true });
         renderStepsList();
-      } else {
-        movePlaybackBlockTo('library');
       }
       void syncAutoDiscoveryState();
     });
@@ -10394,6 +11683,13 @@
       if (currentTabUrl) tabOrigin = new URL(currentTabUrl).origin;
     } catch (_) {}
     if (tabOrigin) wf.urlPattern = { origin: tabOrigin, pathPattern: '*' };
+    var planPicker = window.CFS_planWorkflowPicker;
+    var planCat = planPicker && typeof planPicker.getSelectedCategoryId === 'function'
+      ? planPicker.getSelectedCategoryId() : '';
+    var catUi = window.CFS_libraryCategories;
+    var libraryCat = catUi && typeof catUi.getState === 'function' ? catUi.getState().selectedId : '';
+    var selectedCat = planCat || libraryCat;
+    if (selectedCat) wf.categories = [selectedCat];
     workflows[id] = wf;
     await chrome.storage.local.set({ workflows });
     persistWorkflowToProjectFolder(id);
@@ -10410,7 +11706,14 @@
   }
 
   document.getElementById('recordingCreateWorkflowBtn')?.addEventListener('click', async () => {
-    const created = await createPlanWorkflow();
+    const nameInput = document.getElementById('recordingNewWorkflowName');
+    const name = (nameInput?.value || '').trim();
+    if (!name) {
+      setStatus('Enter a workflow name.', 'error');
+      nameInput?.focus();
+      return;
+    }
+    const created = await createPlanWorkflow(name);
     if (!created) return;
     setStatus(
       created.syncOk
@@ -10418,6 +11721,11 @@
         : 'Saved in this browser. Sign in with Whop to sync to your account.',
       'success'
     );
+  });
+  document.getElementById('recordingNewWorkflowName')?.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    document.getElementById('recordingCreateWorkflowBtn')?.click();
   });
 
   document.getElementById('selectPersonalInfoOnPageBtn')?.addEventListener('click', async () => {
@@ -10859,6 +12167,7 @@
           discoveryLine;
       }
       void syncAutoDiscoveryState();
+      updatePageCompareSectionVisibility();
     } catch (err) {
       if (parallelPlanMediaRecording) {
         try {
@@ -10876,26 +12185,15 @@
       }
       recordingTabId = null;
       setStatus('Failed to start: ' + (err.message || err), 'error');
+      updatePageCompareSectionVisibility();
     }
   });
 
-  /** Call QC offscreen to transcribe an audio blob. Returns { ok, text?, error? } (text from result.result.text or result.text). */
   function transcribeAudioViaQC(blob) {
-    return new Promise(function(resolve) {
-      chrome.runtime.sendMessage(
-        { type: 'QC_CALL', method: 'transcribeAudio', args: [blob] },
-        function(msg) {
-          if (chrome.runtime.lastError) {
-            resolve({ ok: false, error: chrome.runtime.lastError.message });
-            return;
-          }
-          msg = msg || { ok: false, error: 'No response' };
-          const text = (msg.result && msg.result.text != null) ? String(msg.result.text) : (msg.text != null ? String(msg.text) : '');
-          if (msg.ok && text !== undefined) resolve({ ok: true, text: text });
-          else resolve({ ok: !!msg.ok, text: text, error: msg.error || (msg.ok ? '' : 'Transcription failed') });
-        }
-      );
-    });
+    if (typeof window.CFS_transcribeAudioViaQC === 'function') {
+      return window.CFS_transcribeAudioViaQC(blob);
+    }
+    return Promise.resolve({ ok: false, error: 'Transcribe helper is not available' });
   }
 
   async function waitForStepHandlersReady(tabId, timeoutMs) {
@@ -10968,6 +12266,18 @@
             runData._webcamCaptureBlob = fromIdb.webcamBlob;
             runData._webcamCaptureMimeType = fromIdb.webcamBlob.type || 'video/webm';
           }
+          if (fromIdb.screenBlob && fromIdb.screenBlob.size > 0) {
+            runData._screenCaptureBlob = fromIdb.screenBlob;
+            runData._screenCaptureMimeType = fromIdb.screenBlob.type || 'video/webm';
+          }
+          if (fromIdb.systemBlob && fromIdb.systemBlob.size > 0) {
+            runData._systemCaptureBlob = fromIdb.systemBlob;
+            runData._systemCaptureMimeType = fromIdb.systemBlob.type || 'audio/webm';
+          }
+          if (fromIdb.micBlob && fromIdb.micBlob.size > 0) {
+            runData._micCaptureBlob = fromIdb.micBlob;
+            runData._micCaptureMimeType = fromIdb.micBlob.type || 'audio/webm';
+          }
         }
       } catch (_) {}
     }
@@ -10986,7 +12296,11 @@
     delete runData._webcamCaptureMimeType;
     delete runData._mediaCaptureBlob;
     delete runData._webcamCaptureBlob;
+    delete runData._screenCaptureBlob;
+    delete runData._systemCaptureBlob;
+    delete runData._micCaptureBlob;
     let saved = false;
+    if (capMeta && capMeta.mediaCaptureDir) runData.mediaCaptureDir = capMeta.mediaCaptureDir;
     if (capMeta && capMeta.mediaCaptureFile) {
       runData.mediaCaptureFile = capMeta.mediaCaptureFile;
       runData.mediaCaptureMimeType = capMeta.mediaCaptureMimeType;
@@ -10997,11 +12311,40 @@
       runData.webcamCaptureMimeType = capMeta.webcamCaptureMimeType;
       saved = true;
     }
+    ['screenCaptureFile', 'systemCaptureFile', 'micCaptureFile'].forEach(function (k) {
+      if (capMeta && capMeta[k]) {
+        runData[k] = capMeta[k];
+        saved = true;
+      }
+    });
+    ['screenCaptureMimeType', 'systemCaptureMimeType', 'micCaptureMimeType'].forEach(function (k) {
+      if (capMeta && capMeta[k]) runData[k] = capMeta[k];
+    });
     if (capMeta && capMeta.mediaCaptureAudioFile) {
       runData.mediaCaptureAudioFile = capMeta.mediaCaptureAudioFile;
       runData.mediaCaptureAudioMimeType = capMeta.mediaCaptureAudioMimeType;
     }
-    return { savedToFolder: saved };
+    if (capMeta && capMeta.mediaCaptureSource) runData.mediaCaptureSource = capMeta.mediaCaptureSource;
+    [
+      'mediaCaptureUrl', 'webcamCaptureUrl', 'mediaCaptureAudioUrl',
+      'screenCaptureUrl', 'systemCaptureUrl', 'micCaptureUrl',
+      'mediaCaptureMediaId', 'webcamCaptureMediaId', 'mediaCaptureAudioMediaId',
+      'screenCaptureMediaId', 'systemCaptureMediaId', 'micCaptureMediaId',
+    ].forEach(function (k) {
+      if (capMeta && capMeta[k]) runData[k] = capMeta[k];
+    });
+    if (capMeta && capMeta.savedToHighLevel) saved = true;
+    return { savedToFolder: saved, savedToHighLevel: !!(capMeta && capMeta.savedToHighLevel) };
+  }
+
+  async function planMediaMissHint() {
+    const layout = globalThis.CFS_workflowRunMedia;
+    let loggedIn = false;
+    try { loggedIn = typeof isWhopLoggedIn === 'function' && (await isWhopLoggedIn()); } catch (_) {}
+    let hasFolder = false;
+    try { hasFolder = !!(await getStoredProjectFolderHandle()); } catch (_) {}
+    if (layout && typeof layout.missSaveHint === 'function') return layout.missSaveHint(loggedIn, hasFolder);
+    return ' Sign in to save recordings to HighLevel, or set a local folder to save them on disk.';
   }
 
   document.getElementById('stopRecord').addEventListener('click', async () => {
@@ -11053,6 +12396,7 @@
       const instrEl = document.getElementById('recordingInstruction');
       if (instrEl) instrEl.style.display = 'none';
       void syncAutoDiscoveryState();
+      updatePageCompareSectionVisibility();
     }
 
     if (!stopTabId) return;
@@ -11125,7 +12469,7 @@
             (mediaRes.dataUrl || mediaRes.webcamDataUrl || mediaRes.captureInIdb) &&
             !mediaApply.savedToFolder
           ) {
-            extra += ' Connect a project folder to save the capture file next to the run JSON.';
+            extra += await planMediaMissHint();
           }
           setStatus(`Appended ${res.actions.length} actions. Re-analyze to merge.${extra}`, 'success');
         } else if (mode === 'insert' && typeof insertAt === 'number' && wf.analyzed?.actions?.length) {
@@ -11148,24 +12492,19 @@
               try {
                 const cap = await CFS_planCaptureIdb.take(String(mediaRes.runId));
                 if (cap) {
-                  if (cap.mainBlob && cap.mainBlob.size > 0) {
-                    const m = await writeWorkflowRunMediaCaptureBlob(
-                      wfId,
-                      res.runId,
-                      cap.mainBlob,
-                      cap.mainBlob.type || 'video/webm'
-                    );
-                    if (m && m.mediaCaptureFile) savedAny = true;
-                  }
-                  if (cap.webcamBlob && cap.webcamBlob.size > 0) {
-                    const w = await writeWorkflowRunWebcamCaptureBlob(
-                      wfId,
-                      res.runId,
-                      cap.webcamBlob,
-                      cap.webcamBlob.type || 'video/webm'
-                    );
-                    if (w && w.webcamCaptureFile) savedAny = true;
-                  }
+                  const m = await persistWorkflowRunMedia(wfId, res.runId, {
+                    mainBlob: cap.mainBlob,
+                    webcamBlob: cap.webcamBlob,
+                    screenBlob: cap.screenBlob,
+                    systemBlob: cap.systemBlob,
+                    micBlob: cap.micBlob,
+                    mainMime: cap.mainBlob && cap.mainBlob.type,
+                    webcamMime: cap.webcamBlob && cap.webcamBlob.type,
+                    screenMime: cap.screenBlob && cap.screenBlob.type,
+                    systemMime: cap.systemBlob && cap.systemBlob.type,
+                    micMime: cap.micBlob && cap.micBlob.type,
+                  });
+                  if (m && (m.savedToFolder || m.savedToHighLevel)) savedAny = true;
                 }
               } catch (_) {}
             }
@@ -11176,7 +12515,7 @@
                 mediaRes.dataUrl,
                 inferMimeFromDataUrl(mediaRes.dataUrl)
               );
-              if (capMeta && capMeta.mediaCaptureFile) savedAny = true;
+              if (capMeta && (capMeta.mediaCaptureFile || capMeta.savedToHighLevel)) savedAny = true;
             }
             if (mediaRes.webcamDataUrl) {
               const wMeta = await writeWorkflowRunWebcamCapture(
@@ -11185,10 +12524,10 @@
                 mediaRes.webcamDataUrl,
                 inferMimeFromDataUrl(mediaRes.webcamDataUrl)
               );
-              if (wMeta && wMeta.webcamCaptureFile) savedAny = true;
+              if (wMeta && (wMeta.webcamCaptureFile || wMeta.savedToHighLevel)) savedAny = true;
             }
             if (!savedAny) {
-              extra += ' Connect a project folder to save the media capture.';
+              extra += await planMediaMissHint();
             }
           }
           setStatus(`Inserted ${res.actions.length} actions at step ${insertAt}.${extra}`, 'success');
@@ -11207,7 +12546,7 @@
             (mediaRes.dataUrl || mediaRes.webcamDataUrl || mediaRes.captureInIdb) &&
             !mediaApply.savedToFolder
           ) {
-            extra += ' Connect a project folder to save the capture file next to the run JSON.';
+            extra += await planMediaMissHint();
           }
           setStatus(`Recorded ${res.actions.length} actions. Record more runs for better analysis.${extra}`, 'success');
         }
@@ -11232,9 +12571,11 @@
         const idx = parseInt(btn.dataset.runIndex, 10);
         const wf = workflows[wfId];
         if (!wf?.runs || idx < 0 || idx >= wf.runs.length) return;
+        const removed = wf.runs[idx];
         wf.runs.splice(idx, 1);
         workflows[wfId] = wf;
         await chrome.storage.local.set({ workflows });
+        try { await deletePersistedRunMedia(wfId, removed); } catch (_) {}
         renderRunsList(wfId);
         if (wf.runs.length === 0) {
           wf.analyzed = null;
@@ -11285,7 +12626,6 @@
     renderWorkflowFormFields();
     renderWorkflowUrlPattern();
     renderWorkflowAlwaysOnPanel();
-    if (typeof renderWorkflowAnswerTo === 'function') renderWorkflowAnswerTo();
     if (typeof updateWorkflowLastRunStatus === 'function') updateWorkflowLastRunStatus();
     renderStepsList();
     renderExecutionsList();
@@ -11293,13 +12633,7 @@
     const wf = workflows[wfId];
     const rowDataEl = document.getElementById('rowData');
     if (rowDataEl) rowDataEl.placeholder = ROW_DATA_PLACEHOLDER;
-    renderQualityInputsList();
-    renderQualityOutputsList();
-    renderQualityGroupContainer();
-    renderQualityStrategy();
     renderGenerationSettings();
-    showTranscriptInPreview(null);
-    clearQualityResults();
     const dataDetails = document.getElementById('workflowDataDetails');
     if (dataDetails && wfId) dataDetails.open = true;
     void syncAutoDiscoveryState();
@@ -11332,22 +12666,8 @@
   });
 
   document.getElementById('workflowNewVersionBtn')?.addEventListener('click', async function() {
-    const wfId = playbackWorkflow?.value;
-    if (!wfId || !workflows[wfId]) {
-      setStatus('Select a workflow first.', 'error');
-      return;
-    }
-    const newId = await saveAsNewVersion(wfId);
-    if (newId) {
-      playbackWorkflow.value = newId;
-      if (workflowSelect) {
-        workflowSelect.value = newId;
-        syncPlanWorkflowPickersFromHiddenSelect();
-        renderRunsList(newId);
-      }
-      renderStepsList();
-      renderWorkflowFormFields();
-    }
+    const wfId = playbackWorkflow?.value || workflowSelect?.value;
+    await createNewVersionForUi(wfId);
   });
 
   document.getElementById('recordWorkflowBtn')?.addEventListener('click', function() {
@@ -11776,368 +13096,13 @@
     return false;
   });
 
-  function applyDiscoveredConfig(groups) {
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    if (!wf) return;
-    const best = groups[0];
-    if (!best) return;
-    const step = getOrCreateQualityCheckStep(wf);
-    if (best.containerSelectors?.length) {
-      step.groupContainer = { selectors: best.containerSelectors };
-      step.groupMode = 'last';
-    }
-    if (best.inputSelectors?.length) {
-      step.inputs = [{ source: 'page', selectors: best.inputSelectors }];
-    }
-    if (best.outputs?.length) {
-      step.outputs = best.outputs.map((o) => ({
-        selectors: o.selectors || [],
-        mediaSelectors: o.checkType === 'audio' ? (o.selectors || []) : null,
-        checkType: o.checkType || 'audio',
-      }));
-    }
-    step.enabled = (step.inputs?.length || 0) > 0 && (step.outputs?.length || 0) > 0;
-    workflows[wfId] = wf;
-    chrome.storage.local.set({ workflows });
-    renderQualityInputsList();
-    renderQualityOutputsList();
-    renderQualityGroupContainer();
-  }
-
-  function getQualityInputVariables(wfId) {
-    const keys = new Set();
-    const wf = workflows[wfId];
-    for (const a of wf?.analyzed?.actions || []) {
-      const k = a.variableKey || a.placeholder || a.name;
-      if (k) keys.add(k);
-      if (a.saveAsVariable) keys.add(a.saveAsVariable);
-    }
-    return [...keys];
-  }
-
-  function renderQualityInputsList() {
-    const list = document.getElementById('qualityInputsList');
-    if (!list) return;
-    const varSel = document.getElementById('qualityInputVariable');
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const qc = getQualityCheckConfig(wf);
-    const inputs = qc.inputs || [];
-    if (!list) return;
-
-    const vars = getQualityInputVariables(wfId);
-    if (varSel) {
-      varSel.innerHTML = '<option value="">-- Or add variable as input --</option>' + vars.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
-      varSel.onchange = async () => {
-        if (!wf || !varSel.value) return;
-        const v = varSel.value;
-        const step = getOrCreateQualityCheckStep(wf);
-        const inp = step.inputs || [];
-        inp.push({ source: 'variable', variableKey: v });
-        step.inputs = inp;
-        step.enabled = inp.length > 0 && (step.outputs || []).length > 0;
-        workflows[wfId] = wf;
-        await chrome.storage.local.set({ workflows });
-        renderQualityInputsList();
-        varSel.value = '';
-        setStatus('Variable added as input.', 'success');
-      };
-    }
-
-    if (inputs.length === 0) {
-      list.innerHTML = '';
-      list.style.display = 'none';
-      return;
-    }
-    list.style.display = 'block';
-    list.innerHTML = inputs.map((inp, i) => {
-      const label = inp.source === 'variable' ? `Variable: ${inp.variableKey}` : formatSelectorForDisplay(inp.selectors || []);
-      return `
-      <div class="quality-input-item" data-index="${i}">
-        <span>Input ${i + 1}:</span>
-        <code class="quality-selector-preview">${escapeHtml(label)}</code>
-        <button class="btn btn-outline" data-remove-input="${i}" style="padding:2px 6px;font-size:11px">Clear</button>
-      </div>
-    `;
-    }).join('');
-    list.querySelectorAll('[data-remove-input]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const idx = parseInt(btn.dataset.removeInput, 10);
-        const step = getQualityCheckStep(workflows[wfId]);
-        if (step?.inputs) {
-          step.inputs.splice(idx, 1);
-          step.enabled = (step.inputs?.length || 0) > 0 && (step.outputs?.length || 0) > 0;
-          await chrome.storage.local.set({ workflows });
-          renderQualityInputsList();
-          setStatus('Input cleared.', 'success');
-        }
-      });
-    });
-  }
-
-  function renderQualityOutputsList() {
-    const list = document.getElementById('qualityOutputsList');
-    if (!list) return;
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const outputs = getQualityCheckConfig(wf).outputs || [];
-    if (!list) return;
-    if (outputs.length === 0) {
-      list.innerHTML = '';
-      list.style.display = 'none';
-      showTranscriptInPreview(null);
-      clearQualityResults();
-      return;
-    }
-    list.style.display = 'block';
-    const hasAudio = outputs.some((o) => (o.checkType || 'text') === 'audio');
-    const prevAllRow = document.getElementById('qualityPreviewAllRow');
-    if (prevAllRow) {
-      prevAllRow.style.display = hasAudio ? 'flex' : 'none';
-      if (hasAudio) {
-        const groupSel = document.getElementById('qualityPreviewGroupMode');
-        if (groupSel && !groupSel.dataset.previewBound) {
-          groupSel.dataset.previewBound = '1';
-          const gm = getQualityCheckConfig(workflows[wfId]).groupMode ?? 'last';
-          groupSel.value = String(typeof gm === 'number' ? gm : gm);
-        }
-        const btn = document.getElementById('previewAllTranscripts');
-        if (btn && !btn.dataset.bound) {
-          btn.dataset.bound = '1';
-          btn.addEventListener('click', () => previewAllTranscripts(false));
-        }
-        const tabBtn = document.getElementById('previewAllTabAudio');
-        if (tabBtn && !tabBtn.dataset.bound) {
-          tabBtn.dataset.bound = '1';
-          tabBtn.addEventListener('click', () => previewAllTranscripts(true));
-        }
-        const clearCacheBtn = document.getElementById('clearTranscriptCache');
-        if (clearCacheBtn && !clearCacheBtn.dataset.bound) {
-          clearCacheBtn.dataset.bound = '1';
-          clearCacheBtn.addEventListener('click', async () => {
-            const w = workflows[playbackWorkflow.value];
-            const step = getQualityCheckStep(w);
-            if (step) {
-              step.transcriptCache = {};
-              workflows[playbackWorkflow.value] = w;
-              await chrome.storage.local.set({ workflows });
-              setStatus('Transcript cache cleared.', 'success');
-            }
-          });
-        }
-      }
-    }
-    const prev = document.getElementById('qualityTranscriptPreview');
-    const txt = document.getElementById('qualityTranscriptText');
-    if (hasAudio && prev && txt) {
-      prev.style.display = 'block';
-      if (!txt.textContent.trim()) {
-        txt.textContent = 'Click "Preview transcript" or "Tab audio" above to capture and see the transcript here.';
-        txt.classList.add('quality-transcript-placeholder');
-      }
-    }
-    list.innerHTML = outputs.map((o, i) => {
-      const selDisplay = formatSelectorForDisplay(o.selectors || o.mediaSelectors || []);
-      const ct = o.checkType || 'text';
-      const isAudio = ct === 'audio';
-      const isPresence = ct === 'presence';
-      return `
-      <div class="quality-output-item" data-index="${i}">
-        <span>Output ${i + 1}:</span>
-        <select class="quality-output-type" data-index="${i}" title="Text: compare DOM text. Audio: transcribe & compare. Presence: verify element exists.">
-          <option value="presence" ${isPresence ? 'selected' : ''}>Presence</option>
-          <option value="text" ${ct === 'text' ? 'selected' : ''}>Text</option>
-          <option value="audio" ${isAudio ? 'selected' : ''}>Audio</option>
-        </select>
-        <code class="quality-selector-preview">${escapeHtml(selDisplay)}</code>
-        ${isAudio ? `<button class="btn btn-outline" data-preview-transcript="${i}" style="padding:2px 6px;font-size:11px">Preview transcript</button><button class="btn btn-outline" data-preview-tab-audio="${i}" style="padding:2px 6px;font-size:11px" title="Capture tab audio (cross-origin). If prompted, select the tab in the picker.">Tab audio</button>` : ''}
-      </div>
-    `;
-    }).join('');
-    list.querySelectorAll('.quality-output-type').forEach((sel) => {
-      sel.addEventListener('change', async () => {
-        const idx = parseInt(sel.dataset.index, 10);
-        const wf = workflows[playbackWorkflow.value];
-        const step = getQualityCheckStep(wf);
-        if (step?.outputs?.[idx]) {
-          step.outputs[idx].checkType = sel.value;
-          await chrome.storage.local.set({ workflows });
-          renderQualityOutputsList();
-        }
-      });
-    });
-    list.querySelectorAll('[data-preview-transcript]').forEach(btn => {
-      btn.addEventListener('click', () => previewAudioTranscript(parseInt(btn.dataset.previewTranscript, 10), false));
-    });
-    list.querySelectorAll('[data-preview-tab-audio]').forEach(btn => {
-      btn.addEventListener('click', () => previewAudioTranscript(parseInt(btn.dataset.previewTabAudio, 10), true));
-    });
-    renderQualityStrategy();
-  }
-
-  function showTranscriptInPreview(transcript) {
-    const container = document.getElementById('qualityTranscriptPreview');
-    const textEl = document.getElementById('qualityTranscriptText');
-    if (!container || !textEl) return;
-    if (transcript) {
-      textEl.textContent = transcript;
-      textEl.classList.remove('quality-transcript-placeholder');
-      container.style.display = 'block';
-      container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    } else {
-      container.style.display = 'none';
-      textEl.textContent = '';
-    }
-  }
-
-  function clearQualityResults() {
-    const section = document.getElementById('qualityResultsSection');
-    const resultsSection = document.getElementById('resultsSection');
-    if (section) section.style.display = 'none';
-    if (resultsSection) resultsSection.style.display = 'none';
+  function applyDiscoveredConfig(_groups) {
+    /* Discovery still runs for analyze affinity; do not write qualityCheck I/O. */
   }
 
   function renderInlineResultsForCurrentRow() {
     const section = document.getElementById('inlineResultsSection');
-    const content = document.getElementById('inlineResultsContent');
-    if (!section || !content) return;
-    const qcChecked = document.getElementById('batchCheckQuality')?.checked;
-    if (!qcChecked || generationHistory.length === 0) {
-      section.style.display = 'none';
-      return;
-    }
-    const displayRow = importedRows.length > 0 ? currentRowIndex + 1 : 1;
-    const entry = generationHistory.find((g) => g.rowIndex === displayRow) || generationHistory[generationHistory.length - 1];
-    if (!entry) {
-      section.style.display = 'none';
-      return;
-    }
-    section.style.display = 'block';
-    const allResults = entry.allResults || (entry.transcript ? [{ transcript: entry.transcript, pass: entry.pass, similarity: entry.similarity }] : []);
-    const bestIdx = (entry.bestIndex != null ? entry.bestIndex - 1 : 0);
-    const total = Math.max(allResults.length, entry.totalOutputs || 0, 1);
-    const transcripts = [];
-    for (let i = 0; i < total; i++) {
-      const r = allResults[i] || {};
-      transcripts.push({
-        label: `Version ${i + 1}`,
-        text: r.transcript || r.text || '',
-        pass: r.pass !== false,
-        similarity: r.similarity,
-        isBest: i === bestIdx,
-      });
-    }
-    if (transcripts.every((t) => !t.text.trim())) {
-      transcripts[0] = { ...transcripts[0], text: 'No transcripts from this run.' };
-    }
-    let activeTab = 0;
-    const viewLink = entry.tabId ? `
-      <a class="inline-results-link" href="#" data-tab-id="${entry.tabId}" title="Scroll to results on the page">View on page →</a>
-    ` : '';
-    content.innerHTML = `
-      ${viewLink}
-      <div class="inline-results-meta">
-        <span class="inline-results-badge ${entry.pass ? 'pass' : 'fail'}">${entry.pass ? 'PASS' : 'FAIL'}</span>
-        ${entry.similarity != null ? `<span>${entry.similarity}</span>` : ''}
-        ${entry.bestIndex != null && entry.totalOutputs != null ? `<span>Best: ${entry.bestIndex} of ${entry.totalOutputs}</span>` : ''}
-        ${entry.videoDetails?.length ? `<span title="${entry.videoDetails.map((v, i) => `#${i + 1}: ${v.width && v.height ? v.width + '×' + v.height + (v.duration > 0 ? ' ' + v.duration.toFixed(1) + 's' : '') : '—'}`).join(' | ')}">${entry.videoDetails.length} video(s)</span>` : ''}
-      </div>
-      <div class="inline-results-tabs" id="inlineResultsTabs">
-        ${transcripts.map((t, i) => `
-          <button type="button" class="inline-results-tab ${i === activeTab ? 'active' : ''} ${t.isBest ? 'best' : ''}" data-tab="${i}">
-            <input type="checkbox" ${t.isBest ? 'checked' : ''} disabled>
-            <span>${escapeHtml(t.label)}</span>
-          </button>
-        `).join('')}
-      </div>
-      <div class="inline-results-transcript" id="inlineResultsTranscript">${escapeHtml(transcripts[activeTab]?.text || '')}</div>
-      ${(entry.videoDetails?.length ? `
-      <div class="inline-results-videos" style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e5e7;font-size:11px;color:#6e6e73">
-        <strong>Videos:</strong> ${entry.videoDetails.map((v, i) => {
-          const res = v.width && v.height ? `${v.width}×${v.height}` : '—';
-          const dur = v.duration > 0 ? v.duration.toFixed(1) + 's' : '';
-          return `#${v.index} ${res}${dur ? ' ' + dur : ''}`;
-        }).join(' · ')}
-      </div>
-      ` : '')}
-    `;
-    content.querySelectorAll('.inline-results-tab').forEach((btn, i) => {
-      btn.addEventListener('click', () => {
-        content.querySelectorAll('.inline-results-tab').forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
-        const transcriptEl = document.getElementById('inlineResultsTranscript');
-        if (transcriptEl) transcriptEl.textContent = transcripts[i]?.text || '';
-      });
-    });
-    content.querySelector('.inline-results-link')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      const tabId = parseInt(e.currentTarget.dataset.tabId, 10);
-      const rowIndex = entry?.rowIndex;
-      if (tabId) {
-        chrome.tabs.get(tabId, (tab) => {
-          if (chrome.runtime.lastError || !tab) return;
-          chrome.windows.update(tab.windowId, { focused: true }, () => {
-            chrome.tabs.update(tabId, { active: true }, () => {
-              chrome.tabs.sendMessage(tabId, { type: 'SCROLL_TO_RESULT', rowIndex }, () => {});
-            });
-          });
-        });
-      }
-    });
-  }
-
-  function renderGenerationHistory() {
-    const list = document.getElementById('generationHistoryList');
-    const section = document.getElementById('generationHistorySection');
-    if (!list || !section) return;
-    if (generationHistory.length === 0) {
-      list.innerHTML = '<div class="generation-history-empty">No generations yet. Run with "Check quality after each run" to populate.</div>';
-      section.style.display = 'none';
-      return;
-    }
-    section.style.display = 'block';
-    list.innerHTML = generationHistory.map((g, idx) => {
-      const pass = g.pass === true;
-      const bestStr = g.bestIndex != null && g.totalOutputs != null
-        ? `Best: ${g.bestIndex} of ${g.totalOutputs}`
-        : (g.totalOutputs ? `of ${g.totalOutputs}` : '');
-      const simStr = g.similarity != null ? (typeof g.similarity === 'number' ? g.similarity.toFixed(2) : g.similarity) : '';
-      const transcript = g.transcript || '';
-      const expanded = g.expanded === true;
-      return `
-        <div class="generation-history-item ${pass ? 'pass' : 'fail'} ${expanded ? 'expanded' : ''}" data-idx="${idx}">
-          <div class="generation-history-header">
-            <span class="generation-badge ${pass ? 'pass' : 'fail'}">${pass ? 'PASS' : 'FAIL'}</span>
-            <span class="generation-meta">Row ${g.rowIndex}</span>
-            ${bestStr ? `<span class="generation-best">${bestStr}</span>` : ''}
-            ${simStr ? `<span class="generation-sim">${simStr}</span>` : ''}
-            <span class="generation-toggle" title="View transcript">${expanded ? '▼' : '▶'}</span>
-          </div>
-          <div class="generation-transcript" style="display:${expanded ? 'block' : 'none'}">${escapeHtml(transcript || 'No transcript.')}</div>
-          ${expanded && g.videoDetails?.length ? `<div class="generation-videos" style="margin-top:8px;font-size:11px;color:#6e6e73">Videos: ${g.videoDetails.map((v) => v.width && v.height ? `#${v.index} ${v.width}×${v.height}${v.duration > 0 ? ' ' + v.duration.toFixed(1) + 's' : ''}` : `#${v.index} —`).join(' · ')}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-    list.querySelectorAll('.generation-history-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        const idx = parseInt(el.dataset.idx, 10);
-        if (!isNaN(idx) && generationHistory[idx]) {
-          generationHistory[idx].expanded = !generationHistory[idx].expanded;
-          renderGenerationHistory();
-        }
-      });
-    });
-  }
-
-  async function captureTabAudio(tabId, options = {}) {
-    const durationMs = options.durationMs || 10000;
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: 'TAB_CAPTURE_AUDIO', tabId, durationMs }, (res) => {
-        if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
-        else resolve(res || { ok: false, error: 'No response' });
-      });
-    });
+    if (section) section.style.display = 'none';
   }
 
   function safeBase64ToBlob(base64, contentType) {
@@ -12155,356 +13120,6 @@
       return new Blob([bytes], { type: contentType || 'audio/webm' });
     } catch (_) {
       return null;
-    }
-  }
-
-  function getSupportedMimeType() {
-    const types = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm',
-      'audio/webm;codecs=opus',
-      'audio/webm',
-    ];
-    for (const t of types) {
-      if (MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return undefined;
-  }
-
-  async function captureDisplayMediaAudio(options = {}) {
-    const durationMs = options.durationMs || 10000;
-    try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
-        video: true,
-      });
-      if (stream.getTracks().length === 0) {
-        stream.getTracks().forEach((t) => t.stop());
-        return { ok: false, error: 'No tracks in capture stream' };
-      }
-      const mimeType = getSupportedMimeType();
-      const recorderOpts = mimeType ? { mimeType } : {};
-      const recorder = new MediaRecorder(stream, recorderOpts);
-      const chunks = [];
-      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-      recorder.onerror = (e) => { throw new Error(e.error?.message || 'MediaRecorder error'); };
-      recorder.start();
-      const duration = Math.min(Math.max(durationMs, 2000), 60000);
-      await new Promise((r) => setTimeout(r, duration));
-      recorder.stop();
-      await new Promise((r) => { recorder.onstop = r; });
-      stream.getTracks().forEach((t) => t.stop());
-      if (chunks.length === 0) return { ok: false, error: 'No audio captured' };
-      const blobType = recorder.mimeType || 'video/webm';
-      const blob = new Blob(chunks, { type: blobType });
-      return { ok: true, blob, contentType: blob.type };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'Display capture failed' };
-    }
-  }
-
-  function isTabCaptureInvokeError(err) {
-    const s = (err || '').toLowerCase();
-    return s.includes('not been invoked') || s.includes('activetab') || s.includes('cannot be captured');
-  }
-
-  async function captureAudioForOutput(tabId, o) {
-    const durationMs = 10000;
-    if (o.mediaSelectors?.length || o.selectors?.length) {
-      try {
-        await ensureContentScriptLoaded(tabId);
-        const res = await chrome.tabs.sendMessage(tabId, {
-          type: 'CAPTURE_AUDIO',
-          mediaSelectors: o.mediaSelectors,
-          selectors: o.selectors,
-          durationMs,
-        });
-        if (res?.ok && (res.base64 || res.blob)) return res;
-        const err = (res?.error || '').toLowerCase();
-        if (err.includes('cross-origin') || err.includes('no video/audio')) {
-          setStatus('Cross-origin detected. Select the tab in the picker...', '');
-          const pickerRes = await captureDisplayMediaAudio({ durationMs });
-          if (pickerRes?.ok) return pickerRes;
-          const tabRes = await captureTabAudio(tabId, { durationMs });
-          if (tabRes?.ok && (tabRes.base64 || tabRes.blob)) return tabRes;
-        }
-        return res;
-      } catch (_) {}
-    }
-    let tabRes = await captureTabAudio(tabId, { durationMs });
-    if (!tabRes?.ok && isTabCaptureInvokeError(tabRes?.error)) {
-      setStatus('Use picker to select tab...', '');
-      tabRes = await captureDisplayMediaAudio({ durationMs });
-    }
-    return tabRes;
-  }
-
-  async function previewAllTranscripts(useTabCapture) {
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const qc = getQualityCheckConfig(wf);
-    if (!qc?.outputs?.length) return;
-    const audioOutputs = qc.outputs.filter((o) => (o.checkType || 'text') === 'audio');
-    if (audioOutputs.length === 0) return;
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
-      setStatus('Open the target page first.', 'error');
-      return;
-    }
-    const container = document.getElementById('qualityTranscriptPreview');
-    const textEl = document.getElementById('qualityTranscriptText');
-    if (!container || !textEl) return;
-    const groupSel = document.getElementById('qualityPreviewGroupMode');
-    const previewGroupMode = groupSel ? (/^\d+$/.test(groupSel.value) ? parseInt(groupSel.value, 10) : groupSel.value) : 'last';
-    try {
-      if (useTabCapture) {
-        setStatus('Select the tab in the picker...', '');
-        let res = await captureDisplayMediaAudio({ durationMs: 10000 });
-        if (!res?.ok) {
-          const tabRes = await captureTabAudio(tab.id, { durationMs: 10000 });
-          if (tabRes?.ok) res = tabRes;
-        }
-        if (!res?.ok) {
-          setStatus(res?.error || 'Could not capture tab audio', 'error');
-          return;
-        }
-        let blob = res.blob;
-        if (!blob && res.base64) blob = safeBase64ToBlob(res.base64, res.contentType);
-        if (!blob) {
-          setStatus('Invalid audio data received.', 'error');
-          return;
-        }
-        setStatus('Transcribing...', '');
-        const transRes = await transcribeAudioViaQC(blob);
-        if (transRes?.ok && transRes.text) {
-          textEl.textContent = `Tab audio: ${transRes.text}`;
-          container.style.display = 'block';
-          setStatus('Transcript shown below.', 'success');
-          renderPreviewTranscripts([`Tab audio: ${transRes.text}`]);
-        } else {
-          textEl.textContent = transRes?.error || 'Transcription failed';
-          container.style.display = 'block';
-          setStatus('Transcription failed.', 'error');
-        }
-        return;
-      }
-      await ensureContentScriptLoaded(tab.id);
-      const step = getQualityCheckStep(wf);
-      if (!step) return;
-      step.transcriptCache = step.transcriptCache || {};
-      const cache = step.transcriptCache;
-      const config = {
-        groupContainer: qc.groupContainer,
-        groupMode: previewGroupMode,
-        inputs: qc.inputs || [],
-        outputs: qc.outputs,
-        row: {},
-      };
-      setStatus('Analyzing page structure...', '');
-      const structRes = await chrome.tabs.sendMessage(tab.id, { type: 'GET_QC_INPUTS_OUTPUTS', config: { ...config, captureAudio: false } });
-      if (!structRes?.ok) {
-        setStatus(structRes?.error || 'Failed to get structure', 'error');
-        return;
-      }
-      const groups = structRes.groups || [];
-      if (groups.length === 0) {
-        setStatus('No groups found. Add group container or ensure inputs/outputs resolve.', 'error');
-        return;
-      }
-      const audioSlots = [];
-      let outIdx = 0;
-      for (let gi = 0; gi < groups.length; gi++) {
-        for (let oi = 0; oi < (groups[gi].outputs || []).length; oi++) {
-          const out = groups[gi].outputs[oi];
-          if (out.checkType !== 'audio') continue;
-          outIdx++;
-          audioSlots.push({ groupIndex: gi, outputIndex: oi, displayIndex: outIdx });
-        }
-      }
-      const cached = audioSlots.filter((s) => cache[`g${s.groupIndex}_o${s.outputIndex}`]);
-      if (cached.length === audioSlots.length && audioSlots.length > 0) {
-        const parts = audioSlots.map((s) => `Output ${s.displayIndex}: ${cache[`g${s.groupIndex}_o${s.outputIndex}`]}`);
-        textEl.textContent = parts.join('\n\n');
-        container.style.display = 'block';
-        setStatus(`Showing ${audioSlots.length} cached transcript(s).`, 'success');
-        renderPreviewTranscripts(parts);
-        return;
-      }
-      const missing = audioSlots.filter((s) => !cache[`g${s.groupIndex}_o${s.outputIndex}`]);
-      setStatus(`Capturing ${missing.length} missing output(s)...`, '');
-      for (const slot of missing) {
-        try {
-          const singleRes = await chrome.tabs.sendMessage(tab.id, {
-            type: 'GET_QC_CAPTURE_SINGLE_OUTPUT',
-            config: { ...config, groupIndex: slot.groupIndex, outputIndex: slot.outputIndex },
-          });
-          if (singleRes?.ok && singleRes.base64) {
-            const blob = safeBase64ToBlob(singleRes.base64, singleRes.contentType);
-            const transRes = await transcribeAudioViaQC(blob);
-            if (transRes?.ok && transRes.text) {
-              cache[`g${slot.groupIndex}_o${slot.outputIndex}`] = transRes.text;
-            }
-          }
-        } catch (_) {}
-      }
-      step.transcriptCache = cache;
-      workflows[wfId] = wf;
-      await chrome.storage.local.set({ workflows });
-      const parts = audioSlots.map((s) => {
-        const t = cache[`g${s.groupIndex}_o${s.outputIndex}`];
-        return t ? `Output ${s.displayIndex}: ${t}` : `Output ${s.displayIndex}: (no audio captured)`;
-      });
-      textEl.textContent = parts.join('\n\n');
-      container.style.display = 'block';
-      const okCount = parts.filter((p) => !p.includes('(no audio captured)')).length;
-      setStatus(`Transcribed ${okCount} of ${audioSlots.length} audio output(s).`, 'success');
-      renderPreviewTranscripts(parts);
-    } catch (err) {
-      setStatus('Preview all failed: ' + (err.message || err), 'error');
-    }
-  }
-
-  function renderPreviewTranscripts(parts) {
-    const section = document.getElementById('qualityResultsSection');
-    const resultsList = document.getElementById('qualityResultsList');
-    const transcriptsList = document.getElementById('qualityTranscriptsList');
-    const resultsSection = document.getElementById('resultsSection');
-    if (!section || !transcriptsList) return;
-    section.style.display = 'block';
-    if (resultsSection) resultsSection.style.display = 'block';
-    resultsList.innerHTML = '<div class="quality-result-item"><span>Preview (no QC run)</span></div>';
-    const items = (parts || []).map((p) => {
-      const m = p.match(/^Output (\d+): (.+)$/);
-      return m ? { label: `Output ${m[1]}`, text: m[2] } : { label: 'Transcript', text: p };
-    }).filter((t) => t.text && !t.text.includes('(no audio captured)'));
-    transcriptsList.innerHTML = items.length
-      ? items.map((t) => `
-          <div class="quality-transcript-item">
-            <div class="transcript-label">${escapeHtml(t.label)}</div>
-            <div class="transcript-text">${escapeHtml(t.text)}</div>
-          </div>
-        `).join('')
-      : '<div class="quality-transcript-item"><div class="transcript-text" style="color:#6e6e73">No transcripts.</div></div>';
-  }
-
-  async function previewAudioTranscript(outputIndex, useTabCapture) {
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const o = getQualityCheckConfig(wf).outputs?.[outputIndex];
-    if (!o || (o.checkType || 'text') !== 'audio') return;
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
-      setStatus('Open the target page first.', 'error');
-      return;
-    }
-    const container = document.getElementById('qualityTranscriptPreview');
-    const textEl = document.getElementById('qualityTranscriptText');
-    if (!container || !textEl) return;
-    try {
-      setStatus(useTabCapture ? 'Select the tab in the picker...' : 'Capturing and transcribing audio...', '');
-      let res;
-      if (useTabCapture) {
-        res = await captureDisplayMediaAudio({ durationMs: 10000 });
-        if (!res?.ok) {
-          const tabRes = await captureTabAudio(tab.id, { durationMs: 10000 });
-          if (tabRes?.ok) res = tabRes;
-        }
-      } else {
-        res = await captureAudioForOutput(tab.id, o);
-      }
-      if (!res?.ok) {
-        setStatus(res?.error || 'Could not capture audio', 'error');
-        container.style.display = 'none';
-        return;
-      }
-      let blob = res.blob;
-      if (!blob && res.base64) blob = safeBase64ToBlob(res.base64, res.contentType);
-      if (!blob) {
-        setStatus('Invalid audio data received.', 'error');
-        container.style.display = 'none';
-        return;
-      }
-      const transRes = await transcribeAudioViaQC(blob);
-      if (transRes?.ok && transRes.text) {
-        textEl.textContent = transRes.text;
-        container.style.display = 'block';
-        setStatus('Transcript shown below.', 'success');
-      } else {
-        textEl.textContent = transRes?.error || 'Transcription failed';
-        container.style.display = 'block';
-        setStatus('Transcription failed.', 'error');
-      }
-    } catch (err) {
-      setStatus('Preview failed: ' + (err.message || err), 'error');
-      container.style.display = 'none';
-    }
-  }
-
-  function renderQualityGroupContainer() {
-    const preview = document.getElementById('qualityGroupContainerPreview');
-    if (!preview) return;
-    const modeSel = document.getElementById('qualityGroupMode');
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const gc = getQualityCheckConfig(wf).groupContainer;
-    if (!preview || !modeSel) return;
-    if (gc?.selectors?.length) {
-      preview.textContent = formatSelectorForDisplay(gc.selectors);
-      preview.style.display = 'inline';
-    } else {
-      preview.textContent = '';
-      preview.style.display = 'none';
-    }
-    const groupMode = getQualityCheckConfig(wf).groupMode ?? 'last';
-    modeSel.value = String(groupMode);
-    modeSel.onchange = async () => {
-      const w = workflows[playbackWorkflow.value];
-      if (w) {
-        const step = getOrCreateQualityCheckStep(w);
-        const v = modeSel.value;
-        step.groupMode = /^\d+$/.test(v) ? parseInt(v, 10) : v;
-        workflows[playbackWorkflow.value] = w;
-        await chrome.storage.local.set({ workflows });
-      }
-    };
-  }
-
-  function renderQualityStrategy() {
-    const sel = document.getElementById('qualityStrategy');
-    if (!sel) return;
-    const wrap = document.getElementById('qualityMaxRetriesWrap');
-    const wfId = playbackWorkflow.value;
-    const wf = workflows[wfId];
-    const qc = getQualityCheckConfig(wf);
-    const strategy = qc.strategy || 'bestOutput';
-    const maxRetries = qc.maxRetries ?? 3;
-    if (!sel) return;
-    sel.value = strategy;
-    if (wrap) wrap.style.display = strategy === 'retryOnFail' ? 'inline' : 'none';
-    const retriesEl = document.getElementById('qualityMaxRetries');
-    if (retriesEl) retriesEl.value = maxRetries;
-    sel.onchange = async () => {
-      const w = workflows[playbackWorkflow.value];
-      if (w) {
-        const step = getOrCreateQualityCheckStep(w);
-        step.strategy = sel.value;
-        workflows[playbackWorkflow.value] = w;
-        await chrome.storage.local.set({ workflows });
-        renderQualityStrategy();
-      }
-    };
-    if (retriesEl) {
-      retriesEl.onchange = async () => {
-        const w = workflows[playbackWorkflow.value];
-        if (w) {
-          const v = parseInt(retriesEl.value, 10) || 3;
-          const step = getOrCreateQualityCheckStep(w);
-          step.maxRetries = Math.max(1, Math.min(5, v));
-          workflows[playbackWorkflow.value] = w;
-          await chrome.storage.local.set({ workflows });
-        }
-      };
     }
   }
 
@@ -12547,6 +13162,7 @@
       const runAllBtn = document.getElementById('runAllRows');
       if (runBtn) runBtn.disabled = true;
       if (runAllBtn) runAllBtn.disabled = true;
+      updatePageCompareSectionVisibility();
       return;
     }
     section.style.display = 'block';
@@ -12579,9 +13195,13 @@
     if (canvas && window.CFS_stepsFlowGraph && typeof window.CFS_stepsFlowGraph.renderInto === 'function') {
       var typeLabels = {};
       getStepTypes().forEach(function(s) { typeLabels[s.id] = s.label; });
-      var alwaysOnRules = (wf.alwaysOn && wf.alwaysOn.priceRangeWatch && Array.isArray(wf.alwaysOn.priceRangeWatch.onOutOfRange))
-        ? wf.alwaysOn.priceRangeWatch.onOutOfRange
-        : [];
+      var alwaysOnRules = [];
+      var hasRunWf = (actions || []).some(function (a) { return a && a.type === 'runWorkflow' && a.workflowId; });
+      if (!hasRunWf) {
+        alwaysOnRules = (wf.alwaysOn && wf.alwaysOn.priceRangeWatch && Array.isArray(wf.alwaysOn.priceRangeWatch.onOutOfRange))
+          ? wf.alwaysOn.priceRangeWatch.onOutOfRange
+          : [];
+      }
       window.CFS_stepsFlowGraph.renderInto(canvas, actions, {
         typeLabel: function(type) { return typeLabels[type] || ''; },
         getLabel: function(action, i) { return getStepSummary(action, i); },
@@ -12758,6 +13378,13 @@
         e.stopPropagation();
         const idx = parseInt(e.target.dataset.saveStep, 10);
         saveStep(wfId, idx);
+      });
+    });
+    list.querySelectorAll('[data-testid="cfs-check-realtime-always-on"]').forEach((cb) => {
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(cb.getAttribute('data-step'), 10);
+        if (Number.isFinite(idx) && idx >= 0) saveStep(wfId, idx);
       });
     });
     /* ── Pool search button handler ── */
@@ -13485,19 +14112,18 @@
     const runBtn = document.getElementById('runPlayback');
     const runAllBtn = document.getElementById('runAllRows');
     const hasSteps = (wf?.analyzed?.actions?.length || 0) > 0;
-    const hasRows = importedRows.length > 0;
     if (runBtn) runBtn.disabled = !hasSteps;
-    if (runAllBtn) runAllBtn.disabled = !hasSteps || !hasRows;
+    if (runAllBtn) runAllBtn.disabled = !hasSteps;
     scheduleAutoEnrichMergeableStepsForPlaybackWorkflow();
+    updatePageCompareSectionVisibility();
   }
 
   function updateRunAllButtonState() {
     const wfId = playbackWorkflow?.value;
     const wf = wfId ? workflows[wfId] : null;
     const hasSteps = (wf?.analyzed?.actions?.length || 0) > 0;
-    const hasRows = importedRows.length > 0;
     const runAllBtn = document.getElementById('runAllRows');
-    if (runAllBtn) runAllBtn.disabled = !hasSteps || !hasRows;
+    if (runAllBtn) runAllBtn.disabled = !hasSteps;
   }
 
   function createAddStepRow(wfId, insertIndex) {
@@ -13565,6 +14191,7 @@
       WorkflowEditHistory.push(wf, 'deleteStep', { index: idx, action: removedAction }, 'user');
     }
     syncWorkflowCsvColumnsFromSteps(wf);
+    persistWorkflowAlwaysOnFromSteps(wf);
     workflows[wfId] = wf;
     chrome.storage.local.set({ workflows });
     renderStepsList();
@@ -13773,9 +14400,16 @@
         case 'textarea':
           html += '<textarea' + attrs + ' rows="' + (field.rows || 3) + '"' + (field.placeholder ? ' placeholder="' + escapeHtml(field.placeholder) + '"' : '') + '>' + escapeHtml(strVal) + '</textarea>';
           break;
-        case 'checkbox':
-          html += '<input type="checkbox"' + attrs + (val === true || val === 'true' || strVal === '1' ? ' checked' : '') + '>';
+        case 'checkbox': {
+          let checked;
+          if (val === undefined || val === null || val === '') {
+            checked = field.default === true || field.default === 'true';
+          } else {
+            checked = val === true || val === 'true' || strVal === '1';
+          }
+          html += '<input type="checkbox"' + attrs + (checked ? ' checked' : '') + '>';
           break;
+        }
         case 'select':
           if (Array.isArray(opts) && opts.length) {
             html += '<select' + attrs + '>';
@@ -14605,6 +15239,7 @@
         WorkflowEditHistory.push(wf, 'updateStep', { index: idx, before: _editHistoryBeforeSnapshot, after: JSON.parse(JSON.stringify(action)) }, 'user');
       }
       syncWorkflowCsvColumnsFromSteps(wf);
+      persistWorkflowAlwaysOnFromSteps(wf);
       workflows[wfId] = wf;
       await chrome.storage.local.set({ workflows });
       renderStepsList();
@@ -14641,6 +15276,7 @@
         WorkflowEditHistory.push(wf, 'updateStep', { index: idx, before: _editHistoryBeforeSnapshot, after: JSON.parse(JSON.stringify(action)) }, 'user');
       }
       syncWorkflowCsvColumnsFromSteps(wf);
+      persistWorkflowAlwaysOnFromSteps(wf);
       workflows[wfId] = wf;
       await chrome.storage.local.set({ workflows });
       renderStepsList();
@@ -14829,6 +15465,7 @@
       WorkflowEditHistory.push(wf, 'updateStep', { index: idx, before: _editHistoryBeforeSnapshot, after: JSON.parse(JSON.stringify(action)) }, 'user');
     }
     syncWorkflowCsvColumnsFromSteps(wf);
+    persistWorkflowAlwaysOnFromSteps(wf);
     workflows[wfId] = wf;
     await chrome.storage.local.set({ workflows });
     renderStepsList();
@@ -15065,7 +15702,7 @@
     prefs = prefs || { includeAllLocal: false };
     const donors = [];
     for (const [id, w] of Object.entries(workflows || {})) {
-      if (id === excludeWfId || isTestWorkflow(w)) continue;
+      if (id === excludeWfId || isHiddenFromUserNav(w)) continue;
       if (!prefs.includeAllLocal && !workflowMatchesCurrentTab(w)) continue;
       if (!w?.analyzed?.actions?.length) continue;
       donors.push({ id, wf: w, readOnly: false });
@@ -15429,87 +16066,69 @@
     return false;
   }
 
-  async function readRunCaptureBlobFromProject(folderId, refRun, projectRootOpt) {
-    if (!refRun?.mediaCaptureFile || typeof showDirectoryPicker === 'undefined') return null;
+  async function fetchCaptureBlobFromUrl(url) {
+    if (!url) return null;
     try {
-      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
-      if (!projectRoot) return null;
-      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      const fh = await runsDir.getFileHandle(refRun.mediaCaptureFile, { create: false });
-      const file = await fh.getFile();
-      return file;
+      const res = await fetch(url, { credentials: 'omit' });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return blob && blob.size > 0 ? blob : null;
     } catch (_) {
       return null;
     }
   }
 
-  /** When JSON omits mediaCaptureFile, try run-{runId}-capture.webm next to run JSON. */
-  async function readRunMainCaptureBlobFallbackByRunId(folderId, runId, projectRootOpt) {
-    if (!runId || typeof showDirectoryPicker === 'undefined') return null;
-    const rid = String(runId).replace(/^run_/, '');
-    if (!rid) return null;
-    try {
-      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
-      if (!projectRoot) return null;
-      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      const fname = 'run-' + rid + '-capture.webm';
-      const fh = await runsDir.getFileHandle(fname, { create: false });
-      const file = await fh.getFile();
-      return file && file.size > 0 ? file : null;
-    } catch (_) {
-      return null;
+  async function readFileFromDirSegments(folderHandle, dirSegments, filename) {
+    if (!folderHandle || !filename) return null;
+    let dir = folderHandle;
+    const segs = Array.isArray(dirSegments) ? dirSegments : [];
+    for (let i = 0; i < segs.length; i++) {
+      dir = await dir.getDirectoryHandle(segs[i], { create: false });
     }
+    const fh = await dir.getFileHandle(filename, { create: false });
+    const file = await fh.getFile();
+    return file && file.size > 0 ? file : null;
   }
 
-  /** Full-run AAC from `mediaCaptureAudioFile` or `run-{id}-audio.m4a` (same timeline as tab capture). */
-  async function readRunAudioM4aBlobFromProject(folderId, refRun, projectRootOpt) {
-    if (!refRun || typeof showDirectoryPicker === 'undefined') return null;
-    const rid = refRun.runId != null ? String(refRun.runId).replace(/^run_/, '') : '';
-    const tryNames = [];
-    if (refRun.mediaCaptureAudioFile && String(refRun.mediaCaptureAudioFile).trim()) {
-      tryNames.push(String(refRun.mediaCaptureAudioFile).trim());
-    }
-    if (rid) tryNames.push('run-' + rid + '-audio.m4a');
-    if (!tryNames.length) return null;
+  async function readRunMediaBlobByKind(folderId, refRun, kind, projectRootOpt) {
+    const layout = globalThis.CFS_workflowRunMedia;
+    const plan = layout && layout.captureReadPlan ? layout.captureReadPlan(refRun, kind) : null;
     try {
       const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
-      if (!projectRoot) return null;
-      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      for (const fname of tryNames) {
-        try {
-          const fh = await runsDir.getFileHandle(fname, { create: false });
-          const file = await fh.getFile();
-          if (file && file.size > 64) return file;
-        } catch (_) {}
+      if (projectRoot && (await ensureProjectFolderReadWriteForClips(projectRoot))) {
+        const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: false });
+        const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: false });
+        if (plan && plan.candidates) {
+          for (let i = 0; i < plan.candidates.length; i++) {
+            try {
+              const got = await readFileFromDirSegments(folderHandle, plan.candidates[i].dirSegments, plan.candidates[i].file);
+              if (got) return got;
+            } catch (_) {}
+          }
+        }
       }
     } catch (_) {}
+    if (plan && plan.url) return fetchCaptureBlobFromUrl(plan.url);
     return null;
   }
 
+  async function readRunCaptureBlobFromProject(folderId, refRun, projectRootOpt) {
+    return readRunMediaBlobByKind(folderId, refRun, 'main', projectRootOpt);
+  }
+
+  /** When JSON omits mediaCaptureFile, try recordings/{runId}/capture.webm then runs/run-{runId}-capture.webm. */
+  async function readRunMainCaptureBlobFallbackByRunId(folderId, runId, projectRootOpt) {
+    if (!runId) return null;
+    return readRunCaptureBlobFromProject(folderId, { runId: runId }, projectRootOpt);
+  }
+
+  /** Full-run AAC from recordings/{id}/audio.m4a or legacy run-{id}-audio.m4a. */
+  async function readRunAudioM4aBlobFromProject(folderId, refRun, projectRootOpt) {
+    return readRunMediaBlobByKind(folderId, refRun, 'audio', projectRootOpt);
+  }
+
   async function readRunWebcamBlobFromProject(folderId, refRun, projectRootOpt) {
-    if (!refRun?.webcamCaptureFile || typeof showDirectoryPicker === 'undefined') return null;
-    try {
-      const projectRoot = projectRootOpt || (await getStoredProjectFolderHandle());
-      if (!projectRoot) return null;
-      if (!(await ensureProjectFolderReadWriteForClips(projectRoot))) return null;
-      const wfDir = await projectRoot.getDirectoryHandle('workflows', { create: true });
-      const folderHandle = await wfDir.getDirectoryHandle(folderId, { create: true });
-      const runsDir = await folderHandle.getDirectoryHandle('runs', { create: true });
-      const fh = await runsDir.getFileHandle(refRun.webcamCaptureFile, { create: false });
-      const file = await fh.getFile();
-      return file;
-    } catch (_) {
-      return null;
-    }
+    return readRunMediaBlobByKind(folderId, refRun, 'webcam', projectRootOpt);
   }
 
   /**
@@ -15522,7 +16141,9 @@
     const runs = sourceWorkflow?.runs || [];
     const refIdx = Math.max(0, Math.min(runs.length - 1, referenceRunIndex | 0));
     const refRun = runs[refIdx];
-    if (!refRun?.mediaCaptureFile && !refRun?.webcamCaptureFile) {
+    if (!(globalThis.CFS_workflowRunMedia && CFS_workflowRunMedia.runHasSavedCapture
+      ? CFS_workflowRunMedia.runHasSavedCapture(refRun)
+      : (refRun?.mediaCaptureFile || refRun?.webcamCaptureFile))) {
       return { ok: true, skipped: true, reason: 'no_run_capture', written: 0 };
     }
 
@@ -15534,11 +16155,11 @@
 
     const folderId = getWorkflowFolderId(parentWfId);
     const projectRootCached = projectRootPrimed || (await getStoredProjectFolderHandle());
-    let blob = refRun.mediaCaptureFile ? await readRunCaptureBlobFromProject(folderId, refRun, projectRootCached) : null;
+    let blob = await readRunCaptureBlobFromProject(folderId, refRun, projectRootCached);
     if ((!blob || blob.size < 1) && refRun.runId) {
       blob = await readRunMainCaptureBlobFallbackByRunId(folderId, refRun.runId, projectRootCached);
     }
-    const webBlob = refRun.webcamCaptureFile ? await readRunWebcamBlobFromProject(folderId, refRun, projectRootCached) : null;
+    const webBlob = await readRunWebcamBlobFromProject(folderId, refRun, projectRootCached);
     if (!blob && !webBlob) return { ok: true, skipped: true, reason: 'no_blob', written: 0 };
 
     const hint = (t) => {
@@ -15793,18 +16414,22 @@
     return out;
   }
 
-  document.getElementById('analyzeWorkflow')?.addEventListener('click', async () => {
-    if (!workflowSelect) return;
+  async function analyzeCurrentPlanWorkflow(opts) {
+    const silent = !!(opts && opts.silent);
+    if (!workflowSelect) return { ok: false, error: 'No workflow select' };
     const wfId = workflowSelect.value;
     if (!wfId) {
-      setStatus('Select a workflow first.', 'error');
-      return;
+      if (!silent) setStatus('Select a workflow first.', 'error');
+      return { ok: false, error: 'Select a workflow first.' };
     }
     const wf = workflows[wfId];
+    if (wf && wf._testOnly) {
+      return { ok: false, skipped: true, error: 'test workflow' };
+    }
     const runs = wf?.runs || [];
     if (runs.length === 0) {
-      setStatus('Record at least one run first.', 'error');
-      return;
+      if (!silent) setStatus('Record at least one run first.', 'error');
+      return { ok: false, error: 'Record at least one run first.' };
     }
     let analyzeProjectRootPrimed = null;
     try {
@@ -15821,26 +16446,58 @@
     try {
       fresh = typeof analyzeRuns === 'function' ? analyzeRuns(runs, analyzeOpts) : null;
     } catch (err) {
-      setStatus('Analysis error: ' + (err?.message || err), 'error');
-      return;
+      if (!silent) setStatus('Analysis error: ' + (err?.message || err), 'error');
+      return { ok: false, error: 'Analysis error: ' + (err?.message || err) };
     }
     if (!fresh) {
       const msg = runs.some(r => (r?.actions || []).length > 0)
         ? 'Analysis failed. Check console for details.'
         : 'Runs have no actions. Record at least one run with steps.';
-      setStatus(msg, 'error');
-      return;
+      if (!silent) setStatus(msg, 'error');
+      return { ok: false, error: msg };
     }
     const existingActions = wf.analyzed?.actions;
     let mergedActions;
     try {
       mergedActions = mergeAnalyzedIntoExisting(existingActions, fresh.actions || [], runs.length);
     } catch (err) {
-      setStatus('Merge error: ' + (err?.message || err), 'error');
-      return;
+      if (!silent) setStatus('Merge error: ' + (err?.message || err), 'error');
+      return { ok: false, error: 'Merge error: ' + (err?.message || err) };
+    }
+    if (silent) {
+      const analyzed = {
+        ...fresh,
+        actions: mergedActions,
+      };
+      wf.analyzed = analyzed;
+      if (analyzed.urlPattern) wf.urlPattern = { ...analyzed.urlPattern };
+      if (!Array.isArray(wf.runs)) wf.runs = [];
+      if (typeof syncWorkflowCsvColumnsFromSteps === 'function') syncWorkflowCsvColumnsFromSteps(wf);
+      if (typeof CFS_discoveryFromAnalyze !== 'undefined' && typeof CFS_discoveryFromAnalyze.mergeDiscoveryInputCandidatesForHost === 'function') {
+        CFS_discoveryFromAnalyze.mergeDiscoveryInputCandidatesForHost(wf, analyzed, { fallbackHost });
+      }
+      if (typeof CFS_discoveryFromAnalyze !== 'undefined' && typeof CFS_discoveryFromAnalyze.mergeDiscoveryOutputCandidatesForHost === 'function') {
+        CFS_discoveryFromAnalyze.mergeDiscoveryOutputCandidatesForHost(wf, analyzed, { fallbackHost });
+      }
+      try {
+        const RF = window.CFS_realtimeFeeds;
+        let pageUrl = analyzed.urlPattern?.origin || '';
+        if (RF && typeof RF.mergeCheckRealtimeAfterAnalyze === 'function') {
+          const mergedRt = RF.mergeCheckRealtimeAfterAnalyze(analyzed.actions || [], pageUrl || '');
+          if (mergedRt && Array.isArray(mergedRt.actions)) analyzed.actions = mergedRt.actions;
+        }
+      } catch (_) {}
+      workflows[wfId] = wf;
+      await chrome.storage.local.set({ workflows });
+      renderStepsList();
+      renderRunsList(wfId);
+      if (typeof persistWorkflowToProjectFolder === 'function') persistWorkflowToProjectFolder(wfId);
+      return { ok: true, actionCount: (analyzed.actions || []).length, analyzed: analyzed };
     }
     const refRunIdx = fresh.referenceRunIndex != null ? fresh.referenceRunIndex : 0;
-    const runHasSavedPlanCapture = (r) => !!(r && (r.mediaCaptureFile || r.webcamCaptureFile));
+    const runHasSavedPlanCapture = (r) => !!(globalThis.CFS_workflowRunMedia && CFS_workflowRunMedia.runHasSavedCapture
+      ? CFS_workflowRunMedia.runHasSavedCapture(r)
+      : (r && (r.mediaCaptureFile || r.webcamCaptureFile)));
     let clipSourceRunIdx = refRunIdx;
     if (!runHasSavedPlanCapture(runs[clipSourceRunIdx])) {
       let best = -1;
@@ -15992,14 +16649,32 @@
           }
         }
       }
+      const RF = window.CFS_realtimeFeeds;
+      if (RF && typeof RF.mergeCheckRealtimeAfterAnalyze === 'function') {
+        const mergedRt = RF.mergeCheckRealtimeAfterAnalyze(analyzed.actions || [], pageUrl || '');
+        if (mergedRt && Array.isArray(mergedRt.actions)) {
+          analyzed.actions = mergedRt.actions;
+          if (mergedRt.merged) defiNote += ' Added Check for real-time data so this can run in the background.';
+          else if (mergedRt.hint) defiNote += ' ' + mergedRt.hint;
+        }
+      }
     } catch (_) {}
     setStatus(
       `Created new version (v${newVersion}). It is selected in the Version dropdown. Use Workflow / Version to switch back to a previous version if needed.${discoveryMergeNote}${mediaClipNote}${defiNote}`,
       'success'
     );
     persistWorkflowToProjectFolder(newId);
+    if (typeof showPlanEditAndRunSubtab === 'function') showPlanEditAndRunSubtab();
     const versionRow = document.getElementById('workflowVersionRow');
     if (versionRow) versionRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return { ok: true, actionCount: (analyzed.actions || []).length, analyzed: analyzed, newId: newId };
+  }
+  window.analyzeCurrentPlanWorkflow = analyzeCurrentPlanWorkflow;
+
+  document.getElementById('analyzeWorkflow')?.addEventListener('click', function () {
+    analyzeCurrentPlanWorkflow({ silent: false }).catch(function (err) {
+      setStatus('Analyze failed: ' + ((err && err.message) || err), 'error');
+    });
   });
 
   document.getElementById('exportTemplate').addEventListener('click', () => {
@@ -16043,6 +16718,7 @@
     applyRowToForm(rows[0]);
     document.getElementById('rowNav').style.display = 'flex';
     updateRowNavDisplay();
+    if (wf && isPriceRangeAlwaysOnWorkflow(wf)) void persistAlwaysOnDataFromImportedRows(wf);
     setStatus(`Loaded ${rows.length} rows. Use Prev/Next or Run All Rows.`, 'success');
   });
 
@@ -16120,7 +16796,10 @@
     const wf = wfId ? workflows[wfId] : null;
     const keys = wf ? getWorkflowVariableKeys(wf) : [];
     const row = {};
-    keys.forEach(function(k) { row[k.rowKey || k.label || k] = ''; });
+    keys.forEach(function(k) {
+      const rk = k.rowKey || k.label || k;
+      row[rk] = (k.defaultValue != null && String(k.defaultValue).trim() !== '') ? String(k.defaultValue) : '';
+    });
     if (Object.keys(row).length === 0) row.row_id = String((importedRows.length || 0) + 1);
     importedRows.push(row);
     currentRowIndex = importedRows.length - 1;
@@ -16170,10 +16849,20 @@
 
   function applyRowToForm(row) {
     const rowDataEl = document.getElementById('rowData');
-    if (rowDataEl) rowDataEl.value = JSON.stringify(row, null, 2);
-    for (const input of document.querySelectorAll('#workflowFormFields input[data-key]')) {
+    if (rowDataEl) rowDataEl.value = JSON.stringify(row || {}, null, 2);
+    const wfId = (typeof getEffectiveWorkflowIdForPlaybackUi === 'function' && getEffectiveWorkflowIdForPlaybackUi()) || playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    const keys = wf ? getWorkflowVariableKeys(wf) : [];
+    const defaults = {};
+    keys.forEach(function(k) {
+      if (k.defaultValue != null) defaults[k.rowKey || k.label] = k.defaultValue;
+    });
+    for (const input of document.querySelectorAll('#workflowFormFields [data-key]')) {
       const key = input.getAttribute('data-key');
-      if (row[key] !== undefined) input.value = row[key];
+      if (!key) continue;
+      if (row && row[key] !== undefined && row[key] !== null) input.value = row[key];
+      else if (defaults[key] != null) input.value = defaults[key];
+      else input.value = '';
     }
   }
 
@@ -16463,10 +17152,6 @@
     updateRunAllButtonState?.();
   }
 
-  document.getElementById('batchCheckQuality')?.addEventListener('change', () => {
-    renderInlineResultsForCurrentRow();
-  });
-
   document.getElementById('prevRow')?.addEventListener('click', () => {
     if (importedRows.length === 0) return;
     currentRowIndex = Math.max(0, currentRowIndex - 1);
@@ -16561,10 +17246,19 @@
     applyRowToForm(importedRows[currentRowIndex]);
     syncDataSectionFromImport();
     setStatus(`Row removed. ${importedRows.length} row(s) left.`, '');
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    if (wf && isPriceRangeAlwaysOnWorkflow(wf)) void persistAlwaysOnDataFromImportedRows(wf);
   });
 
   document.getElementById('clearAllRows')?.addEventListener('click', () => {
+    const wfId = playbackWorkflow?.value;
+    const wf = wfId ? workflows[wfId] : null;
+    if (isPriceRangeAlwaysOnWorkflow(wf)) {
+      if (!confirm('Clear all always-on positions? This removes live watch targets from boundRows.')) return;
+    }
     clearImportedRowsUi('All rows cleared.');
+    if (wf && isPriceRangeAlwaysOnWorkflow(wf)) void persistAlwaysOnDataFromImportedRows(wf);
   });
 
   /**
@@ -16837,6 +17531,213 @@
     return { ok: true, done: true };
   }
 
+  function prependHealedSelectors(list, extra) {
+    const heal = typeof CFS_playbackHeal !== 'undefined' ? CFS_playbackHeal : null;
+    if (heal && typeof heal.prependHealedSelectors === 'function') {
+      return heal.prependHealedSelectors(list, extra);
+    }
+    const cur = Array.isArray(list) ? list.slice() : [];
+    const add = Array.isArray(extra) ? extra : [];
+    const seen = new Set(cur.map(function (s) { return (s && s.value != null) ? String(s.value) : String(s); }));
+    const out = [];
+    for (let i = 0; i < add.length; i++) {
+      const k = (add[i] && add[i].value != null) ? String(add[i].value) : String(add[i]);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(add[i]);
+    }
+    return out.concat(cur);
+  }
+
+  async function persistHealedSelectors(pending) {
+    if (!pending || !pending.wfId || !pending.actions) return;
+    const stored = await chrome.storage.local.get(['workflows']);
+    const store = stored && stored.workflows ? stored.workflows : workflows;
+    const heal = typeof CFS_playbackHeal !== 'undefined' ? CFS_playbackHeal : null;
+    if (heal && typeof heal.mergeHealedActionsIntoWorkflows === 'function') {
+      heal.mergeHealedActionsIntoWorkflows(store, pending);
+    } else {
+      const wf = store[pending.wfId];
+      if (!wf) return;
+      if (!wf.analyzed) wf.analyzed = {};
+      wf.analyzed.actions = pending.actions;
+    }
+    workflows = store;
+    await chrome.storage.local.set({ workflows: store });
+    if (typeof persistWorkflowToProjectFolder === 'function') {
+      try { await persistWorkflowToProjectFolder(pending.wfId); } catch (_) {}
+    }
+  }
+
+  async function maybePersistPendingHeal(res, state) {
+    if (!state || !state.pendingHealPersist) return;
+    const p = state.pendingHealPersist;
+    const heal = typeof CFS_playbackHeal !== 'undefined' ? CFS_playbackHeal : null;
+    if (heal && typeof heal.shouldPersistPendingHeal === 'function') {
+      if (!heal.shouldPersistPendingHeal(res, p)) {
+        if (res?.ok === false && res.actionIndex === p.actionIndex) state.pendingHealPersist = null;
+        return;
+      }
+    } else {
+      const sameFail = res?.ok === false && res.actionIndex === p.actionIndex;
+      if (sameFail) {
+        state.pendingHealPersist = null;
+        return;
+      }
+      const passed = res?.ok !== false
+        || (res?.actionIndex != null && res.actionIndex > p.actionIndex)
+        || res?.navigate
+        || res?.openTab
+        || res?.stopped;
+      if (!passed) return;
+    }
+    await persistHealedSelectors(p);
+    state.pendingHealPersist = null;
+    setStatus('Updated step ' + (p.actionIndex + 1) + ' selectors', 'success');
+  }
+
+  async function planHealPageAgentTurn(shortTask, pageText) {
+    const snapApi = typeof CFS_pageAgentSnapshot !== 'undefined' ? CFS_pageAgentSnapshot : null;
+    const st = await chrome.storage.local.get([
+      'cfsLlmChatProvider',
+      'cfsLlmOpenaiKey',
+      'cfsLlmAnthropicKey',
+      'cfsLlmGeminiKey',
+      'cfsLlmGrokKey',
+    ]);
+    const provider = String(st.cfsLlmChatProvider || 'lamini').toLowerCase();
+    const keyBy = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
+    const backend = provider === 'crai'
+      ? { kind: 'crai', provider: 'crai' }
+      : (keyBy[provider] ? { kind: 'cloud', provider: provider } : { kind: 'lamini', provider: 'lamini' });
+    const messages = (backend.kind === 'cloud' || backend.kind === 'crai')
+      ? [
+        { role: 'system', content: snapApi && snapApi.plannerSystemPrompt ? snapApi.plannerSystemPrompt() : '' },
+        { role: 'user', content: 'Task: ' + shortTask + '\n\n' + pageText },
+      ]
+      : [
+        { role: 'user', content: 'Task: ' + shortTask + '\n\n' + pageText },
+      ];
+    const send = function (payload) {
+      return new Promise(function (resolve) {
+        chrome.runtime.sendMessage(payload, function (r) { resolve(r); });
+      });
+    };
+    if (backend.kind === 'cloud' || backend.kind === 'crai') {
+      const res = await send({
+        type: 'CALL_REMOTE_LLM_CHAT',
+        messages: messages,
+        options: { max_new_tokens: 128, temperature: 0.2, pageAgent: true },
+      });
+      return {
+        ok: !!(res && res.ok && ((res.result && res.result.text) || res.text)),
+        text: String((res && res.result && res.result.text) || (res && res.text) || '').trim(),
+      };
+    }
+    const planner = await send({
+      type: 'CFS_AGENT_PLANNER',
+      messages: messages,
+    });
+    const textOut = String((planner && planner.result && planner.result.text) || (planner && planner.text) || '').trim();
+    return {
+      ok: !!(planner && planner.ok && textOut),
+      text: textOut,
+      error: planner && planner.error,
+      code: planner && planner.code,
+    };
+  }
+
+  async function tryHealStalePlaybackSelectors(res, state) {
+    const heal = typeof CFS_playbackHeal !== 'undefined' ? CFS_playbackHeal : null;
+    const errNorm = normalizePlaybackError(res);
+    if (heal && typeof heal.isNotFoundPlaybackError === 'function') {
+      if (!heal.isNotFoundPlaybackError(res, errNorm)) return { ok: false };
+    } else {
+      if (!res || res.ok !== false || !errNorm || errNorm.isConnection) return { ok: false };
+      const msg = String(errNorm.message || res.error || '').toLowerCase();
+      if (msg.indexOf('not found') < 0 && msg.indexOf('element visible') < 0) return { ok: false };
+    }
+    if (!state || !state.tab || !state.tab.id || res.actionIndex == null) return { ok: false };
+    if (!state.healedSteps) state.healedSteps = {};
+    if (state.healedSteps[res.actionIndex]) return { ok: false };
+    state.healedSteps[res.actionIndex] = true;
+    const wf = state.wf || (state.wfId && workflows[state.wfId]) || null;
+    const snapApi = typeof CFS_pageAgentSnapshot !== 'undefined' ? CFS_pageAgentSnapshot : null;
+    if (!snapApi) return { ok: false };
+    const actions = (state.resolved && (state.resolved.actions || (state.resolved.analyzed && state.resolved.analyzed.actions))) || [];
+    const failed = actions[res.actionIndex];
+    if (heal && typeof heal.shouldSkipHeal === 'function') {
+      const skip = heal.shouldSkipHeal({ wf: wf, failed: failed, tabUrl: state.tab && state.tab.url });
+      if (skip && skip.skip) return { ok: false };
+    }
+    if (!failed) return { ok: false };
+    const next = actions[res.actionIndex + 1] || null;
+    setStatus('Trying the live search field…', 'loading');
+    try {
+      await waitForTabLoad(state.tab.id, 15000);
+      await new Promise(function (r) { setTimeout(r, 1000); });
+      await ensureContentScriptLoaded(state.tab.id);
+      const kind = typeof snapApi.inferHealKind === 'function'
+        ? snapApi.inferHealKind(failed, next, state.tab.url)
+        : 'search';
+      const resolveMsg = {
+        type: 'CFS_PAGE_AGENT_RESOLVE',
+        kind: kind,
+        hint: failed.ariaLabel || failed.name || failed.placeholder || '',
+        failedAction: {
+          type: failed.type,
+          name: failed.name,
+          ariaLabel: failed.ariaLabel,
+          displayedValue: failed.displayedValue,
+          placeholder: failed.placeholder,
+        },
+        nextAction: next ? { type: next.type, name: next.name, ariaLabel: next.ariaLabel, variableKey: next.variableKey } : null,
+        pageUrl: state.tab.url,
+      };
+      let resolvedLive = await chrome.tabs.sendMessage(state.tab.id, resolveMsg);
+      if (resolvedLive && resolvedLive.ambiguous && resolvedLive.candidates && resolvedLive.candidates.length > 1) {
+        const shortTask = heal && typeof heal.healShortTask === 'function'
+          ? heal.healShortTask(kind, failed)
+          : (kind === 'click'
+            ? 'click the ' + (failed.displayedValue || failed.ariaLabel || failed.name || 'matching control')
+            : 'the workflow is waiting for the ' + (kind === 'search' ? 'Google search box' : 'input field') + '; output type[N]');
+        setStatus('Choosing among page fields with Local AI…', 'loading');
+        const planned = await planHealPageAgentTurn(shortTask, resolvedLive.formatted || '');
+        const parsed = snapApi.parsePlannerReply ? snapApi.parsePlannerReply(planned && planned.text) : { ok: false };
+        if (!parsed.ok || !parsed.index) return { ok: false };
+        resolvedLive = await chrome.tabs.sendMessage(state.tab.id, Object.assign({}, resolveMsg, { index: parsed.index }));
+      }
+      if (!resolvedLive || !resolvedLive.ok || !resolvedLive.selectors || !resolvedLive.selectors.length) {
+        return { ok: false };
+      }
+      if ((kind === 'type' || kind === 'search') && resolvedLive.role
+        && heal && typeof heal.isTypableRole === 'function'
+        && !heal.isTypableRole(resolvedLive.role)) {
+        return { ok: false };
+      }
+      if ((kind === 'type' || kind === 'search') && resolvedLive.role
+        && resolvedLive.role !== 'textbox' && resolvedLive.role !== 'searchbox' && resolvedLive.role !== 'combobox') {
+        return { ok: false };
+      }
+      const applied = heal && typeof heal.applyHealedSelectors === 'function'
+        ? heal.applyHealedSelectors(state.resolved, res.actionIndex, resolvedLive.selectors, failed, next)
+        : { ok: false };
+      if (!applied || !applied.ok) return { ok: false };
+      return {
+        ok: true,
+        resolved: applied.resolved,
+        startIndex: res.actionIndex,
+        pendingPersist: {
+          wfId: state.wfId,
+          actionIndex: res.actionIndex,
+          actions: JSON.parse(JSON.stringify(applied.actions)),
+        },
+      };
+    } catch (_) {
+      return { ok: false };
+    }
+  }
+
   async function playResolvedWorkflowUntilDone(state) {
     let res;
     for (;;) {
@@ -16863,6 +17764,7 @@
   }
 
   async function applyPlayerResponseHop(res, state) {
+    await maybePersistPendingHeal(res, state);
     if (res?.runWorkflowPlan && Array.isArray(res.items)) {
       const planRes = await executeWorkflowPlanItems(res.items, state);
       if (planRes?.ok === false || planRes?.stopped) {
@@ -16907,6 +17809,15 @@
       state.startIndex = res.nextStepIndex || 0;
       return true;
     }
+    if (res?.ok === false && state && state.allowHeal !== false) {
+      const healed = await tryHealStalePlaybackSelectors(res, state);
+      if (healed && healed.ok) {
+        state.resolved = healed.resolved;
+        state.startIndex = healed.startIndex;
+        state.pendingHealPersist = healed.pendingPersist;
+        return true;
+      }
+    }
     return false;
   }
 
@@ -16933,7 +17844,23 @@
       return parsed;
     })();
     if (rows.length === 0) {
-      setStatus('Import CSV or paste row data first.', 'error');
+      syncWorkflowFormToCurrentRow();
+      if (importedRows.length > 0) {
+        rows = importedRows;
+      } else {
+        const formRow = readWorkflowFormRow();
+        const defaults = {};
+        getWorkflowVariableKeys(wf).forEach(function(k) {
+          if (k.defaultValue != null && String(k.defaultValue).trim() !== '') {
+            defaults[k.rowKey || k.label] = String(k.defaultValue);
+          }
+        });
+        const merged = Object.assign({}, defaults, formRow);
+        if (Object.keys(merged).length) rows = [merged];
+      }
+    }
+    if (rows.length === 0) {
+      setStatus('Fill This run, add an execution, or import CSV/JSON first.', 'error');
       return;
     }
     if (importedRows.length === 0 && rows.length > 1) {
@@ -16983,6 +17910,7 @@
     try {
       if (runBtn) { runBtn.disabled = true; runBtn.style.display = 'none'; }
       if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; }
+      updatePageCompareSectionVisibility();
       const recordNextBtn = document.getElementById('recordNextStep');
       if (recordNextBtn) recordNextBtn.style.display = '';
       if (stepHighlightInterval) clearInterval(stepHighlightInterval);
@@ -16996,7 +17924,6 @@
       let resolved = resolveNestedWorkflows(analyzed, workflows);
       if (!resolved) return;
       setStatus('Starting batch... Switch to the tab to watch.', '');
-      generationHistory = [];
       await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
       await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
       await ensureContentScriptLoaded(tab.id);
@@ -17039,6 +17966,7 @@
           }
           const rowPlaybackBudgetMs = getWorkflowPlaybackTimeoutMs(resolved);
           const rowPlayDeadline = Date.now() + rowPlaybackBudgetMs;
+          const healCtx = { healedSteps: {}, pendingHealPersist: null };
           for (;;) {
             const remainingMs = rowPlayDeadline - Date.now();
             if (remainingMs <= 0) {
@@ -17072,8 +18000,13 @@
                 tab: tab,
                 row: rowForPlayback,
                 stopSignal: stopSignal,
+                wf: wf,
+                wfId: wfId,
+                healedSteps: healCtx.healedSteps,
+                pendingHealPersist: healCtx.pendingHealPersist,
               };
               const hopped = await applyPlayerResponseHop(res, hopState);
+              healCtx.pendingHealPersist = hopState.pendingHealPersist;
               if (hopped) {
                 currentTabIdBatch = hopState.currentTabId;
                 startIndexBatch = hopState.startIndex;
@@ -17250,6 +18183,7 @@
     try {
       if (runBtn) { runBtn.disabled = true; runBtn.style.display = 'none'; }
       if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; }
+      updatePageCompareSectionVisibility();
       const recordNextBtn = document.getElementById('recordNextStep');
       if (recordNextBtn) recordNextBtn.style.display = '';
       if (stepHighlightInterval) clearInterval(stepHighlightInterval);
@@ -17278,6 +18212,7 @@
       let currentTabIdRunFrom = tab.id;
       let startIndexRunFrom = startIndex;
       let res;
+      const healCtx = { healedSteps: {}, pendingHealPersist: null };
       for (;;) {
         res = await Promise.race([
           new Promise((resolve) => {
@@ -17304,8 +18239,13 @@
             row: row,
             stopSignal: stopSignal,
             timeoutPromise: timeoutPromise,
+            wf: wf,
+            wfId: wfId,
+            healedSteps: healCtx.healedSteps,
+            pendingHealPersist: healCtx.pendingHealPersist,
           };
           const hopped = await applyPlayerResponseHop(res, hopState);
+          healCtx.pendingHealPersist = hopState.pendingHealPersist;
           if (hopped) {
             currentTabIdRunFrom = hopState.currentTabId;
             startIndexRunFrom = hopState.startIndex;
@@ -17406,6 +18346,7 @@
     try {
       if (runBtn) { runBtn.disabled = true; runBtn.style.display = 'none'; }
       if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; }
+      updatePageCompareSectionVisibility();
       const recordNextBtn = document.getElementById('recordNextStep');
       if (recordNextBtn) recordNextBtn.style.display = '';
       if (stepHighlightInterval) clearInterval(stepHighlightInterval);
@@ -17438,6 +18379,7 @@
         let currentTabId = tab.id;
         let startIndex = 0;
         let res;
+        const healCtx = { healedSteps: {}, pendingHealPersist: null };
         for (;;) {
           res = await Promise.race([
             new Promise((resolve) => {
@@ -17474,8 +18416,13 @@
               tab: tab,
               row: r,
               stopSignal: stopSignal,
+              wf: wf,
+              wfId: wfId,
+              healedSteps: healCtx.healedSteps,
+              pendingHealPersist: healCtx.pendingHealPersist,
             };
             const hopped = await applyPlayerResponseHop(res, hopState);
+            healCtx.pendingHealPersist = hopState.pendingHealPersist;
             if (hopped) {
               currentTabId = hopState.currentTabId;
               startIndex = hopState.startIndex;
@@ -17945,6 +18892,7 @@
     if (recordNextBtn) recordNextBtn.style.display = ''; if (doneBtn) { doneBtn.style.display = ''; doneBtn.disabled = false; }
     document.getElementById('runAllRows').disabled = false;
     scrollToStepAndExpand(stepIndex);
+    updatePageCompareSectionVisibility();
     setStatus('Open the page for this step in the tab, then click "Record next step", perform the action, and click Done.', '');
   });
 
@@ -18032,6 +18980,7 @@
       if (recordNextBtn) recordNextBtn.style.display = 'none';
       if (doneBtn) { doneBtn.style.display = ''; doneBtn.disabled = false; }
       document.getElementById('runAllRows').disabled = false;
+      updatePageCompareSectionVisibility();
       setStatus('Perform the next action on the page (click, type, etc.), then click Done.', '');
       const nextRunId = `record_step_${Date.now()}`;
       await recordingSessionBeginPromise({
@@ -18076,6 +19025,7 @@
         return;
       }
       if (doneBtn) { doneBtn.style.display = 'none'; doneBtn.disabled = true; }
+      updatePageCompareSectionVisibility();
       const recorded = actions[0];
       const idx = Math.min(recordNextStepAt, wf.analyzed.actions.length);
       const existing = wf.analyzed.actions[idx];
@@ -18293,8 +19243,24 @@
     ensureWebcamGrant: ensureWebcamGrantForPlanRecord,
     ensureMicGrant: ensureMicrophoneGrantForPlanRecord,
     writeSourceRecordingFile: writeSourceRecordingFile,
+    writeUploadsFile: writeUploadsFile,
+    listUploadsFiles: listUploadsFiles,
+    readUploadsFile: readUploadsFile,
+    previewLibraryMedia: showLibraryMediaPreview,
+    previewLibraryMediaTracks: showLibraryMediaTracksPreview,
+    closeLibraryMediaPreview: closeLibraryMediaPreview,
     isPlanMediaBusy: function () { return !!parallelPlanMediaRecording; },
-    setSourceMediaBusy: function (v) { sourceMediaBusy = !!v; }
+    setSourceMediaBusy: function (v) { sourceMediaBusy = !!v; },
+    isHiddenFromUserNav: isHiddenFromUserNav,
+    workflowMatchesTabOrigin: workflowMatchesTabOrigin,
+    groupFilteredWorkflowIdsByFamily: groupFilteredWorkflowIdsByFamily,
+    planFamilyDisplayName: planFamilyDisplayName,
+    getPlanSelectedFamily: function () { return planWorkflowFamily ? planWorkflowFamily.value : ''; },
+    selectPlanWorkflowFamily: function (famKey) {
+      if (!planWorkflowFamily) return;
+      planWorkflowFamily.value = famKey || '__new__';
+      planWorkflowFamily.dispatchEvent(new Event('change'));
+    }
   };
 
   /** Normalize Supabase Project to shape used by UI: { id, name, industries, platforms, monetization } */
@@ -18682,7 +19648,7 @@
         document.getElementById(btnId)?.addEventListener('click', async () => {
           try {
             const root = await getStoredProjectFolderHandle();
-            if (!root) { setStatus('Set project folder first.', 'error'); return; }
+            if (!root) { setStatus('Set local folder first.', 'error'); return; }
             const perm = await root.requestPermission({ mode: 'readwrite' });
             if (perm !== 'granted') { setStatus('Permission denied.', 'error'); return; }
             // Get the logos directory handle to use as startIn
@@ -19316,6 +20282,8 @@
       'cfsLlmWorkflowProvider',
       'cfsLlmWorkflowOpenaiModel',
       'cfsLlmWorkflowModelOverride',
+      'cfsLlmChatFallback',
+      'cfsLlmWorkflowFallback',
     ];
     if (cfsLlmStorageKeys.some((k) => Object.prototype.hasOwnProperty.call(changes, k))) {
       if (typeof updateLlmChatSectionAvailability === 'function') {

@@ -28,16 +28,28 @@
    * Collect project IDs that have an always-on workflow with fileWatch scope.
    */
   function getFileWatchProjectIds(stored) {
-    var w = stored[WORKFLOWS_KEY];
-    if (!w || typeof w !== 'object' || Array.isArray(w)) return [];
-    var ids = Object.keys(w);
+    var helper = global.__CFS_alwaysOnFromSteps;
+    var members = helper && typeof helper.collectLatestFamilyWorkflows === 'function'
+      ? helper.collectLatestFamilyWorkflows(stored)
+      : [];
     var projectIds = [];
-    for (var i = 0; i < ids.length; i++) {
-      var wf = w[ids[i]];
-      if (!wf || !wf.alwaysOn || wf.alwaysOn.enabled !== true) continue;
-      var sc = (wf.alwaysOn && wf.alwaysOn.scopes) || {};
+    var list = members.length
+      ? members
+      : (function () {
+          var w = stored[WORKFLOWS_KEY];
+          if (!w || typeof w !== 'object' || Array.isArray(w)) return [];
+          return Object.keys(w).map(function (id) { return { id: id, wf: w[id] }; });
+        })();
+    for (var i = 0; i < list.length; i++) {
+      var wf = list[i].wf;
+      var enabled = helper && typeof helper.workflowAlwaysOnEnabled === 'function'
+        ? helper.workflowAlwaysOnEnabled(wf)
+        : !!(wf && wf.alwaysOn && wf.alwaysOn.enabled === true);
+      if (!enabled) continue;
+      var sc = helper && typeof helper.scopesForWorkflow === 'function'
+        ? helper.scopesForWorkflow(wf)
+        : ((wf.alwaysOn && wf.alwaysOn.scopes) || {});
       if (!sc.fileWatch) continue;
-      // Look for project binding on the workflow
       var pId = (wf.alwaysOn && wf.alwaysOn.projectId) || '';
       if (pId && projectIds.indexOf(pId) < 0) projectIds.push(pId);
     }
@@ -55,7 +67,7 @@
    */
   async function tick() {
     try {
-      var stored = await storageLocalGet([WORKFLOWS_KEY]);
+      var stored = await storageLocalGet([WORKFLOWS_KEY, 'cfsHideE2eTestingWorkflows']);
       var evalFn = global.__CFS_evaluateAlwaysOnAutomation || global.__CFS_evaluateFollowingAutomation;
       if (typeof evalFn === 'function') {
         var gate = evalFn(stored);
@@ -71,15 +83,20 @@
       // fall back to the currently selected project
       if (projectIds.length === 0) {
         var hasFileWatchScope = false;
+        var helper = global.__CFS_alwaysOnFromSteps;
         var w = stored[WORKFLOWS_KEY];
         if (w && typeof w === 'object' && !Array.isArray(w)) {
           var wfIds = Object.keys(w);
           for (var fi = 0; fi < wfIds.length; fi++) {
             var wf = w[wfIds[fi]];
-            if (wf && wf.alwaysOn && wf.alwaysOn.enabled === true) {
-              var sc = (wf.alwaysOn && wf.alwaysOn.scopes) || {};
-              if (sc.fileWatch) { hasFileWatchScope = true; break; }
-            }
+            var enabled = helper && typeof helper.workflowAlwaysOnEnabled === 'function'
+              ? helper.workflowAlwaysOnEnabled(wf)
+              : !!(wf && wf.alwaysOn && wf.alwaysOn.enabled === true);
+            if (!enabled) continue;
+            var sc = helper && typeof helper.scopesForWorkflow === 'function'
+              ? helper.scopesForWorkflow(wf)
+              : ((wf.alwaysOn && wf.alwaysOn.scopes) || {});
+            if (sc.fileWatch) { hasFileWatchScope = true; break; }
           }
         }
         if (hasFileWatchScope) {

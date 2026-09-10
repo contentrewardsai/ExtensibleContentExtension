@@ -330,7 +330,7 @@ chrome.runtime.sendMessage(extensionId, {
 
 Read-only: evaluates the same **Library / always-on** rules as Pulse Following (`shared/cfs-always-on-automation.js`, **`__CFS_evaluateFollowingAutomation`**). Uses **`workflows`**, **`cfsPulseSolanaWatchBundle`**, **`cfsPulseBscWatchBundle`**, and **`cfs_bscscan_api_key`** from **`chrome.storage.local`**.
 
-Returns **`{ ok: true, reason?, legacy?, allowSolanaWatch, allowBscWatch, allowFollowingAutomationSolana, allowFollowingAutomationBsc }`**. **`reason`** is **`no_workflows`** (empty Library), **`no_always_on_workflow`** (strict always-on mode but no scopes match), or **`null`** when allowed. **`legacy: true`** means no workflow has **`alwaysOn.enabled`**—any non-empty Library enables Following.
+Returns **`{ ok: true, reason?, legacy?, allowSolanaWatch, allowBscWatch, allowFollowingAutomationSolana, allowFollowingAutomationBsc, allowFileWatch, allowPriceRangeWatch, allowCustom }`**. **`reason`** is **`no_workflows`** (empty Library), **`no_always_on_workflow`** (strict always-on mode but no scopes match), or **`null`** when allowed. **`legacy: true`** means no workflow has always-on (no **`checkRealtimeData`** sources / **`alwaysOn.enabled`**)—any non-empty Library enables Following.
 
 ```js
 chrome.runtime.sendMessage({ type: 'CFS_FOLLOWING_AUTOMATION_STATUS' }, (r) => { /* … */ });
@@ -393,21 +393,22 @@ Workflows that include the **Call LLM** step and **Local AI Chat** in the side p
 | Key | Purpose |
 |-----|--------|
 | `cfsLlmOpenaiKey`, `cfsLlmAnthropicKey`, `cfsLlmGeminiKey`, `cfsLlmGrokKey` | API secrets (strings). Each value is capped at **4096** characters in Settings, on **`CFS_LLM_TEST_PROVIDER`**, and when read for **`CALL_LLM`** / **`CALL_REMOTE_LLM_CHAT`** (oversized values are rejected without calling vendors). |
-| `cfsLlmWorkflowProvider` | `lamini` (default), `openai`, `claude`, `gemini`, or `grok` — backend for the **Call LLM** workflow step. |
+| `cfsLlmWorkflowProvider` | `lamini` (default), `openai`, `claude`, `gemini`, `grok`, or `crai` — backend for the **Call LLM** workflow step. `crai` is Content Rewards AI (Qwen 27B on the backend); requires Whop login. |
 | `cfsLlmWorkflowOpenaiModel` | OpenAI model id when workflow provider is OpenAI (e.g. `gpt-4o-mini`). Max **256** characters (same for overrides and chat keys below). |
 | `cfsLlmWorkflowModelOverride` | Optional model id when workflow provider is Claude, Gemini, or Grok (empty = built-in default in the extension). Settings uses a dropdown plus optional **Custom…**; storage is still this string key. |
 | `cfsLlmChatProvider` | Same enum for **Local AI Chat** (independent from workflow). |
+| `cfsLlmWorkflowFallback`, `cfsLlmChatFallback` | `lamini` (default) or `crai`. Shown only when the matching provider is OpenAI / Claude / Gemini / Grok. Used if that paid API call fails (quota, billing, network). `crai` requires a signed-in paid or trial account. |
 | `cfsLlmChatOpenaiModel`, `cfsLlmChatModelOverride` | Same pattern for chat (dropdown + Custom in Settings for each provider). |
 
 Outbound requests run in the **service worker** (`CALL_LLM` and `CALL_REMOTE_LLM_CHAT`). Do not commit keys to source control.
 
 **Empty assistant text:** **OpenAI-** and **Grok**-compatible chat completions, **Claude**, and **Gemini** all return **`{ ok: false, error }`** when the vendor responds with HTTP 200 but no usable assistant text (including Gemini safety blocks and empty choices).
 
-**`CALL_LLM` message (optional fields):** besides `prompt` and `responseType`, you may send **`llmProvider`** (`lamini` \| `openai` \| `claude` \| `gemini` \| `grok`) to override the workflow default for that call, plus **`llmOpenaiModel`** or **`llmModelOverride`** to override the saved model for that call. The **Call LLM** step passes these when configured in the workflow editor. Resolved model ids longer than **256** characters are rejected (`Model id too long`).
+**`CALL_LLM` message (optional fields):** besides `prompt` and `responseType`, you may send **`llmProvider`** (`lamini` \| `openai` \| `claude` \| `gemini` \| `grok` \| `crai`) to override the workflow default for that call, plus **`llmOpenaiModel`** or **`llmModelOverride`** to override the saved model for that call. The **Call LLM** step passes these when configured in the workflow editor. Resolved model ids longer than **256** characters are rejected (`Model id too long`). **`crai`** calls **`POST /api/extension/agent-planner`** (Qwen 27B) and does not use a local API key.
 
 ## CALL_REMOTE_LLM_CHAT
 
-Run a **multi-turn chat** through the cloud provider selected under **Settings → Local AI Chat default** (not LaMini). Same API keys as workflow cloud providers.
+Run a **multi-turn chat** through the provider selected under **Settings → Local AI Chat default** (not LaMini). OpenAI / Claude / Gemini / Grok use saved API keys. **`crai`** (Content Rewards AI) uses the backend Qwen 27B planner and requires Whop login (401 → `ASK_LOGIN`, 403 → `ASK_UPGRADE`).
 
 **Message:**
 
@@ -430,7 +431,7 @@ chrome.runtime.sendMessage(extensionId, {
 
 **`CALL_LLM` prompt limit:** trimmed prompt must be at most **500,000** characters.
 
-**Settings deep links:** `settings/settings.html#cfs-llm-providers` (keys + workflow default) and `#cfs-llm-chat-default` (chat default).
+**Settings deep links:** `settings/settings.html#tab-general` (General & APIs), `#tab-mcp` (Advanced / MCP), `#tab-crypto`, `#tab-workflows`, `#tab-tests`. Section hashes `#cfs-llm-providers`, `#cfs-llm-chat-default`, and `#cfs-mcp-server` switch to the matching tab and scroll to that heading.
 
 ## CFS_LLM_TEST_PROVIDER
 

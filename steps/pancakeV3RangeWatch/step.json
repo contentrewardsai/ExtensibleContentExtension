@@ -2,26 +2,30 @@
   "id": "pancakeV3RangeWatch",
   "label": "PancakeSwap V3 range watch",
   "category": "data",
-  "description": "Poll a PancakeSwap V3 pool's current tick and compare to your position's tick range. The step **completes** when the current tick moves **outside** the position range (i.e. concentrated liquidity is no longer active). Save the drift direction ('above' or 'below') to a variable for downstream branching. Use in always-on workflows to trigger rebalancing or exit logic. Works with any V3-style (Uniswap fork) concentrated liquidity pool on BSC.",
+  "description": "Check a PancakeSwap V3 pool's current tick against your position's tick range. Default **waitUntilOutOfRange** waits until the tick moves **outside** the range. Set **false** for a one-shot check (always-on ticks / Plan debug): sets inRange, driftDirection, and triggerReason (hard_oor | near_edge | in_range) and succeeds even if still in range. Service-worker ticks always one-shot.",
   "defaultAction": {
     "type": "pancakeV3RangeWatch",
     "runIf": "",
     "v3PositionTokenId": "",
     "pollIntervalMs": 30000,
     "timeoutMs": 0,
+    "waitUntilOutOfRange": true,
+    "nearEdgePercent": "",
     "saveDriftDirection": "driftDirection",
     "saveCurrentTick": "currentTick",
     "savePositionRange": "positionRange"
   },
   "inputs": [
     { "key": "v3PositionTokenId", "description": "V3 position NFT token ID. Template vars supported." },
-    { "key": "pollIntervalMs", "description": "How often to check the current tick (default 30s)." },
-    { "key": "timeoutMs", "description": "Maximum wait time (0 = wait forever until out of range)." }
+    { "key": "pollIntervalMs", "description": "How often to check the current tick when waiting (default 30s)." },
+    { "key": "timeoutMs", "description": "Maximum wait time when waitUntilOutOfRange is true (0 = wait forever)." },
+    { "key": "waitUntilOutOfRange", "description": "When true (default), poll until hard out-of-range. When false, one check then succeed." },
+    { "key": "nearEdgePercent", "description": "Optional: while in range, treat within this % of an edge as near_edge (one-shot)." }
   ],
   "outputs": [
-    { "key": "saveDriftDirection", "description": "Row variable: 'above' (tick rose past tickUpper) or 'below' (tick fell past tickLower)." },
-    { "key": "saveCurrentTick", "description": "Row variable: current tick at the time drift was detected." },
-    { "key": "savePositionRange", "description": "Row variable: JSON with tickLower, tickUpper, currentTick, direction, pool, token0, token1, fee." }
+    { "key": "saveDriftDirection", "description": "Row variable: 'above' or 'below' (empty when still in_range)." },
+    { "key": "saveCurrentTick", "description": "Row variable: current tick." },
+    { "key": "savePositionRange", "description": "Row variable: JSON with tickLower, tickUpper, currentTick, direction, triggerReason, pool." }
   ],
   "formSchema": [
     {
@@ -38,6 +42,13 @@
       "hint": "The token ID from a previous v3PositionMint step."
     },
     {
+      "key": "waitUntilOutOfRange",
+      "label": "Wait until out of range",
+      "inputType": "checkbox",
+      "default": true,
+      "hint": "Off = one-shot (sets inRange / triggerReason and continues). Always-on ticks always one-shot. Unset on old steps means wait (same as the handler default)."
+    },
+    {
       "key": "pollIntervalMs",
       "label": "Poll interval (ms)",
       "inputType": "number",
@@ -50,6 +61,12 @@
       "inputType": "number",
       "placeholder": "0",
       "min": 0
+    },
+    {
+      "key": "nearEdgePercent",
+      "label": "Near-edge % (optional)",
+      "inputType": "text",
+      "placeholder": "off — e.g. 2"
     },
     {
       "key": "saveDriftDirection",

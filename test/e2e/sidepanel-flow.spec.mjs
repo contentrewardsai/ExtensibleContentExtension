@@ -77,18 +77,17 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
     await new Promise((r) => setTimeout(r, 500));
     expect(await sidepanelPage.locator('#projectFolderBanner').count()).toBe(0);
-    expect(await sidepanelPage.locator('#automationsPanel #dataExportSection').count()).toBe(0);
     await expect(sidepanelPage.locator('#recordingRequiresProjectFolder')).toBeVisible();
   });
 
-  test('Library workflows section includes export data and create controls', async () => {
+  test('Library tab does not show workflows list, create controls, or categories', async () => {
     await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
     await new Promise((r) => setTimeout(r, 500));
-    await expect(sidepanelPage.locator('#workflowContentRequiresProjectFolder')).toBeVisible();
-    await expect(sidepanelPage.locator('#newWorkflowName')).toBeVisible();
-    await expect(sidepanelPage.locator('#createWorkflow')).toBeVisible();
-    await expect(sidepanelPage.locator('#libraryPanel #dataExportSection')).toBeVisible();
-    await expect(sidepanelPage.locator('#exportDataCSV')).toBeVisible();
+    expect(await sidepanelPage.locator('#libraryPanel .library-categories-section').count()).toBe(0);
+    expect(await sidepanelPage.locator('#libraryPanel #workflowList').count()).toBe(0);
+    expect(await sidepanelPage.locator('#libraryPanel #newWorkflowName').count()).toBe(0);
+    expect(await sidepanelPage.locator('#libraryPanel #createWorkflow').count()).toBe(0);
+    expect(await sidepanelPage.locator('#libraryPanel .your-workflows-heading').count()).toBe(0);
   });
 
   test('Plan tab contains recording section', async () => {
@@ -117,19 +116,31 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     expect(await sidepanelPage.locator('#librarySourceRecordModes [data-record-mode]').count()).toBe(4);
   });
 
-  test('Library panel contains playback controls', async () => {
+  test('Library includes the Transcribe panel', async () => {
     await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
     await new Promise((r) => setTimeout(r, 500));
-    expect(await sidepanelPage.locator('#runAllRows').count()).toBe(1);
-    expect(await sidepanelPage.locator('#runPlayback').count()).toBe(1);
-    expect(await sidepanelPage.locator('#stopPlayback').count()).toBe(1);
-    expect(await sidepanelPage.locator('#playbackWorkflow').count()).toBe(1);
+    await expect(sidepanelPage.getByTestId(CFS_E2E_TESTID.libraryTranscribe)).toBeVisible();
+    await expect(sidepanelPage.getByTestId(CFS_E2E_TESTID.libraryTranscribeRun)).toBeVisible();
   });
 
-  test('Library panel contains steps section', async () => {
-    const stepsExists = (await sidepanelPage.locator('#stepsSection').count()) > 0;
-    expect(stepsExists).toBe(true);
-    expect(await sidepanelPage.locator('#stepsList').count()).toBe(1);
+  test('Plan Edit and Run contains playback controls', async () => {
+    await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    await sidepanelPage.locator('#planWorkflowSubTabs .sub-tab[data-subtab="editrun"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    await expect(sidepanelPage.locator('#runAllRows')).toBeVisible();
+    await expect(sidepanelPage.locator('#runPlayback')).toBeVisible();
+    await expect(sidepanelPage.locator('#playbackWorkflow')).toBeVisible();
+    expect(await sidepanelPage.locator('#stopPlayback').count()).toBe(1);
+  });
+
+  test('Plan Edit and Run contains steps section', async () => {
+    await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    await sidepanelPage.locator('#planWorkflowSubTabs .sub-tab[data-subtab="editrun"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    await expect(sidepanelPage.locator('#stepsSection')).toBeVisible();
+    await expect(sidepanelPage.locator('#stepsList')).toBeVisible();
     expect(await sidepanelPage.locator('#recordWorkflowBtn').count()).toBe(1);
   });
 
@@ -152,10 +163,14 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
     expect(await sidepanelPage.locator('#activityRunHistory').count()).toBe(1);
   });
 
-  test('switching back to Library tab restores playback section', async () => {
+  test('Library tab does not show workflow playback UI', async () => {
     await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
     await new Promise((r) => setTimeout(r, 500));
-    expect(await sidepanelPage.locator('#playbackWorkflow').count()).toBe(1);
+    await expect(sidepanelPage.locator('#libraryPanel')).toBeVisible();
+    await expect(sidepanelPage.locator('#playbackWorkflow')).toBeHidden();
+    await expect(sidepanelPage.locator('#runAllRows')).toBeHidden();
+    await expect(sidepanelPage.locator('#stepsSection')).toBeHidden();
+    await expect(sidepanelPage.locator('#libraryPanel #playbackWorkflow')).toHaveCount(0);
   });
 
   test('Settings button opens settings.html in a new tab', async ({ extensionContext, extensionId }) => {
@@ -169,13 +184,13 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
         (u) => String(u).includes('/settings/settings.html'),
         { timeout: 30_000 },
       );
-      expect(newTab.url()).toContain('settings/settings.html#tab-tests');
+      expect(newTab.url()).toContain('settings/settings.html#tab-mcp');
     } finally {
       await newTab.close().catch(() => {});
     }
   });
 
-  test('Settings button opens settings.html#tab-tests with Tests tab active', async ({ extensionContext, extensionId }) => {
+  test('Settings button opens settings.html#tab-mcp with MCP tab active', async ({ extensionContext, extensionId }) => {
     const btn = sidepanelPage.getByTestId(CFS_E2E_TESTID.sidepanelSettings).filter({ visible: true });
     await expect(btn).toBeVisible({ timeout: 15_000 });
     const pagePromise = extensionContext.waitForEvent('page');
@@ -186,12 +201,11 @@ test.describe('Sidepanel UI: navigation and skeleton', () => {
         (u) => String(u).includes('/settings/settings.html'),
         { timeout: 30_000 },
       );
-      expect(newTab.url()).toContain('settings/settings.html#tab-tests');
-      // Verify the Tests tab is active and the "Open unit tests page" button is visible
+      expect(newTab.url()).toContain('settings/settings.html#tab-mcp');
       await newTab.waitForLoadState('domcontentloaded');
       await new Promise((r) => setTimeout(r, 1000));
-      const unitTestsBtn = newTab.getByTestId(CFS_E2E_TESTID.settingsOpenUnitTestsPage);
-      await expect(unitTestsBtn).toBeVisible({ timeout: 10_000 });
+      await expect(newTab.locator('#tab-mcp')).toBeVisible({ timeout: 10_000 });
+      await expect(newTab.locator('#cfs-mcp-server')).toBeVisible({ timeout: 10_000 });
     } finally {
       await newTab.close().catch(() => {});
     }
@@ -217,25 +231,27 @@ test.describe('Sidepanel UI: create workflow', () => {
   });
 
   test('create workflow via UI without requiring a project folder', async () => {
-    await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
+    await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
     await new Promise((r) => setTimeout(r, 500));
 
-    const nameInput = sidepanelPage.locator('#newWorkflowName');
+    const nameInput = sidepanelPage.locator('#recordingNewWorkflowName');
     await expect(nameInput).toBeVisible();
     await nameInput.fill(WORKFLOW_NAME);
-    await sidepanelPage.locator('#createWorkflow').click();
+    await sidepanelPage.locator('#recordingCreateWorkflowBtn').click();
     await new Promise((r) => setTimeout(r, 1500));
 
     const options = await sidepanelPage.locator('#playbackWorkflow option').allTextContents();
-    const wfList = await sidepanelPage.locator('#workflowList').textContent().catch(() => '');
-    const found = options.some((t) => t.includes(WORKFLOW_NAME)) || wfList.includes(WORKFLOW_NAME);
-    expect(found, 'workflow should appear in dropdown or list after creation').toBe(true);
+    const familyOptions = await sidepanelPage.locator('#planWorkflowFamily option').allTextContents();
+    const found =
+      options.some((t) => t.includes(WORKFLOW_NAME)) ||
+      familyOptions.some((t) => t.includes(WORKFLOW_NAME));
+    expect(found, 'workflow should appear in Plan picker or playback dropdown after creation').toBe(true);
   });
 
   test('injecting workflow into storage makes it available after sidepanel reload', async ({ extensionContext, extensionId }) => {
     const wf = {
       id: 'e2e-sp-injected',
-      /* Avoid "e2e" / "test" in name — isTestWorkflow() hides those from dropdowns */
+      /* Avoid "e2e" / "test" in name — hidden from nav when Hide E2E testing workflows is on */
       name: 'SP Injected Workflow',
       initial_version: 'e2e-sp-injected',
       version: 1,
@@ -258,8 +274,10 @@ test.describe('Sidepanel UI: create workflow', () => {
     await sidepanelPage.reload();
     await sidepanelPage.waitForLoadState('domcontentloaded');
     await new Promise((r) => setTimeout(r, 2000));
-    await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
-    await new Promise((r) => setTimeout(r, 500));
+    await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    await sidepanelPage.locator('#planWorkflowSubTabs .sub-tab[data-subtab="editrun"]').click();
+    await new Promise((r) => setTimeout(r, 400));
 
     const options = await sidepanelPage.locator('#playbackWorkflow option').allTextContents();
     const found = options.some((t) => t.includes('SP Injected Workflow'));
@@ -958,8 +976,10 @@ test.describe('Sidepanel UI: import workflow', () => {
     await sidepanelPage.reload();
     await sidepanelPage.waitForLoadState('domcontentloaded');
     await new Promise((r) => setTimeout(r, 2000));
-    await sidepanelPage.locator('.header-tab[data-tab="library"]').click();
-    await new Promise((r) => setTimeout(r, 500));
+    await sidepanelPage.locator('.header-tab[data-tab="automations"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    await sidepanelPage.locator('#planWorkflowSubTabs .sub-tab[data-subtab="editrun"]').click();
+    await new Promise((r) => setTimeout(r, 400));
 
     const options = await sidepanelPage.locator('#playbackWorkflow option').allTextContents();
     expect(options.some((t) => t.includes('E2E Storage Import')), 'imported workflow visible in dropdown').toBe(true);

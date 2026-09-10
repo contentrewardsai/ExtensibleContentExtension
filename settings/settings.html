@@ -180,8 +180,8 @@
         <p class="tab-description">Manage core application keys, rendering engines, and AI models.</p>
 
         <div class="section" id="cfsLlmSection">
-    <h2>Optional cloud LLMs</h2>
-    <p class="hint">API keys stay in this browser. Use <strong>Lamini</strong> (default) for the built-in backend, or choose OpenAI, Claude, Gemini, or Grok for workflow LLM steps and Local AI Chat when a key is saved.</p>
+    <h2 id="cfs-llm-providers">Optional cloud LLMs</h2>
+    <p class="hint">API keys stay in this browser and do not require a Whop login. Use <strong>LaMini</strong> (default, local) when no key is set, or OpenAI, Claude, Gemini, or Grok when a key is saved. Signed-in users can also choose <strong>Content Rewards AI</strong> (Qwen 27B on our GPU). <strong>Run</strong> and <strong>Send</strong> both use this Local AI Chat default on the current tab.</p>
 
     <h3 style="margin-top:16px;">API keys</h3>
     <div class="form-row">
@@ -235,8 +235,10 @@
           <option value="claude">Claude (Anthropic)</option>
           <option value="gemini">Gemini (Google)</option>
           <option value="grok">Grok (xAI)</option>
+          <option value="crai" class="cfs-llm-crai-option" disabled>Content Rewards AI (Qwen 27B)</option>
         </select>
       </div>
+      <p id="cfsLlmWorkflowCraiHint" class="hint cfs-llm-crai-hint" style="display:none;margin:4px 0 0 0;">Sign in with Whop to use Content Rewards AI (Qwen 27B). Paid or trial access is required when you run a step.</p>
       <div class="form-row cfs-llm-workflow-openai-model-row" style="display:none;">
         <label for="cfsLlmWorkflowOpenaiModelSelect">OpenAI model</label>
         <select id="cfsLlmWorkflowOpenaiModelSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
@@ -257,15 +259,23 @@
           <input type="text" id="cfsLlmWorkflowOverrideModelCustom" placeholder="Custom model id" autocomplete="off" style="display:none;width:100%;">
         </span>
       </div>
+      <div class="form-row cfs-llm-workflow-fallback-row" style="display:none;">
+        <label for="cfsLlmWorkflowFallbackSelect">Fallback if paid API fails</label>
+        <select id="cfsLlmWorkflowFallbackSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+          <option value="lamini">LaMini (local)</option>
+          <option value="crai" class="cfs-llm-crai-fallback-option" disabled>Content Rewards AI (Qwen 27B)</option>
+        </select>
+      </div>
+      <p id="cfsLlmWorkflowFallbackHint" class="hint cfs-llm-workflow-fallback-hint" style="display:none;margin:4px 0 0 0;">Used only when OpenAI, Claude, Gemini, or Grok errors (quota, billing, network). Content Rewards AI requires a signed-in paid or trial account.</p>
       <div class="form-row" style="margin-top:8px;">
         <button type="button" id="saveCfsLlmWorkflowDefaultsBtn" class="btn btn-primary btn-small">Save workflow defaults</button>
       </div>
       <p id="cfsLlmWorkflowDefaultsStatus" class="status-msg" style="display:none"></p>
     </div>
 
-    <div class="jwt-section" style="margin-top:16px;">
+    <div class="jwt-section" id="cfs-llm-chat-default" style="margin-top:16px;">
       <h3 style="margin-top:0;">Local AI Chat default</h3>
-      <p class="hint" style="margin-top:0;">Provider and model for side panel chat when not using Lamini.</p>
+      <p class="hint" style="margin-top:0;">Used by side panel <strong>Send</strong> (chat) and <strong>Run</strong> (current tab). LaMini if no cloud key is saved; otherwise the selected provider. Cloud API keys do not need a Whop login. <strong>Content Rewards AI</strong> uses our Qwen 27B model and requires sign-in. When a paid cloud provider is selected, you can also pick a fallback (LaMini or Content Rewards AI) for quota, billing, or connection errors.</p>
       <div class="form-row">
         <label for="cfsLlmChatProviderSelect">Provider</label>
         <select id="cfsLlmChatProviderSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
@@ -274,8 +284,10 @@
           <option value="claude">Claude (Anthropic)</option>
           <option value="gemini">Gemini (Google)</option>
           <option value="grok">Grok (xAI)</option>
+          <option value="crai" class="cfs-llm-crai-option" disabled>Content Rewards AI (Qwen 27B)</option>
         </select>
       </div>
+      <p id="cfsLlmChatCraiHint" class="hint cfs-llm-crai-hint" style="display:none;margin:4px 0 0 0;">Sign in with Whop to use Content Rewards AI (Qwen 27B). Paid or trial access is required when you Run or Send.</p>
       <div class="form-row cfs-llm-chat-openai-model-row" style="display:none;">
         <label for="cfsLlmChatOpenaiModelSelect">OpenAI model</label>
         <select id="cfsLlmChatOpenaiModelSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
@@ -296,6 +308,14 @@
           <input type="text" id="cfsLlmChatOverrideModelCustom" placeholder="Custom model id" autocomplete="off" style="display:none;width:100%;">
         </span>
       </div>
+      <div class="form-row cfs-llm-chat-fallback-row" style="display:none;">
+        <label for="cfsLlmChatFallbackSelect">Fallback if paid API fails</label>
+        <select id="cfsLlmChatFallbackSelect" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.88rem;">
+          <option value="lamini">LaMini (local)</option>
+          <option value="crai" class="cfs-llm-crai-fallback-option" disabled>Content Rewards AI (Qwen 27B)</option>
+        </select>
+      </div>
+      <p id="cfsLlmChatFallbackHint" class="hint cfs-llm-chat-fallback-hint" style="display:none;margin:4px 0 0 0;">Used only when OpenAI, Claude, Gemini, or Grok errors (quota, billing, network). Content Rewards AI requires a signed-in paid or trial account.</p>
       <div class="form-row" style="margin-top:8px;">
         <button type="button" id="saveCfsLlmChatDefaultsBtn" class="btn btn-primary btn-small">Save chat defaults</button>
       </div>
@@ -962,6 +982,11 @@
       <div id="tab-tests" class="tab-pane">
         <h1>Tests</h1>
         <p class="tab-description">Run unit tests, verify integration, and complete E2E checklists.</p>
+        <label class="pd-checkbox-label" style="margin:0 0 8px 0;font-weight:600;">
+          <input type="checkbox" id="cfsHideE2eTestingWorkflows" checked data-testid="cfs-hide-e2e-testing-workflows">
+          Hide E2E testing workflows from user navigation
+        </label>
+        <p class="hint" style="margin:0 0 16px 0;">When enabled, E2E and test-named workflows stay out of Plan, Library, and playback lists. Uncheck to show them while developing.</p>
 
         <div class="section" id="testsSection">
     <h2>Tests</h2>
@@ -998,6 +1023,7 @@
   <script src="../shared/pancake-v3-subgraph.js"></script>
   <script src="../shared/pancake-v3-lp-amounts.js"></script>
   <script src="../shared/always-on-bound-positions.js"></script>
+  <script src="../shared/cfs-v3-monitor-steps.js"></script>
   <script src="../extension/following-sync-core.js"></script>
   <script src="../extension/api.js"></script>
   <script src="../shared/step-validator.js"></script>
@@ -1016,6 +1042,9 @@
   <script src="../sidepanel/walkthrough-export.js"></script>
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
+  <script src="../shared/nav-workflow-filter.js"></script>
+  <script src="../shared/cfs-always-on-automation.js"></script>
+  <script src="../shared/realtime-feeds.js"></script>
   <script src="../test/tooltip-overlay.js"></script>
   <script src="../shared/storage-secret-keys.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
@@ -1071,6 +1100,7 @@
   <script src="../steps/extractData/handler.js"></script>
   <script src="../steps/sendToEndpoint/handler.js"></script>
   <script src="../steps/waitForHttpPoll/handler.js"></script>
+  <script src="../steps/checkRealtimeData/handler.js"></script>
   <script src="../steps/setVideoSegments/handler.js"></script>
   <script src="../steps/combineVideos/handler.js"></script>
   <script src="../steps/trimVideo/handler.js"></script>
@@ -1157,6 +1187,7 @@
   <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
   <script src="../steps/bscPancake/handler.js"></script>
   <script src="../steps/pancakeV3RangeWatch/handler.js"></script>
+  <script src="../steps/reconcileV3Positions/handler.js"></script>
   <script src="../steps/bscV3LpWizard/handler.js"></script>
   <script src="../steps/bscV3AutoApprove/handler.js"></script>
   <script src="../steps/bscV3RebalanceOnce/handler.js"></script>
@@ -1236,6 +1267,7 @@
   <script src="../steps/extractData/step-tests.js"></script>
   <script src="../steps/sendToEndpoint/step-tests.js"></script>
   <script src="../steps/waitForHttpPoll/step-tests.js"></script>
+  <script src="../steps/checkRealtimeData/step-tests.js"></script>
   <script src="../steps/setVideoSegments/step-tests.js"></script>
   <script src="../steps/combineVideos/step-tests.js"></script>
   <script src="../steps/trimVideo/step-tests.js"></script>
@@ -1322,6 +1354,7 @@
   <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
   <script src="../steps/bscPancake/step-tests.js"></script>
   <script src="../steps/pancakeV3RangeWatch/step-tests.js"></script>
+  <script src="../steps/reconcileV3Positions/step-tests.js"></script>
   <script src="../steps/bscV3LpWizard/step-tests.js"></script>
   <script src="../steps/bscV3AutoApprove/step-tests.js"></script>
   <script src="../steps/bscV3RebalanceOnce/step-tests.js"></script>

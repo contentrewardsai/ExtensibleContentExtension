@@ -29,10 +29,15 @@
 
   /**
    * @param {string} runId
-   * @param {{ mainBlob?: Blob|null, webcamBlob?: Blob|null }} payload
+   * @param {{ mainBlob?: Blob|null, webcamBlob?: Blob|null, screenBlob?: Blob|null, systemBlob?: Blob|null, micBlob?: Blob|null }} payload
    */
+  function keepBlob(blob) {
+    return blob && blob.size ? blob : null;
+  }
+
   function store(runId, payload) {
     if (!runId) return Promise.reject(new Error('missing runId'));
+    payload = payload || {};
     return openDb().then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(STORE, 'readwrite');
@@ -44,8 +49,11 @@
         };
         tx.objectStore(STORE).put(
           {
-            mainBlob: payload.mainBlob && payload.mainBlob.size ? payload.mainBlob : null,
-            webcamBlob: payload.webcamBlob && payload.webcamBlob.size ? payload.webcamBlob : null,
+            mainBlob: keepBlob(payload.mainBlob),
+            webcamBlob: keepBlob(payload.webcamBlob),
+            screenBlob: keepBlob(payload.screenBlob),
+            systemBlob: keepBlob(payload.systemBlob),
+            micBlob: keepBlob(payload.micBlob),
           },
           runId
         );
@@ -55,7 +63,7 @@
 
   /**
    * @param {string} runId
-   * @returns {Promise<{ mainBlob: Blob|null, webcamBlob: Blob|null }|null>}
+   * @returns {Promise<{ mainBlob: Blob|null, webcamBlob: Blob|null, screenBlob?: Blob|null, systemBlob?: Blob|null, micBlob?: Blob|null }|null>}
    */
   function take(runId) {
     if (!runId) return Promise.resolve(null);

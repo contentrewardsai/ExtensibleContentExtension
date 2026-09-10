@@ -284,6 +284,7 @@
     if (!state.active || typeof global.ExtensionApi === 'undefined') return;
     state.browseLoading = true;
     state.browseError = '';
+    if (typeof host().closeLibraryMediaPreview === 'function') host().closeLibraryMediaPreview();
     renderBrowser();
     try {
       var raw = await global.ExtensionApi.browseSource(state.active.kind, state.active.id, currentFolderId());
@@ -299,6 +300,9 @@
   function renderBrowser() {
     var wrap = document.getElementById('librarySourceBrowserWrap');
     if (!wrap || !state.active || state.active.kind === 'local') return;
+    var sessionTracks = (global.CFS_workflowRunMedia && typeof CFS_workflowRunMedia.tracksFromFilenames === 'function')
+      ? CFS_workflowRunMedia.tracksFromFilenames(state.items.filter(function (it) { return it.type === 'file'; }).map(function (it) { return it.name; }))
+      : [];
     var canWrite = !state.active || state.active.owned !== false;
     var crumbs = state.folderStack.map(function (c, i) {
       return '<button type="button" class="library-source-crumb' +
@@ -319,6 +323,15 @@
           '<button type="button" class="library-source-item-main" data-open-item="' + esc(item.id) + '">' +
           '<span class="library-source-item-name">' + esc(item.name) + '</span>' +
           '<small>' + esc(meta) + '</small></button>' +
+          (item.type === 'folder' && global.CFS_workflowRunMedia && CFS_workflowRunMedia.isRecordingSessionName(item.name)
+            ? '<button type="button" class="btn btn-small btn-outline library-source-item-preview" data-preview-item="' + esc(item.id) + '" title="Play the recording tracks in this folder">Preview</button>'
+            : '') +
+          (item.type === 'file' && item.mediaType
+            ? '<button type="button" class="btn btn-small btn-outline library-source-item-preview" data-preview-item="' + esc(item.id) + '" title="Play this file in the side panel">Preview</button>'
+            : '') +
+          (item.type === 'file' && (item.mediaType === 'audio' || item.mediaType === 'video')
+            ? '<button type="button" class="btn btn-small btn-outline library-source-item-transcribe" data-transcribe-item="' + esc(item.id) + '" title="Send this file to Transcribe below">Transcribe</button>'
+            : '') +
           (canWrite ? '<button type="button" class="btn btn-small btn-outline library-source-item-del" data-delete-item="' + esc(item.id) + '" title="Delete">Delete</button>' : '') +
           '</div>';
       }).join('');
@@ -335,6 +348,12 @@
           (state.folderStack.length > 1
             ? '<button type="button" class="btn btn-outline btn-small" id="librarySourceDeleteFolderBtn">Delete folder</button>'
             : '') +
+          '</div>'
+        : '') +
+      (sessionTracks.length >= 2
+        ? '<div class="uploads-toolbar form-row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">' +
+          '<button type="button" class="btn btn-outline btn-small" id="librarySourcePreviewAllBtn">Preview all tracks</button>' +
+          (canWrite ? '<button type="button" class="btn btn-outline btn-small" id="librarySourceDeleteRecordingBtn">Delete recording</button>' : '') +
           '</div>'
         : '') +
       (state.creatingFolder
@@ -375,6 +394,22 @@
         }
       });
     });
+    wrap.querySelectorAll('[data-preview-item]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = btn.getAttribute('data-preview-item');
+        var item = state.items.find(function (it) { return it.id === id; });
+        if (item) previewItem(item);
+      });
+    });
+    wrap.querySelectorAll('[data-transcribe-item]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = btn.getAttribute('data-transcribe-item');
+        var item = state.items.find(function (it) { return it.id === id; });
+        if (item) sendItemToTranscribe(item);
+      });
+    });
     wrap.querySelectorAll('[data-delete-item]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var id = btn.getAttribute('data-delete-item');
@@ -406,6 +441,102 @@
       if (e.key === 'Escape') { state.creatingFolder = false; renderBrowser(); }
     });
     document.getElementById('librarySourceDeleteFolderBtn')?.addEventListener('click', deleteCurrentFolder);
+    document.getElementById('librarySourcePreviewAllBtn')?.addEventListener('click', function () {
+      previewFolderSession(null);
+    });
+    document.getElementById('librarySourceDeleteRecordingBtn')?.addEventListener('click', deleteCurrentRecordingSession);
+  }
+
+  async function previewFolderSession(folderItem) {
+    var h = host();
+    var layout = global.CFS_workflowRunMedia;
+    if (!layout || typeof layout.tracksFromFilenames !== 'function') {
+      if (folderItem) return previewItem(folderItem);
+      return;
+    }
+    try {
+      var files;
+      if (folderItem && folderItem.type === 'folder') {
+        var raw = await global.ExtensionApi.browseSource(state.active.kind, state.active.id, folderItem.id);
+        files = (raw || []).map(function (it) { return mapBrowseItem(it, state.active.kind); }).filter(function (it) { return it.type === 'file'; });
+      } else {
+        files = state.items.filter(function (it) { return it.type === 'file'; });
+      }
+      var tracks = layout.tracksFromFilenames(files.map(function (it) { return it.name; }));
+      var resolved = [];
+      for (var i = 0; i < tracks.length; i++) {
+        var t = tracks[i];
+        var file = files.find(function (it) { return it.name === t.file; });
+        if (!file) continue;
+        var url = file.url;
+        if (state.active && state.active.kind === 'box' && global.ExtensionApi) {
+          url = await global.ExtensionApi.getBoxDownloadUrl(file.id, state.active.id);
+        }
+        if (!url) continue;
+        resolved.push({ role: t.role, label: t.label, kind: t.kind, url: url });
+      }
+      if (!resolved.length) throw new Error('No playable recording tracks in this folder');
+      var title = (folderItem && folderItem.name) || (state.folderStack.length ? state.folderStack[state.folderStack.length - 1].name : 'Recording');
+      if (typeof h.previewLibraryMediaTracks === 'function') {
+        h.previewLibraryMediaTracks(title, resolved);
+      } else if (typeof h.previewLibraryMedia === 'function') {
+        h.previewLibraryMedia(resolved[0].label, resolved[0].url, resolved[0].kind);
+      }
+    } catch (e) {
+      setStatus(e && e.message ? e.message : 'Could not preview recording', 'error');
+    }
+  }
+
+  async function sendItemToTranscribe(item) {
+    if (!item || item.type === 'folder') return;
+    var api = global.CFS_libraryTranscribe;
+    if (!api || typeof api.setSource !== 'function') {
+      setStatus('Transcribe panel is not available.', 'error');
+      return;
+    }
+    try {
+      var url = item.url;
+      if (state.active && state.active.kind === 'box' && global.ExtensionApi) {
+        url = await global.ExtensionApi.getBoxDownloadUrl(item.id, state.active.id);
+      }
+      if (!url && !(state.active && state.active.kind === 'box')) {
+        throw new Error('This file has no downloadable URL');
+      }
+      api.setSource({
+        name: item.name,
+        url: url || '',
+        kind: state.active ? state.active.kind : '',
+        id: item.id,
+        sourceId: state.active ? state.active.id : '',
+        folderId: currentFolderId(),
+        mediaType: item.mediaType || ''
+      });
+      setStatus('Ready to transcribe “' + item.name + '”.', 'success');
+    } catch (e) {
+      setStatus(e && e.message ? e.message : 'Could not send file to Transcribe', 'error');
+    }
+  }
+
+  async function previewItem(item) {
+    if (item && item.type === 'folder') {
+      await previewFolderSession(item);
+      return;
+    }
+    var h = host();
+    if (typeof h.previewLibraryMedia !== 'function') {
+      openFile(item);
+      return;
+    }
+    try {
+      var url = item.url;
+      if (state.active && state.active.kind === 'box' && global.ExtensionApi) {
+        url = await global.ExtensionApi.getBoxDownloadUrl(item.id, state.active.id);
+      }
+      if (!url) throw new Error('This file has no preview URL');
+      h.previewLibraryMedia(item.name, url, item.mediaType || '');
+    } catch (e) {
+      setStatus(e && e.message ? e.message : 'Could not preview file', 'error');
+    }
   }
 
   async function openFile(item) {
@@ -451,15 +582,41 @@
     }
   }
 
+  async function deleteSourceTree(item) {
+    if (!state.active || !global.ExtensionApi || !item || !item.id) return;
+    if (item.type === 'folder') {
+      try {
+        var raw = await global.ExtensionApi.browseSource(state.active.kind, state.active.id, item.id);
+        var kids = (raw || []).map(function (it) { return mapBrowseItem(it, state.active.kind); });
+        for (var i = 0; i < kids.length; i++) {
+          await deleteSourceTree(kids[i]);
+        }
+      } catch (_) {}
+    }
+    await global.ExtensionApi.deleteFromSource(state.active.kind, state.active.id, item.id, item.type === 'folder');
+  }
+
+  function recordingFolderConfirm(name) {
+    return 'Delete recording "' + name + '" and all of its files? This cannot be undone.';
+  }
+
   async function deleteItem(item) {
-    if (!state.active || !global.ExtensionApi) return;
-    var label = item.type === 'folder' ? 'folder' : 'file';
-    if (!window.confirm(item.type === 'folder'
-      ? 'Delete folder "' + item.name + '"? The folder must be empty.'
-      : 'Delete "' + item.name + '"? This cannot be undone.')) return;
+    if (!state.active || !global.ExtensionApi || !item) return;
+    var rec = item.type === 'folder' && global.CFS_workflowRunMedia && CFS_workflowRunMedia.isRecordingSessionName(item.name);
+    var msg;
+    if (item.type === 'folder') {
+      msg = rec
+        ? recordingFolderConfirm(item.name)
+        : 'Delete folder "' + item.name + '" and everything in it? This cannot be undone.';
+    } else {
+      msg = 'Delete "' + item.name + '"? This cannot be undone.';
+    }
+    if (!window.confirm(msg)) return;
     try {
-      await global.ExtensionApi.deleteFromSource(state.active.kind, state.active.id, item.id, item.type === 'folder');
-      setStatus('Deleted ' + label + '.', 'success');
+      if (typeof host().closeLibraryMediaPreview === 'function') host().closeLibraryMediaPreview();
+      if (item.type === 'folder') await deleteSourceTree(item);
+      else await global.ExtensionApi.deleteFromSource(state.active.kind, state.active.id, item.id, false);
+      setStatus(rec ? 'Deleted recording.' : ('Deleted ' + (item.type === 'folder' ? 'folder' : 'file') + '.'), 'success');
       await browseCurrent();
     } catch (e) {
       state.mutationError = e && e.message ? e.message : 'Delete failed';
@@ -470,13 +627,59 @@
   async function deleteCurrentFolder() {
     if (!state.active || state.folderStack.length <= 1 || !global.ExtensionApi) return;
     var current = state.folderStack[state.folderStack.length - 1];
-    if (!window.confirm('Delete folder "' + current.name + '"? The folder must be empty.')) return;
+    var rec = global.CFS_workflowRunMedia && CFS_workflowRunMedia.isRecordingSessionName(current.name);
+    if (!window.confirm(rec
+      ? recordingFolderConfirm(current.name)
+      : 'Delete folder "' + current.name + '" and everything in it? This cannot be undone.')) return;
     try {
-      await global.ExtensionApi.deleteFromSource(state.active.kind, state.active.id, current.id, true);
+      if (typeof host().closeLibraryMediaPreview === 'function') host().closeLibraryMediaPreview();
+      await deleteSourceTree({ id: current.id, name: current.name, type: 'folder' });
       state.folderStack = state.folderStack.slice(0, -1);
       await browseCurrent();
+      setStatus(rec ? 'Deleted recording.' : 'Deleted folder.', 'success');
     } catch (e) {
       state.mutationError = e && e.message ? e.message : 'Failed to delete folder';
+      renderBrowser();
+    }
+  }
+
+  async function deleteCurrentRecordingSession() {
+    if (!state.active || !global.ExtensionApi) return;
+    var layout = global.CFS_workflowRunMedia;
+    var current = state.folderStack.length ? state.folderStack[state.folderStack.length - 1] : null;
+    var isSessionFolder = !!(current && state.folderStack.length > 1 && layout && layout.isRecordingSessionName(current.name));
+    if (isSessionFolder) {
+      if (!window.confirm(recordingFolderConfirm(current.name))) return;
+      try {
+        if (typeof host().closeLibraryMediaPreview === 'function') host().closeLibraryMediaPreview();
+        await deleteSourceTree({ id: current.id, name: current.name, type: 'folder' });
+        state.folderStack = state.folderStack.slice(0, -1);
+        await browseCurrent();
+        setStatus('Deleted recording.', 'success');
+      } catch (e) {
+        state.mutationError = e && e.message ? e.message : 'Failed to delete folder';
+        renderBrowser();
+      }
+      return;
+    }
+    var files = state.items.filter(function (it) { return it.type === 'file'; });
+    var tracks = layout && typeof layout.tracksFromFilenames === 'function'
+      ? layout.tracksFromFilenames(files.map(function (it) { return it.name; }))
+      : [];
+    var toDelete = files.filter(function (f) {
+      return tracks.some(function (t) { return t.file === f.name; });
+    });
+    if (!toDelete.length) return;
+    if (!window.confirm('Delete ' + toDelete.length + ' recording file(s) in this folder? This cannot be undone.')) return;
+    try {
+      if (typeof host().closeLibraryMediaPreview === 'function') host().closeLibraryMediaPreview();
+      for (var i = 0; i < toDelete.length; i++) {
+        await global.ExtensionApi.deleteFromSource(state.active.kind, state.active.id, toDelete[i].id, false);
+      }
+      setStatus('Deleted recording.', 'success');
+      await browseCurrent();
+    } catch (e) {
+      state.mutationError = e && e.message ? e.message : 'Delete failed';
       renderBrowser();
     }
   }
@@ -494,12 +697,6 @@
     var arr = new Uint8Array(bin.length);
     for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
     return new Blob([arr], { type: mime });
-  }
-
-  function extForBlob(blob, fallback) {
-    var t = String((blob && blob.type) || fallback || '').toLowerCase();
-    if (t.indexOf('audio/') === 0) return '.webm';
-    return '.webm';
   }
 
   function formatRecordClock(ms) {
@@ -572,27 +769,81 @@
       setRecordStatus(anyMode(selectedModes()) ? '' : 'Select at least one source above to record');
     });
 
-    async function saveBlob(filename, blob) {
-      if (!blob || !blob.size) return null;
+    async function saveRecordingSession(stamp, files) {
+      var folderName = 'recording-' + stamp;
       var dest = state.active;
       if (dest && dest.kind && dest.kind !== 'local' && dest.owned !== false && global.ExtensionApi && global.ExtensionApi.uploadToSource) {
-        var file = new File([blob], filename, { type: blob.type || 'video/webm' });
-        await global.ExtensionApi.uploadToSource(dest.kind, dest.id, currentFolderId(), file);
+        var ensure = global.ExtensionApi.ensureSourceFolderByName;
+        var folderId = currentFolderId();
+        if (typeof ensure === 'function') {
+          var created = await ensure(dest.kind, dest.id, folderId, folderName);
+          folderId = created && created.folderId ? created.folderId : folderId;
+        }
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          var file = new File([f.blob], f.filename, { type: f.blob.type || 'video/webm' });
+          await global.ExtensionApi.uploadToSource(dest.kind, dest.id, folderId, file);
+        }
         await browseCurrent();
-        return dest.name || dest.kind;
+        return (dest.name || dest.kind) + '/' + folderName;
       }
       var h = host();
+      var lastWhere = '';
       if (typeof h.writeSourceRecordingFile === 'function') {
-        var written = await h.writeSourceRecordingFile(filename, blob);
-        if (written && written.ok) return written.where;
+        for (var j = 0; j < files.length; j++) {
+          var written = await h.writeSourceRecordingFile(files[j].filename, files[j].blob, folderName);
+          if (written && written.ok) lastWhere = written.where;
+        }
+        if (lastWhere) {
+          var slash = lastWhere.lastIndexOf('/');
+          return slash >= 0 ? lastWhere.slice(0, slash) : lastWhere;
+        }
       }
-      var url = URL.createObjectURL(blob);
-      try {
-        await chrome.downloads.download({ url: url, filename: 'recordings/' + filename, saveAs: false });
-        return 'Downloads/recordings/' + filename;
-      } finally {
-        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      for (var k = 0; k < files.length; k++) {
+        var dlUrl = URL.createObjectURL(files[k].blob);
+        try {
+          await chrome.downloads.download({
+            url: dlUrl,
+            filename: 'recordings/' + folderName + '-' + files[k].filename,
+            saveAs: false
+          });
+          lastWhere = 'Downloads/recordings/' + folderName;
+        } finally {
+          (function (revokeUrl) {
+            setTimeout(function () { URL.revokeObjectURL(revokeUrl); }, 60000);
+          })(dlUrl);
+        }
       }
+      return lastWhere || null;
+    }
+
+    function stemsFromCapture(cap, mediaRes) {
+      var layout = global.CFS_workflowRunMedia;
+      function fileFor(role) {
+        return layout && typeof layout.fileNameForRole === 'function' ? layout.fileNameForRole(role) : (role + '.webm');
+      }
+      var out = [];
+      function add(role, blob) {
+        if (!blob || !blob.size) return;
+        if (out.some(function (s) { return s.role === role; })) return;
+        out.push({ role: role, filename: fileFor(role), blob: blob });
+      }
+      add('screen', cap && cap.screenBlob);
+      add('webcam', cap && cap.webcamBlob);
+      add('system', cap && cap.systemBlob);
+      add('mic', cap && cap.micBlob);
+      function looksLikeVideo(blob) {
+        if (!blob) return false;
+        var t = String(blob.type || '').toLowerCase();
+        return t.indexOf('audio/') !== 0;
+      }
+      if (cap && looksLikeVideo(cap.mainBlob)) add('screen', cap.mainBlob);
+      if (mediaRes && mediaRes.dataUrl) {
+        var fromMain = dataUrlToBlob(mediaRes.dataUrl);
+        if (looksLikeVideo(fromMain)) add('screen', fromMain);
+      }
+      if (mediaRes && mediaRes.webcamDataUrl) add('webcam', dataUrlToBlob(mediaRes.webcamDataUrl));
+      return out;
     }
 
     startBtn.addEventListener('click', async function () {
@@ -670,50 +921,31 @@
         return;
       }
       var stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      var saved = [];
+      var savedWhere = '';
       try {
+        var cap = null;
         if (mediaRes.captureInIdb && mediaRes.runId && global.CFS_planCaptureIdb && typeof global.CFS_planCaptureIdb.take === 'function') {
-          var cap = await global.CFS_planCaptureIdb.take(String(mediaRes.runId));
-          if (cap && cap.mainBlob && cap.mainBlob.size) {
-            var mainName = 'recording-' + stamp + extForBlob(cap.mainBlob);
-            var whereMain = await saveBlob(mainName, cap.mainBlob);
-            if (whereMain) saved.push(whereMain);
-          }
-          if (cap && cap.webcamBlob && cap.webcamBlob.size) {
-            var camName = 'recording-webcam-' + stamp + extForBlob(cap.webcamBlob);
-            var whereCam = await saveBlob(camName, cap.webcamBlob);
-            if (whereCam) saved.push(whereCam);
-          }
+          cap = await global.CFS_planCaptureIdb.take(String(mediaRes.runId));
         }
-        if (mediaRes.dataUrl) {
-          var mainBlob = dataUrlToBlob(mediaRes.dataUrl);
-          if (mainBlob) {
-            var n1 = 'recording-' + stamp + extForBlob(mainBlob);
-            var w1 = await saveBlob(n1, mainBlob);
-            if (w1) saved.push(w1);
-          }
+        var stems = stemsFromCapture(cap, mediaRes);
+        if (!stems.length) {
+          setRecordStatus('Recording finished but nothing was saved.');
+          setStatus('Recording finished but nothing was saved.', 'error');
+          return;
         }
-        if (mediaRes.webcamDataUrl) {
-          var camBlob = dataUrlToBlob(mediaRes.webcamDataUrl);
-          if (camBlob) {
-            var n2 = 'recording-webcam-' + stamp + extForBlob(camBlob);
-            var w2 = await saveBlob(n2, camBlob);
-            if (w2) saved.push(w2);
-          }
-        }
+        savedWhere = await saveRecordingSession(stamp, stems);
       } catch (saveErr) {
         setRecordStatus(saveErr && saveErr.message ? saveErr.message : 'Could not save recording');
         setStatus(saveErr && saveErr.message ? saveErr.message : 'Could not save recording', 'error');
         return;
       }
-      if (!saved.length) {
+      if (!savedWhere) {
         setRecordStatus('Recording finished but nothing was saved.');
         setStatus('Recording finished but nothing was saved.', 'error');
         return;
       }
-      var dest = saved.join(' · ');
-      setRecordStatus('Saved ' + dest);
-      setStatus('Saved recording to ' + dest, 'success');
+      setRecordStatus('Saved ' + savedWhere);
+      setStatus('Saved recording to ' + savedWhere, 'success');
     });
 
     startBtn.disabled = !anyMode(selectedModes());
@@ -723,7 +955,10 @@
 
   global.CFS_librarySources = {
     refresh: refresh,
+    refreshBrowser: browseCurrent,
     openSource: openSource,
-    getActive: function () { return state.active; }
+    getActive: function () { return state.active; },
+    getCurrentFolderId: currentFolderId,
+    getItems: function () { return state.items.slice(); }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

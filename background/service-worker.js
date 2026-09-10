@@ -41,7 +41,12 @@ importScripts('solana-swap.js');
 importScripts('../shared/template-resolver.js');
 importScripts('../shared/run-if-condition.js');
 importScripts('watch-shared.js');
+importScripts('../shared/cfs-v3-monitor-steps.js');
+importScripts('../shared/nav-workflow-filter.js');
+importScripts('../shared/playback-heal.js');
+importScripts('../shared/playback-error-normalize.js');
 importScripts('../shared/cfs-always-on-automation.js');
+importScripts('../shared/realtime-feeds.js');
 importScripts('../shared/workflow-edit-history.js');
 importScripts('../shared/cfs-global-token-blocklist.js');
 importScripts('evm-lib.bundle.js');
@@ -76,8 +81,13 @@ importScripts('bsc-watch.js');
 importScripts('file-watch.js');
 importScripts('infi-bin-range-watch.js');
 importScripts('v3-range-watch.js');
+importScripts('custom-realtime-poll.js');
+importScripts('raydium-clmm-range-watch.js');
+importScripts('meteora-dlmm-range-watch.js');
 importScripts('aster-futures.js');
 importScripts('remote-llm.js');
+importScripts('../shared/agent-planner-access.js');
+importScripts('../shared/qc-transcribe-idb.js');
 
 /* ── Wallet Injection: default allowlist + dynamic content script registration ── */
 const _CFS_DEFAULT_WALLET_ALLOWLIST = [
@@ -1541,6 +1551,103 @@ function waitForTabComplete(tabId, timeoutMs = 45000) {
   });
 }
 
+function cfsSendTabMessage(tabId, msg) {
+  return new Promise(function (resolve) {
+    chrome.tabs.sendMessage(tabId, msg, function (resp) {
+      if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+      else resolve(resp || {});
+    });
+  });
+}
+
+async function tryHealScheduledPlayback(res, ctx) {
+  var heal = typeof CFS_playbackHeal !== 'undefined' ? CFS_playbackHeal : null;
+  var normApi = typeof __CFS_playbackErrorNormalize !== 'undefined' ? __CFS_playbackErrorNormalize : null;
+  var errNorm = normApi && typeof normApi.normalizePlaybackError === 'function'
+    ? normApi.normalizePlaybackError(res)
+    : { message: (res && res.error) || '', isConnection: false };
+  if (!heal || typeof heal.isNotFoundPlaybackError !== 'function' || !heal.isNotFoundPlaybackError(res, errNorm)) {
+    return { ok: false };
+  }
+  if (!ctx || !ctx.tabId || res.actionIndex == null) return { ok: false };
+  if (!ctx.healedSteps) ctx.healedSteps = {};
+  if (ctx.healedSteps[res.actionIndex]) return { ok: false };
+  ctx.healedSteps[res.actionIndex] = true;
+  var snapApi = typeof CFS_pageAgentSnapshot !== 'undefined' ? CFS_pageAgentSnapshot : null;
+  if (!snapApi) return { ok: false };
+  var actions = (ctx.resolved && (ctx.resolved.actions || (ctx.resolved.analyzed && ctx.resolved.analyzed.actions))) || [];
+  var failed = actions[res.actionIndex];
+  var skip = heal.shouldSkipHeal({ wf: ctx.wf, failed: failed, tabUrl: ctx.tabUrl });
+  if (skip && skip.skip) return { ok: false };
+  var next = actions[res.actionIndex + 1] || null;
+  try {
+    await ensureContentScriptInTab(ctx.tabId);
+    var kind = typeof snapApi.inferHealKind === 'function'
+      ? snapApi.inferHealKind(failed, next, ctx.tabUrl)
+      : 'search';
+    var resolveMsg = {
+      type: 'CFS_PAGE_AGENT_RESOLVE',
+      kind: kind,
+      hint: failed.ariaLabel || failed.name || failed.placeholder || '',
+      failedAction: {
+        type: failed.type,
+        name: failed.name,
+        ariaLabel: failed.ariaLabel,
+        displayedValue: failed.displayedValue,
+        placeholder: failed.placeholder,
+      },
+      nextAction: next ? { type: next.type, name: next.name, ariaLabel: next.ariaLabel, variableKey: next.variableKey } : null,
+      pageUrl: ctx.tabUrl,
+    };
+    var resolvedLive = await cfsSendTabMessage(ctx.tabId, resolveMsg);
+    if (resolvedLive && resolvedLive.ambiguous && resolvedLive.candidates && resolvedLive.candidates.length > 1) {
+      var shortTask = heal.healShortTask(kind, failed);
+      var planned = await cfsRunAgentPlanner([
+        { role: 'user', content: 'Task: ' + shortTask + '\n\n' + (resolvedLive.formatted || '') },
+      ], {});
+      var parsed = snapApi.parsePlannerReply ? snapApi.parsePlannerReply(planned && planned.text) : { ok: false };
+      if (!parsed.ok || !parsed.index) return { ok: false };
+      resolvedLive = await cfsSendTabMessage(ctx.tabId, Object.assign({}, resolveMsg, { index: parsed.index }));
+    }
+    if (!resolvedLive || !resolvedLive.ok || !resolvedLive.selectors || !resolvedLive.selectors.length) {
+      return { ok: false };
+    }
+    if ((kind === 'type' || kind === 'search') && resolvedLive.role && !heal.isTypableRole(resolvedLive.role)) {
+      return { ok: false };
+    }
+    var applied = heal.applyHealedSelectors(ctx.resolved, res.actionIndex, resolvedLive.selectors, failed, next);
+    if (!applied || !applied.ok) return { ok: false };
+    return {
+      ok: true,
+      resolved: applied.resolved,
+      startIndex: res.actionIndex,
+      pendingPersist: {
+        wfId: ctx.wfId,
+        actionIndex: res.actionIndex,
+        actions: JSON.parse(JSON.stringify(applied.actions)),
+      },
+    };
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
+async function persistScheduledHealIfPassed(res, ctx) {
+  var heal = typeof CFS_playbackHeal !== 'undefined' ? CFS_playbackHeal : null;
+  if (!ctx || !ctx.pendingHealPersist || !heal) return;
+  if (!heal.shouldPersistPendingHeal(res, ctx.pendingHealPersist)) {
+    if (res && res.ok === false && res.actionIndex === ctx.pendingHealPersist.actionIndex) {
+      ctx.pendingHealPersist = null;
+    }
+    return;
+  }
+  var stored = await chrome.storage.local.get(['workflows']);
+  var store = stored && stored.workflows ? stored.workflows : {};
+  heal.mergeHealedActionsIntoWorkflows(store, ctx.pendingHealPersist);
+  await chrome.storage.local.set({ workflows: store });
+  ctx.pendingHealPersist = null;
+}
+
 async function executeScheduledWorkflowEntry(entry, workflows) {
   const wf = workflows[entry.workflowId];
   const analyzed = wf?.analyzed;
@@ -1552,7 +1659,7 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
   }
   if (!startUrl) return mkHistoryEntry(entry, 'failed', 'No start URL');
   if (!startUrl.startsWith('http')) startUrl = 'https://' + startUrl;
-  const resolved = resolveNestedWorkflowsInBackground(analyzed, workflows);
+  let resolved = resolveNestedWorkflowsInBackground(analyzed, workflows);
   if (!resolved) return mkHistoryEntry(entry, 'failed', 'Nested workflow resolution failed');
   const scheduledPlaybackMs =
     cfsWorkflowContainsStepType(resolved, 'apifyActorRun')
@@ -1570,6 +1677,15 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
     let tabId = tab.id;
     let startIdx = entry.startStepIndex != null ? Number(entry.startStepIndex) : undefined;
     if (startIdx != null && (!Number.isFinite(startIdx) || startIdx < 0)) startIdx = 0;
+    const healCtx = {
+      tabId: tab.id,
+      tabUrl: startUrl,
+      wf: wf,
+      wfId: entry.workflowId,
+      resolved: resolved,
+      healedSteps: {},
+      pendingHealPersist: null,
+    };
     let res;
     for (;;) {
       const msg = { type: 'PLAYER_START', workflow: resolved, row: entry.row || {} };
@@ -1587,6 +1703,7 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
         )),
       ]).catch((e) => ({ ok: false, error: e?.message || 'timeout' }));
       if (res?.navigate && res.url != null) {
+        await persistScheduledHealIfPassed(res, healCtx);
         await chrome.tabs.update(tabId, { url: res.url });
         await waitForTabComplete(tabId);
         await ensureContentScriptInTab(tabId);
@@ -1612,6 +1729,23 @@ async function executeScheduledWorkflowEntry(entry, workflows) {
         startIdx = res.nextStepIndex || 0;
         continue;
       }
+      if (res && res.ok === false) {
+        try {
+          const tabInfo = await chrome.tabs.get(tabId);
+          if (tabInfo && tabInfo.url) healCtx.tabUrl = tabInfo.url;
+        } catch (_) {}
+        healCtx.tabId = tabId;
+        healCtx.resolved = resolved;
+        const healed = await tryHealScheduledPlayback(res, healCtx);
+        if (healed && healed.ok && healed.resolved) {
+          resolved = healed.resolved;
+          healCtx.resolved = resolved;
+          healCtx.pendingHealPersist = healed.pendingPersist || null;
+          startIdx = healed.startIndex;
+          continue;
+        }
+      }
+      await persistScheduledHealIfPassed(res, healCtx);
       break;
     }
     return mkHistoryEntry(entry, res?.ok ? 'success' : 'failed', res?.ok ? undefined : (res?.error || 'unknown'), runStartedAt);
@@ -1743,6 +1877,15 @@ chrome.runtime.onInstalled.addListener(() => {
   try {
     if (typeof globalThis.__CFS_v3RangeWatch_setupAlarm === 'function') globalThis.__CFS_v3RangeWatch_setupAlarm();
   } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_customRealtime_setupAlarm === 'function') globalThis.__CFS_customRealtime_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_clmmRangeWatch_setupAlarm === 'function') globalThis.__CFS_clmmRangeWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_dlmmRangeWatch_setupAlarm === 'function') globalThis.__CFS_dlmmRangeWatch_setupAlarm();
+  } catch (_) {}
   /* Auto-restore crypto test snapshot if the browser was interrupted during tests */
   try {
     if (typeof globalThis.__CFS_cryptoTest_autoRestoreOnStartup === 'function') {
@@ -1776,6 +1919,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   } else if (alarm.name === 'cfs_v3_range_poll') {
     const tick = globalThis.__CFS_v3RangeWatch_tick;
     if (typeof tick === 'function') tick().catch(() => {});
+  } else if (alarm.name === 'cfs_custom_realtime_poll') {
+    const tick = globalThis.__CFS_customRealtime_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
+  } else if (alarm.name === 'cfs_clmm_range_poll') {
+    const tick = globalThis.__CFS_clmmRangeWatch_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
+  } else if (alarm.name === 'cfs_dlmm_range_poll') {
+    const tick = globalThis.__CFS_dlmmRangeWatch_tick;
+    if (typeof tick === 'function') tick().catch(() => {});
   }
 });
 
@@ -1795,6 +1947,15 @@ chrome.runtime.onStartup.addListener(() => {
   } catch (_) {}
   try {
     if (typeof globalThis.__CFS_v3RangeWatch_setupAlarm === 'function') globalThis.__CFS_v3RangeWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_customRealtime_setupAlarm === 'function') globalThis.__CFS_customRealtime_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_clmmRangeWatch_setupAlarm === 'function') globalThis.__CFS_clmmRangeWatch_setupAlarm();
+  } catch (_) {}
+  try {
+    if (typeof globalThis.__CFS_dlmmRangeWatch_setupAlarm === 'function') globalThis.__CFS_dlmmRangeWatch_setupAlarm();
   } catch (_) {}
   /* Auto-restore crypto test snapshot if the browser was interrupted during tests */
   try {
@@ -4025,7 +4186,8 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
           return;
         }
         const BP = globalThis.CFS_ALWAYS_ON_BOUND_POSITIONS || globalThis.__CFS_alwaysOnBoundPositions;
-        const kind = String(msg.kind || 'v3').toLowerCase() === 'infi' ? 'infi' : 'v3';
+        const kindRaw = String(msg.kind || 'v3').toLowerCase();
+        const kind = kindRaw === 'infi' ? 'infi' : 'v3';
         let mode = String(msg.mode || msg.bindMode || '').trim();
         if (!mode) {
           const hasId =
@@ -4099,6 +4261,19 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
           if (!wf.alwaysOn.scopes || typeof wf.alwaysOn.scopes !== 'object') wf.alwaysOn.scopes = {};
           wf.alwaysOn.enabled = true;
           wf.alwaysOn.scopes.priceRangeWatch = true;
+          const fromSteps = globalThis.__CFS_alwaysOnFromSteps;
+          if (fromSteps && typeof fromSteps.upsertCheckRealtimeSource === 'function') {
+            const extra = {};
+            if (msg.pollIntervalMs != null) extra.pollIntervalMs = msg.pollIntervalMs;
+            extra.priceRangeMode = kind === 'infi' ? 'infi' : 'v3';
+            if (kindRaw === 'clmm' || kindRaw === 'raydiumclmm') extra.priceRangeMode = 'raydiumClmm';
+            if (kindRaw === 'dlmm' || kindRaw === 'meteoradlmm') extra.priceRangeMode = 'meteoraDlmm';
+            if (fields.lbPair || fields.dlmmLbPair) extra.priceRangeMode = 'meteoraDlmm';
+            else if (fields.clmmPoolId || (fields.poolId && fields.positionNftMint && !fields.v3PositionTokenId)) {
+              extra.priceRangeMode = 'raydiumClmm';
+            }
+            fromSteps.upsertCheckRealtimeSource(wf, 'priceRangeWatch', extra);
+          }
         }
         if (msg.pollIntervalMs != null && String(msg.pollIntervalMs).trim() !== '') {
           const n = parseInt(msg.pollIntervalMs, 10);
@@ -6433,9 +6608,6 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
       runId: msg.runId || `run_${Date.now()}`,
       recordingMode: msg.recordingMode || 'replace',
       insertAtStep: msg.insertAtStep,
-      qualityCheckMode: !!msg.qualityCheckMode,
-      qualityCheckPhase: msg.qualityCheckPhase || 'output',
-      qualityCheckReplaceIndex: msg.qualityCheckReplaceIndex,
       actions: [],
       runStartState: null,
       endState: null,
@@ -6817,6 +6989,8 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
             generationSettings: existing.generationSettings || {},
             _editHistory: existing._editHistory || [],
             _editPointer: existing._editPointer != null ? existing._editPointer : -1,
+            alwaysOn: existing.alwaysOn,
+            followingAutomation: existing.followingAutomation,
           };
           if (typeof WorkflowEditHistory !== 'undefined') {
             if (Array.isArray(actions)) {
@@ -6862,6 +7036,10 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
             _editHistory: [],
             _editPointer: -1,
           };
+        }
+        const deriveFn = globalThis.__CFS_alwaysOnFromSteps;
+        if (deriveFn && typeof deriveFn.applyDerivedAlwaysOn === 'function' && workflows[id]) {
+          deriveFn.applyDerivedAlwaysOn(workflows[id]);
         }
         await chrome.storage.local.set({ workflows });
         sendResponse({ ok: true, workflowId: id, isNew: !existing });
@@ -7135,7 +7313,7 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         await new Promise((r) => setTimeout(r, 400));
         const response = await new Promise((resolve) => {
           chrome.runtime.sendMessage(
-            { type: 'QC_CALL', method, args: args || [] },
+            { type: 'QC_OFFSCREEN_CALL', method, args: args || [] },
             (res) => {
               if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
               else resolve(res || { ok: false, error: 'No response' });
@@ -7152,6 +7330,97 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
     return true;
   
   };
+
+  function cfsIsPaidCloudLlmProvider(p) {
+    return p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok';
+  }
+
+  function cfsNormalizeLlmFallback(raw) {
+    return String(raw || 'lamini').toLowerCase() === 'crai' ? 'crai' : 'lamini';
+  }
+
+  async function cfsQcCallLlmMethod(method, args) {
+    var release = await acquireOffscreen('qc');
+    try {
+      await new Promise(function (r) { setTimeout(r, 400); });
+      return await new Promise(function (resolve) {
+        chrome.runtime.sendMessage(
+          { type: 'QC_OFFSCREEN_CALL', method: method, args: args },
+          function (res) {
+            if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+            else resolve(res || null);
+          }
+        );
+      });
+    } finally {
+      if (release) release();
+    }
+  }
+
+  async function cfsRunPaidLlmFallbackStep(promptTrim, type, fallback) {
+    if (fallback === 'crai') {
+      var augmented =
+        typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.augmentStepPrompt
+          ? CFS_remoteLlm.augmentStepPrompt(promptTrim, type)
+          : promptTrim;
+      var clore = await cfsCallCloreAgentPlanner(
+        [{ role: 'user', content: augmented }],
+        ++cfsAgentPlannerGeneration
+      );
+      if (!clore || !clore.ok) {
+        return clore || { ok: false, error: 'Content Rewards AI fallback failed' };
+      }
+      var parsed =
+        typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.parseStepResult
+          ? CFS_remoteLlm.parseStepResult(clore.text, type)
+          : { ok: true, result: clore.text };
+      if (!parsed.ok) return { ok: false, error: parsed.error || 'Content Rewards AI fallback failed' };
+      return { ok: true, result: parsed.result, feedback: parsed.feedback, usedFallback: true, fallback: 'crai' };
+    }
+    var response = await cfsQcCallLlmMethod('runLlm', [promptTrim, type]);
+    if (response && response.ok && response.result && response.result.ok) {
+      return {
+        ok: true,
+        result: response.result.result,
+        feedback: response.result.feedback,
+        usedFallback: true,
+        fallback: 'lamini',
+      };
+    }
+    return { ok: false, error: (response && response.result && response.result.error) || (response && response.error) || 'LaMini fallback failed' };
+  }
+
+  async function cfsRunPaidLlmFallbackChat(messages, options, fallback) {
+    if (fallback === 'crai') {
+      var clore = await cfsCallCloreAgentPlanner(messages, ++cfsAgentPlannerGeneration);
+      if (clore && clore.ok) {
+        return {
+          ok: true,
+          result: { text: clore.text, model: clore.model || 'qwen38-27b' },
+          usedFallback: true,
+          fallback: 'crai',
+        };
+      }
+      return clore || { ok: false, error: 'Content Rewards AI fallback failed' };
+    }
+    var method = options && options.pageAgent ? 'generatePageAgent' : 'generateChat';
+    var qcOpts = {
+      max_new_tokens: (options && options.max_new_tokens) || (method === 'generatePageAgent' ? 32 : 256),
+      temperature: options && options.temperature != null ? options.temperature : (method === 'generatePageAgent' ? 0.15 : 0.7),
+    };
+    var qc = await cfsQcCallLlmMethod(method, [messages, qcOpts]);
+    var inner = qc && qc.result ? qc.result : qc;
+    var text = inner && inner.text != null ? inner.text : '';
+    if (qc && qc.ok && inner && inner.ok && text) {
+      return {
+        ok: true,
+        result: { text: String(text), model: inner.model || 'lamini' },
+        usedFallback: true,
+        fallback: 'lamini',
+      };
+    }
+    return { ok: false, error: (inner && inner.error) || (qc && qc.error) || 'LaMini fallback failed' };
+  }
 
   __CFS_swTypeHandlers['CALL_LLM'] = function (msg, sender, sendResponse) {
     const m = msg || {};
@@ -7173,6 +7442,7 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
           'cfsLlmWorkflowProvider',
           'cfsLlmWorkflowOpenaiModel',
           'cfsLlmWorkflowModelOverride',
+          'cfsLlmWorkflowFallback',
           'cfsLlmOpenaiKey',
           'cfsLlmAnthropicKey',
           'cfsLlmGeminiKey',
@@ -7181,9 +7451,33 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         let provider = (llmStore.cfsLlmWorkflowProvider || 'lamini').toLowerCase();
         if (msgLlmProvider != null && String(msgLlmProvider).trim() !== '') {
           const p = String(msgLlmProvider).trim().toLowerCase();
-          if (p === 'lamini' || p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok') {
+          if (p === 'lamini' || p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok' || p === 'crai') {
             provider = p;
           }
+        }
+        if (provider === 'crai') {
+          const augmented =
+            typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.augmentStepPrompt
+              ? CFS_remoteLlm.augmentStepPrompt(promptTrim, type)
+              : promptTrim;
+          const clore = await cfsCallCloreAgentPlanner(
+            [{ role: 'user', content: augmented }],
+            ++cfsAgentPlannerGeneration
+          );
+          if (!clore || !clore.ok) {
+            sendResponse(clore || { ok: false, error: 'Content Rewards AI call failed' });
+            return;
+          }
+          const parsed =
+            typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.parseStepResult
+              ? CFS_remoteLlm.parseStepResult(clore.text, type)
+              : { ok: true, result: clore.text };
+          if (parsed.ok) {
+            sendResponse({ ok: true, result: parsed.result, feedback: parsed.feedback });
+          } else {
+            sendResponse({ ok: false, error: parsed.error || 'LLM call failed' });
+          }
+          return;
         }
         const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
         const useCloud = provider !== 'lamini' && cloudProviders[provider];
@@ -7198,41 +7492,61 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         if (useCloud && typeof CFS_remoteLlm !== 'undefined' && CFS_remoteLlm.callRemoteLlmStep) {
           const keyField = cloudProviders[provider];
           const apiKey = String(llmStore[keyField] || '').trim();
+          let paidError = '';
           if (!apiKey) {
-            sendResponse({
-              ok: false,
-              error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
-            });
-            return;
-          }
-          if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
-            sendResponse({
-              ok: false,
-              error:
-                'API key too long (max ' +
-                CFS_LLM_API_KEY_MAX_CHARS +
-                ' characters). Fix it under Settings → Local Keys → LLM providers.',
-            });
-            return;
-          }
-          const model = CFS_remoteLlm.resolveModel(provider, openaiModelPick, modelOverridePick);
-          const modelLenCheck = cfsAssertResolvedLlmModelLength(model);
-          if (!modelLenCheck.ok) {
-            sendResponse({ ok: false, error: modelLenCheck.error });
-            return;
-          }
-          const stepRes = await CFS_remoteLlm.callRemoteLlmStep({
-            provider,
-            apiKey,
-            model,
-            prompt: promptTrim,
-            responseType: type,
-          });
-          if (stepRes.ok) {
-            sendResponse({ ok: true, result: stepRes.result, feedback: stepRes.feedback });
+            paidError = 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.';
+          } else if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+            paidError =
+              'API key too long (max ' +
+              CFS_LLM_API_KEY_MAX_CHARS +
+              ' characters). Fix it under Settings → Local Keys → LLM providers.';
           } else {
-            sendResponse({ ok: false, error: stepRes.error || 'LLM call failed' });
+            const model = CFS_remoteLlm.resolveModel(provider, openaiModelPick, modelOverridePick);
+            const modelLenCheck = cfsAssertResolvedLlmModelLength(model);
+            if (!modelLenCheck.ok) {
+              paidError = modelLenCheck.error;
+            } else {
+              try {
+                const stepRes = await CFS_remoteLlm.callRemoteLlmStep({
+                  provider,
+                  apiKey,
+                  model,
+                  prompt: promptTrim,
+                  responseType: type,
+                });
+                if (stepRes.ok) {
+                  sendResponse({ ok: true, result: stepRes.result, feedback: stepRes.feedback });
+                  return;
+                }
+                paidError = stepRes.error || 'LLM call failed';
+              } catch (cloudErr) {
+                paidError = (cloudErr && cloudErr.message) || 'LLM call failed';
+              }
+            }
           }
+          const fallback = cfsNormalizeLlmFallback(llmStore.cfsLlmWorkflowFallback);
+          const fb = await cfsRunPaidLlmFallbackStep(promptTrim, type, fallback);
+          if (fb && fb.ok) {
+            sendResponse({
+              ok: true,
+              result: fb.result,
+              feedback: fb.feedback,
+              usedFallback: true,
+              fallback: fb.fallback || fallback,
+              fallbackFrom: provider,
+              paidError: paidError,
+            });
+            return;
+          }
+          sendResponse({
+            ok: false,
+            error:
+              paidError +
+              ' Fallback (' +
+              (fallback === 'crai' ? 'Content Rewards AI' : 'LaMini') +
+              ') failed: ' +
+              ((fb && fb.error) || 'unknown error'),
+          });
           return;
         }
 
@@ -7240,7 +7554,7 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         await new Promise((r) => setTimeout(r, 400));
         const response = await new Promise((resolve) => {
           chrome.runtime.sendMessage(
-            { type: 'QC_CALL', method: 'runLlm', args: [(prompt || '').trim(), type] },
+            { type: 'QC_OFFSCREEN_CALL', method: 'runLlm', args: [(prompt || '').trim(), type] },
             (res) => {
               if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
               else resolve(res || null);
@@ -7283,68 +7597,386 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
           'cfsLlmChatProvider',
           'cfsLlmChatOpenaiModel',
           'cfsLlmChatModelOverride',
+          'cfsLlmChatFallback',
           'cfsLlmOpenaiKey',
           'cfsLlmAnthropicKey',
           'cfsLlmGeminiKey',
           'cfsLlmGrokKey',
         ]);
         const provider = (llmStore.cfsLlmChatProvider || 'lamini').toLowerCase();
+        if (provider === 'crai') {
+          const clore = await cfsCallCloreAgentPlanner(validatedChat.messages, ++cfsAgentPlannerGeneration);
+          if (clore && clore.ok) {
+            sendResponse({
+              ok: true,
+              result: { text: clore.text, model: clore.model || 'qwen38-27b' },
+            });
+          } else {
+            sendResponse(clore || { ok: false, error: 'Content Rewards AI chat failed' });
+          }
+          return;
+        }
         const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
         if (provider === 'lamini' || !cloudProviders[provider]) {
           sendResponse({ ok: false, error: 'Chat provider is not a cloud model' });
           return;
         }
+        let paidError = '';
         if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.callRemoteChat) {
-          sendResponse({ ok: false, error: 'Remote LLM module not loaded' });
-          return;
-        }
-        const keyField = cloudProviders[provider];
-        const apiKey = String(llmStore[keyField] || '').trim();
-        if (!apiKey) {
-          sendResponse({
-            ok: false,
-            error: 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.',
-          });
-          return;
-        }
-        if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
-          sendResponse({
-            ok: false,
-            error:
+          paidError = 'Remote LLM module not loaded';
+        } else {
+          const keyField = cloudProviders[provider];
+          const apiKey = String(llmStore[keyField] || '').trim();
+          if (!apiKey) {
+            paidError = 'No API key for ' + provider + '. Add it under Settings → Local Keys → LLM providers.';
+          } else if (apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) {
+            paidError =
               'API key too long (max ' +
               CFS_LLM_API_KEY_MAX_CHARS +
-              ' characters). Fix it under Settings → Local Keys → LLM providers.',
+              ' characters). Fix it under Settings → Local Keys → LLM providers.';
+          } else {
+            const model = CFS_remoteLlm.resolveModel(
+              provider,
+              llmStore.cfsLlmChatOpenaiModel,
+              llmStore.cfsLlmChatModelOverride
+            );
+            const chatModelLen = cfsAssertResolvedLlmModelLength(model);
+            if (!chatModelLen.ok) {
+              paidError = chatModelLen.error;
+            } else {
+              try {
+                const chatRes = await CFS_remoteLlm.callRemoteChat({
+                  provider,
+                  apiKey,
+                  model,
+                  messages: validatedChat.messages,
+                  options: options || {},
+                });
+                if (chatRes.ok) {
+                  sendResponse({ ok: true, result: { text: chatRes.text, model: chatRes.model } });
+                  return;
+                }
+                paidError = chatRes.error || 'Chat failed';
+              } catch (cloudErr) {
+                paidError = (cloudErr && cloudErr.message) || 'Chat failed';
+              }
+            }
+          }
+        }
+        const fallback = cfsNormalizeLlmFallback(llmStore.cfsLlmChatFallback);
+        const fb = await cfsRunPaidLlmFallbackChat(validatedChat.messages, options || {}, fallback);
+        if (fb && fb.ok) {
+          sendResponse({
+            ok: true,
+            result: fb.result,
+            usedFallback: true,
+            fallback: fb.fallback || fallback,
+            fallbackFrom: provider,
+            paidError: paidError,
           });
           return;
         }
-        const model = CFS_remoteLlm.resolveModel(
-          provider,
-          llmStore.cfsLlmChatOpenaiModel,
-          llmStore.cfsLlmChatModelOverride
-        );
-        const chatModelLen = cfsAssertResolvedLlmModelLength(model);
-        if (!chatModelLen.ok) {
-          sendResponse({ ok: false, error: chatModelLen.error });
+        if (fb && (fb.code === 'ASK_LOGIN' || fb.code === 'ASK_UPGRADE' || fb.code === 'CLORE_UNAVAILABLE')) {
+          sendResponse(Object.assign({}, fb, { paidError: paidError }));
           return;
         }
-        const chatRes = await CFS_remoteLlm.callRemoteChat({
-          provider,
-          apiKey,
-          model,
-          messages: validatedChat.messages,
-          options: options || {},
+        sendResponse({
+          ok: false,
+          error:
+            paidError +
+            ' Fallback (' +
+            (fallback === 'crai' ? 'Content Rewards AI' : 'LaMini') +
+            ') failed: ' +
+            ((fb && fb.error) || 'unknown error'),
         });
-        if (chatRes.ok) {
-          sendResponse({ ok: true, result: { text: chatRes.text, model: chatRes.model } });
-        } else {
-          sendResponse({ ok: false, error: chatRes.error || 'Chat failed' });
-        }
       } catch (e) {
         sendResponse({ ok: false, error: (e && e.message) || 'Chat failed' });
       }
     })();
     return true;
   
+  };
+
+  var cfsAgentPlannerGeneration = 0;
+  var cfsLocalPlannerSkipUntilReload = { qwen34b: false, qwen7b: false };
+
+  function cfsNormalizePlannerModelKey(key) {
+    var k = String(key || '').trim().toLowerCase();
+    if (k === 'qwen' || k === 'qwen7b' || k === 'qwen2.5' || k === 'qwen2.5-7b') return 'qwen7b';
+    return 'qwen34b';
+  }
+
+  function cfsAgentPlannerSleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  async function cfsGetWhopBearerForPlanner() {
+    const authData = await chrome.storage.local.get(['whop_auth']);
+    const whopAuth = authData.whop_auth;
+    if (!whopAuth) return { token: null };
+    var token = whopAuth.access_token || whopAuth.accessToken;
+    var elapsedUp = (Date.now() - ((whopAuth && whopAuth.obtained_at) || 0)) / 1000;
+    var tokenExpired = !token || elapsedUp >= ((whopAuth && whopAuth.expires_in) || 3600) - 60;
+    return { token: tokenExpired ? null : token };
+  }
+
+  async function cfsQcCallPlanner(method, args) {
+    try {
+      return await cfsQcCallLlmMethod(method, args || []);
+    } catch (e) {
+      return {
+        ok: false,
+        error: (e && e.message) || 'Local planner QC call failed',
+        code: 'LLAMA_FAIL',
+      };
+    }
+  }
+
+  async function cfsPollAgentPlannerJob(jobId, token, gen) {
+    var deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      if (gen !== cfsAgentPlannerGeneration) return { ok: false, code: 'STOPPED', error: 'Stopped' };
+      await cfsAgentPlannerSleep(2000);
+      if (gen !== cfsAgentPlannerGeneration) return { ok: false, code: 'STOPPED', error: 'Stopped' };
+      var res = await fetch(WHOP_APP_ORIGIN + '/api/extension/agent-planner?jobId=' + encodeURIComponent(jobId), {
+        credentials: 'omit',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        var je = await res.json().catch(function () { return {}; });
+        return { ok: false, error: je.message || je.error || ('Cloud planner poll HTTP ' + res.status) };
+      }
+      var json = await res.json().catch(function () { return {}; });
+      if (json.done === true || json.ok === true || (json.text && json.status !== 'running')) {
+        var text = json.text != null ? String(json.text) : (json.result != null ? String(json.result) : '');
+        if (!text) return { ok: false, error: 'Cloud planner job finished empty' };
+        return { ok: true, text: text, source: 'clore', model: json.model || 'qwen38-27b' };
+      }
+      if (json.error) return { ok: false, error: String(json.error) };
+    }
+    return { ok: false, error: 'Cloud planner timed out', code: 'TIMEOUT' };
+  }
+
+  async function cfsCallCloudAgentPlanner(messages) {
+    if (typeof CFS_remoteLlm === 'undefined' || !CFS_remoteLlm.callRemoteChat) {
+      return { ok: false, error: 'Remote LLM module not loaded' };
+    }
+    const llmStore = await chrome.storage.local.get([
+      'cfsLlmChatProvider',
+      'cfsLlmWorkflowProvider',
+      'cfsLlmChatOpenaiModel',
+      'cfsLlmChatModelOverride',
+      'cfsLlmOpenaiKey',
+      'cfsLlmAnthropicKey',
+      'cfsLlmGeminiKey',
+      'cfsLlmGrokKey',
+    ]);
+    const cloudProviders = { openai: 'cfsLlmOpenaiKey', claude: 'cfsLlmAnthropicKey', gemini: 'cfsLlmGeminiKey', grok: 'cfsLlmGrokKey' };
+    const preferred = String(llmStore.cfsLlmChatProvider || llmStore.cfsLlmWorkflowProvider || '').toLowerCase();
+    const order = [];
+    if (cloudProviders[preferred]) order.push(preferred);
+    ['openai', 'claude', 'gemini', 'grok'].forEach(function (p) {
+      if (order.indexOf(p) < 0) order.push(p);
+    });
+    for (let i = 0; i < order.length; i++) {
+      const provider = order[i];
+      const apiKey = String(llmStore[cloudProviders[provider]] || '').trim();
+      if (!apiKey || apiKey.length > CFS_LLM_API_KEY_MAX_CHARS) continue;
+      const model = CFS_remoteLlm.resolveModel(provider, llmStore.cfsLlmChatOpenaiModel, llmStore.cfsLlmChatModelOverride);
+      const modelLen = cfsAssertResolvedLlmModelLength(model);
+      if (!modelLen.ok) continue;
+      try {
+        const chatRes = await CFS_remoteLlm.callRemoteChat({
+          provider: provider,
+          apiKey: apiKey,
+          model: model,
+          messages: messages,
+          options: { max_new_tokens: 160, temperature: 0.2 },
+        });
+        if (chatRes && chatRes.ok && chatRes.text) {
+          return { ok: true, text: String(chatRes.text), source: 'cloud', model: chatRes.model || provider };
+        }
+      } catch (_) {}
+    }
+    return { ok: false, error: 'No cloud planner key configured' };
+  }
+
+  async function cfsCallCloreAgentPlanner(messages, gen) {
+    var auth = await cfsGetWhopBearerForPlanner();
+    if (!auth.token) {
+      return { ok: false, code: 'ASK_LOGIN', error: 'Sign in to use Content Rewards GPU.' };
+    }
+    var upRes = await fetch(WHOP_APP_ORIGIN + '/api/extension/has-upgraded', {
+      credentials: 'omit',
+      headers: { Authorization: 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+    });
+    if (upRes.status === 401) {
+      return { ok: false, code: 'ASK_LOGIN', error: 'Sign in to use Content Rewards GPU.' };
+    }
+    var upJson = {};
+    if (upRes.ok) upJson = await upRes.json().catch(function () { return {}; });
+    if (typeof cfsHasPaidOrTrialAccess !== 'function' || !cfsHasPaidOrTrialAccess(upJson)) {
+      return {
+        ok: false,
+        code: 'ASK_UPGRADE',
+        error: 'Upgrade or start a trial to use Content Rewards GPU.',
+        trial_checkout_url: upJson.trial_checkout_url || null,
+      };
+    }
+    var res = await fetch(WHOP_APP_ORIGIN + '/api/extension/agent-planner', {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { Authorization: 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: messages }),
+    });
+    if (res.status === 401) return { ok: false, code: 'ASK_LOGIN', error: 'Sign in to use Content Rewards GPU.' };
+    if (res.status === 403) {
+      var j403 = await res.json().catch(function () { return {}; });
+      return {
+        ok: false,
+        code: 'ASK_UPGRADE',
+        error: j403.message || j403.error || 'Upgrade or start a trial to use Content Rewards GPU.',
+        trial_checkout_url: j403.trial_checkout_url || upJson.trial_checkout_url || null,
+      };
+    }
+    if (res.status === 404) {
+      return {
+        ok: false,
+        code: 'CLORE_UNAVAILABLE',
+        error: 'Cloud planner is not available yet. Try local Llama or try again later.',
+      };
+    }
+    if (!res.ok) {
+      var jerr = await res.json().catch(function () { return {}; });
+      return { ok: false, error: jerr.message || jerr.error || ('Cloud planner HTTP ' + res.status) };
+    }
+    var json = await res.json().catch(function () { return {}; });
+    if (json.status === 'running' && json.jobId) {
+      return cfsPollAgentPlannerJob(json.jobId, auth.token, gen);
+    }
+    var outText = json.text != null ? String(json.text) : (json.result != null ? String(json.result) : '');
+    if (!outText) return { ok: false, error: 'Cloud planner returned empty' };
+    return { ok: true, text: outText, source: 'clore', model: json.model || 'qwen38-27b' };
+  }
+
+  async function cfsRunAgentPlanner(messages, opts) {
+    opts = opts || {};
+    var modelKey = cfsNormalizePlannerModelKey(opts.localModel);
+    var localOnly = !!opts.localOnly;
+    var gen = opts.generation != null ? opts.generation : ++cfsAgentPlannerGeneration;
+    if (!cfsLocalPlannerSkipUntilReload[modelKey]) {
+      if (localOnly && typeof cfsMapLocalPlannerResult === 'function') {
+        var weightsQc = await cfsQcCallPlanner('llamaWeightsPresent', [modelKey]);
+        if (!cfsQcResultIsWeightsPresent(weightsQc)) {
+          return cfsMissingWeightsPlannerReply(modelKey);
+        }
+      }
+      var local = await cfsQcCallPlanner('generateLlama', [messages, { max_new_tokens: 128, temperature: 0.2, modelKey: modelKey }]);
+      var mapped = typeof cfsMapLocalPlannerResult === 'function'
+        ? cfsMapLocalPlannerResult(local, { localOnly: localOnly, modelKey: modelKey })
+        : null;
+      if (mapped && mapped.done) {
+        return {
+          ok: mapped.ok,
+          text: mapped.text,
+          source: mapped.source,
+          model: mapped.model,
+          modelKey: mapped.modelKey || modelKey,
+          code: mapped.code,
+          error: mapped.error,
+        };
+      }
+      if (!mapped) {
+        var localRes = local && local.result ? local.result : local;
+        if (local && local.ok && localRes && localRes.ok && localRes.text) {
+          return {
+            ok: true,
+            text: String(localRes.text),
+            source: 'local',
+            model: localRes.model || modelKey,
+            modelKey: localRes.modelKey || modelKey,
+          };
+        }
+        var localCode = (localRes && localRes.code) || (local && local.error && /not downloaded/i.test(String(local.error)) ? 'LLAMA_NOT_DOWNLOADED' : 'LLAMA_FAIL');
+        var localErr = (localRes && localRes.error) || (local && local.error) || 'Local model failed';
+        if (localOnly) {
+          return { ok: false, code: localCode, error: localErr, modelKey: modelKey };
+        }
+      }
+      cfsLocalPlannerSkipUntilReload[modelKey] = true;
+    } else if (localOnly) {
+      return {
+        ok: false,
+        code: 'LLAMA_FAIL',
+        error: 'Local model already failed this session. Download weights or reload the extension.',
+        modelKey: modelKey,
+      };
+    }
+    if (gen !== cfsAgentPlannerGeneration) {
+      return { ok: false, code: 'STOPPED', error: 'Stopped' };
+    }
+    var cloud = await cfsCallCloudAgentPlanner(messages);
+    if (cloud && cloud.ok && cloud.text) return cloud;
+    if (gen !== cfsAgentPlannerGeneration) {
+      return { ok: false, code: 'STOPPED', error: 'Stopped' };
+    }
+    var clore = await cfsCallCloreAgentPlanner(messages, gen);
+    if (clore && clore.ok && clore.text) return clore;
+    if (gen !== cfsAgentPlannerGeneration) {
+      return { ok: false, code: 'STOPPED', error: 'Stopped' };
+    }
+    var lamini = await cfsQcCallPlanner('generatePageAgent', [messages, { max_new_tokens: 32, temperature: 0.15 }]);
+    var laminiRes = lamini && lamini.result ? lamini.result : lamini;
+    if (lamini && lamini.ok && laminiRes && laminiRes.ok && laminiRes.text) {
+      return {
+        ok: true,
+        text: String(laminiRes.text),
+        source: 'lamini',
+        model: laminiRes.model || 'Xenova/LaMini-Flan-T5-783M',
+        modelKey: 'lamini',
+      };
+    }
+    return (clore && (clore.code === 'ASK_LOGIN' || clore.code === 'ASK_UPGRADE'))
+      ? clore
+      : (cloud && cloud.error ? cloud : clore || { ok: false, error: 'Planner failed' });
+  }
+
+  __CFS_swTypeHandlers['CFS_AGENT_PLANNER'] = function (msg, sender, sendResponse) {
+    var validatedChat = cfsValidateRemoteChatInput((msg && msg.messages) || []);
+    if (!validatedChat.ok) {
+      sendResponse({ ok: false, error: validatedChat.error || 'Invalid chat payload' });
+      return true;
+    }
+    var gen = ++cfsAgentPlannerGeneration;
+    (async function () {
+      try {
+        sendResponse(await cfsRunAgentPlanner(validatedChat.messages, {
+          localModel: msg && msg.localModel,
+          localOnly: !!(msg && msg.localOnly),
+          generation: gen,
+        }));
+      } catch (e) {
+        sendResponse({ ok: false, error: (e && e.message) || 'Planner failed' });
+      }
+    })();
+    return true;
+  };
+
+  __CFS_swTypeHandlers['CFS_AGENT_PLANNER_STOP'] = function (msg, sender, sendResponse) {
+    cfsAgentPlannerGeneration += 1;
+    sendResponse({ ok: true });
+    return false;
+  };
+
+  __CFS_swTypeHandlers['CFS_AGENT_PLANNER_RETRY_LOCAL'] = function (msg, sender, sendResponse) {
+    var key = msg && msg.localModel ? cfsNormalizePlannerModelKey(msg.localModel) : '';
+    if (key) cfsLocalPlannerSkipUntilReload[key] = false;
+    else {
+      cfsLocalPlannerSkipUntilReload.qwen34b = false;
+      cfsLocalPlannerSkipUntilReload.qwen7b = false;
+    }
+    sendResponse({ ok: true });
+    return false;
   };
 
   __CFS_swTypeHandlers['CFS_LLM_TEST_PROVIDER'] = function (msg, sender, sendResponse) {
@@ -8171,6 +8803,15 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
         return res.arrayBuffer().then(buf => ({ buf, contentType }));
       })
       .then(({ buf, contentType }) => {
+        const filename = preferredFilename || url.split('/').pop()?.split('?')[0] || 'file';
+        const idb = self.CFS_qcTranscribeIdb;
+        /* Base64 through sendMessage hits Chrome's 64MiB cap around ~48MB binary. */
+        if (idb && typeof idb.store === 'function' && buf.byteLength > 12 * 1024 * 1024) {
+          const blob = new Blob([buf], { type: contentType || 'application/octet-stream' });
+          return idb.store(blob).then((id) => {
+            safeSend({ ok: true, idbId: id, contentType, filename, size: buf.byteLength });
+          });
+        }
         const bytes = new Uint8Array(buf);
         let binary = '';
         const chunk = 8192;
@@ -8178,7 +8819,6 @@ if (!globalThis.__CFS_swTypeHandlers) globalThis.__CFS_swTypeHandlers = Object.c
           binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
         }
         const base64 = btoa(binary);
-        const filename = preferredFilename || url.split('/').pop()?.split('?')[0] || 'file';
         safeSend({ ok: true, base64, contentType, filename });
       })
       .catch(err => safeSend({ ok: false, error: (err?.message || 'Fetch failed') }));

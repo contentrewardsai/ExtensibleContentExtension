@@ -6,7 +6,7 @@ This is a Chrome Manifest V3 extension (vanilla JS, no build step). The extensio
 
 ### Running the extension
 
-Load unpacked from `/workspace` at `chrome://extensions/` (Developer Mode enabled). After editing files, click **Reload** on the extensions page or use the side panel's **Reload Extension** button to pick up changes. Side panel **Settings** opens **`settings/settings.html`** (includes **Tests** section with unit results, E2E checklist, and **Open unit tests page** for the crypto panel on **`test/unit-tests.html`**).
+Load unpacked from `/workspace` at `chrome://extensions/` (Developer Mode enabled). After editing files, click **Reload** on the extensions page or use the side panel's **Reload Extension** button to pick up changes. Side panel **Settings** opens **`settings/settings.html#tab-mcp`** (Advanced / MCP). The **Tests** tab still has unit results, the E2E checklist, and **Open unit tests page** for the crypto panel on **`test/unit-tests.html`**.
 
 ### Lint / validation checks
 

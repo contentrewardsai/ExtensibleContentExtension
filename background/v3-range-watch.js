@@ -114,18 +114,30 @@
   }
 
   function collectV3MonitorWorkflows(stored) {
-    var w = stored[WORKFLOWS_KEY];
-    if (!w || typeof w !== 'object' || Array.isArray(w)) return [];
-    var ids = Object.keys(w);
+    var helper = global.__CFS_alwaysOnFromSteps;
+    var members = helper && typeof helper.collectLatestFamilyWorkflows === 'function'
+      ? helper.collectLatestFamilyWorkflows(stored)
+      : [];
+    if (!members.length) {
+      var wAll = stored[WORKFLOWS_KEY];
+      if (wAll && typeof wAll === 'object' && !Array.isArray(wAll)) {
+        members = Object.keys(wAll).map(function (id) { return { id: id, wf: wAll[id] }; });
+      }
+    }
     var jobs = [];
     var api = boundPositionsApi();
-    for (var i = 0; i < ids.length; i++) {
-      var wfId = ids[i];
-      var wf = w[wfId];
-      if (!wf || !wf.alwaysOn || wf.alwaysOn.enabled !== true) continue;
-      var sc = (wf.alwaysOn && wf.alwaysOn.scopes) || {};
+    for (var i = 0; i < members.length; i++) {
+      var wfId = members[i].id;
+      var wf = members[i].wf;
+      var enabled = helper && typeof helper.workflowAlwaysOnEnabled === 'function'
+        ? helper.workflowAlwaysOnEnabled(wf)
+        : !!(wf && wf.alwaysOn && wf.alwaysOn.enabled === true);
+      if (!wf || !enabled) continue;
+      var sc = helper && typeof helper.scopesForWorkflow === 'function'
+        ? helper.scopesForWorkflow(wf)
+        : ((wf.alwaysOn && wf.alwaysOn.scopes) || {});
       if (!sc.priceRangeWatch) continue;
-      var prw = wf.alwaysOn.priceRangeWatch;
+      var prw = wf.alwaysOn && wf.alwaysOn.priceRangeWatch;
       if (!isV3PriceRangeWatch(prw)) continue;
       var positions = api
         ? api.activeWatchPositions(wf.alwaysOn, 'v3')
@@ -140,6 +152,7 @@
         priceRangeWatch: prw,
         runAllMatches: prw && prw.runAllMatches === true,
         alwaysOn: wf.alwaysOn,
+        workflow: wf,
       });
     }
     return jobs;
@@ -225,64 +238,54 @@
     return n;
   }
 
-  /**
-   * opts: { triggerReason?: 'hard_oor'|'near_edge', driftDirection?: 'below'|'above' }
-   */
-  async function triggerOutOfRange(stored, job, positionRow, check, prwTemplate, opts) {
-    var o = opts || {};
-    var prwResolved = resolveTemplatesDeep(prwTemplate || job.priceRangeWatch, positionRow);
-    var direction =
-      o.driftDirection === 'above' || o.driftDirection === 'below'
-        ? o.driftDirection
-        : check.driftDirection === 'above' || check.driftDirection === 'below'
-          ? check.driftDirection
-          : check.currentTick > check.tickUpper
-            ? 'above'
-            : 'below';
-    var triggerReason = o.triggerReason || (check.inRange === false ? 'hard_oor' : 'near_edge');
-    var triggerRow = Object.assign({}, positionRow || {}, {
-      driftDirection: direction,
-      triggerReason: triggerReason,
-      currentTick: check.currentTick,
-      tickLower: check.tickLower,
-      tickUpper: check.tickUpper,
-      pctToLower: check.pctToLower != null ? String(check.pctToLower) : '',
-      pctToUpper: check.pctToUpper != null ? String(check.pctToUpper) : '',
-      composition0: check.composition0 != null ? String(check.composition0) : '',
-      composition1: check.composition1 != null ? String(check.composition1) : '',
-      v3Pool: check.pool || positionRow.v3Pool || '',
-      token0: check.token0 || positionRow.token0 || '',
-      token1: check.token1 || positionRow.token1 || '',
-      v3Fee: check.fee || positionRow.v3Fee || '',
-      v3PositionTokenId: check.v3PositionTokenId || positionRow.v3PositionTokenId || '',
-      inRange: false,
-      inactive: triggerReason === 'hard_oor',
-      detectedAt: new Date().toISOString(),
-      exitBelowPolicy: positionRow.exitBelowPolicy || prwResolved.exitBelowPolicy || '',
-      exitAbovePolicy: positionRow.exitAbovePolicy || prwResolved.exitAbovePolicy || '',
-      stableToken: positionRow.stableToken || prwResolved.stableToken || '',
-      rangePercent: positionRow.rangePercent || prwResolved.rangePercent || '1',
-      rangePercentBelow: positionRow.rangePercentBelow || '',
-      rangePercentAbove: positionRow.rangePercentAbove || '',
-      nearEdgePercent: positionRow.nearEdgePercent || (job.alwaysOn && job.alwaysOn.nearEdgePercent) || '',
-      fundMode: positionRow.fundMode || 'stable',
-    });
+  function monitorStepsApi() {
+    return global.CFS_v3MonitorSteps || global.__CFS_v3MonitorSteps || null;
+  }
 
-    var rules = Array.isArray(prwResolved.onOutOfRange) ? prwResolved.onOutOfRange : [];
+  function buildTriggerRow(job, positionRow, check, opts) {
+    var o = opts || {};
+    var prwResolved = resolveTemplatesDeep(job.priceRangeWatch, positionRow);
+    var helpers = monitorStepsApi();
+    var nearPct = resolveNearEdgePercent(positionRow, job.alwaysOn);
+    var classified =
+      o.classified ||
+      (helpers && typeof helpers.classifyTriggerFromCheck === 'function'
+        ? helpers.classifyTriggerFromCheck(check, nearPct)
+        : {
+            inRange: check && check.inRange === true,
+            triggerReason: o.triggerReason || (check && check.inRange === false ? 'hard_oor' : 'in_range'),
+            driftDirection: o.driftDirection || '',
+            nearEdge: false,
+          });
+    var triggerRow =
+      helpers && typeof helpers.seedTickRow === 'function'
+        ? helpers.seedTickRow(positionRow, check, job.alwaysOn, classified)
+        : Object.assign({}, positionRow || {});
+    triggerRow.exitBelowPolicy = triggerRow.exitBelowPolicy || prwResolved.exitBelowPolicy || '';
+    triggerRow.exitAbovePolicy = triggerRow.exitAbovePolicy || prwResolved.exitAbovePolicy || '';
+    triggerRow.stableToken = triggerRow.stableToken || prwResolved.stableToken || '';
+    triggerRow.rangePercent = triggerRow.rangePercent || prwResolved.rangePercent || '1';
+    triggerRow.detectedAt = new Date().toISOString();
+    triggerRow.fundMode = triggerRow.fundMode || 'stable';
+    return { triggerRow: triggerRow, classified: classified, prwResolved: prwResolved };
+  }
+
+  async function triggerChildren(stored, job, triggerRow, children, classified, prwResolved) {
     var workflows = stored[WORKFLOWS_KEY] || {};
     var execFn = global.__CFS_executeBackgroundWorkflow;
     if (typeof execFn !== 'function') {
       return { ok: false, error: 'background workflow runner not loaded', triggered: [] };
     }
-
+    var list = Array.isArray(children) ? children : [];
+    var triggerReason = (classified && classified.triggerReason) || triggerRow.triggerReason || '';
+    var direction = (classified && classified.driftDirection) || triggerRow.driftDirection || '';
     var triggered = [];
-    for (var ri = 0; ri < rules.length; ri++) {
-      var rule = rules[ri];
+    for (var ri = 0; ri < list.length; ri++) {
+      var rule = list[ri] && (list[ri].action || list[ri]);
       if (!rule || !rule.workflowId) continue;
-      if (!evaluateRunIf(rule.runIf, triggerRow)) continue;
-
       var childRow = applyRowMapping(triggerRow, rule.rowMapping);
-      var startUrl = (prwResolved.playbackStartUrl && String(prwResolved.playbackStartUrl).trim()) ||
+      var startUrl =
+        (prwResolved && prwResolved.playbackStartUrl && String(prwResolved.playbackStartUrl).trim()) ||
         (rule.playbackStartUrl && String(rule.playbackStartUrl).trim()) ||
         '';
       var entry = {
@@ -310,7 +313,7 @@
           driftDirection: direction,
         });
         await appendActivity({
-          kind: triggerReason === 'near_edge' ? 'near_edge_trigger' : 'oor_trigger',
+          kind: triggerReason === 'near_edge' ? 'near_edge_trigger' : triggerReason === 'hard_oor' ? 'oor_trigger' : 'monitor_child',
           tokenId: triggerRow.v3PositionTokenId,
           workflowId: job.workflowId,
           childWorkflowId: entry.workflowId,
@@ -328,6 +331,24 @@
     return { ok: true, triggered: triggered, triggerReason: triggerReason, driftDirection: direction };
   }
 
+  /**
+   * Dual-read fallback: onOutOfRange JSON when the monitor has no runWorkflow children.
+   * opts: { triggerReason?: 'hard_oor'|'near_edge', driftDirection?: 'below'|'above' }
+   */
+  async function triggerOutOfRange(stored, job, positionRow, check, prwTemplate, opts) {
+    var built = buildTriggerRow(job, positionRow, check, opts);
+    var prwResolved = resolveTemplatesDeep(prwTemplate || job.priceRangeWatch, built.triggerRow);
+    var rules = Array.isArray(prwResolved.onOutOfRange) ? prwResolved.onOutOfRange : [];
+    var matching = [];
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      if (!rule || !rule.workflowId) continue;
+      if (!evaluateRunIf(rule.runIf, built.triggerRow)) continue;
+      matching.push(rule);
+    }
+    return triggerChildren(stored, job, built.triggerRow, matching, built.classified, prwResolved);
+  }
+
   async function pollWorkflowPositions(stored, job) {
     var positions = job.positions || [];
     if (!positions.length) {
@@ -339,7 +360,47 @@
       return { ok: false, error: 'V3 batch range check not loaded', workflowId: job.workflowId };
     }
 
-    var gasInfo = await maybeEnsureGas(job.alwaysOn);
+    var helpers = monitorStepsApi();
+    var wf = (job.workflow) || (stored[WORKFLOWS_KEY] && stored[WORKFLOWS_KEY][job.workflowId]);
+    if (helpers && wf) {
+      var persistMig = false;
+      if (typeof helpers.migrateStoredV3MonitorPrefix === 'function') {
+        var prefixMig = helpers.migrateStoredV3MonitorPrefix(wf);
+        if (prefixMig && prefixMig.migrated) persistMig = true;
+      }
+      if (typeof helpers.migrateOnOutOfRangeToRunWorkflowSteps === 'function') {
+        var mig = helpers.migrateOnOutOfRangeToRunWorkflowSteps(wf);
+        if (mig && mig.migrated) persistMig = true;
+      }
+      if (persistMig) {
+        try {
+          await storageLocalSet({ workflows: stored[WORKFLOWS_KEY] });
+        } catch (_) {}
+      }
+    }
+    var actions = helpers && typeof helpers.getActions === 'function' ? helpers.getActions(wf) : ((wf && wf.analyzed && wf.analyzed.actions) || []);
+    var hasStepChildren = !!(helpers && helpers.hasMatchingRunWorkflowChildren(wf));
+    var hasGasStep = !!(helpers && helpers.hasGasPrefixStep(actions));
+    var hasReconcileStep = !!(helpers && helpers.hasReconcilePrefixStep(actions));
+
+    tickCountByWf[job.workflowId] = (tickCountByWf[job.workflowId] || 0) + 1;
+    var tickN = tickCountByWf[job.workflowId];
+
+    var gasInfo = null;
+    if (hasGasStep) {
+      var gasSeed =
+        helpers && typeof helpers.seedTickRow === 'function'
+          ? helpers.seedTickRow({}, null, job.alwaysOn, null)
+          : { gasReloadEnabled: job.alwaysOn && job.alwaysOn.gasReloadEnabled ? 'true' : 'false' };
+      var gasPlan = helpers.planMonitorTick(actions, gasSeed, evaluateRunIf);
+      var wantGas = false;
+      for (var gi = 0; gi < (gasPlan.prefix || []).length; gi++) {
+        if (gasPlan.prefix[gi].kind === 'gas') wantGas = true;
+      }
+      if (wantGas) gasInfo = await maybeEnsureGas(job.alwaysOn);
+    } else {
+      gasInfo = await maybeEnsureGas(job.alwaysOn);
+    }
 
     var batch = await batchFn({
       positions: positions.map(function (p) {
@@ -356,6 +417,29 @@
     var closedIds = [];
     var results = [];
     var triggeredAll = [];
+    var skippedTabOnly = [];
+
+    var reconcileNote = null;
+    if (hasReconcileStep) {
+      var recSeed =
+        helpers && typeof helpers.seedTickRow === 'function'
+          ? helpers.seedTickRow(positions[0] || {}, null, job.alwaysOn, null)
+          : {};
+      var recPlan = helpers.planMonitorTick(actions, recSeed, evaluateRunIf);
+      var recAction = null;
+      for (var ri = 0; ri < (recPlan.prefix || []).length; ri++) {
+        if (recPlan.prefix[ri].kind === 'reconcile') recAction = recPlan.prefix[ri].action;
+      }
+      var everyN = recAction ? parseInt(recAction.everyNTicks, 10) : RECONCILE_EVERY_N;
+      if (!Number.isFinite(everyN) || everyN < 1) everyN = RECONCILE_EVERY_N;
+      if (recAction && tickN % everyN === 0) {
+        try {
+          reconcileNote = await reconcileWorkflow(stored, job);
+        } catch (eR) {
+          reconcileNote = { ok: false, error: (eR && eR.message) || String(eR) };
+        }
+      }
+    }
 
     for (var pi = 0; pi < positions.length; pi++) {
       var prow = positions[pi];
@@ -377,7 +461,6 @@
         continue;
       }
       if (!check.ok) {
-        // missing / RPC / wrong-chain: keep bind; reconcile drops only when owner enumeration confirms gone
         results.push({
           ok: false,
           v3PositionTokenId: tid,
@@ -387,24 +470,45 @@
         });
         continue;
       }
+
+      var built = buildTriggerRow(job, prow, check, {});
+      var classified = built.classified;
+      var triggerRow = built.triggerRow;
+      var prwResolved = built.prwResolved;
+
+      if (hasStepChildren) {
+        var plan = helpers.planMonitorTick(actions, triggerRow, evaluateRunIf);
+        if (plan.skipped && plan.skipped.length) {
+          skippedTabOnly = skippedTabOnly.concat(plan.skipped);
+        }
+        var childTrig = { triggered: [], skipped: false };
+        if (plan.openTab) {
+          childTrig = await triggerChildren(stored, job, triggerRow, plan.children, classified, prwResolved);
+          if (childTrig.triggered) triggeredAll = triggeredAll.concat(childTrig.triggered);
+        }
+        results.push({
+          ok: true,
+          inRange: classified.inRange === true,
+          nearEdge: classified.nearEdge === true,
+          inactive: classified.triggerReason === 'hard_oor',
+          v3PositionTokenId: tid,
+          check: check,
+          triggered: childTrig.triggered || [],
+          skipped: childTrig.skipped,
+          triggerReason: classified.triggerReason,
+          driftDirection: classified.driftDirection,
+          openTab: plan.openTab === true,
+          skippedPrefix: plan.skipped || [],
+        });
+        continue;
+      }
+
       if (check.inRange) {
-        var nearPct = resolveNearEdgePercent(prow, job.alwaysOn);
-        var nearLower =
-          nearPct != null && check.pctToLower != null && Number(check.pctToLower) <= nearPct;
-        var nearUpper =
-          nearPct != null && check.pctToUpper != null && Number(check.pctToUpper) <= nearPct;
-        if (nearLower || nearUpper) {
-          var softDir =
-            nearLower && nearUpper
-              ? Number(check.pctToLower) <= Number(check.pctToUpper)
-                ? 'below'
-                : 'above'
-              : nearLower
-                ? 'below'
-                : 'above';
+        if (classified.nearEdge) {
           var softTrig = await triggerOutOfRange(stored, job, prow, check, job.priceRangeWatch, {
             triggerReason: 'near_edge',
-            driftDirection: softDir,
+            driftDirection: classified.driftDirection,
+            classified: classified,
           });
           results.push({
             ok: true,
@@ -415,17 +519,18 @@
             triggered: softTrig.triggered || [],
             skipped: softTrig.skipped,
             triggerReason: 'near_edge',
-            driftDirection: softDir,
+            driftDirection: classified.driftDirection,
           });
           if (softTrig.triggered) triggeredAll = triggeredAll.concat(softTrig.triggered);
           continue;
         }
-        results.push({ ok: true, inRange: true, v3PositionTokenId: tid, check: check });
+        results.push({ ok: true, inRange: true, v3PositionTokenId: tid, check: check, openTab: false });
         continue;
       }
       var trig = await triggerOutOfRange(stored, job, prow, check, job.priceRangeWatch, {
         triggerReason: 'hard_oor',
-        driftDirection: check.driftDirection || (check.currentTick > check.tickUpper ? 'above' : 'below'),
+        driftDirection: classified.driftDirection,
+        classified: classified,
       });
       results.push({
         ok: true,
@@ -445,10 +550,7 @@
       await removeClosedFromWorkflow(stored, job.workflowId, closedIds);
     }
 
-    // Periodic reconcile discover (every N ticks)
-    tickCountByWf[job.workflowId] = (tickCountByWf[job.workflowId] || 0) + 1;
-    var reconcileNote = null;
-    if (tickCountByWf[job.workflowId] % RECONCILE_EVERY_N === 0) {
+    if (!hasReconcileStep && tickN % RECONCILE_EVERY_N === 0) {
       try {
         reconcileNote = await reconcileWorkflow(stored, job);
       } catch (eR) {
@@ -464,6 +566,7 @@
       closedRemoved: closedIds,
       gasTopUp: gasInfo,
       reconcile: reconcileNote,
+      skippedTabOnly: skippedTabOnly,
     };
   }
 
@@ -554,7 +657,7 @@
   async function tick() {
     var minPoll = DEFAULT_POLL_MS;
     try {
-      var stored = await storageLocalGet([WORKFLOWS_KEY, STOP_KEY, JOBS_KEY]);
+      var stored = await storageLocalGet([WORKFLOWS_KEY, STOP_KEY, JOBS_KEY, 'cfsHideE2eTestingWorkflows']);
       var stop = stored[STOP_KEY];
       if (stop && stop.global === true) {
         await recordPoll({ ok: true, idle: true, reason: 'globally_stopped' });
@@ -682,6 +785,14 @@
         positions: boundPositionsApi() ? boundPositionsApi().normalizeBoundPositions(w.alwaysOn, 'v3') : [],
       }];
     }
+    if (payload && (payload.autoTrackNew === true || payload.autoTrackNew === 'true')) {
+      jobs[0].alwaysOn = Object.assign({}, jobs[0].alwaysOn || {}, { reconcileAutoTrackNew: true });
+    }
     return reconcileWorkflow(stored, jobs[0]);
+  };
+  global.__CFS_v3RangeWatch_planMonitorTick = function (actions, row) {
+    var helpers = monitorStepsApi();
+    if (!helpers || typeof helpers.planMonitorTick !== 'function') return null;
+    return helpers.planMonitorTick(actions, row, evaluateRunIf);
   };
 })(typeof self !== 'undefined' ? self : globalThis);

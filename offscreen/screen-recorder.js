@@ -16,6 +16,13 @@
   var chunks = [];
   var webcamRecorder = null;
   var webcamChunks = [];
+  var screenRecorder = null;
+  var screenChunks = [];
+  var systemRecorder = null;
+  var systemChunks = [];
+  var micRecorder = null;
+  var micChunks = [];
+  var stemStreams = [];
 
   function stopAllTracks(stream) {
     if (!stream) return;
@@ -24,7 +31,28 @@
     });
   }
 
+  function cloneTrackList(tracks) {
+    var out = [];
+    for (var i = 0; i < tracks.length; i++) {
+      try {
+        out.push(tracks[i].clone());
+      } catch (_) {
+        out.push(tracks[i]);
+      }
+    }
+    return out;
+  }
+
+  function stemStreamFromTracks(tracks) {
+    if (!tracks || !tracks.length) return null;
+    var stream = new MediaStream(cloneTrackList(tracks));
+    stemStreams.push(stream);
+    return stream;
+  }
+
   function cleanupResources() {
+    stemStreams.forEach(stopAllTracks);
+    stemStreams = [];
     stopAllTracks(displayStream);
     stopAllTracks(micStream);
     stopAllTracks(webcamStream);
@@ -88,12 +116,33 @@
     });
   }
 
+  function startTrackRecorder(stream, buf, videoBitrate) {
+    var mime = pickMime(stream);
+    var opts = { mimeType: mime };
+    if (videoBitrate) opts.videoBitsPerSecond = videoBitrate;
+    var rec = new MediaRecorder(stream, opts);
+    rec.ondataavailable = function (e) {
+      if (e.data && e.data.size > 0) buf.push(e.data);
+    };
+    rec.start(1000);
+    return rec;
+  }
+
   function stopRecording() {
     return Promise.all([
       stopSingleRecorderBlob(recorder, chunks, 'video/webm'),
       stopSingleRecorderBlob(webcamRecorder, webcamChunks, 'video/webm'),
-    ]).then(function(results) {
-      return { mainBlob: results[0], webcamBlob: results[1] };
+      stopSingleRecorderBlob(screenRecorder, screenChunks, 'video/webm'),
+      stopSingleRecorderBlob(systemRecorder, systemChunks, 'audio/webm'),
+      stopSingleRecorderBlob(micRecorder, micChunks, 'audio/webm'),
+    ]).then(function (results) {
+      return {
+        mainBlob: results[0],
+        webcamBlob: results[1],
+        screenBlob: results[2],
+        systemBlob: results[3],
+        micBlob: results[4],
+      };
     });
   }
 
@@ -159,8 +208,14 @@
     cleanupResources();
     chunks = [];
     webcamChunks = [];
+    screenChunks = [];
+    systemChunks = [];
+    micChunks = [];
     recorder = null;
     webcamRecorder = null;
+    screenRecorder = null;
+    systemRecorder = null;
+    micRecorder = null;
 
     var wantDisplay = recordScreen || systemAudio;
 
@@ -296,6 +351,31 @@
           recorder.start(1000);
         }
 
+        if (recordScreen && displayStream && displayStream.getVideoTracks().length > 0) {
+          try {
+            var screenStem = stemStreamFromTracks(displayStream.getVideoTracks());
+            if (screenStem) screenRecorder = startTrackRecorder(screenStem, screenChunks, 2500000);
+          } catch (_) {
+            screenRecorder = null;
+          }
+        }
+        if (systemAudio && displayStream && displayStream.getAudioTracks().length > 0) {
+          try {
+            var systemStem = stemStreamFromTracks(displayStream.getAudioTracks());
+            if (systemStem) systemRecorder = startTrackRecorder(systemStem, systemChunks, 0);
+          } catch (_) {
+            systemRecorder = null;
+          }
+        }
+        if (micStream && micStream.getAudioTracks().length > 0) {
+          try {
+            var micStem = stemStreamFromTracks(micStream.getAudioTracks());
+            if (micStem) micRecorder = startTrackRecorder(micStem, micChunks, 0);
+          } catch (_) {
+            micRecorder = null;
+          }
+        }
+
         if (hasWebcam) {
           var wv = webcamStream.getVideoTracks().slice();
           var ws = new MediaStream(wv);
@@ -307,7 +387,10 @@
           webcamRecorder.start(1000);
         }
 
-        if ((!recorder || recorder.state === 'inactive') && (!webcamRecorder || webcamRecorder.state === 'inactive')) {
+        function recActive(rec) {
+          return !!(rec && rec.state === 'recording');
+        }
+        if (!recActive(recorder) && !recActive(webcamRecorder) && !recActive(screenRecorder) && !recActive(systemRecorder) && !recActive(micRecorder)) {
           cleanupResources();
           sendResponse({ ok: false, error: 'No recording started' });
           return;
@@ -340,9 +423,16 @@
           cleanupResources();
           recorder = null;
           webcamRecorder = null;
+          screenRecorder = null;
+          systemRecorder = null;
+          micRecorder = null;
           var hasAny = !!(
             out &&
-            ((out.mainBlob && out.mainBlob.size) || (out.webcamBlob && out.webcamBlob.size))
+            ((out.mainBlob && out.mainBlob.size) ||
+              (out.webcamBlob && out.webcamBlob.size) ||
+              (out.screenBlob && out.screenBlob.size) ||
+              (out.systemBlob && out.systemBlob.size) ||
+              (out.micBlob && out.micBlob.size))
           );
           if (!hasAny) {
             sendResponse({ ok: false, error: 'No recording data' });
@@ -357,6 +447,9 @@
             return CFS_planCaptureIdb.store(rid, {
               mainBlob: out.mainBlob,
               webcamBlob: out.webcamBlob,
+              screenBlob: out.screenBlob,
+              systemBlob: out.systemBlob,
+              micBlob: out.micBlob,
             })
               .then(function() {
                 sendResponse({ ok: true, captureInIdb: true, runId: rid });
@@ -375,6 +468,9 @@
           cleanupResources();
           recorder = null;
           webcamRecorder = null;
+          screenRecorder = null;
+          systemRecorder = null;
+          micRecorder = null;
           sendResponse({ ok: false, error: 'Stop failed' });
         });
       return true;

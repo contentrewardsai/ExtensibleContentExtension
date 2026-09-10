@@ -55,7 +55,7 @@ export function registerWorkflowTools(server, ctx) {
   /* ── create_workflow ── */
   server.tool(
     'create_workflow',
-    'Create a new workflow with steps. Browse extensible://steps for available step types and extensible://steps/{id} for step configuration. Each step is an action object with at minimum a "type" field.',
+    'Create a new workflow with steps. Browse extensible://steps for available step types and extensible://steps/{id} for step configuration. Each step is an action object with at minimum a "type" field. For background/real-time feeds add type: "checkRealtimeData" with sources (followingSolanaWatch, fileWatch, priceRangeWatch, custom, …) — do not only set alwaysOn on the workflow blob.',
     {
       name: z.string().describe('Human-readable workflow name'),
       id: z.string().optional().describe('Workflow ID (auto-generated UUID if omitted)'),

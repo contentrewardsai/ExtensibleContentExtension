@@ -60,9 +60,6 @@
   let recordedActions = [];
   let recordingMode = 'replace';
   let insertAtStep = undefined;
-  let qualityCheckMode = false;
-  let qualityCheckPhase = 'output';
-  let qualityCheckReplaceIndex = undefined;
   let lastTypingTarget = null;
   let typingTimeout = null;
   /** Delayed flush after Enter in a form (see onKeyDown); cleared on stop so it cannot append after RECORDER_STOP. */
@@ -155,9 +152,6 @@
     runStartState = null;
     recordingMode = msg.recordingMode || 'replace';
     insertAtStep = msg.insertAtStep;
-    qualityCheckMode = !!msg.qualityCheckMode;
-    qualityCheckPhase = msg.qualityCheckPhase || 'output';
-    qualityCheckReplaceIndex = msg.qualityCheckReplaceIndex;
     setupListeners();
     lastPageState = null;
     startMutationObserver();
@@ -190,11 +184,11 @@
   let syncRecordingToBgTimer = null;
 
   function scheduleSyncRecordingToBackground() {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     if (syncRecordingToBgTimer) clearTimeout(syncRecordingToBgTimer);
     syncRecordingToBgTimer = setTimeout(function() {
       syncRecordingToBgTimer = null;
-      if (!isRecording || qualityCheckMode) return;
+      if (!isRecording) return;
       try {
         const endSnap = capturePageState();
         chrome.runtime.sendMessage({
@@ -212,6 +206,13 @@
      Full pattern matching + auto-replace is done in the sidepanel at analyze time.
      This is intentionally minimal to avoid bloating the content script. */
   var _CFS_PATTERN_HINT_URLS = [
+    /* DeFi monitor / position pages (checked before generic swap hosts) */
+    { re: /app\.raydium\.io\/.*(clmm|liquidity|portfolio|position)/i, platform: 'Raydium', category: 'defi' },
+    { re: /app\.meteora\.ag\/.*(dlmm|pools|position|liquidity)/i, platform: 'Meteora', category: 'defi' },
+    { re: /pancakeswap\.finance\/.*(liquidity|v3|infinity|pools)/i, platform: 'PancakeSwap', category: 'defi' },
+    { re: /gmgn\.ai/i, platform: 'GMGN', category: 'defi' },
+    { re: /birdeye\.so/i, platform: 'Birdeye', category: 'defi' },
+    { re: /webhook\.site|pipedream\.(net|com)|hookdeck\.com/i, platform: 'Webhook', category: 'data' },
     /* DeFi */
     { re: /app\.raydium\.io/i, platform: 'Raydium', category: 'defi' },
     { re: /jup\.ag/i, platform: 'Jupiter', category: 'defi' },
@@ -331,7 +332,7 @@
       }
     }
     recordedActions.push(action);
-    if (!qualityCheckMode) scheduleSyncRecordingToBackground();
+    scheduleSyncRecordingToBackground();
   }
 
   /* ── DeFi field value extraction from DOM ── */
@@ -597,7 +598,7 @@
   }
 
   function onWheel(e) {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     if (e.ctrlKey || e.metaKey) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
@@ -749,7 +750,7 @@
   }
 
   function onHistoryNavigation() {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     try {
       recordGoToUrl(window.location.href, 'history');
     } catch (_) {}
@@ -837,7 +838,7 @@
         show: [...new Set(show)].slice(0, DOM_SHOWHIDE_MAX_UNIQUE),
         hide: [...new Set(hide)].slice(0, DOM_SHOWHIDE_MAX_UNIQUE),
       };
-      if (!qualityCheckMode) scheduleSyncRecordingToBackground();
+      scheduleSyncRecordingToBackground();
     }
   }
 
@@ -1068,9 +1069,6 @@
       runId: currentRunId,
       recordingMode,
       insertAtStep,
-      qualityCheckMode,
-      qualityCheckPhase,
-      qualityCheckReplaceIndex,
       startState: runStartState || stateAtEnd,
       endState: stateAtEnd,
     };
@@ -1114,9 +1112,6 @@
       recordedActions = s.actions.slice();
       recordingMode = s.recordingMode || 'replace';
       insertAtStep = s.insertAtStep;
-      qualityCheckMode = s.qualityCheckMode || false;
-      qualityCheckPhase = s.qualityCheckPhase || 'output';
-      qualityCheckReplaceIndex = s.qualityCheckReplaceIndex;
       lastTypingTarget = null;
       if (typingTimeout) {
         clearTimeout(typingTimeout);
@@ -1135,9 +1130,6 @@
         runId: currentRunId,
         recordingMode: recordingMode,
         insertAtStep: insertAtStep,
-        qualityCheckMode: qualityCheckMode,
-        qualityCheckPhase: qualityCheckPhase,
-        qualityCheckReplaceIndex: qualityCheckReplaceIndex,
       });
       setTimeout(() => {
         lastPageState = capturePageChangeSnapshot();
@@ -1163,9 +1155,6 @@
       runStartState = null;
       recordingMode = msg.recordingMode || 'replace';
       insertAtStep = msg.insertAtStep;
-      qualityCheckMode = msg.qualityCheckMode || false;
-      qualityCheckPhase = msg.qualityCheckPhase || 'output';
-      qualityCheckReplaceIndex = msg.qualityCheckReplaceIndex;
       setupListeners();
       lastPageState = null;
       startMutationObserver();
@@ -1175,9 +1164,6 @@
         runId: currentRunId,
         recordingMode: recordingMode,
         insertAtStep: insertAtStep,
-        qualityCheckMode: qualityCheckMode,
-        qualityCheckPhase: qualityCheckPhase,
-        qualityCheckReplaceIndex: qualityCheckReplaceIndex,
       });
       setTimeout(() => {
         runStartState = capturePageState();
@@ -1258,7 +1244,7 @@
   }
 
   function onMouseOver(e) {
-    if (!isRecording || !e.target || qualityCheckMode) return;
+    if (!isRecording || !e.target) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
@@ -1287,7 +1273,7 @@
   }
 
   function onMouseOut(e) {
-    if (!isRecording || !e.target || qualityCheckMode) return;
+    if (!isRecording || !e.target) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
@@ -1620,7 +1606,7 @@
   }
 
   function onMouseDown(e) {
-    if (!isRecording || !e.target || qualityCheckMode) return;
+    if (!isRecording || !e.target) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
@@ -1633,7 +1619,7 @@
   }
 
   function onPointerDown(e) {
-    if (!isRecording || !e.target || qualityCheckMode) return;
+    if (!isRecording || !e.target) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
@@ -1664,7 +1650,7 @@
    * Record openTab here as a fallback; dedupe is handled by NAV_DEDUPE_MS in recordOpenTab.
    */
   function onAuxClick(e) {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     if (e.button !== 1) return;
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
@@ -1702,50 +1688,6 @@
       if (t && isDropdownOptionClick(t)) return;
       lastDropdownOptionMousedownTime = 0;
     }
-    if (qualityCheckMode) {
-      maybeInsertWait();
-      let el = e.target;
-      if (el.nodeType !== 1) el = el.parentElement;
-      if (!el || !el.tagName) return;
-      const selectors = captureSelectors(el);
-      const tag = el.tagName?.toLowerCase();
-      let mediaEl = (tag === 'video' || tag === 'audio' ? el : null) || el.closest('video, audio') || el.querySelector('video, audio');
-      if (!mediaEl && el.parentElement) {
-        let p = el.parentElement;
-        for (let i = 0; i < 6 && p; i++) {
-          mediaEl = p.querySelector('video, audio');
-          if (mediaEl) break;
-          p = p.parentElement;
-        }
-      }
-      if (qualityCheckPhase === 'input') {
-        recordedActions.push({
-          type: 'qualityInput',
-          selectors,
-          url: window.location.href,
-          timestamp: Date.now(),
-        });
-      } else if (qualityCheckPhase === 'groupContainer') {
-        recordedActions.push({
-          type: 'qualityGroupContainer',
-          selectors,
-          url: window.location.href,
-          timestamp: Date.now(),
-        });
-      } else {
-        recordedActions.push({
-          type: 'qualityOutput',
-          selectors,
-          mediaSelectors: mediaEl ? captureSelectors(mediaEl) : null,
-          tagName: tag,
-          text: el.textContent?.trim().slice(0, 80),
-          checkType: 'text',
-          url: window.location.href,
-          timestamp: Date.now(),
-        });
-      }
-      return;
-    }
     let el = e.target;
     if (el.nodeType !== 1) el = el.parentElement;
     if (!el || !el.tagName) return;
@@ -1768,7 +1710,7 @@
   }
 
   function onInput(e) {
-    if (!isRecording || !e.target || qualityCheckMode) return;
+    if (!isRecording || !e.target) return;
     const el = e.target;
     const tag = el.tagName?.toLowerCase();
     const isEditable = tag === 'input' || tag === 'textarea' || el.isContentEditable;
@@ -1791,7 +1733,7 @@
   }
 
   function onChange(e) {
-    if (!isRecording || !e.target || qualityCheckMode) return;
+    if (!isRecording || !e.target) return;
     const el = e.target;
     const tag = el.tagName?.toLowerCase();
 
@@ -1886,7 +1828,7 @@
   }
 
   function onKeyDown(e) {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     const target = e.target && e.target.nodeType === 1 ? e.target : null;
     const targetTag = target ? target.tagName && target.tagName.toLowerCase() : '';
     const isEditableTarget =
@@ -2004,7 +1946,7 @@
   }
 
   function onDragStart(e) {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     let el = e.target;
     if (el && el.nodeType !== 1) el = el.parentElement;
     if (!el) return;
@@ -2021,7 +1963,7 @@
   }
 
   function onDrop(e) {
-    if (!isRecording || qualityCheckMode || !dragDropPendingSource) return;
+    if (!isRecording || !dragDropPendingSource) return;
     let tel = e.target;
     if (tel && tel.nodeType !== 1) tel = tel.parentElement;
     if (!tel) {
@@ -2059,7 +2001,7 @@
   }
 
   window.addEventListener('pagehide', () => {
-    if (!isRecording || qualityCheckMode) return;
+    if (!isRecording) return;
     if (syncRecordingToBgTimer) {
       clearTimeout(syncRecordingToBgTimer);
       syncRecordingToBgTimer = null;

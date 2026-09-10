@@ -21,7 +21,7 @@ So when we say “sandbox and offscreen are runtimes used by features/steps, not
 
 **Location:** `sandbox/quality-check.html`, `sandbox/quality-check.js`
 
-**Role:** ML runtime for quality check. Loads Transformers.js (embeddings + Whisper) in a sandboxed iframe so the extension can run embedding similarity and ASR without inline scripts (CSP). The sidepanel posts inputs and receives results via `postMessage`.
+**Role:** ML runtime for quality check **and** the optional in-extension Llama 7B+ planner. Loads Transformers.js (embeddings + Whisper + LaMini + optional Llama 3.1 8B Instruct q4) in a sandboxed iframe so the extension can run embedding similarity, ASR, and local generate without inline scripts (CSP). The sidepanel posts inputs and receives results via `postMessage`. **Prompt-to-workflow never uses LaMini**; it probes Llama 8B (fail-fast) and otherwise calls Clore Qwen 3.8 via `POST /api/extension/agent-planner` (see **docs/BACKEND.md**). Unload Llama when the agent stops. Do not co-load Whisper and 8B.
 
 **Why it’s not a step:** QC runs *after* a workflow run (or during a batch) to compare output to input. It’s a **post-run feature**, not a step in the workflow. The **step** layer is “which outputs to capture and compare”; the **sandbox** is the engine that does the comparison. So:
 
@@ -41,7 +41,7 @@ So when we say “sandbox and offscreen are runtimes used by features/steps, not
 - **Keep:** Offscreen as the backend for tab-audio capture.
 - **Steps:** `steps/screenCapture/` and `steps/captureAudio/` trigger the same flow (background → offscreen) when the user adds a “capture tab audio” step.
 
-**Plan recording (parallel media):** `offscreen/screen-recorder.html` and `offscreen/screen-recorder.js` record display/tab audio and optional microphone for **Record Workflow** (`START_SCREEN_CAPTURE` / `STOP_SCREEN_CAPTURE`). The optional **webcam** checkbox records camera **video only** in the **same offscreen** document as screen/tab capture (`offscreen/screen-recorder.js`): a second `MediaRecorder` on a `getUserMedia` video-only stream. The manifest includes **`videoCapture`**. Offscreen is created with **`DISPLAY_MEDIA`** and **`USER_MEDIA`**. Chrome may deny camera in that hidden document (`NotAllowedError`); when **Record webcam** is on, **Start** can open a small **`sidepanel/webcam-grant.html` popup** so you approve the camera on a visible extension page first (or skip if `permissions.query({ name: 'camera' })` is already **granted** in the side panel). Saved runs can list `mediaCaptureFile` (`run-*-capture.webm`) and `webcamCaptureFile` (`run-*-webcam.webm`); both align to the same **`mediaCaptureStartEpochMs`** from the sidepanel when parallel capture starts. After **Analyze Runs → Create Workflow Steps**, FFmpeg produces paired step clips as documented above. After **Analyze Runs → Create Workflow Steps**, FFmpeg splits each file into per-step clips under `workflows/<folderId>/media/analyze-<newWorkflowId>/` as `step-N.mp4` (or audio) and `step-N-webcam.mp4`, attached to steps as `comment.items` with `source` `analyzeCapture` and `analyzeWebcamCapture` respectively.
+**Plan recording (parallel media):** `offscreen/screen-recorder.html` and `offscreen/screen-recorder.js` record display/tab audio and optional microphone for **Record Workflow** (`START_SCREEN_CAPTURE` / `STOP_SCREEN_CAPTURE`). The optional **webcam** checkbox records camera **video only** in the **same offscreen** document as screen/tab capture (`offscreen/screen-recorder.js`): a second `MediaRecorder` on a `getUserMedia` video-only stream. The manifest includes **`videoCapture`**. Offscreen is created with **`DISPLAY_MEDIA`** and **`USER_MEDIA`**. Chrome may deny camera in that hidden document (`NotAllowedError`); when **Record webcam** is on, **Start** can open a small **`sidepanel/webcam-grant.html` popup** so you approve the camera on a visible extension page first (or skip if `permissions.query({ name: 'camera' })` is already **granted** in the side panel). Captures are stored per recording: **signed in** → HighLevel `Workflows/{workflowFolderId}/{runId}/` (the user’s connected location, otherwise backend **My Files**); **not signed in** with a project folder → `workflows/<folderId>/recordings/<runId>/` (`capture.webm` mixed for Analyze, plus separate `screen.webm`, `webcam.webm`, `system.webm`, `mic.webm` when those sources were on). Older `runs/run-*-capture.webm` files are still read. Library **Record** writes the same stems into a `recording-<stamp>/` folder so the previewer can play all four together or one at a time. Analyze splits those files into per-step clips under `workflows/<folderId>/media/analyze-<newWorkflowId>/` as `step-N.mp4` (or audio) and `step-N-webcam.mp4`, attached to steps as `comment.items` with `source` `analyzeCapture` and `analyzeWebcamCapture`. Deleting a run badge also removes that recording folder (and HighLevel files when ids are stored).
 
 ---
 
@@ -221,7 +221,6 @@ Discovery uses `handler.js` (see `discoverStepsFromFolder` in the sidepanel); `s
 - **File input** → `upload` with variableKey.
 - **Hover** → single `hover` action (mouseenter); no step for mouseleave.
 - **Pauses > ~1.5s** → `wait` step with duration.
-- **Quality-check mode** → `qualityInput` / `qualityGroupContainer` / `qualityOutput` (UI state, not playback steps).
 
 **Gaps / notes:**
 
@@ -229,7 +228,7 @@ Discovery uses `handler.js` (see `discoverStepsFromFolder` in the sidepanel); `s
 - **Keyboard:** Key steps are not recorded automatically; user must add a "Send key" step manually (or we could add key recording later).
 - **goToUrl / openTab:** Not recorded as steps when the user navigates; user adds these steps or records "Record next step" after navigating. So "navigation" is only converted to steps when explicitly added.
 
-So: the recorder correctly turns **click, type, select, ensureSelect, upload, download, hover, wait** (and quality-check state) into the right step types and selector/variable data. Navigation and key steps are add-only.
+So: the recorder correctly turns **click, type, select, ensureSelect, upload, download, hover, wait** into the right step types and selector/variable data. Navigation and key steps are add-only.
 
 ---
 

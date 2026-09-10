@@ -16,11 +16,11 @@
           <button type="button" id="authLoginWhop" class="btn btn-outline">I already have an account</button>
         </div>
         <div class="form-row auth-reload-row" style="margin-top:8px; gap:4px; align-items:center;">
-          <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root; workflows/ and steps/ will be subfolders">Set project folder</button>
+          <button type="button" id="setProjectFolderBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick a local folder; workflows/ and steps/ will be subfolders">Set local folder</button>
           <button type="button" id="downloadLaminiBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusLoggedOut" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
           <button type="button" id="reloadExtensionBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (chrome.runtime.reload). Rebuilds manifests only if a project folder is set; otherwise reloads code only. Use a normal webpage to record, not chrome://.">Reload Extension</button>
-          <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
+          <button type="button" id="testsBtnLoggedOut" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (MCP server, API keys, Crypto, Tests)">Settings</button>
         </div>
       </div>
       <div id="authLoggedIn" class="auth-logged-in" style="display:none">
@@ -31,12 +31,12 @@
         <div class="form-row auth-reload-row" style="margin-bottom:6px; gap:4px; align-items:center;">
           <button type="button" id="reloadExtensionBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Reload the extension (no chrome://extensions needed). Rebuilds manifests when the project folder is set and writable; otherwise reloads code only. Record workflows on a normal https:// page, not chrome://.">Reload Extension</button>
           <span id="reloadExtensionStatus" class="hint" style="font-size:11px; display:none;"></span>
-          <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick the project root (ideally your extension folder for Load unpacked); workflows/ and steps/ will be subfolders">Set project folder</button>
+          <button type="button" id="setProjectFolderBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;" title="Pick a local folder (ideally your extension folder for Load unpacked); workflows/ and steps/ will be subfolders">Set local folder</button>
           <button type="button" id="downloadLaminiBtnAuth" class="btn btn-outline btn-small" style="padding:3px 6px;display:none" title="Save LaMini under models/Xenova in your project folder (~820MB)">Download LaMini</button>
           <span id="projectFolderStatusAuth" class="project-folder-status-auth hint" style="font-size:11px;" aria-live="polite"></span>
-          <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (API keys, Crypto test wallets, Tests section with unit results and E2E checklist)">Settings</button>
+          <button type="button" id="testsBtn" class="btn btn-outline btn-small" style="padding:3px 6px;" data-testid="cfs-sidepanel-settings" title="Open settings (MCP server, API keys, Crypto, Tests)">Settings</button>
         </div>
-        <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Optional: set a project folder to write workflow JSON files, steps, and plugins to disk. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there. Workflows still save in this browser (and to your account when signed in) without a folder.</p>
+        <p id="projectFolderHint" class="hint" style="display:none; margin:0 0 8px 0; font-size:11px; line-height:1.4;">Optional: set a local folder to write workflow JSON files, steps, and plugins to disk. Best: choose the same folder you used for <em>Load unpacked</em> so <em>Reload Extension</em> writes manifests there. Workflows still save in this browser (and to your account when signed in) without a folder.</p>
         <div class="sidebar-name-row form-row">
           <label for="sidebarName"><strong>Sidebar Name:</strong></label>
           <input type="text" id="sidebarName" placeholder="e.g. Office PC, Laptop">
@@ -158,7 +158,7 @@
       </div>
       <div class="pulse-watch-section" id="pulseWatchSection">
         <div class="pulse-watch-heading-row">
-          <h3 class="activity-heading">Always-On Activity</h3>
+          <h3 class="activity-heading">Real-time data</h3>
           <div class="pulse-watch-toolbar">
             <button type="button" id="pulseWatchRefreshBtn" class="btn btn-outline btn-small" data-testid="cfs-always-on-refresh-poll">Refresh poll</button>
             <button type="button" id="pulseWatchClearActivityBtn" class="btn btn-outline btn-small">Clear activity</button>
@@ -168,8 +168,11 @@
         <div id="pulseWatchStatusBanner" class="pulse-watch-status-banner" hidden aria-live="polite"></div>
         <p id="pulseWatchLastPollLine" class="hint pulse-watch-last-poll" hidden></p>
         <p id="pulseWatchBundleLine" class="hint pulse-watch-last-poll" hidden></p>
-        <h4 class="activity-heading always-on-monitors-heading">Always-on monitors</h4>
-        <p class="hint" style="margin:0 0 8px 0;">Live background workflows. Edit rules here while they run — state is stored in this browser (survives side panel close and Reload Extension).</p>
+        <h4 class="activity-heading realtime-feeds-heading">Shared feeds</h4>
+        <p class="hint" style="margin:0 0 8px 0;">One poll per unique feed. Workflows that check the same source share a tick. File watch needs the side panel open.</p>
+        <div id="realtimeFeedsList" class="realtime-feeds-list" data-testid="cfs-realtime-feeds" aria-live="polite"></div>
+        <h4 class="activity-heading always-on-monitors-heading">Always-on workflows</h4>
+        <p class="hint" style="margin:0 0 8px 0;">One row per family. V3 Data is live <code>boundRows</code> (same table as Plan Data and MCP). Edit while they run — state is stored in this browser.</p>
         <div id="alwaysOnMonitorsList" class="always-on-monitors-list" data-testid="cfs-always-on-monitors-list" aria-live="polite"></div>
         <h4 class="activity-heading always-on-lp-activity-heading">LP watch activity</h4>
         <div id="alwaysOnLpActivityList" class="always-on-lp-activity-list" data-testid="cfs-ao-lp-activity" aria-live="polite"></div>
@@ -196,9 +199,9 @@
       <div class="library-main-content">
       <h2>Library</h2>
       <h3 class="activity-heading">Content Rewards AI</h3>
-      <p class="hint" style="margin:0 0 8px 0;">Create content in the Content Rewards AI app on Whop.</p>
+      <p class="hint" style="margin:0 0 8px 0;">Create content in the Content Rewards AI app.</p>
       <button type="button" class="btn btn-outline" id="openContentRewardsLink" title="Open in new tab">Content Rewards AI</button>
-      <h3 class="activity-heading">Sources</h3>
+      <h3 class="activity-heading" style="margin-top:24px;">Sources</h3>
       <p class="hint" style="margin:0 0 8px 0;">Load files from HighLevel, Box, and My Files — the same sources as the online app when you are signed in. Local folder uses this browser’s project folder.</p>
       <p id="librarySourcesEmpty" class="hint activity-empty" style="display:none">Sign in to load HighLevel, Box, and My Files.</p>
       <div id="librarySourcesList" class="library-sources-list"></div>
@@ -256,242 +259,33 @@
         <div id="uploadsList" class="uploads-list" style="min-height:60px;"></div>
         <p id="uploadsEmpty" class="hint activity-empty" style="display:none;">This folder is empty. Add a subfolder or upload files.</p>
       </div>
+      <div id="libraryMediaPreview" class="library-media-preview" hidden data-testid="cfs-library-media-preview">
+        <div class="library-media-preview-bar">
+          <span id="libraryMediaPreviewName" class="library-media-preview-name"></span>
+          <label id="libraryMediaPreviewPlayAllWrap" class="library-media-playall" hidden>
+            <input type="checkbox" id="libraryMediaPreviewPlayAll" data-testid="cfs-library-media-play-all" checked>
+            Play all together
+          </label>
+          <button type="button" class="btn btn-outline btn-small" id="libraryMediaPreviewPlay" hidden>Play</button>
+          <button type="button" class="btn btn-outline btn-small" id="libraryMediaPreviewClose">Close</button>
+        </div>
+        <div id="libraryMediaPreviewMedia" class="library-media-preview-media"></div>
+      </div>
       <p id="uploadsPrompt" class="hint" style="margin-top:12px;display:none;">Click a source above to browse files.</p>
 
-      <div class="library-categories-section">
-        <h3 class="activity-heading">Categories</h3>
-        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Filter and search workflows, create categories, and add or remove workflows from a category.</p>
-        <div id="workflowCategoryTabs" class="workflow-category-tabs"></div>
-        <div class="form-row" style="margin-top:8px">
-          <input type="text" id="workflowDiscoverySearch" placeholder="Search workflows…" class="get-started-search" style="flex:1;min-width:0">
-          <button type="button" id="workflowDiscoverySearchBtn" class="btn btn-outline btn-small">Search</button>
+      <section class="library-transcribe" id="libraryTranscribePanel" data-testid="cfs-library-transcribe">
+        <h3 class="activity-heading" style="margin-top:24px;">Transcribe</h3>
+        <p class="hint" style="margin:0 0 8px 0;">Whisper on-device (English). Video is converted to audio first. Click Transcribe on a file above, or pick a file / paste a URL.</p>
+        <p id="libraryTranscribeSelected" class="library-transcribe-selected is-placeholder">No file selected. Choose a file above, pick one, or paste a URL.</p>
+        <div class="library-transcribe-row">
+          <input type="file" id="libraryTranscribeFile" accept="audio/*,video/*" hidden>
+          <button type="button" class="btn btn-outline btn-small" id="libraryTranscribePick">Pick file</button>
+          <input type="url" id="libraryTranscribeUrl" class="library-transcribe-url" placeholder="https://… audio or video URL" autocomplete="off">
+          <button type="button" class="btn btn-primary btn-small" id="libraryTranscribeRun" data-testid="cfs-library-transcribe-run">Transcribe</button>
+          <button type="button" class="btn btn-outline btn-small" id="libraryTranscribeCopy">Copy</button>
         </div>
-        <div id="workflowCategoryAssignWrap" style="display:none;margin-top:8px;"></div>
-        <div id="workflowDiscoveryResults" class="workflow-discovery-results hint" style="margin-top:8px;min-height:40px;">Select a category or search to see workflows.</div>
-      </div>
-
-      <h3 class="activity-heading" style="margin-top:24px;">Workflows</h3>
-      <div id="workflowContentRequiresProjectFolder">
-        <div class="create-workflow-row form-row" style="margin-bottom:8px">
-          <input type="text" id="newWorkflowName" placeholder="New workflow name">
-          <button id="createWorkflow" class="btn btn-primary">Create New Workflow</button>
-        </div>
-        <p class="hint" style="margin:0 0 6px;font-size:11px;">Manage workflows (add, import, export, sync) on the <strong>Settings</strong> page.</p>
-        <h3 class="your-workflows-heading" style="margin-top:12px;margin-bottom:6px;">Your workflows</h3>
-        <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Saved in this browser. Signed-in accounts also sync to your backend (Supabase). Optional: write JSON files with <strong>Save to folder</strong> when a project folder is set.</p>
-        <div class="workflow-list" id="workflowList"></div>
-        <section class="data-export-section" id="dataExportSection">
-          <h3 class="activity-heading">Export data</h3>
-          <div class="btn-group">
-            <button id="exportDataCSV" class="btn btn-outline">Export data (CSV)</button>
-          </div>
-        </section>
-      </div>
-      <section class="page-compare-section" id="pageCompareSection">
-        <div class="page-compare-heading-row">
-          <h3 class="page-compare-heading activity-heading">Compare</h3>
-          <button type="button" id="pageCompareRunBtn" class="btn btn-outline btn-small" data-testid="cfs-compare-run" title="Compare row sourceSnapshot / plan against the current tab preview">Compare now</button>
-        </div>
-        <p class="hint" style="margin:0 0 8px 0;">On-device text, color, layout, and form checks (LaMini / MiniLM optional). Paste a row with <code>plan</code> and <code>sourceSnapshot</code>, then open the GHL preview.</p>
-        <div class="page-compare-strip">
-          <div class="page-compare-metric"><span class="page-compare-label">Result</span><span id="pageComparePass" class="page-compare-pass" data-testid="cfs-compare-pass">—</span></div>
-          <div class="page-compare-metric"><span class="page-compare-label">Score</span><span id="pageCompareScore" data-testid="cfs-compare-score">—</span></div>
-        </div>
-        <pre id="pageCompareFailures" class="page-compare-failures" data-testid="cfs-compare-failures" role="status">none</pre>
-      </section>
-      <div id="versionHistoryPanel" class="version-history-panel" style="display:none">
-        <h3>Version history</h3>
-        <div id="versionHistoryList" class="version-history-list"></div>
-        <button id="closeVersionHistory" class="btn btn-outline">Close</button>
-      </div>
-
-      <section class="playback-section" style="margin-top:20px;">
-        <h2 class="playback-heading" style="display:none">Playback</h2>
-        <div class="playback-controls">
-          <div class="workflow-version-row" id="workflowVersionRow">
-            <label for="playbackWorkflow">Workflow</label>
-            <select id="playbackWorkflow" title="Select workflow and version to run"></select>
-            <button type="button" class="btn btn-small btn-outline" id="workflowNewVersionBtn" title="Save as new version (duplicate current)">+</button>
-            <button type="button" class="btn btn-small btn-outline" id="saveWorkflowToFolderBtn" title="Write to project folder: workflows/{id}/workflow-{id}-{version}.json (adds to existing; does not overwrite other versions)">Save to folder</button>
-            <button type="button" class="btn btn-small btn-outline" id="copyWorkflowBtn" title="Copy workflow JSON to clipboard (share or backup)">Copy workflow</button>
-          </div>
-          <details class="workflow-always-on-details" id="workflowAlwaysOnDetails" style="display:none;margin-top:10px;width:100%;">
-            <summary>Background automation (Following / copy)</summary>
-            <div id="workflowAlwaysOnPanel" class="workflow-always-on-panel hint" style="font-size:11px;margin-top:8px;line-height:1.45;"></div>
-          </details>
-        <div id="libraryPlaybackSlot">
-        <div id="sharedPlaybackBlock">
-        <details class="workflow-data-collapsible" id="workflowDataDetails" role="region" aria-label="Data input (variables/rows for this workflow)">
-          <summary>Data</summary>
-          <div id="dataPanel" class="data-panel" role="region" aria-label="Data input">
-          <p class="hint">Data columns and placeholders are set by the selected workflow. Paste CSV/JSON, import from URL/file, or add rows manually.</p>
-          <div class="import-export import-export-top">
-            <button id="loadFromPaste" class="btn btn-outline" title="Parse the pasted content below and load as rows.">Load from paste</button>
-            <button id="addExecutionRow" class="btn btn-outline" title="Add one empty execution row">+ Add execution</button>
-            <button id="importSpreadsheet" class="btn btn-outline" title="Select a CSV file from disk">Import CSV</button>
-            <button id="importJsonFile" class="btn btn-outline" title="Select a JSON file">Import JSON</button>
-            <button id="importFromUrl" class="btn btn-outline" title="Fetch data from a URL">From URL</button>
-            <button id="exportTemplate" class="btn btn-outline">Export CSV Template</button>
-            <input type="file" id="csvFileInput" accept=".csv" style="display:none">
-            <input type="file" id="jsonFileInput" accept=".json" style="display:none">
-          </div>
-          <div id="workflowFormFields" class="workflow-form-fields" style="display:none"></div>
-          <div class="spreadsheet-input">
-            <label>Paste CSV or JSON (or add executions below):</label>
-            <textarea id="rowData" placeholder="Paste CSV or JSON (e.g. row_id, text), or add executions below."></textarea>
-          </div>
-          <div id="executionsListWrap" class="executions-list-wrap" style="display:none">
-            <label>Executions <span id="executionsCount" class="executions-count"></span></label>
-            <div id="executionsList" class="executions-list"></div>
-          </div>
-          </div>
-        </details>
-        <section class="steps-section" id="stepsSection">
-          <h2 class="steps-heading-row">Steps <span id="stepCount" class="step-count"></span>
-            <button type="button" class="btn btn-outline btn-small" id="recordWorkflowBtn" title="Record steps on the page (first time or new version)">Record workflow</button>
-            <button type="button" class="btn btn-outline btn-small" id="clearSelectorHighlightBtn" title="Remove the green selector highlight from the page">Clear highlight</button>
-          </h2>
-          <div class="steps-toolbar" style="display:none">
-            <button id="addEnsureSelectStep" class="btn btn-outline" title="Add step at start: ensure dropdown is set (e.g. Frames to Video). If already set, skips; otherwise clicks to change.">+ Ensure dropdown</button>
-            <button id="addWaitGenerationStep" class="btn btn-outline" title="Add wait step: polls until video[src] appears in the container (for AI video generation pages like Veo).">+ Wait for generation</button>
-            <span class="steps-toolbar-spacer"></span>
-            <button id="workflowUndoBtn" class="btn btn-outline btn-small" title="Undo last workflow edit (Ctrl+Z)" disabled data-testid="cfs-workflow-undo">↩ Undo</button>
-            <button id="workflowRedoBtn" class="btn btn-outline btn-small" title="Redo workflow edit (Ctrl+Shift+Z)" disabled data-testid="cfs-workflow-redo">↪ Redo</button>
-          </div>
-          <div class="steps-flow-toolbar" role="group" aria-label="Steps view">
-            <button type="button" class="btn btn-outline btn-small is-active" id="stepsViewListBtn" data-testid="cfs-steps-view-list">List</button>
-            <button type="button" class="btn btn-outline btn-small" id="stepsViewGraphBtn" data-testid="cfs-steps-view-graph" title="Flowchart of steps, branches, and chained workflows">Flow</button>
-          </div>
-          <div id="stepsFlowGraph" class="steps-flow-graph" data-testid="cfs-steps-flow-graph" style="display:none">
-            <p class="hint steps-flow-hint">Boxes are steps in order. Diamonds are If branches; green bars are nested workflows. Click a box to edit it in the list.</p>
-            <div id="stepsFlowCanvas" class="steps-flow-canvas"></div>
-            <div class="steps-flow-chain">
-              <label for="stepsFlowChainSelect">Chain workflow</label>
-              <select id="stepsFlowChainSelect" data-testid="cfs-steps-flow-chain-select" title="Append a Run workflow step that calls another workflow"></select>
-              <button type="button" class="btn btn-outline btn-small" id="stepsFlowChainAdd" data-testid="cfs-steps-flow-chain-add">Add</button>
-            </div>
-          </div>
-          <p id="nestedPlayStatus" class="hint nested-play-status" data-testid="cfs-nested-play-status" style="display:none"></p>
-          <div id="stepsList" class="steps-list"></div>
-        </section>
-        <div id="workflowProgressBlock" class="workflow-progress-block">
-          <p id="workflowProgressStatus" class="workflow-progress-status" aria-live="polite"></p>
-          <div id="inlineResultsSection" class="inline-results-section" style="display:none">
-            <h3 class="inline-results-heading">Results</h3>
-            <div id="inlineResultsContent" class="inline-results-content"></div>
-          </div>
-        </div>
-        <div class="row-nav" id="rowNav" style="display:none">
-          <span>Row <span id="currentRowNum">1</span> of <span id="totalRows">0</span></span>
-          <button id="prevRow" class="btn btn-outline">Prev</button>
-          <button id="nextRow" class="btn btn-outline">Next</button>
-          <button id="viewResultOnPage" class="btn btn-outline" title="Scroll to this row's result on the Flow page">View on page</button>
-          <button id="skipRow" class="btn btn-outline" title="Skip this row during Run All Rows">Skip</button>
-          <button id="deleteRow" class="btn btn-outline" title="Remove this row from the list">Delete</button>
-        </div>
-        <div id="countdownDisplay" class="countdown-display" style="display:none"></div>
-        <div class="btn-group">
-          <button id="runAllRows" class="btn btn-play" title="Run from current row to last (Ctrl+Shift+Enter). Delay between rows from last step.">Run All Rows</button>
-          <button id="runPlayback" class="btn btn-outline" title="Run Current Row (Ctrl+Enter / ⌘+Enter)">Run Current Row</button>
-          <button id="clearAllRows" class="btn btn-outline" title="Clear all imported rows from the list">Clear All Rows</button>
-          <button id="stopPlayback" class="btn btn-stop" style="display:none" title="Stop playback">Stop</button>
-          <button id="proceedToNextStep" class="btn btn-outline" style="display:none" title="Step is waiting for manual proceed (e.g. screen capture). Click when ready to continue.">Proceed</button>
-          <button id="recordNextStep" class="btn btn-outline" style="display:none" title="Stop playback, perform the next action on the page, then click Done to add it to the workflow">Record next step</button>
-          <button id="recordNextStepDone" class="btn btn-outline" style="display:none">Done</button>
-        </div>
-        <div class="btn-group" style="margin-top:6px;">
-          <button id="scheduleRun" class="btn btn-outline" title="Schedule this workflow to run at a later date and time">Schedule run</button>
-          <button id="scheduleFromData" class="btn btn-outline" title="Schedule multiple runs from CSV or JSON (one row per run)">Schedule from CSV/JSON</button>
-          <button type="button" id="goToActivityTabBtn" class="btn btn-outline btn-small" title="Open Activity tab (upcoming runs and history)">Activity</button>
-        </div>
-        <p class="hint" style="margin:6px 0 0 0;font-size:11px;line-height:1.35;">Scheduled runs open a tab on the workflow start URL; the side panel does not need to stay open after folder access is granted.</p>
-        <p id="workflowLastRunStatus" class="workflow-last-run-status hint" style="margin:6px 0 0 0;font-size:11px;min-height:16px;" aria-live="polite"></p>
-        <div id="scheduleRunForm" class="schedule-run-form" style="display:none">
-          <div class="step-field">
-            <label>Schedule type</label>
-            <select id="scheduleRunType">
-              <option value="once">One-time</option>
-              <option value="recurring">Recurring</option>
-            </select>
-          </div>
-          <div id="scheduleRunOnceFields" class="schedule-once-fields">
-            <label>Date &amp; time</label>
-            <input type="datetime-local" id="scheduleRunDateTime" min="">
-          </div>
-          <div id="scheduleRunRecurringFields" class="schedule-recurring-fields" style="display:none">
-            <div class="step-field" id="scheduleRunTzRow">
-              <label>Timezone (e.g. America/New_York)</label>
-              <input type="text" id="scheduleRunTimezone" placeholder="America/New_York" value="America/New_York">
-            </div>
-            <div class="step-field" id="scheduleRunTimeRow">
-              <label>Time</label>
-              <input type="time" id="scheduleRunTime" value="09:00">
-            </div>
-            <div class="step-field" id="scheduleRunIntervalWrap" style="display:none">
-              <label>Every (minutes)</label>
-              <input type="number" id="scheduleRunIntervalMinutes" min="1" max="10080" value="15" title="Minimum effective granularity ~1 min (Chrome alarms)">
-            </div>
-            <div class="step-field">
-              <label>Pattern</label>
-              <select id="scheduleRunPattern">
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-                <option value="interval">Every N minutes</option>
-              </select>
-            </div>
-            <div class="step-field schedule-run-dow" id="scheduleRunDowWrap" style="display:none">
-              <label>Day(s) of week (0=Sun … 6=Sat, comma-separated)</label>
-              <input type="text" id="scheduleRunDayOfWeek" placeholder="1,2,3,4,5">
-            </div>
-            <div class="step-field schedule-run-dom" id="scheduleRunDomWrap" style="display:none">
-              <label>Day of month (1–31)</label>
-              <input type="number" id="scheduleRunDayOfMonth" min="1" max="31" value="1">
-            </div>
-            <div class="step-field schedule-run-monthday" id="scheduleRunMonthDayWrap" style="display:none">
-              <label>Month/Day each year (e.g. 3/15)</label>
-              <input type="text" id="scheduleRunMonthDay" placeholder="3/15">
-            </div>
-          </div>
-          <div id="scheduleRunOnceTimezone" class="step-field" style="display:none">
-            <label>Timezone (optional, for display)</label>
-            <input type="text" id="scheduleRunOnceTz" placeholder="America/New_York">
-          </div>
-          <div id="scheduleWalletRow" class="step-field" style="display:none">
-            <label for="scheduleCryptoWallet">Crypto wallet</label>
-            <select id="scheduleCryptoWallet" title="Which wallet to use for DeFi steps in this scheduled run">
-              <option value="">— Primary (default) —</option>
-            </select>
-          </div>
-          <p class="hint">Scheduled runs appear under Activity → Upcoming. One-time runs at the set date/time; recurring runs at the set time (in that timezone) per pattern, or <strong>Every N minutes</strong> (checked on ~1-minute alarm ticks). Row data is stored with each schedule.</p>
-          <button type="button" id="scheduleRunSubmit" class="btn btn-primary">Add to schedule</button>
-          <button type="button" id="scheduleRunCancel" class="btn btn-outline">Cancel</button>
-        </div>
-        <div id="scheduleFromDataWrap" class="schedule-from-data-wrap" style="display:none">
-          <p class="hint">Paste CSV (header row + data) or JSON (array of objects). Each row becomes one scheduled run. Columns: <code>workflow_id</code> (optional), <code>run_at</code> (ISO datetime for one-time) or <code>schedule_type=recurring</code> with <code>timezone</code>, <code>time</code> (HH:mm), <code>pattern</code> (daily|weekly|monthly|yearly|<strong>interval</strong>), <code>interval_minutes</code> (for interval), <code>day_of_week</code>, <code>day_of_month</code>, <code>month_day</code> (M/D). Other columns become row data.</p>
-          <textarea id="scheduleFromDataInput" rows="8" placeholder="CSV or JSON..."></textarea>
-          <div class="form-row">
-            <button type="button" id="scheduleFromDataSubmit" class="btn btn-primary">Parse and schedule</button>
-            <button type="button" id="scheduleFromDataCancel" class="btn btn-outline">Cancel</button>
-          </div>
-        </div>
-        <div class="batch-config" id="batchConfig" style="display:none">
-          <label>Delay between runs (ms):</label>
-          <input type="number" id="batchDelayMs" value="30000" min="0" style="width:80px" title="Milliseconds between each row (e.g. 30000 = 30 seconds)">
-          <div class="batch-config-row">
-            <label><input type="checkbox" id="batchStopOnError" checked> Stop on first error</label>
-          </div>
-          <div class="batch-config-row" id="batchWalletRow" style="display:none">
-            <label for="batchCryptoWallet">Crypto wallet:</label>
-            <select id="batchCryptoWallet" title="Which wallet to use for DeFi steps during this batch run">
-              <option value="">— Primary (default) —</option>
-            </select>
-            <span class="hint" style="font-size:10px;margin-left:4px;">For walletApprove and crypto steps</span>
-          </div>
-        </div>
-        </div>
-        </div>
+        <p id="libraryTranscribeStatus" class="hint library-transcribe-status" role="status"></p>
+        <textarea id="libraryTranscribeText" class="library-transcribe-text" rows="6" readonly placeholder="Transcript will appear here."></textarea>
       </section>
 
       </div>
@@ -614,8 +408,8 @@
       <div class="automations-main-content">
     <section class="llm-chat-section" id="llmChatSection">
       <div class="llm-chat-heading-row">
-        <h2 class="llm-chat-heading">Local AI Chat</h2>
-        <button type="button" id="llmChatOpenSettingsBtn" class="btn btn-outline btn-small" title="Settings — LLM providers (API keys and Local AI Chat default)">Settings</button>
+        <h2 class="llm-chat-heading">Local AI</h2>
+        <button type="button" id="llmChatOpenSettingsBtn" class="btn btn-outline btn-small" title="Settings — LaMini, an API key (OpenAI, Claude, Gemini, Grok), or Content Rewards AI (Qwen 27B) when signed in.">Settings</button>
       </div>
       <div id="llmChatUnavailable" class="llm-chat-unavailable hint" style="display:block;margin:0 0 10px 0;padding:10px;border-radius:6px;background:var(--bg-secondary,#f5f5f5);" role="status">
         <p id="llmChatUnavailableText" style="margin:0;">Checking whether the local LaMini model is available…</p>
@@ -623,15 +417,16 @@
       <div id="llmChatUiWrap" style="display:none;" aria-hidden="true">
         <div class="llm-chat-messages" id="llmChatMessages" role="log" aria-live="polite"></div>
         <div class="llm-chat-input-row form-row">
-          <textarea id="llmChatInput" placeholder="How can I help?" rows="4" class="llm-chat-input"></textarea>
+          <textarea id="llmChatInput" placeholder="e.g. search for content rewards AI on Google" rows="4" class="llm-chat-input"></textarea>
           <div class="llm-chat-input-actions">
-            <label class="llm-chat-limit-site hint" title="Scope Q&amp;A search and new questions to the current tab site">
-              <input type="checkbox" id="llmChatLimitQaToSite" checked />
-              This site only
+            <label class="llm-chat-limit-site hint" title="Start the existing recorder so clicks and types become a saved workflow">
+              <input type="checkbox" id="llmChatSaveAsWorkflow" data-testid="cfs-chat-save-workflow" />
+              Save as workflow
             </label>
-            <button type="button" id="llmChatSubmitQuestionBtn" class="btn btn-outline btn-small">Submit last as question</button>
-            <button type="button" id="llmChatRunPlanBtn" class="btn btn-outline btn-small" data-testid="cfs-chat-run-plan" style="display:none" title="Run { next: [{ workflowId, row }] } from the last chat reply">Run workflow plan</button>
-            <button type="button" id="llmChatSendBtn" class="btn btn-primary btn-small">Send</button>
+            <button type="button" id="llmChatRunOnTabBtn" class="btn btn-primary btn-small" data-testid="cfs-chat-run-on-tab" title="Send: navigate, click, type, or chat on this tab">Send</button>
+            <button type="button" id="llmChatStopAgentBtn" class="btn btn-outline btn-small" data-testid="cfs-chat-stop-agent" style="display:none" title="Stop">Stop</button>
+            <button type="button" id="llmChatRunPlanBtn" class="btn btn-outline btn-small" data-testid="cfs-chat-run-plan" style="display:none" hidden title="Same as Send">Send</button>
+            <button type="button" id="llmChatSendBtn" class="btn btn-outline btn-small" style="display:none" hidden title="Same as Send">Send</button>
           </div>
         </div>
         <p id="llmChatStatus" class="hint llm-chat-status" style="display:none;" role="status"></p>
@@ -641,23 +436,33 @@
     <div id="recordingRequiresProjectFolder">
       <section class="recording-section" id="recordingSection" style="margin-top:24px;">
         <h3 class="activity-heading">Add / Edit Workflow</h3>
+        <div id="newWorkflowRow" class="create-workflow-row form-row" style="margin-top:6px; margin-bottom:8px; flex-wrap:wrap;">
+          <input type="text" id="recordingNewWorkflowName" placeholder="New workflow name" aria-label="New workflow name">
+          <button type="button" id="recordingCreateWorkflowBtn" class="btn btn-primary btn-small">Create New Workflow</button>
+        </div>
+        <p class="hint" style="margin:0 0 8px 0; font-size:11px;">Create a new workflow here, or choose an existing one below to edit and record.</p>
         <div class="recording-controls">
           <div class="plan-workflow-picker">
-            <div class="plan-workflow-picker-row plan-workflow-picker-name-row">
-              <label for="planWorkflowFamily" class="plan-workflow-picker-label">Workflow</label>
-              <select id="planWorkflowFamily" title="Workflow name"></select>
+            <div class="library-categories-section plan-categories-section">
+              <h3 class="activity-heading">Categories</h3>
+              <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Filter and search workflows, create categories, and add or remove workflows from a category. This site is selected by default.</p>
+              <div id="planCategoryTabs" class="workflow-category-tabs"></div>
+              <div class="form-row" style="margin-top:8px">
+                <input type="text" id="planWorkflowSearch" placeholder="Search workflows…" class="get-started-search" style="flex:1;min-width:0" data-testid="cfs-plan-workflow-search">
+                <button type="button" id="planWorkflowSearchBtn" class="btn btn-outline btn-small">Search</button>
+              </div>
+              <div id="planCategoryAssignWrap" style="display:none;margin-top:8px;"></div>
+              <div id="planWorkflowResults" class="workflow-discovery-results hint plan-workflow-results" style="margin-top:8px;min-height:40px;">Select a category or search to see workflows.</div>
             </div>
             <div class="plan-workflow-picker-row plan-workflow-version-row">
               <label for="planWorkflowVersion" class="plan-workflow-picker-label plan-workflow-version-label">Version</label>
               <select id="planWorkflowVersion" title="Version" aria-label="Workflow version"></select>
+              <button type="button" id="planNewWorkflowVersionBtn" class="btn btn-small btn-outline" title="Save as new version (duplicate current)" disabled>+</button>
               <button type="button" id="planDeleteWorkflowVersionBtn" class="btn btn-small btn-outline" title="Delete this version (v1 cannot be removed)" disabled>Delete version</button>
             </div>
+            <select id="planWorkflowFamily" class="plan-workflow-id-select" aria-hidden="true" tabindex="-1" title="Workflow name"></select>
           </div>
           <select id="workflowSelect" class="plan-workflow-id-select" aria-hidden="true" tabindex="-1"></select>
-        </div>
-        <div id="newWorkflowRow" class="form-row" style="display:none; margin-top:6px; flex-wrap:wrap;">
-          <input type="text" id="recordingNewWorkflowName" placeholder="Workflow name (optional)">
-          <button type="button" id="recordingCreateWorkflowBtn" class="btn btn-outline btn-small">Create only</button>
         </div>
         <p id="newWorkflowRecordHint" class="hint" style="display:none; margin:6px 0 0 0; font-size:11px;">Name is optional. Click <strong>Start Recording</strong> below to create the workflow and record.</p>
         <div id="workflowUrlPatternPlan" style="display:none; margin-top:8px;">
@@ -666,14 +471,6 @@
             <input type="text" id="workflowStartUrl" placeholder="https://example.com or *.example.com">
             <button type="button" id="openStartUrlBtn" class="btn btn-outline btn-small" title="Open this URL in a new tab (use before Run or Record)">Open start URL</button>
           </div>
-          <div id="workflowAnswerToWrap" class="workflow-answer-to-row" style="display:none;margin-top:8px">
-            <span class="hint">Submit as answer to question:</span>
-            <select id="workflowAnswerToSelect" class="workflow-answer-to-select" title="Link this workflow as an answer to a question">
-              <option value="">— choose question —</option>
-            </select>
-            <button type="button" id="submitWorkflowAsAnswerBtn" class="btn btn-outline btn-small">Submit as answer</button>
-            <div id="workflowAnswersList" class="workflow-answers-list hint" style="margin-top:4px;font-size:11px;"></div>
-          </div>
         </div>
         <div id="planWorkflowSubTabs" class="sub-tabs" style="margin-top:10px;">
           <button type="button" class="sub-tab active" data-subtab="record">Record Workflow</button>
@@ -681,6 +478,32 @@
         </div>
         <div id="workflowSelectedControls">
           <div id="planRecordPanel" data-subtab-panel="record">
+            <div id="personalInfoPanel" class="personal-info-panel" style="display:none;">
+              <h3 class="activity-heading" style="margin-top:12px;">Personal information</h3>
+              <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Use <strong>Select on page</strong>, then drag to highlight the exact sensitive text (or click an element to mask its full text), or <strong>type a phrase</strong> below. We'll replace matches with a generic word or <strong>***</strong> for preview and runs. <strong>Published</strong> workflows only sync selector rules that do not include your phrase (<code>replaceWholeElement</code> / <code>replaceRegexInElement</code> in JSON); phrases and &quot;local only&quot; rows stay on this device.</p>
+              <div class="form-row" style="margin-bottom:6px">
+                <button type="button" id="selectPersonalInfoOnPageBtn" class="btn btn-outline btn-small">Select on page</button>
+              </div>
+              <div class="form-row" style="margin-bottom:8px; flex-wrap:wrap; align-items:center; gap:6px;">
+                <label for="personalInfoManualPhrase" class="hint" style="margin:0;font-size:11px;flex:1 1 100%;">Or type text to mask (anywhere it appears on the page):</label>
+                <input type="text" id="personalInfoManualPhrase" placeholder="e.g. Jane Doe or 555-0100" style="flex:1; min-width:120px; padding:4px 8px; font-size:12px;">
+                <input type="text" id="personalInfoManualReplacement" placeholder="Replace with (e.g. *** )" style="flex:1; min-width:100px; padding:4px 8px; font-size:12px;">
+                <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoManualLocalOnly"> Local only (never sync)</label>
+                <button type="button" id="personalInfoManualAddBtn" class="btn btn-primary btn-small">Add typed phrase</button>
+              </div>
+              <div id="personalInfoSelectedWrap" style="display:none; margin-bottom:8px;">
+                <div class="hint" style="font-size:11px;">Selected text:</div>
+                <div id="personalInfoSelectedText" class="personal-info-selected-text" style="margin:4px 0; padding:6px; background:#fff; border:1px solid #e5e5e7; border-radius:4px; font-size:12px; max-height:60px; overflow-y:auto;"></div>
+                <div class="form-row" style="margin-top:6px; align-items:center; gap:6px;">
+                  <label for="personalInfoReplacement" class="hint" style="font-size:11px; margin:0;">Replace with (generic word or ***):</label>
+                  <input type="text" id="personalInfoReplacement" placeholder="e.g. *** or Your Name" style="flex:1; min-width:0; padding:4px 8px; font-size:12px;">
+                  <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoPickerLocalOnly"> Local only</label>
+                  <button type="button" id="personalInfoAddToListBtn" class="btn btn-primary btn-small">Add to list</button>
+                </div>
+              </div>
+              <ul id="personalInfoList" class="personal-info-list hint" style="margin:0; padding-left:18px; font-size:12px;"></ul>
+              <button type="button" id="personalInfoPreviewToggle" class="btn btn-outline btn-small" style="margin-top:6px;">Preview on page</button>
+            </div>
             <h3 class="activity-heading" style="margin-top:12px;">Record Workflow</h3>
             <div class="recording-mode-row" id="recordingModeRow" style="margin-top:12px;">
               <span class="recording-mode-auto" id="recordingModeAuto"></span>
@@ -745,32 +568,6 @@
             </div>
             <div id="recordingInstruction" class="recording-instruction hint" style="display:none; margin:8px 0; padding:8px; background:#f0f7ff; border-radius:6px; border:1px solid #b8d4f0;"></div>
             <p class="hint">Open the target page, then click <strong>Start Recording</strong>. Record 2–5 runs of the same task. After recording, click <strong>Analyze Runs → Create Workflow Steps</strong> to turn the recording into steps.</p>
-            <div id="personalInfoPanel" class="personal-info-panel" style="margin-top:12px;display:none;">
-              <h3 class="activity-heading">Personal information</h3>
-              <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Use <strong>Select on page</strong>, then drag to highlight the exact sensitive text (or click an element to mask its full text), or <strong>type a phrase</strong> below. We'll replace matches with a generic word or <strong>***</strong> for preview and runs. <strong>Published</strong> workflows only sync selector rules that do not include your phrase (<code>replaceWholeElement</code> / <code>replaceRegexInElement</code> in JSON); phrases and &quot;local only&quot; rows stay on this device.</p>
-              <div class="form-row" style="margin-bottom:6px">
-                <button type="button" id="selectPersonalInfoOnPageBtn" class="btn btn-outline btn-small">Select on page</button>
-              </div>
-              <div class="form-row" style="margin-bottom:8px; flex-wrap:wrap; align-items:center; gap:6px;">
-                <label for="personalInfoManualPhrase" class="hint" style="margin:0;font-size:11px;flex:1 1 100%;">Or type text to mask (anywhere it appears on the page):</label>
-                <input type="text" id="personalInfoManualPhrase" placeholder="e.g. Jane Doe or 555-0100" style="flex:1; min-width:120px; padding:4px 8px; font-size:12px;">
-                <input type="text" id="personalInfoManualReplacement" placeholder="Replace with (e.g. *** )" style="flex:1; min-width:100px; padding:4px 8px; font-size:12px;">
-                <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoManualLocalOnly"> Local only (never sync)</label>
-                <button type="button" id="personalInfoManualAddBtn" class="btn btn-primary btn-small">Add typed phrase</button>
-              </div>
-              <div id="personalInfoSelectedWrap" style="display:none; margin-bottom:8px;">
-                <div class="hint" style="font-size:11px;">Selected text:</div>
-                <div id="personalInfoSelectedText" class="personal-info-selected-text" style="margin:4px 0; padding:6px; background:#fff; border:1px solid #e5e5e7; border-radius:4px; font-size:12px; max-height:60px; overflow-y:auto;"></div>
-                <div class="form-row" style="margin-top:6px; align-items:center; gap:6px;">
-                  <label for="personalInfoReplacement" class="hint" style="font-size:11px; margin:0;">Replace with (generic word or ***):</label>
-                  <input type="text" id="personalInfoReplacement" placeholder="e.g. *** or Your Name" style="flex:1; min-width:0; padding:4px 8px; font-size:12px;">
-                  <label class="hint" style="display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11px;"><input type="checkbox" id="personalInfoPickerLocalOnly"> Local only</label>
-                  <button type="button" id="personalInfoAddToListBtn" class="btn btn-primary btn-small">Add to list</button>
-                </div>
-              </div>
-              <ul id="personalInfoList" class="personal-info-list hint" style="margin:0; padding-left:18px; font-size:12px;"></ul>
-              <button type="button" id="personalInfoPreviewToggle" class="btn btn-outline btn-small" style="margin-top:6px;">Preview on page</button>
-            </div>
             <div class="runs-list" id="runsList" style="display:none;"></div>
 
             <hr id="planAnalyzeHr" style="margin:16px 0 0 0; border:none; border-top:1px solid #d2d2d7; display:none;">
@@ -785,11 +582,219 @@
                 <summary>Run variation report</summary>
                 <div id="variationReport" class="variation-report"></div>
               </details>
+              <div class="btn-group" style="margin-top:12px; flex-wrap:wrap; align-items:center; gap:8px;">
+                <button type="button" id="exportWorkflowJson" class="btn btn-outline" title="Download the selected workflow as JSON">Export Workflow</button>
+              </div>
             </section>
           </div>
           <div id="planEditRunPanel" data-subtab-panel="editrun" style="display:none;">
-            <div id="planEditRunSlot"></div>
+            <div id="planEditRunSlot">
+      <div id="versionHistoryPanel" class="version-history-panel" style="display:none">
+        <h3>Version history</h3>
+        <div id="versionHistoryList" class="version-history-list"></div>
+        <button id="closeVersionHistory" class="btn btn-outline">Close</button>
+      </div>
+
+      <section class="playback-section" style="margin-top:20px;">
+        <h2 class="playback-heading" style="display:none">Playback</h2>
+        <div class="playback-controls">
+          <div class="workflow-version-row" id="workflowVersionRow">
+            <label for="playbackWorkflow">Workflow</label>
+            <select id="playbackWorkflow" title="Select workflow and version to run"></select>
+            <button type="button" class="btn btn-small btn-outline" id="workflowNewVersionBtn" title="Save as new version (duplicate current)">+</button>
+            <button type="button" class="btn btn-small btn-outline" id="saveWorkflowToFolderBtn" title="Write to project folder: workflows/{id}/workflow-{id}-{version}.json (adds to existing; does not overwrite other versions)">Save to folder</button>
+            <button type="button" class="btn btn-small btn-outline" id="copyWorkflowBtn" title="Copy workflow JSON to clipboard (share or backup)">Copy workflow</button>
           </div>
+        <div id="sharedPlaybackBlock">
+        <details class="workflow-data-collapsible" id="workflowDataDetails" open role="region" aria-label="Data input (variables/rows for this workflow)">
+          <summary>Data</summary>
+          <div id="dataPanel" class="data-panel" role="region" aria-label="Data input">
+          <p class="hint">Fill in this run’s inputs below (prefilled from recorded defaults). Hardcoded start URLs stay on the steps. Paste CSV/JSON, import from URL/file, or add more executions to run several rows.</p>
+          <div class="import-export import-export-top">
+            <button id="loadFromPaste" class="btn btn-outline" title="Parse the pasted content below and load as rows.">Load from paste</button>
+            <button id="addExecutionRow" class="btn btn-outline" title="Add one empty execution row">+ Add execution</button>
+            <button id="importSpreadsheet" class="btn btn-outline" title="Select a CSV file from disk">Import CSV</button>
+            <button id="importJsonFile" class="btn btn-outline" title="Select a JSON file">Import JSON</button>
+            <button id="importFromUrl" class="btn btn-outline" title="Fetch data from a URL">From URL</button>
+            <button id="exportTemplate" class="btn btn-outline">Export CSV Template</button>
+            <button id="exportDataCSV" class="btn btn-outline" title="Download the current rows as CSV">Export data (CSV)</button>
+            <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+            <input type="file" id="jsonFileInput" accept=".json" style="display:none">
+          </div>
+          <div id="workflowFormFields" class="workflow-form-fields"></div>
+          <div class="spreadsheet-input">
+            <label>Paste CSV or JSON (or add executions below):</label>
+            <textarea id="rowData" placeholder="Paste CSV or JSON (e.g. row_id, text), or add executions below."></textarea>
+          </div>
+          <div id="executionsListWrap" class="executions-list-wrap" style="display:none">
+            <label>Executions <span id="executionsCount" class="executions-count"></span></label>
+            <p class="hint" style="margin:0 0 6px 0;font-size:11px;">Click a row to edit it in This run, or use Prev/Next.</p>
+            <div id="executionsList" class="executions-list"></div>
+          </div>
+          <div class="row-nav" id="rowNav" style="display:none">
+            <span>Row <span id="currentRowNum">1</span> of <span id="totalRows">0</span></span>
+            <button id="prevRow" class="btn btn-outline">Prev</button>
+            <button id="nextRow" class="btn btn-outline">Next</button>
+            <button id="viewResultOnPage" class="btn btn-outline" title="Scroll to this row's result on the Flow page">View on page</button>
+            <button id="skipRow" class="btn btn-outline" title="Skip this row during Run All Rows">Skip</button>
+            <button id="deleteRow" class="btn btn-outline" title="Remove this row from the list">Delete</button>
+          </div>
+          </div>
+        </details>
+        <div id="planRunControls" class="plan-run-controls">
+        <div id="countdownDisplay" class="countdown-display" style="display:none"></div>
+        <div class="btn-group">
+          <button id="runAllRows" class="btn btn-play" title="Run from current row to last (Ctrl+Shift+Enter). Delay between rows from last step.">Run All Rows</button>
+          <button id="runPlayback" class="btn btn-outline" title="Run Current Row (Ctrl+Enter / ⌘+Enter)">Run Current Row</button>
+          <button id="clearAllRows" class="btn btn-outline" title="Clear all imported rows from the list">Clear All Rows</button>
+          <button id="stopPlayback" class="btn btn-stop" style="display:none" title="Stop playback">Stop</button>
+          <button id="proceedToNextStep" class="btn btn-outline" style="display:none" title="Step is waiting for manual proceed (e.g. screen capture). Click when ready to continue.">Proceed</button>
+          <button id="recordNextStep" class="btn btn-outline" style="display:none" title="Stop playback, perform the next action on the page, then click Done to add it to the workflow">Record next step</button>
+          <button id="recordNextStepDone" class="btn btn-outline" style="display:none">Done</button>
+        </div>
+        <div class="btn-group" style="margin-top:6px;">
+          <button id="scheduleRun" class="btn btn-outline" title="Schedule this workflow to run at a later date and time">Schedule run</button>
+          <button id="scheduleFromData" class="btn btn-outline" title="Schedule multiple runs from CSV or JSON (one row per run)">Schedule from CSV/JSON</button>
+          <button type="button" id="goToActivityTabBtn" class="btn btn-outline btn-small" title="Open Activity tab (upcoming runs and history)">Activity</button>
+        </div>
+        <p class="hint" style="margin:6px 0 0 0;font-size:11px;line-height:1.35;">Scheduled runs open a tab on the workflow start URL; the side panel does not need to stay open after folder access is granted.</p>
+        <p id="workflowLastRunStatus" class="workflow-last-run-status hint" style="margin:6px 0 0 0;font-size:11px;min-height:16px;" aria-live="polite"></p>
+        <div id="scheduleRunForm" class="schedule-run-form" style="display:none">
+          <div class="step-field">
+            <label>Schedule type</label>
+            <select id="scheduleRunType">
+              <option value="once">One-time</option>
+              <option value="recurring">Recurring</option>
+            </select>
+          </div>
+          <div id="scheduleRunOnceFields" class="schedule-once-fields">
+            <label>Date &amp; time</label>
+            <input type="datetime-local" id="scheduleRunDateTime" min="">
+          </div>
+          <div id="scheduleRunRecurringFields" class="schedule-recurring-fields" style="display:none">
+            <div class="step-field" id="scheduleRunTzRow">
+              <label>Timezone (e.g. America/New_York)</label>
+              <input type="text" id="scheduleRunTimezone" placeholder="America/New_York" value="America/New_York">
+            </div>
+            <div class="step-field" id="scheduleRunTimeRow">
+              <label>Time</label>
+              <input type="time" id="scheduleRunTime" value="09:00">
+            </div>
+            <div class="step-field" id="scheduleRunIntervalWrap" style="display:none">
+              <label>Every (minutes)</label>
+              <input type="number" id="scheduleRunIntervalMinutes" min="1" max="10080" value="15" title="Minimum effective granularity ~1 min (Chrome alarms)">
+            </div>
+            <div class="step-field">
+              <label>Pattern</label>
+              <select id="scheduleRunPattern">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+                <option value="interval">Every N minutes</option>
+              </select>
+            </div>
+            <div class="step-field schedule-run-dow" id="scheduleRunDowWrap" style="display:none">
+              <label>Day(s) of week (0=Sun … 6=Sat, comma-separated)</label>
+              <input type="text" id="scheduleRunDayOfWeek" placeholder="1,2,3,4,5">
+            </div>
+            <div class="step-field schedule-run-dom" id="scheduleRunDomWrap" style="display:none">
+              <label>Day of month (1–31)</label>
+              <input type="number" id="scheduleRunDayOfMonth" min="1" max="31" value="1">
+            </div>
+            <div class="step-field schedule-run-monthday" id="scheduleRunMonthDayWrap" style="display:none">
+              <label>Month/Day each year (e.g. 3/15)</label>
+              <input type="text" id="scheduleRunMonthDay" placeholder="3/15">
+            </div>
+          </div>
+          <div id="scheduleRunOnceTimezone" class="step-field" style="display:none">
+            <label>Timezone (optional, for display)</label>
+            <input type="text" id="scheduleRunOnceTz" placeholder="America/New_York">
+          </div>
+          <div id="scheduleWalletRow" class="step-field" style="display:none">
+            <label for="scheduleCryptoWallet">Crypto wallet</label>
+            <select id="scheduleCryptoWallet" title="Which wallet to use for DeFi steps in this scheduled run">
+              <option value="">— Primary (default) —</option>
+            </select>
+          </div>
+          <p class="hint">Scheduled runs appear under Activity → Upcoming. One-time runs at the set date/time; recurring runs at the set time (in that timezone) per pattern, or <strong>Every N minutes</strong> (checked on ~1-minute alarm ticks). Row data is stored with each schedule.</p>
+          <button type="button" id="scheduleRunSubmit" class="btn btn-primary">Add to schedule</button>
+          <button type="button" id="scheduleRunCancel" class="btn btn-outline">Cancel</button>
+        </div>
+        <div id="scheduleFromDataWrap" class="schedule-from-data-wrap" style="display:none">
+          <p class="hint">Paste CSV (header row + data) or JSON (array of objects). Each row becomes one scheduled run. Columns: <code>workflow_id</code> (optional), <code>run_at</code> (ISO datetime for one-time) or <code>schedule_type=recurring</code> with <code>timezone</code>, <code>time</code> (HH:mm), <code>pattern</code> (daily|weekly|monthly|yearly|<strong>interval</strong>), <code>interval_minutes</code> (for interval), <code>day_of_week</code>, <code>day_of_month</code>, <code>month_day</code> (M/D). Other columns become row data.</p>
+          <textarea id="scheduleFromDataInput" rows="8" placeholder="CSV or JSON..."></textarea>
+          <div class="form-row">
+            <button type="button" id="scheduleFromDataSubmit" class="btn btn-primary">Parse and schedule</button>
+            <button type="button" id="scheduleFromDataCancel" class="btn btn-outline">Cancel</button>
+          </div>
+        </div>
+        <div class="batch-config" id="batchConfig" style="display:none">
+          <label>Delay between runs (ms):</label>
+          <input type="number" id="batchDelayMs" value="30000" min="0" style="width:80px" title="Milliseconds between each row (e.g. 30000 = 30 seconds)">
+          <div class="batch-config-row">
+            <label><input type="checkbox" id="batchStopOnError" checked> Stop on first error</label>
+          </div>
+          <div class="batch-config-row" id="batchWalletRow" style="display:none">
+            <label for="batchCryptoWallet">Crypto wallet:</label>
+            <select id="batchCryptoWallet" title="Which wallet to use for DeFi steps during this batch run">
+              <option value="">— Primary (default) —</option>
+            </select>
+            <span class="hint" style="font-size:10px;margin-left:4px;">For walletApprove and crypto steps</span>
+          </div>
+        </div>
+        </div>
+        <section class="steps-section" id="stepsSection">
+          <h2 class="steps-heading-row">Steps <span id="stepCount" class="step-count"></span>
+            <button type="button" class="btn btn-outline btn-small" id="recordWorkflowBtn" title="Record steps on the page (first time or new version)">Record workflow</button>
+            <button type="button" class="btn btn-outline btn-small" id="clearSelectorHighlightBtn" title="Remove the green selector highlight from the page">Clear highlight</button>
+          </h2>
+          <div class="steps-toolbar" style="display:none">
+            <button id="addEnsureSelectStep" class="btn btn-outline" title="Add step at start: ensure dropdown is set (e.g. Frames to Video). If already set, skips; otherwise clicks to change.">+ Ensure dropdown</button>
+            <button id="addWaitGenerationStep" class="btn btn-outline" title="Add wait step: polls until video[src] appears in the container (for AI video generation pages like Veo).">+ Wait for generation</button>
+            <span class="steps-toolbar-spacer"></span>
+            <button id="workflowUndoBtn" class="btn btn-outline btn-small" title="Undo last workflow edit (Ctrl+Z)" disabled data-testid="cfs-workflow-undo">↩ Undo</button>
+            <button id="workflowRedoBtn" class="btn btn-outline btn-small" title="Redo workflow edit (Ctrl+Shift+Z)" disabled data-testid="cfs-workflow-redo">↪ Redo</button>
+          </div>
+          <div class="steps-flow-toolbar" role="group" aria-label="Steps view">
+            <button type="button" class="btn btn-outline btn-small is-active" id="stepsViewListBtn" data-testid="cfs-steps-view-list">List</button>
+            <button type="button" class="btn btn-outline btn-small" id="stepsViewGraphBtn" data-testid="cfs-steps-view-graph" title="Flowchart of steps, branches, and chained workflows">Flow</button>
+          </div>
+          <div id="stepsFlowGraph" class="steps-flow-graph" data-testid="cfs-steps-flow-graph" style="display:none">
+            <p class="hint steps-flow-hint">Boxes are steps in order. Diamonds are If branches; green bars are nested workflows. Click a box to edit it in the list.</p>
+            <div id="stepsFlowCanvas" class="steps-flow-canvas"></div>
+            <div class="steps-flow-chain">
+              <label for="stepsFlowChainSelect">Chain workflow</label>
+              <select id="stepsFlowChainSelect" data-testid="cfs-steps-flow-chain-select" title="Append a Run workflow step that calls another workflow"></select>
+              <button type="button" class="btn btn-outline btn-small" id="stepsFlowChainAdd" data-testid="cfs-steps-flow-chain-add">Add</button>
+            </div>
+          </div>
+          <p id="nestedPlayStatus" class="hint nested-play-status" data-testid="cfs-nested-play-status" style="display:none"></p>
+          <div id="stepsList" class="steps-list"></div>
+        </section>
+        <div id="workflowProgressBlock" class="workflow-progress-block">
+          <p id="workflowProgressStatus" class="workflow-progress-status" aria-live="polite"></p>
+          <div id="inlineResultsSection" class="inline-results-section" style="display:none">
+            <h3 class="inline-results-heading">Results</h3>
+            <div id="inlineResultsContent" class="inline-results-content"></div>
+          </div>
+        </div>
+        </div>
+      </section>
+          </div>
+          </div>
+          <section class="page-compare-section" id="pageCompareSection" hidden style="display:none" aria-hidden="true">
+            <div class="page-compare-heading-row">
+              <h3 class="page-compare-heading activity-heading">Compare</h3>
+              <button type="button" id="pageCompareRunBtn" class="btn btn-outline btn-small" data-testid="cfs-compare-run" title="Compare row sourceSnapshot / plan against the current tab preview">Compare now</button>
+            </div>
+            <p class="hint" style="margin:0 0 8px 0;">On-device text, color, layout, and form checks (LaMini / MiniLM optional). Paste a row with <code>plan</code> and <code>sourceSnapshot</code>, then open the GHL preview.</p>
+            <div class="page-compare-strip">
+              <div class="page-compare-metric"><span class="page-compare-label">Result</span><span id="pageComparePass" class="page-compare-pass" data-testid="cfs-compare-pass">—</span></div>
+              <div class="page-compare-metric"><span class="page-compare-label">Score</span><span id="pageCompareScore" data-testid="cfs-compare-score">—</span></div>
+            </div>
+            <pre id="pageCompareFailures" class="page-compare-failures" data-testid="cfs-compare-failures" role="status">none</pre>
+          </section>
         </div>
     </div>
 
@@ -844,6 +849,9 @@
   <script src="../steps/sidepanel-loader.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
   <script src="../shared/workflow-categories.js"></script>
+  <script src="../shared/nav-workflow-filter.js"></script>
+  <script src="../shared/cfs-always-on-automation.js"></script>
+  <script src="../shared/realtime-feeds.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
   <script src="../shared/step-comment.js"></script>
   <script src="walkthrough-export.js"></script>
@@ -852,7 +860,13 @@
   <script src="../shared/project-id-resolve.js"></script>
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/plan-capture-idb.js"></script>
+  <script src="../shared/qc-transcribe-idb.js"></script>
+  <script src="../shared/workflow-run-media.js"></script>
   <script src="../shared/download-xenova-lamini.js"></script>
+  <script src="../shared/agent-planner-access.js"></script>
+  <script src="../shared/page-agent-snapshot.js"></script>
+  <script src="../shared/playback-heal.js"></script>
+  <script src="../shared/local-llm-hardware.js"></script>
   <script src="../shared/github-extension-update.js"></script>
   <script src="../shared/defi-action-patterns.js"></script>
   <script src="../shared/data-action-patterns.js"></script>
@@ -865,10 +879,13 @@
   <script src="../shared/playback-error-normalize.js"></script>
   <script src="../shared/content-script-tab-bundle.js"></script>
   <script src="../shared/always-on-bound-positions.js"></script>
+  <script src="../shared/cfs-v3-monitor-steps.js"></script>
   <script src="auth-backend.js"></script>
   <script src="library-panel.js"></script>
   <script src="library-sources.js"></script>
+  <script src="library-transcribe.js"></script>
   <script src="library-categories.js"></script>
+  <script src="plan-workflow-picker.js"></script>
   <script src="workflow-list.js"></script>
   <script src="step-shell.js"></script>
   <script src="steps-flow-graph.js"></script>

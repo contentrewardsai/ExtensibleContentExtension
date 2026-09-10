@@ -1,0 +1,29 @@
+{
+  "id": "reconcileV3Positions",
+  "label": "Reconcile V3 positions",
+  "category": "data",
+  "description": "Compare the automation wallet's Pancake V3 NPM NFTs (`tokenOfOwnerByIndex`) to `alwaysOn.boundRows`: drop closed positions and report untracked. Same as Activity **Reconcile NFTs** (`CFS_V3_RECONCILE_POSITIONS`). Optional on always-on ticks; omit the step to skip.",
+  "defaultAction": {
+    "type": "reconcileV3Positions",
+    "runIf": "",
+    "workflowId": "wf-bsc-v3-monitor",
+    "autoTrackNew": false,
+    "everyNTicks": 10,
+    "saveResultVariable": "v3ReconcileResult"
+  },
+  "inputs": [
+    { "key": "workflowId", "description": "Monitor workflow id whose boundRows to reconcile (default wf-bsc-v3-monitor)." },
+    { "key": "autoTrackNew", "description": "When true, upsert untracked on-chain NFTs using primary-row policies." },
+    { "key": "everyNTicks", "description": "On always-on SW ticks, run at most every N ticks (default 10). Tab playback always runs." }
+  ],
+  "outputs": [
+    { "key": "saveResultVariable", "description": "Row variable for JSON reconcile result (untrackedCount, closedCount)." }
+  ],
+  "formSchema": [
+    { "key": "runIf", "label": "Run only if (optional)", "inputType": "text" },
+    { "key": "workflowId", "label": "Monitor workflow id", "inputType": "text", "placeholder": "wf-bsc-v3-monitor" },
+    { "key": "autoTrackNew", "label": "Auto-track new on-chain NFTs", "inputType": "checkbox" },
+    { "key": "everyNTicks", "label": "Every N always-on ticks (default 10)", "inputType": "number", "min": 1, "placeholder": "10" },
+    { "key": "saveResultVariable", "label": "Save result JSON to variable", "inputType": "text", "placeholder": "v3ReconcileResult" }
+  ]
+}

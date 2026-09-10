@@ -1,13 +1,12 @@
 /**
  * PancakeSwap V3 Range Watch handler.
  *
- * Polls the pool's current tick (via slot0) vs the position's tick range.
- * Step completes when the current tick moves outside the position range.
- * Saves drift direction ('above' or 'below') to a row variable for branching.
+ * Default: poll until the current tick moves outside the position range.
+ * waitUntilOutOfRange:false (always-on ticks / Plan debug): one check, succeed
+ * even if still in range, and set inRange / driftDirection / triggerReason
+ * (hard_oor | near_edge | in_range).
  *
- * Uses CFS_BSC_QUERY with operation=v3NpmPosition to read the position,
- * then derives the pool address via V3 factory.getPool, and reads slot0.
- * This is a single CFS_BSC_V3_RANGE_CHECK message that wraps both reads.
+ * SW ticks always one-shot regardless of this flag.
  */
 (function() {
   'use strict';
@@ -23,6 +22,75 @@
         });
       };
 
+  function waitUntilOutOfRangeFromAction(action) {
+    var helpers = typeof CFS_v3MonitorSteps !== 'undefined' ? CFS_v3MonitorSteps : null;
+    if (helpers && typeof helpers.waitUntilOutOfRangeFromAction === 'function') {
+      return helpers.waitUntilOutOfRangeFromAction(action);
+    }
+    var v = action && action.waitUntilOutOfRange;
+    if (v === false || v === 'false' || v === 0 || v === '0') return false;
+    return true;
+  }
+
+  function resolveNearPct(action, row) {
+    var helpers = typeof CFS_v3MonitorSteps !== 'undefined' ? CFS_v3MonitorSteps : null;
+    if (helpers && typeof helpers.resolveNearEdgePercent === 'function') {
+      return helpers.resolveNearEdgePercent(action, row, null);
+    }
+    var raw = '';
+    if (action && action.nearEdgePercent != null && String(action.nearEdgePercent).trim() !== '') {
+      raw = action.nearEdgePercent;
+    } else if (row && row.nearEdgePercent != null && String(row.nearEdgePercent).trim() !== '') {
+      raw = row.nearEdgePercent;
+    }
+    var n = Number(String(raw || '').trim());
+    if (!(n > 0) || !Number.isFinite(n)) return null;
+    return n;
+  }
+
+  function classify(check, nearPct) {
+    var helpers = typeof CFS_v3MonitorSteps !== 'undefined' ? CFS_v3MonitorSteps : null;
+    if (helpers && typeof helpers.classifyTriggerFromCheck === 'function') {
+      return helpers.classifyTriggerFromCheck(check, nearPct);
+    }
+    if (check.inRange === false) {
+      var direction = check.currentTick > check.tickUpper ? 'above' : 'below';
+      return { inRange: false, triggerReason: 'hard_oor', driftDirection: direction, nearEdge: false };
+    }
+    return { inRange: true, triggerReason: 'in_range', driftDirection: '', nearEdge: false };
+  }
+
+  function applyToRow(action, row, check, classified, pollCount) {
+    var helpers = typeof CFS_v3MonitorSteps !== 'undefined' ? CFS_v3MonitorSteps : null;
+    if (helpers && typeof helpers.applyRangeCheckToRow === 'function') {
+      helpers.applyRangeCheckToRow(action, row, check, classified, { pollCount: pollCount });
+      return;
+    }
+    var dirVar = String(action.saveDriftDirection || '').trim() || 'driftDirection';
+    row[dirVar] = classified.driftDirection || '';
+    row.driftDirection = classified.driftDirection || '';
+    row.inRange = classified.inRange === true ? 'true' : 'false';
+    row.triggerReason = classified.triggerReason || '';
+    var tickVar = String(action.saveCurrentTick || '').trim();
+    if (tickVar) row[tickVar] = check.currentTick;
+    var rangeVar = String(action.savePositionRange || '').trim();
+    if (rangeVar) {
+      row[rangeVar] = JSON.stringify({
+        tickLower: check.tickLower,
+        tickUpper: check.tickUpper,
+        currentTick: check.currentTick,
+        direction: classified.driftDirection || '',
+        triggerReason: classified.triggerReason || '',
+        pool: check.pool || '',
+        token0: check.token0 || '',
+        token1: check.token1 || '',
+        fee: check.fee || '',
+        detectedAt: new Date().toISOString(),
+        pollCount: pollCount,
+      });
+    }
+  }
+
   window.__CFS_registerStepHandler('pancakeV3RangeWatch', async function(action, opts) {
     const ctx = opts && opts.ctx;
     if (!ctx) throw new Error('Step context missing (pancakeV3RangeWatch)');
@@ -34,6 +102,8 @@
 
     const pollIntervalMs = Math.max(5000, parseInt(action.pollIntervalMs, 10) || 30000);
     const timeoutMs = Math.max(0, parseInt(action.timeoutMs, 10) || 0);
+    const waitUntil = waitUntilOutOfRangeFromAction(action);
+    const nearPct = resolveNearPct(action, row);
 
     const startTime = Date.now();
     let pollCount = 0;
@@ -41,7 +111,7 @@
     while (true) {
       pollCount++;
 
-      if (timeoutMs > 0 && (Date.now() - startTime) >= timeoutMs) {
+      if (waitUntil && timeoutMs > 0 && (Date.now() - startTime) >= timeoutMs) {
         throw new Error('PancakeSwap V3 range watch timed out after ' + Math.round(timeoutMs / 1000) + 's (' + pollCount + ' polls). Position is still in range.');
       }
 
@@ -56,44 +126,28 @@
       }
 
       const { currentTick, tickLower, tickUpper, inRange } = response;
+      const classified = classify(response, nearPct);
 
       if (ctx.setStepProgress) {
         ctx.setStepProgress(
           'Tick ' + currentTick + ' | Range [' + tickLower + ', ' + tickUpper + '] | ' +
-          (inRange ? '✅ In range' : '❌ Out of range') +
+          (inRange ? (classified.nearEdge ? '⚠ Near edge' : '✅ In range') : '❌ Out of range') +
+          ' | ' + (classified.triggerReason || '') +
           ' | Poll #' + pollCount
         );
       }
 
+      if (!waitUntil) {
+        if (row && typeof row === 'object') applyToRow(action, row, response, classified, pollCount);
+        return;
+      }
+
       if (!inRange) {
-        const direction = currentTick > tickUpper ? 'above' : 'below';
-
-        if (row && typeof row === 'object') {
-          const dirVar = String(action.saveDriftDirection || '').trim();
-          if (dirVar) row[dirVar] = direction;
-
-          const tickVar = String(action.saveCurrentTick || '').trim();
-          if (tickVar) row[tickVar] = currentTick;
-
-          const rangeVar = String(action.savePositionRange || '').trim();
-          if (rangeVar) row[rangeVar] = JSON.stringify({
-            tickLower,
-            tickUpper,
-            currentTick,
-            direction,
-            pool: response.pool || '',
-            token0: response.token0 || '',
-            token1: response.token1 || '',
-            fee: response.fee || '',
-            detectedAt: new Date().toISOString(),
-            pollCount,
-          });
-        }
-
+        if (row && typeof row === 'object') applyToRow(action, row, response, classified, pollCount);
         return;
       }
 
       await sleep(pollIntervalMs);
     }
-  }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false });
+  }, { needsElement: false, handlesOwnWait: true, closeUIAfterRun: false, swTick: true });
 })();

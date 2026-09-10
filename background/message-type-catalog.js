@@ -72,6 +72,24 @@
     "schema": "extra"
   },
   {
+    "type": "CFS_AGENT_PLANNER",
+    "domain": "playback",
+    "auth": "extension",
+    "schema": "extra"
+  },
+  {
+    "type": "CFS_AGENT_PLANNER_STOP",
+    "domain": "playback",
+    "auth": "extension",
+    "schema": "extra"
+  },
+  {
+    "type": "CFS_AGENT_PLANNER_RETRY_LOCAL",
+    "domain": "playback",
+    "auth": "extension",
+    "schema": "extra"
+  },
+  {
     "type": "CFS_ALWAYS_ON_MERGE_BOUND_ROW",
     "domain": "watch",
     "auth": "extension",

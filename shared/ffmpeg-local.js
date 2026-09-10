@@ -320,46 +320,271 @@
       });
   }
 
+  function videoInputName(blob) {
+    var bt = (blob && blob.type || '').toLowerCase();
+    var bn = (typeof blob.name === 'string' ? blob.name : '').toLowerCase();
+    if (bt.indexOf('mp4') >= 0 || bn.endsWith('.mp4') || bn.endsWith('.m4v')) return 'in_vid.mp4';
+    if (bt.indexOf('quicktime') >= 0 || bn.endsWith('.mov')) return 'in_vid.mov';
+    if (bt.indexOf('matroska') >= 0 || bn.endsWith('.mkv')) return 'in_vid.mkv';
+    return 'in_vid.webm';
+  }
+
+  function workerFsType() {
+    var t = global.FFmpegWASM && global.FFmpegWASM.FFFSType;
+    return (t && t.WORKERFS) || 'WORKERFS';
+  }
+
   /**
    * Strip video container to AAC/M4A audio (for transcription pipelines).
+   * Mounts the Blob via WORKERFS so the WASM worker never receives a >64MiB
+   * writeFile payload (Chrome extension IPC cap).
    * @param {Blob} blob - video blob (webm, mp4, mov, etc.)
    * @param {function} [onProgress]
    * @returns {Promise<{ok:boolean, blob?:Blob, error?:string}>}
    */
   function extractAudioFromVideo(blob, onProgress) {
     var report = typeof onProgress === 'function' ? onProgress : function () {};
-    return ensureLoaded(report)
+    var inName = videoInputName(blob);
+    var outName = 'out_aud.m4a';
+    var mountPoint = '/cfs_vid';
+    var WRITEFILE_MAX = 48 * 1024 * 1024;
+
+    function remapProgress(msg) {
+      if (typeof msg === 'string' && msg.indexOf('Converting') === 0) {
+        report('Extracting audio with FFmpeg…');
+      } else {
+        report(msg || 'Extracting audio with FFmpeg…');
+      }
+    }
+
+    function extractMounted(ff) {
+      report('Extracting audio with FFmpeg…');
+      return ff.createDir(mountPoint).catch(function () { return null; }).then(function () {
+        return ff.mount(workerFsType(), { blobs: [{ name: inName, data: blob }] }, mountPoint);
+      }).then(function () {
+        return ff.exec(['-i', mountPoint + '/' + inName, '-vn', '-c:a', 'aac', '-b:a', '128k', outName]);
+      }).then(function () {
+        return ff.readFile(outName);
+      }).then(function (data) {
+        var outBlob = new Blob([data], { type: 'audio/mp4' });
+        ff.deleteFile(outName).catch(function () {});
+        report('Audio extract done.');
+        return { ok: true, blob: outBlob };
+      }).finally(function () {
+        return ff.unmount(mountPoint).catch(function () {});
+      });
+    }
+
+    function extractWriteFile(ff) {
+      report('Extracting audio with FFmpeg…');
+      return blob.arrayBuffer().then(function (buf) {
+        return ff.writeFile(inName, new Uint8Array(buf)).then(function () {
+          return ff.exec(['-i', inName, '-vn', '-c:a', 'aac', '-b:a', '128k', outName]);
+        }).then(function () {
+          return ff.readFile(outName);
+        }).then(function (data) {
+          var outBlob = new Blob([data], { type: 'audio/mp4' });
+          ff.deleteFile(inName).catch(function () {});
+          ff.deleteFile(outName).catch(function () {});
+          report('Audio extract done.');
+          return { ok: true, blob: outBlob };
+        });
+      });
+    }
+
+    function extractViaElement() {
+      if (typeof document === 'undefined' || typeof MediaRecorder === 'undefined') {
+        return Promise.reject(new Error('Browser audio extract is not available'));
+      }
+      report('Extracting audio (browser decoder)…');
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(blob);
+        var video = document.createElement('video');
+        video.preload = 'auto';
+        video.muted = true;
+        video.playsInline = true;
+        video.src = url;
+        var done = false;
+        function cleanup() {
+          if (done) return;
+          done = true;
+          try { video.pause(); } catch (_) {}
+          video.removeAttribute('src');
+          try { video.load(); } catch (_) {}
+          URL.revokeObjectURL(url);
+        }
+        video.onerror = function () {
+          cleanup();
+          reject(new Error('Could not decode video'));
+        };
+        video.onloadedmetadata = function () {
+          var cap = typeof video.captureStream === 'function'
+            ? video.captureStream()
+            : (typeof video.mozCaptureStream === 'function' ? video.mozCaptureStream() : null);
+          if (!cap || !cap.getAudioTracks || !cap.getAudioTracks().length) {
+            cleanup();
+            reject(new Error('No audio track in this video'));
+            return;
+          }
+          var mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+          if (!mime) {
+            cleanup();
+            reject(new Error('MediaRecorder is not available'));
+            return;
+          }
+          var rec = new MediaRecorder(new MediaStream(cap.getAudioTracks()), {
+            mimeType: mime,
+            audioBitsPerSecond: 128000
+          });
+          var chunks = [];
+          rec.ondataavailable = function (ev) {
+            if (ev.data && ev.data.size) chunks.push(ev.data);
+          };
+          rec.onerror = function () {
+            cleanup();
+            reject(new Error('Audio capture failed'));
+          };
+          rec.onstop = function () {
+            cleanup();
+            resolve(new Blob(chunks, { type: 'audio/webm' }));
+          };
+          rec.start(1000);
+          try { video.playbackRate = 8; } catch (_) {}
+          var playP = video.play();
+          if (playP && playP.catch) playP.catch(function () {});
+          video.onended = function () {
+            try { rec.stop(); } catch (_) {}
+          };
+        };
+      }).then(function (outBlob) {
+        report('Audio extract done.');
+        return { ok: true, blob: outBlob };
+      });
+    }
+
+    return ensureLoaded(remapProgress)
       .then(function (ff) {
-        return blob.arrayBuffer().then(function (buf) {
-          var bt = (blob.type || '').toLowerCase();
-          var bn = (typeof blob.name === 'string' ? blob.name : '').toLowerCase();
-          var inName = 'in_vid.webm';
-          if (bt.indexOf('mp4') >= 0 || bn.endsWith('.mp4') || bn.endsWith('.m4v')) inName = 'in_vid.mp4';
-          else if (bt.indexOf('quicktime') >= 0 || bn.endsWith('.mov')) inName = 'in_vid.mov';
-          else if (bt.indexOf('matroska') >= 0 || bn.endsWith('.mkv')) inName = 'in_vid.mkv';
-          var outName = 'out_aud.m4a';
-          report('Extracting audio...');
-          return ff
-            .writeFile(inName, new Uint8Array(buf))
-            .then(function () {
-              return ff.exec(['-i', inName, '-vn', '-c:a', 'aac', '-b:a', '128k', outName]);
-            })
-            .then(function () {
-              return ff.readFile(outName);
-            })
-            .then(function (data) {
-              var outBlob = new Blob([data], { type: 'audio/mp4' });
-              ff.deleteFile(inName).catch(function () {});
-              ff.deleteFile(outName).catch(function () {});
-              report('Audio extract done.');
-              return { ok: true, blob: outBlob };
-            });
+        return extractMounted(ff).catch(function (err) {
+          var m = err && err.message ? err.message : String(err);
+          if (blob.size > WRITEFILE_MAX || /64\s*MiB|maximum allowed size/i.test(m)) {
+            throw err;
+          }
+          return extractWriteFile(ff);
         });
       })
       .catch(function (err) {
-        var m = err && err.message ? err.message : String(err);
-        return { ok: false, error: m };
+        return extractViaElement().catch(function () {
+          var m = err && err.message ? err.message : String(err);
+          return { ok: false, error: m };
+        });
       });
+  }
+
+  /**
+   * Cut a video/audio Blob into AAC/M4A chunks (default 60s) via a single WORKERFS mount.
+   * @returns {Promise<{ok:boolean, blobs?:{blob:Blob,start:number,duration:number,index:number}[], duration?:number, error?:string}>}
+   */
+  function extractAudioChunks(blob, opts) {
+    opts = opts || {};
+    var chunkSec = typeof opts.chunkSeconds === 'number' && opts.chunkSeconds > 5 ? opts.chunkSeconds : 60;
+    var report = typeof opts.onProgress === 'function' ? opts.onProgress : function () {};
+    var inName = videoInputName(blob);
+    var bt = (blob && blob.type || '').toLowerCase();
+    var bn = (typeof blob.name === 'string' ? blob.name : '').toLowerCase();
+    if (bt.indexOf('audio/') === 0 || /\.(mp3|m4a|aac|wav|ogg|flac|opus)$/.test(bn)) {
+      if (bn.endsWith('.mp3') || bt.indexOf('mpeg') >= 0) inName = 'in_aud.mp3';
+      else if (bn.endsWith('.wav') || bt.indexOf('wav') >= 0) inName = 'in_aud.wav';
+      else inName = 'in_aud.m4a';
+    }
+    var mountPoint = '/cfs_chk';
+    var inputPath = mountPoint + '/' + inName;
+
+    function probeMountedDuration(ff) {
+      var duration = 0;
+      function onLog(ev) {
+        var msg = ev && ev.message ? String(ev.message) : '';
+        var m = /Duration:\s*(\d{2}):(\d{2}):([\d.]+)/.exec(msg);
+        if (m) {
+          duration = parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]);
+        }
+      }
+      ff.on('log', onLog);
+      return ff.exec(['-i', inputPath]).catch(function () { return null; }).then(function () {
+        ff.off('log', onLog);
+        return duration;
+      });
+    }
+
+    function pullChunks(ff, duration) {
+      var blobs = [];
+      var start = 0;
+      var i = 0;
+      var total = Math.max(1, Math.ceil(duration / chunkSec));
+      function next() {
+        if (start >= duration - 0.05) return Promise.resolve(blobs);
+        var len = Math.min(chunkSec, duration - start);
+        if (len < 0.4 && blobs.length) return Promise.resolve(blobs);
+        var out = 'chk_' + i + '.m4a';
+        var idx = i + 1;
+        var ss = start;
+        i += 1;
+        start += chunkSec;
+        report('Extracting audio chunk ' + idx + '/' + total + '…');
+        return ff.exec([
+          '-ss', String(ss),
+          '-i', inputPath,
+          '-t', String(len),
+          '-vn', '-c:a', 'aac', '-b:a', '128k',
+          '-y', out
+        ]).then(function () {
+          return ff.readFile(out);
+        }).then(function (data) {
+          blobs.push({
+            blob: new Blob([data], { type: 'audio/mp4' }),
+            start: ss,
+            duration: len,
+            index: idx
+          });
+          return ff.deleteFile(out).catch(function () {});
+        }).then(next);
+      }
+      return next();
+    }
+
+    return ensureLoaded(function (msg) {
+      report(msg && String(msg).indexOf('Converting') === 0 ? 'Extracting audio with FFmpeg…' : (msg || 'Loading FFmpeg…'));
+    }).then(function (ff) {
+      report('Extracting audio with FFmpeg…');
+      return ff.createDir(mountPoint).catch(function () { return null; }).then(function () {
+        return ff.mount(workerFsType(), { blobs: [{ name: inName, data: blob }] }, mountPoint);
+      }).then(function () {
+        return probeMountedDuration(ff);
+      }).then(function (duration) {
+        if (!(duration > 0.4)) {
+          return ff.exec(['-i', inputPath, '-vn', '-c:a', 'aac', '-b:a', '128k', '-y', 'out_aud.m4a']).then(function () {
+            return ff.readFile('out_aud.m4a');
+          }).then(function (data) {
+            ff.deleteFile('out_aud.m4a').catch(function () {});
+            return {
+              ok: true,
+              duration: 0,
+              blobs: [{ blob: new Blob([data], { type: 'audio/mp4' }), start: 0, duration: 0, index: 1 }]
+            };
+          });
+        }
+        return pullChunks(ff, duration).then(function (blobs) {
+          if (!blobs.length) throw new Error('No audio chunks');
+          report('Audio extract done (' + blobs.length + ' chunk' + (blobs.length === 1 ? '' : 's') + ').');
+          return { ok: true, duration: duration, blobs: blobs };
+        });
+      }).finally(function () {
+        return ff.unmount(mountPoint).catch(function () {});
+      });
+    }).catch(function (err) {
+      return { ok: false, error: (err && err.message) ? err.message : String(err) };
+    });
   }
 
   global.FFmpegLocal = {
@@ -367,5 +592,6 @@
     probeDurationSeconds: probeDurationSeconds,
     extractSegment: extractSegment,
     extractAudioFromVideo: extractAudioFromVideo,
+    extractAudioChunks: extractAudioChunks,
   };
 })(typeof window !== 'undefined' ? window : self);

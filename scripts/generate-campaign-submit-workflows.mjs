@@ -171,7 +171,7 @@ function starterBanner(platform, confirmNote) {
 const whopUi = [
   starterBanner(
     'Whop Content Rewards',
-    'You must already be signed into Whop. Default URL is CONTENT_REWARDS_AI_URL from config/whop-auth.example.js. Typical UI: open a campaign → Submit Video → paste post URL → attach media/proof → submit.'
+    'You must already be signed into Whop. Default URL is WHOP_APP_URL in this script. Typical UI: open a campaign → Submit Video → paste post URL → attach media/proof → submit.'
   ),
   { type: 'getAccountStatus', saveAsVariable: 'accountStatus' },
   log('Whop login: {{accountStatus.loggedIn}}. If false, sign in via the extension Settings / Whop login first.'),

@@ -36,6 +36,7 @@ The Extensible Content extension uses **Whop** for authentication and `https://w
 | **Industries / platforms / monetization** | `GET /api/extension/industries`, `/platforms`, `/monetization` |
 | **Social profiles** | `GET/POST /api/extension/social-profiles` |
 | **Pro status** | `GET /api/extension/has-upgraded` |
+| **Agent planner (Clore Qwen 3.8)** | `POST /api/extension/agent-planner`, `GET /api/extension/agent-planner?jobId=` |
 | **Default project** | `GET/PATCH /api/extension/user/default-project` |
 | **Knowledge Q&A** | `GET /api/extension/knowledge/qa`, `POST /api/extension/knowledge/questions`, `/answers`, `/votes` |
 | **GHL (extension)** | `GET /api/extension/ghl/connections`, `GET /api/extension/ghl/media` |
@@ -47,7 +48,7 @@ The client allowlists these paths in `shared/app-origin-guard.js`. Other app rou
 
 ## ExtensionApi
 
-Key methods: `getToken()`, `isLoggedIn()`, `getProjects()`, `createProject()`, `updateProject()`, `deleteProject()`, `getDefaultProject()`, `updateDefaultProject()`, `getWorkflows()`, `getWorkflowsCatalog()`, `getWorkflow()`, `createWorkflow()`, `updateWorkflow()`, `deleteWorkflow()`, `uploadWorkflowStepMedia()`, `getFollowing()`, `createFollowing()`, `updateFollowing()`, `deleteFollowing()`, `getInspirationDiscover()`, `getIndustries()`, `getPlatforms()`, `getMonetization()`, `getSocialMediaProfiles()`, `addRemoveSocialMedia()`, `hasUpgraded()`, `getKnowledgeQa()`, `getSourceAccounts()`, `browseSource()`, `uploadToSource()`.
+Key methods: `getToken()`, `isLoggedIn()`, `getProjects()`, `createProject()`, `updateProject()`, `deleteProject()`, `getDefaultProject()`, `updateDefaultProject()`, `getWorkflows()`, `getWorkflowsCatalog()`, `getWorkflow()`, `createWorkflow()`, `updateWorkflow()`, `deleteWorkflow()`, `uploadWorkflowStepMedia()`, `getFollowing()`, `createFollowing()`, `updateFollowing()`, `deleteFollowing()`, `getInspirationDiscover()`, `getIndustries()`, `getPlatforms()`, `getMonetization()`, `getSocialMediaProfiles()`, `addRemoveSocialMedia()`, `hasUpgraded()`, `hasPaidOrTrialAccess()`, `agentPlanner()`, `getKnowledgeQa()`, `getSourceAccounts()`, `browseSource()`, `uploadToSource()`, `createSourceFolder()`, `ensureSourceFolderByName()`.
 
 Generic `apiFetch` is not exported. Named methods only.
 
@@ -58,6 +59,22 @@ Generic `apiFetch` is not exported. Named methods only.
 ### Step narration
 
 Narration lives in `workflow.analyzed.actions[i].comment` (prefer `comment.items`). `POST` / `PATCH` `/api/extension/workflows` must persist the full `workflow` JSON the client sends.
+
+### Agent planner (Clore Qwen 3.8)
+
+Prompt-to-workflow tries Llama 7B+ inside the extension first. If that load or first token fails, paying Content Rewards AI users (`hasUpgraded`: `pro`, `trial_active`, or `access` of `paid` / `trial` / `project_member`) send each planner turn to **our Clore boxes** running **Qwen 3.8** (prefetch id `qwen38-27b`). The GPU side lives in the Content Rewards / Clore fleet — **not this repo**.
+
+`POST /api/extension/agent-planner` (Bearer; **403** if not upgraded):
+
+```json
+{ "messages": [{ "role": "system"|"user"|"assistant", "content": "..." }] }
+```
+
+Body is the indexed DOM snapshot plus the user task — **not** full HTML. Response is either `{ "ok": true, "text": "..." }` or `{ "status": "running", "jobId": "..." }`.
+
+`GET /api/extension/agent-planner?jobId=` polls until `{ "done": true, "text": "..." }` (same long-job pattern as other Content Rewards GPU work). Server should `worker_use` → pin Qwen 3.8 → chat completion → assistant JSON `{ "action", "index", "text?" }`. Rate-limit and timeout so a stuck box cannot freeze the extension.
+
+Client: `ExtensionApi.agentPlanner({ messages }, { signal })`, service-worker `CFS_AGENT_PLANNER`, and **`CALL_REMOTE_LLM_CHAT` / `CALL_LLM`** when Settings provider is **`crai`** (Content Rewards AI / Qwen 27B).
 
 ### Workflow step media
 

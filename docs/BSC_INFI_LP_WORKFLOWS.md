@@ -52,10 +52,10 @@ runWorkflow wf-bsc-infi-monitor     runIf: {{exitPolicy}} === restake
 
 ## 3. Always-on background monitoring
 
-On **`wf-bsc-infi-monitor`**, enable **Library → Background automation**:
+On **`wf-bsc-infi-monitor`**, add a **Check for real-time data** step (or use MCP **`set_always_on_scope`**):
 
-- **Always on** + **Price range watch (DeFi position)**
-- **boundRow** — position NFT, pool id, bin range, `exitPolicy`
+- **Price range watch (DeFi position)** source on
+- **boundRow** — position NFT, pool id, bin range, `exitPolicy` (Activity monitor cards)
 - **priceRangeWatch** — poll fields + **`onOutOfRange`** rules (same `runIf` as workflow steps)
 
 Example **`onOutOfRange`**:

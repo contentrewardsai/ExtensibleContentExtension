@@ -18,8 +18,7 @@
 
   const APP_ORIGIN = 'https://www.extensiblecontent.com';
 
-  const CONTENT_REWARDS_AI_URL =
-    'https://whop.com/joined/content-rewards-ai/content-rewards-ai-1TBjBWdmGMbjk4/app/';
+  const CONTENT_REWARDS_AI_URL = 'https://www.contentrewardsai.com/app';
 
   function getLoginUrl(code, extId, intent) {
     const base = `${APP_ORIGIN.replace(/\/$/, '')}/extension/login`;

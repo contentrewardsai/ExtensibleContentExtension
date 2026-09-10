@@ -44,6 +44,8 @@ Secrets must **never** be committed; see **docs/SOLANA_AUTOMATION.md** and **con
 - **`bscTransferBnb`** / **`bscTransferBep20`** — Aliases for **`transferNative`** / **`transferErc20`** on **`CFS_BSC_POOL_EXECUTE`** (same wallet as **`bscPancake`**).
 - **`bscAggregatorSwap`** — **`paraswapSwap`** via ParaSwap API (BSC mainnet only); see **docs/BSC_AUTOMATION.md**.
 - **`bscPancake`** — Hot EVM wallet in **Settings → BSC / PancakeSwap**; `CFS_BSC_POOL_EXECUTE` → `background/bsc-evm.js`. PancakeSwap **V2** router (swaps, token+token and token+BNB liquidity) and **MasterChef** farm/staking ops. Rebuild after `ethers` changes: **`npm run build:evm`**. Storage: **docs/BSC_WALLET_STORAGE.md**.
+- **`pancakeV3RangeWatch`** — V3 tick vs position range. Default waits until hard OOR; **`waitUntilOutOfRange: false`** is one-shot (`inRange` / `triggerReason`). Handler meta **`swTick: true`**.
+- **`reconcileV3Positions`** — NPM vs `alwaysOn.boundRows` (`CFS_V3_RECONCILE_POSITIONS`). **`swTick: true`**.
 - **`bscQuery`** — Read-only **`CFS_BSC_QUERY`**: balances, allowance, V2 **pair reserves** via saved RPC; no signing. **steps/bscQuery/README.md**.
 - **`bscWatchRefresh`** / **`bscWatchReadActivity`** — Following BSC watch buffer; pair with **`watchActivityFilterTxAge`** / **`watchActivityFilterPriceDrift`**. **docs/BSC_AUTOMATION.md**.
 
@@ -112,6 +114,7 @@ Each step documents its configuration, behavior, and **tests** in `steps/{id}/RE
 | **Concat row lists** | **steps/rowListConcat/README.md** | **listAVariable** + **listBVariable** → **saveToVariable** (`concat`); same list normalization as filter/join. |
 | **Dedupe row list** | **steps/rowListDedupe/README.md** | **dedupeKey** on plain objects; **keepFirst** or keep last; missing key rows kept. |
 | **Wait for HTTP poll** | **steps/waitForHttpPoll/README.md** | TradingView (or any) webhook relay: GET until deduped JSON; merge into row; optional DOM mode on *.tradingview.com. |
+| **Check for real-time data** | **steps/checkRealtimeData/README.md** | Shared background feeds (Following, file, LP range, custom HTTP/WS ≥30s). Always-on is derived from this step; playback reads the latest snapshot only. |
 | **Read JSON from project** | **steps/readJsonFromProject/README.md** | Relative path (supports **`{{projectId}}`** via row / Library default / **defaultProjectId**); parse into **saveAsVariable**; `CFS_PROJECT_READ_FILE`. |
 | **Load file from project** | **steps/loadProjectFile/** | Data URL on the row; **`{{projectId}}`** resolved like other uploads steps; `uploads/…` stamps **`_cfsProjectId`** when row has no id; **step-tests.js**. |
 | **Ensure uploads layout** | **steps/ensureUploadsLayout/** | Resolved **projectId**; creates relative paths via **`CFS_PROJECT_ENSURE_DIRS`** (default includes **posts/pending**, **generations**). **step-tests.js**. |

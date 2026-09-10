@@ -109,7 +109,7 @@ export function registerSystemTools(server, ctx) {
             type: 'text',
             text: JSON.stringify({
               ok: false,
-              error: (writeRes && writeRes.error) || 'Project write failed (set a project folder). Screenshot was too large to inline.',
+              error: (writeRes && writeRes.error) || 'Project write failed (set a local folder). Screenshot was too large to inline.',
               tabId: res.tabId,
               windowId: res.windowId,
               bytesEstimate: res.bytesEstimate,

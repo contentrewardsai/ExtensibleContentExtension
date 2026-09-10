@@ -554,7 +554,7 @@ export function registerCryptoTools(server, ctx) {
 
   server.tool(
     'bsc_v3_range_watch_refresh',
-    'Trigger one Pancake V3 range-watch poll now (CFS_V3_RANGE_WATCH_REFRESH_NOW). On out-of-range, evaluates onOutOfRange runIf rules (exitBelowPolicy / exitAbovePolicy).',
+    'Trigger one Pancake V3 range-watch poll now (CFS_V3_RANGE_WATCH_REFRESH_NOW). Ticks SW-safe monitor steps in-worker; matching runWorkflow children open a tab. onOutOfRange JSON is not the live router when runWorkflow children exist.',
     {},
     async () => {
       const gateErr = await ctx.cryptoGate.guard('bsc_v3_range_watch_refresh');

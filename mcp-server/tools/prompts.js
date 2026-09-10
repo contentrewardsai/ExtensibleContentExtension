@@ -29,11 +29,10 @@ export function registerPrompts(server, ctx) {
 • extensible://steps/bscV3LpWizard (and bscV3AutoApprove / bscV3RebalanceOnce / bindAlwaysOnBoundRow) — V3 LP step docs` : '';
 
       const cryptoTools = cryptoEnabled ? `
-• subscribe, unsubscribe, list_subscriptions — real-time data streams (prices, balances, DLMM positions)
-• solana_swap, solana_transfer_*, meteora_*, raydium_* — DeFi operations
+• set_always_on_bound_row / set_always_on_data_row (upsert/remove/replace), set_always_on_settings, set_always_on_scope — Data table is boundRows; settings are poll/gas/auto-track; alwaysOnEnabled pauses without clearing sources (scope optional when only pausing). Child routing is Plan runWorkflow steps, not onOutOfRange JSON.
+• subscribe, unsubscribe, list_subscriptions — MCP-process local streams (prices, balances). Workflow always-on / Activity Real-time data uses service-worker feeds (Following, file, LP, custom HTTP/WS), not subscribe.
 • bsc_query, bsc_execute — BSC operations (incl. v3RangeFromPercent, v3LpAmountsFromBnb, v3PositionMint)
 • bsc_v3_range_watch_status, bsc_v3_range_watch_refresh, bsc_v3_reconcile_positions — V3 LP multi-position monitor
-• set_always_on_bound_row (upsert/remove/replace), set_always_on_scope — hand off NFT ids to boundRows
 • monitor_watchdog_status, monitor_watchdog_configure — Bun MCP relay/OOR alerts (default off)
 • refresh_solana_watch, refresh_bsc_watch — trigger Following watch polls` : '';
 
@@ -52,6 +51,7 @@ CAPABILITIES:
 • Workflows — Record, edit, and run browser automation workflows with 145+ step types
 • Scheduling — One-time and recurring workflow runs with timezone support${cryptoCapabilities}
 • Following/Pulse — Track wallet activity on Solana and BSC, with automated copy-trading workflows
+• Always-on / real-time data — add a checkRealtimeData step (sources: Following, file watch, LP range, custom HTTP/WS). Do not only set alwaysOn on the workflow blob. Activity lists shared feeds. MCP subscribe is process-local and is not the SW feed.
 • LLM — Call OpenAI, Claude, Gemini, Grok, or local LaMini from within workflows
 • Apify — Run web scraping actors and process datasets
 • Media — Video trimming, audio capture, transcription (Whisper)
@@ -71,6 +71,7 @@ RESOURCES (browse these for specifics):
 • extensible://mcp-endpoints — external MCP servers connected to this one (with status, tools)
 • extensible://mcp-endpoints/{id} — detailed view of a specific external endpoint (tools + schemas)
 • extensible://mcp-topology — full network topology: this server + all external nodes + tool counts
+• extensible://realtime-feeds — unique shared feeds (last poll + consumer workflow families)
 
 TOOLS (use these to take action):
 • create_workflow, update_workflow, delete_workflow — programmatic workflow CRUD
@@ -97,7 +98,7 @@ TOOLS (use these to take action):
 • solana — solanaJupiterSwap, solanaTransferSol/Spl, solanaReadBalances, solanaPumpfunBuy/Sell, solanaPumpOrJupiterBuy/Sell, solanaSellabilityProbe
 • raydium — raydiumClmmSwap, raydiumClmmOpenPosition, raydiumCpmmAddLiquidity, raydiumSwapStandard, and 10+ more
 • meteora — meteoraDlmmAddLiquidity, meteoraDlmmRemoveLiquidity, meteoraCpammSwap, meteoraCpammAddLiquidity, and more
-• bsc — bscPancake, bscQuery, bscAggregatorSwap, bscTransferBnb/Bep20, bscSellabilityProbe, bscV3LpWizard, bscV3AutoApprove, bscV3RebalanceOnce, pancakeV3RangeWatch, bindAlwaysOnBoundRow
+• bsc — bscPancake, bscQuery, bscAggregatorSwap, bscTransferBnb/Bep20, bscSellabilityProbe, bscV3LpWizard, bscV3AutoApprove, bscV3RebalanceOnce, pancakeV3RangeWatch, reconcileV3Positions, bindAlwaysOnBoundRow
 • aster — asterSpotTrade, asterFuturesTrade, asterFuturesAnalysis, asterUserStreamWait
 • watch — solanaWatchRefresh, solanaWatchReadActivity, bscWatchRefresh, bscWatchReadActivity, watchActivityFilterTxAge, watchActivityFilterPriceDrift, pancakeV3RangeWatch, pancakeInfiBinRangeWatch` : '';
 

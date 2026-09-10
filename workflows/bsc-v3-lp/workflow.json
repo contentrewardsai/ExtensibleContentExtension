@@ -233,11 +233,44 @@
       "analyzed": {
         "actions": [
           {
+            "type": "checkRealtimeData",
+            "runIf": "",
+            "alwaysOnEnabled": true,
+            "priceRangeWatch": true,
+            "priceRangeMode": "v3",
+            "pollIntervalMs": 30000,
+            "followingSolanaWatch": false,
+            "followingBscWatch": false,
+            "followingAutomationSolana": false,
+            "followingAutomationBsc": false,
+            "fileWatch": false,
+            "custom": false
+          },
+          {
+            "type": "bscPancake",
+            "runIf": "{{gasReloadEnabled}} === true",
+            "operation": "ensureNativeGasFromStable",
+            "gasReloadBelowWei": "{{gasReloadBelowWei}}",
+            "gasReloadTargetWei": "{{gasReloadTargetWei}}",
+            "gasReloadStableToken": "{{stableToken}}",
+            "stableReserveWei": "{{stableReserveWei}}",
+            "waitConfirmations": 1
+          },
+          {
+            "type": "reconcileV3Positions",
+            "runIf": "",
+            "workflowId": "wf-bsc-v3-monitor",
+            "autoTrackNew": false,
+            "everyNTicks": 10,
+            "saveResultVariable": "v3ReconcileResult"
+          },
+          {
             "type": "pancakeV3RangeWatch",
             "runIf": "",
             "v3PositionTokenId": "{{v3PositionTokenId}}",
             "pollIntervalMs": 30000,
             "timeoutMs": 0,
+            "waitUntilOutOfRange": false,
             "saveDriftDirection": "driftDirection",
             "saveCurrentTick": "currentTick",
             "savePositionRange": "positionRange"
@@ -419,11 +452,6 @@
             "bindMode": "replace",
             "kind": "v3",
             "oldTokenId": "{{oldTokenId}}"
-          },
-          {
-            "type": "runWorkflow",
-            "runIf": "",
-            "workflowId": "wf-bsc-v3-monitor"
           }
         ]
       }

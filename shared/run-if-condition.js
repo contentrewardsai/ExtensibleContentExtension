@@ -88,12 +88,55 @@
     }
   }
 
+  function splitTopLevel(str, sep) {
+    var parts = [];
+    var buf = '';
+    var depth = 0;
+    for (var i = 0; i < str.length; i++) {
+      if (str[i] === '{' && str[i + 1] === '{') {
+        depth++;
+        buf += str[i] + str[i + 1];
+        i++;
+        continue;
+      }
+      if (str[i] === '}' && str[i + 1] === '}') {
+        depth = Math.max(0, depth - 1);
+        buf += str[i] + str[i + 1];
+        i++;
+        continue;
+      }
+      if (depth === 0 && str.slice(i, i + sep.length) === sep) {
+        parts.push(buf.trim());
+        buf = '';
+        i += sep.length - 1;
+        continue;
+      }
+      buf += str[i];
+    }
+    parts.push(buf.trim());
+    return parts.filter(function (p) { return p.length > 0; });
+  }
+
   /**
    * @returns {boolean} true = run the step; false = skip (falsy gate)
    */
   function evaluateRunIfCondition(runIfRaw, row, getRv) {
     var s = String(runIfRaw || '').trim();
     if (!s) return true;
+    var orParts = splitTopLevel(s, '||');
+    if (orParts.length > 1) {
+      for (var oi = 0; oi < orParts.length; oi++) {
+        if (evaluateRunIfCondition(orParts[oi], row, getRv)) return true;
+      }
+      return false;
+    }
+    var andParts = splitTopLevel(s, '&&');
+    if (andParts.length > 1) {
+      for (var ai = 0; ai < andParts.length; ai++) {
+        if (!evaluateRunIfCondition(andParts[ai], row, getRv)) return false;
+      }
+      return true;
+    }
     var parsed = null;
     for (var pi = 0; pi < RUN_IF_COMP_OPS.length; pi++) {
       var op = RUN_IF_COMP_OPS[pi];

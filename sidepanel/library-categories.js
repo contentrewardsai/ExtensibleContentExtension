@@ -1,5 +1,6 @@
 /**
- * Library category tabs: filter/search, create/remove categories, assign workflows.
+ * Workflow category store: load/save assignments, create/remove categories.
+ * Plan picker renders the UI; this module keeps chrome.storage in sync.
  */
 (function (global) {
   'use strict';
@@ -27,6 +28,12 @@
     var h = host();
     if (typeof h.getWorkflows === 'function') return h.getWorkflows() || {};
     return {};
+  }
+
+  function isHiddenNav(wf) {
+    if (typeof host().isHiddenFromUserNav === 'function') return host().isHiddenFromUserNav(wf);
+    var F = global.CFS_navWorkflowFilter;
+    return !!(F && F.isHiddenFromUserNav && F.isHiddenFromUserNav(wf, true));
   }
 
   async function loadState() {
@@ -80,6 +87,8 @@
         local: true,
         created_by: ''
       };
+    }).filter(function (row) {
+      return !isHiddenNav(row.workflow);
     });
   }
 
@@ -111,32 +120,52 @@
     document.getElementById('workflowCategoryDeleteBtn')?.addEventListener('click', deleteSelectedCategory);
   }
 
-  async function createCategory() {
-    if (!C) return;
+  async function addCategoryFromPrompt() {
+    if (!C) return { ok: false, error: 'Categories unavailable.' };
     var label = window.prompt('New category name');
-    if (label == null) return;
+    if (label == null) return { ok: false, cancelled: true };
     var result = C.addCustomCategory(state, label);
-    if (!result.ok) { setStatus(result.error, 'error'); return; }
+    if (!result.ok) { setStatus(result.error, 'error'); return result; }
     state = result.state;
     state.selectedId = result.id;
     await saveState();
     renderTabs();
     runFilter();
     setStatus(result.existed ? 'That category already exists.' : 'Category created.', result.existed ? '' : 'success');
+    if (global.CFS_planWorkflowPicker && typeof global.CFS_planWorkflowPicker.refresh === 'function') {
+      global.CFS_planWorkflowPicker.refresh();
+    }
+    return result;
+  }
+
+  async function createCategory() {
+    await addCategoryFromPrompt();
   }
 
   async function deleteSelectedCategory() {
     if (!C || !state.selectedId) return;
-    var label = C.categoryLabel(allCategories(), state.selectedId);
-    if (!window.confirm('Remove category "' + label + '"? Workflows stay; they are only unassigned from this category.')) return;
-    var result = C.removeCustomCategory(state, state.selectedId);
-    if (!result.ok) { setStatus(result.error, 'error'); return; }
+    await deleteCategory(state.selectedId);
+  }
+
+  async function deleteCategory(categoryId) {
+    var cat = String(categoryId || '').trim();
+    if (!C || !cat) return { ok: false };
+    var label = C.categoryLabel(allCategories(), cat);
+    if (!window.confirm('Remove category "' + label + '"? Workflows stay; they are only unassigned from this category.')) {
+      return { ok: false, cancelled: true };
+    }
+    var result = C.removeCustomCategory(state, cat);
+    if (!result.ok) { setStatus(result.error, 'error'); return result; }
     state = result.state;
     await saveState();
     Object.keys(workflowsMap()).forEach(persistWorkflowCategories);
     renderTabs();
     runFilter();
     setStatus('Category removed.', 'success');
+    if (global.CFS_planWorkflowPicker && typeof global.CFS_planWorkflowPicker.refresh === 'function') {
+      global.CFS_planWorkflowPicker.refresh();
+    }
+    return result;
   }
 
   function workflowRowHtml(row, inCategory) {
@@ -172,23 +201,31 @@
     });
   }
 
-  async function assign(wfId) {
-    if (!C || !state.selectedId) return;
-    state = C.assignWorkflow(state, wfId, state.selectedId);
+  async function assign(wfId, categoryId) {
+    var cat = categoryId || state.selectedId;
+    if (!C || !cat) return;
+    state = C.assignWorkflow(state, wfId, cat);
     await saveState();
     persistWorkflowCategories(wfId);
     runFilter();
     if (typeof host().renderWorkflowList === 'function') host().renderWorkflowList();
+    if (global.CFS_planWorkflowPicker && typeof global.CFS_planWorkflowPicker.refresh === 'function') {
+      global.CFS_planWorkflowPicker.refresh();
+    }
     setStatus('Added to category.', 'success');
   }
 
-  async function unassign(wfId) {
-    if (!C || !state.selectedId) return;
-    state = C.unassignWorkflow(state, wfId, state.selectedId);
+  async function unassign(wfId, categoryId) {
+    var cat = categoryId || state.selectedId;
+    if (!C || !cat) return;
+    state = C.unassignWorkflow(state, wfId, cat);
     await saveState();
     persistWorkflowCategories(wfId);
     runFilter();
     if (typeof host().renderWorkflowList === 'function') host().renderWorkflowList();
+    if (global.CFS_planWorkflowPicker && typeof global.CFS_planWorkflowPicker.refresh === 'function') {
+      global.CFS_planWorkflowPicker.refresh();
+    }
     setStatus('Removed from category.', 'success');
   }
 
@@ -207,7 +244,7 @@
     if (typeof host().loadWorkflows === 'function') host().loadWorkflows();
     if (typeof host().persistWorkflowToProjectFolder === 'function') host().persistWorkflowToProjectFolder(id);
     persistWorkflowCategories(id);
-    setStatus('Workflow added. Find it in Your workflows below.', 'success');
+    setStatus('Workflow added. Open Plan to run it.', 'success');
     if (typeof host().fetchWorkflowsFromBackend === 'function') host().fetchWorkflowsFromBackend();
     runFilter();
   }
@@ -265,7 +302,7 @@
           };
         });
         remote = C.filterWorkflowEntries(remote, getActiveFilter()).filter(function (row) {
-          return !local.some(function (l) { return l.id === row.id; });
+          return !isHiddenNav(row.workflow) && !local.some(function (l) { return l.id === row.id; });
         });
       } catch (_) {}
     }
@@ -318,12 +355,19 @@
     renderTabs();
     bindSearch();
     await runFilter();
+    if (global.CFS_planWorkflowPicker && typeof global.CFS_planWorkflowPicker.refresh === 'function') {
+      global.CFS_planWorkflowPicker.refresh();
+    }
   }
 
   global.CFS_libraryCategories = {
     refresh: refresh,
     getActiveFilter: getActiveFilter,
     matchesWorkflow: matchesWorkflow,
-    getState: function () { return state; }
+    getState: function () { return state; },
+    addCategoryFromPrompt: addCategoryFromPrompt,
+    assign: assign,
+    unassign: unassign,
+    deleteCategory: deleteCategory
   };
 })(typeof window !== 'undefined' ? window : globalThis);

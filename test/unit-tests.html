@@ -69,6 +69,9 @@
   <script src="../shared/run-video-segments.js"></script>
   <script src="../shared/workflow-setup-constants.js"></script>
   <script src="../shared/workflow-categories.js"></script>
+  <script src="../shared/nav-workflow-filter.js"></script>
+  <script src="../shared/cfs-always-on-automation.js"></script>
+  <script src="../shared/realtime-feeds.js"></script>
   <script src="tooltip-overlay.js"></script>
   <script src="../shared/storage-secret-keys.js"></script>
   <script src="../shared/bsc-indexer-providers.js"></script>
@@ -76,6 +79,7 @@
   <script src="../shared/pancake-v3-subgraph.js"></script>
   <script src="../shared/pancake-v3-lp-amounts.js"></script>
   <script src="../shared/always-on-bound-positions.js"></script>
+  <script src="../shared/cfs-v3-monitor-steps.js"></script>
   <script src="unit-test-runner.js"></script>
   <script src="../shared/apify-run-query-validation.js"></script>
   <script src="../shared/apify-extract-run-id.js"></script>
@@ -83,6 +87,11 @@
   <script src="../shared/run-if-condition.js"></script>
   <script src="../shared/workflow-plan.js"></script>
   <script src="../shared/page-compare.js"></script>
+  <script src="../shared/page-agent-snapshot.js"></script>
+  <script src="../shared/playback-heal.js"></script>
+  <script src="../shared/local-llm-hardware.js"></script>
+  <script src="../shared/agent-planner-access.js"></script>
+  <script src="../shared/download-xenova-llama.js"></script>
   <script src="../shared/personal-info-sync.js"></script>
   <script src="../shared/row-list-normalize.js"></script>
   <script src="../shared/project-id-resolve.js"></script>
@@ -94,6 +103,7 @@
   <script src="../shared/workflow-removed-steps-migration.js"></script>
   <script src="workflow-edit-history-tests.js"></script>
   <script src="../sidepanel/steps-flow-graph.js"></script>
+  <script src="../shared/workflow-run-media.js"></script>
   <script src="unit-tests.js"></script>
   <!-- Tunnel UI fixture — mirrors settings.html elements for tunnel-tests.js DOM checks -->
   <div id="tunnelTestFixture" style="display:none;">
@@ -155,6 +165,7 @@
   <script src="../steps/extractData/handler.js"></script>
   <script src="../steps/sendToEndpoint/handler.js"></script>
   <script src="../steps/waitForHttpPoll/handler.js"></script>
+  <script src="../steps/checkRealtimeData/handler.js"></script>
   <script src="../steps/setVideoSegments/handler.js"></script>
   <script src="../steps/combineVideos/handler.js"></script>
   <script src="../steps/trimVideo/handler.js"></script>
@@ -241,6 +252,7 @@
   <script src="../steps/meteoraCpammClaimReward/handler.js"></script>
   <script src="../steps/bscPancake/handler.js"></script>
   <script src="../steps/pancakeV3RangeWatch/handler.js"></script>
+  <script src="../steps/reconcileV3Positions/handler.js"></script>
   <script src="../steps/bscV3LpWizard/handler.js"></script>
   <script src="../steps/bscV3AutoApprove/handler.js"></script>
   <script src="../steps/bscV3RebalanceOnce/handler.js"></script>
@@ -320,6 +332,7 @@
   <script src="../steps/extractData/step-tests.js"></script>
   <script src="../steps/sendToEndpoint/step-tests.js"></script>
   <script src="../steps/waitForHttpPoll/step-tests.js"></script>
+  <script src="../steps/checkRealtimeData/step-tests.js"></script>
   <script src="../steps/setVideoSegments/step-tests.js"></script>
   <script src="../steps/combineVideos/step-tests.js"></script>
   <script src="../steps/trimVideo/step-tests.js"></script>
@@ -406,6 +419,7 @@
   <script src="../steps/meteoraCpammClaimReward/step-tests.js"></script>
   <script src="../steps/bscPancake/step-tests.js"></script>
   <script src="../steps/pancakeV3RangeWatch/step-tests.js"></script>
+  <script src="../steps/reconcileV3Positions/step-tests.js"></script>
   <script src="../steps/bscV3LpWizard/step-tests.js"></script>
   <script src="../steps/bscV3AutoApprove/step-tests.js"></script>
   <script src="../steps/bscV3RebalanceOnce/step-tests.js"></script>

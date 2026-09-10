@@ -22,7 +22,9 @@ This path uses **Pancake V3 ticks**, not Infinity bins. For Infinity LB see [`BS
 | **`bscV3EnterFromStable`** | Stable budget → size legs → `exactOutputSingle` prep swaps → mint (asymmetric-friendly) |
 | **`bscV3AutoApprove`** | Approve tokenA/tokenB for pinned V3 **SwapRouter** + **NPM** (skip if already max) |
 | **`bscV3RebalanceOnce`** | Decrease → collect → burn → new range → top-up swaps → mint |
-| **`bindAlwaysOnBoundRow`** | After mint/restake: merge `v3PositionTokenId` (+ policies) into **`wf-bsc-v3-monitor`** `alwaysOn.boundRow` |
+| **`bindAlwaysOnBoundRow`** | After mint/restake: merge `v3PositionTokenId` (+ policies) into **`wf-bsc-v3-monitor`** `alwaysOn.boundRows` |
+| **`reconcileV3Positions`** | Optional: NPM vs `boundRows` (same as Activity Reconcile NFTs) |
+| **`pancakeV3RangeWatch`** | One-shot (`waitUntilOutOfRange: false`) on the monitor; tab default is wait-until-OOR |
 
 Query helpers (via **`bscQuery`**): `v3RangeFromPercent`, `v3RestakeRange`, `v3LpAmountsFromBnb`, `v3LpAmountsFromStable`.
 
@@ -32,9 +34,9 @@ Query helpers (via **`bscQuery`**): `v3RangeFromPercent`, `v3RestakeRange`, `v3L
 |-------------|---------|
 | **`wf-bsc-v3-enter`** | Wizard → auto-approve → BNB→token swaps → mint → **`bindAlwaysOnBoundRow`** → monitor |
 | **`wf-bsc-v3-enter-stable`** | **`bscV3EnterFromStable`** (−5/+15 `4`/USDT) → bind monitor (`exitBelowPolicy: sell_stable`) |
-| **`wf-bsc-v3-monitor`** | Tab `pancakeV3RangeWatch` + **alwaysOn** V3 watch → four-way `onOutOfRange` |
+| **`wf-bsc-v3-monitor`** | Always-on workflow: `checkRealtimeData` + optional gas/reconcile + one-shot `pancakeV3RangeWatch` + four `runWorkflow` children |
 | **`wf-bsc-v3-exit-stable`** | Decrease / collect / burn → swap leftovers to `stableToken` |
-| **`wf-bsc-v3-restake`** | `bscV3RebalanceOnce` → **`bindAlwaysOnBoundRow`** → re-arm monitor |
+| **`wf-bsc-v3-restake`** | `bscV3RebalanceOnce` → **`bindAlwaysOnBoundRow` replace** (does not re-enter the monitor) |
 
 ### Independent exit policies
 
@@ -47,7 +49,7 @@ Query helpers (via **`bscQuery`**): `v3RangeFromPercent`, `v3RestakeRange`, `v3L
 }
 ```
 
-Monitor branches on `driftDirection` × policy:
+Monitor branches on `driftDirection` × policy via **`runWorkflow` + `runIf`** on the monitor steps (not live `onOutOfRange` JSON):
 
 ```json
 [
@@ -60,28 +62,34 @@ Monitor branches on `driftDirection` × policy:
 
 ## 4. Always-on background monitoring + NFT handoff
 
-**Multi-position:** monitors store **`alwaysOn.boundRows[]`**. Legacy scalar `boundRow` migrates to a one-element list on read and stays mirrored as the primary row for older callers.
+The **monitor workflow’s steps are the source of truth**. Alarm `cfs_v3_range_poll` (~30s) runs a **shared Multicall**, then SW-safe prefix **in-worker** (no tab): `ensureNativeGasFromStable` (reads `alwaysOn.gasReload*`), optional `reconcileV3Positions`, one-shot `pancakeV3RangeWatch`. A **tab opens only** when a `runWorkflow` child’s `runIf` matches. In-range ticks do not start `__CFS_executeBackgroundWorkflow`. `checkRealtimeData` is skipped on ticks (the feed is already running). Click/type in the prefix is skipped (fail-closed).
 
-**Auto-handoff:** enter uses **`bindMode: upsert`**, exit uses **`remove`**, restake uses **`replace`** (`bindAlwaysOnBoundRow` → `CFS_ALWAYS_ON_MERGE_BOUND_ROW`). Enter-from-stable sets `fundMode: stable` (asymmetric restake via `v3LpAmountsFromStable`).
+**Multi-position Data:** **`alwaysOn.boundRows[]`** is the table on Activity, Plan (when the monitor is selected), and MCP `list_always_on_workflows` / `set_always_on_data_row` (alias of `set_always_on_bound_row`). Legacy scalar `boundRow` migrates to a one-element list on read.
+
+**Auto-handoff:** enter uses **`bindMode: upsert`**, exit uses **`remove`**, restake uses **`replace`**. Restake does **not** `runWorkflow` the monitor — the shared V3 feed already owns the next tick.
 
 **Idle:** 0 NFTs → no RPC (`no_v3_positions`). Batch checks use Multicall3 (`v3RangeCheckBatch`).
 
-**Inactive / all-in-one-token:** Pancake’s **Inactive** badge means hard out-of-range. Below the min tick the position is ~100% **token0**; above the max it is ~100% **token1**. There is no separate Pancake event — `currentTick` vs `tickLower`/`tickUpper` is the signal. With `exitBelowPolicy: sell_stable`, the monitor runs **`wf-bsc-v3-exit-stable`** (decrease / collect / burn → swap token0 → USDT).
+**Inactive / all-in-one-token:** Pancake’s **Inactive** badge means hard out-of-range. Below the min tick the position is ~100% **token0**; above the max it is ~100% **token1**. `triggerReason`: `hard_oor` | `near_edge` | `in_range`.
 
-**Near-edge (optional):** `nearEdgePercent` (e.g. `"2"`) on the monitor or bound row. While still in range, if price is within that % of an edge (same idea as Pancake’s +1.7% / +23% labels), fire the same below/above policies with `triggerReason: near_edge`. Blank = disabled (hard OOR only).
+**Near-edge (optional):** `nearEdgePercent` (e.g. `"2"`) on the monitor settings or a bound row. While still in range, if price is within that % of an edge, fire below/above policies with `triggerReason: near_edge`. Blank = disabled (hard OOR only).
 
-**Panel wake:** Closing the side panel does **not** pause the SW alarm. Reopening / becoming visible also forces `CFS_V3_RANGE_WATCH_REFRESH_NOW` (throttled ~12s) so a still-Inactive position can exit without waiting for the next ~30s poll or a manual Refresh.
+**Panel wake:** Closing the side panel does **not** pause the SW alarm. Reopening / becoming visible also forces `CFS_V3_RANGE_WATCH_REFRESH_NOW` (throttled ~12s).
 
-**Reconcile:** `CFS_V3_RECONCILE_POSITIONS` / MCP `bsc_v3_reconcile_positions` discovers NPM NFTs via `tokenOfOwnerByIndex` and drops closed / reports untracked.
+**Reconcile:** step **`reconcileV3Positions`** and/or `CFS_V3_RECONCILE_POSITIONS` / MCP `bsc_v3_reconcile_positions`.
 
-**Gas top-up:** optional `gasReloadEnabled` + below/target wei on the monitor (or row) → `ensureNativeGasFromStable` before enter/restake/exit and on watch ticks.
+**Gas top-up:** optional `gasReloadEnabled` + below/target wei (Activity settings strip / `set_always_on_settings`). The monitor step `ensureNativeGasFromStable` **reads** those fields (unlocked wallet, no Pancake tab).
 
-**MCP watchdog:** `monitor_watchdog_status` / `monitor_watchdog_configure` in Bun MCP (`watchdog.enabled` in `ec-mcp-config.json`). Alerts on relay offline or OOR (cooldown + optional webhook/OS notify); can wake Chrome + refresh; when healthy reconciles NFT lists and mirrors status to the side panel; optional direct RPC OOR checks from the last snapshot while Chrome is closed. Machine must be on with MCP running; signing still needs an unlocked wallet.
+**Pause:** Check-step **Always-on (background)** / Activity **Enabled** (`alwaysOnEnabled`). Enabled on Activity saves immediately; poll, policies, and NFT fields apply on **Save rules**. MCP `list_always_on_workflows` includes paused families and returns **this family’s** last child (not a global activity row). `set_always_on_scope` can set `alwaysOnEnabled: false` without a dummy scope.
 
-Manual / MCP equivalent:
+**Stored copies:** Opening Activity or the next V3 tick upgrades Library copies of the V3 monitor in place (inserts missing `checkRealtimeData` / gas / reconcile, sets `waitUntilOutOfRange: false`). Infinity and tab-only range-watch workflows are left alone. You do not need to re-import the preset.
+
+**Activity Data:** per-row **Status** / **Last tick** are derived from the last V3 poll snapshot (read-only).
+
+**MCP watchdog:** `monitor_watchdog_status` / `monitor_watchdog_configure` in Bun MCP. Machine must be on with MCP running; signing still needs an unlocked wallet.
 
 ```js
-// MCP: set_always_on_bound_row (upsert by default)
+// MCP: set_always_on_data_row (alias of set_always_on_bound_row)
 {
   "workflowId": "wf-bsc-v3-monitor",
   "mode": "upsert",
@@ -92,15 +100,15 @@ Manual / MCP equivalent:
 }
 ```
 
-`alwaysOn.priceRangeWatch.mode` = `"v3"` (dual-mode with Infinity: V3 uses `v3PositionTokenId`; Infinity uses bin fields).
+`alwaysOn.priceRangeWatch.mode` = `"v3"`. Enable with a **`checkRealtimeData`** step (`priceRangeWatch` + mode `v3`). After migration, **`onOutOfRange` is not the live router** — do not teach agents to only set that JSON.
 
-Service worker: **`background/v3-range-watch.js`**, alarm `cfs_v3_range_poll`, default **30s** via `when` reschedule.
+Service worker: **`background/v3-range-watch.js`**, helpers **`shared/cfs-v3-monitor-steps.js`**, alarm `cfs_v3_range_poll`, default **30s**.
 
 | Channel | Messages / tools |
 |---------|------------------|
 | SW | `CFS_V3_RANGE_WATCH_GET_STATUS`, `CFS_V3_RANGE_WATCH_REFRESH_NOW`, `CFS_V3_RANGE_WATCH_STOP`, `CFS_ALWAYS_ON_MERGE_BOUND_ROW`, `CFS_V3_RECONCILE_POSITIONS`, `CFS_BSC_V3_RANGE_CHECK` |
-| MCP | `bsc_v3_range_watch_status`, `bsc_v3_range_watch_refresh`, `bsc_v3_reconcile_positions`, `set_always_on_bound_row`, `monitor_watchdog_*`, `bsc_query` / `bsc_execute` |
-| Tab | **`pancakeV3RangeWatch`** (default poll 30s) |
+| MCP | `bsc_v3_range_watch_status`, `bsc_v3_range_watch_refresh`, `bsc_v3_reconcile_positions`, `list_always_on_workflows`, `set_always_on_data_row`, `set_always_on_settings`, `set_always_on_scope`, `monitor_watchdog_*`, `bsc_query` / `bsc_execute` |
+| Tab | **`pancakeV3RangeWatch`** wait-until-OOR (default) or one-shot when `waitUntilOutOfRange: false` |
 
 ## 5. Testnet / Chapel vs mainnet
 
@@ -146,8 +154,8 @@ Service worker alarm `cfs_v3_range_poll` (~30s). Confirm with `CFS_V3_RANGE_WATC
 
 ### Where to see it in the side panel
 
-- **Activity → Always-On Activity → Always-on monitors**: live card for **BSC V3 LP monitor** with last-poll status (`in range` / **Inactive** / near-edge, rough token0/token1 %), configured **chain** id, NFT id, below/above policies, optional **Near-edge %**, range %, poll interval, **Save rules**, and **Refresh now**. This is the live process — you do not need to press Run. Closing the side panel does not stop the service worker; reopening reloads workflows + last-poll keys and **forces a range tick** so still-OOR positions can act.
-- **Library** or **Plan** workflow dropdown: select **BSC V3 LP monitor (always-on)** (and enter / exit / restake siblings) for the full Always-on JSON editor. Always-on workflows stay listed even when the active tab is not PancakeSwap.
+- **Activity → Always-on workflows**: one family row; V3 **Data** table is `boundRows`; **Paused** when `alwaysOnEnabled` is off; **Open in Plan** for steps. Shared feeds stay above the list.
+- **Plan** → **Edit and Run** workflow dropdown: select **BSC V3 LP monitor (always-on)** (and enter / exit / restake siblings) for the full Always-on JSON editor. Always-on workflows stay listed even when the active tab is not PancakeSwap.
 - If the NFT id was wiped after Reload: **Settings → BSC → V3 LP monitor bind** → paste the position NFT id → **Bind to V3 monitor**. Reloading presets now **preserves** a non-empty `v3PositionTokenId`.
 - CLI (canary profile): `npm run bind:bsc-v3-monitor` (optional `CFS_BSC_V3_TOKEN_ID=…`, `CFS_PW_USER_DATA_DIR=…`).
 

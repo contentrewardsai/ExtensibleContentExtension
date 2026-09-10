@@ -20,6 +20,8 @@ var CFS_CONTENT_SCRIPT_TAB_BUNDLE_FILES = [
   "shared/cfs-frame-actions.js",
   "shared/workflow-plan.js",
   "shared/page-compare.js",
+  "shared/page-agent-snapshot.js",
+  "content/page-agent.js",
   "steps/registry.js",
   "steps/loader.js",
   "steps/click/handler.js",

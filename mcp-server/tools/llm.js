@@ -6,11 +6,11 @@ import { z } from 'zod';
 export function registerLlmTools(server, ctx) {
   server.tool(
     'call_llm',
-    'Run a single prompt through the configured LLM provider (LaMini, OpenAI, Claude, Gemini, or Grok). Provider and model are determined by Settings unless overridden.',
+    'Run a single prompt through the configured LLM provider (LaMini, OpenAI, Claude, Gemini, Grok, or Content Rewards AI / crai). Provider and model are determined by Settings unless overridden.',
     {
       prompt: z.string().max(500000).describe('The prompt text (max 500,000 characters)'),
       responseType: z.enum(['text', 'json']).optional().describe('Response format: "text" (default) or "json"'),
-      llmProvider: z.enum(['lamini', 'openai', 'claude', 'gemini', 'grok']).optional().describe('Override the workflow default provider'),
+      llmProvider: z.enum(['lamini', 'openai', 'claude', 'gemini', 'grok', 'crai']).optional().describe('Override the workflow default provider (crai = Content Rewards AI Qwen 27B)'),
       llmOpenaiModel: z.string().max(256).optional().describe('Override OpenAI model id'),
       llmModelOverride: z.string().max(256).optional().describe('Override model id for Claude/Gemini/Grok'),
     },
@@ -27,7 +27,7 @@ export function registerLlmTools(server, ctx) {
 
   server.tool(
     'call_llm_chat',
-    'Run a multi-turn chat through the configured cloud LLM provider (not LaMini). Uses the chat provider from Settings.',
+    'Run a multi-turn chat through the configured cloud LLM provider (OpenAI / Claude / Gemini / Grok / Content Rewards AI). Uses the chat provider from Settings.',
     {
       messages: z.array(z.object({
         role: z.enum(['system', 'user', 'assistant']).describe('Message role'),

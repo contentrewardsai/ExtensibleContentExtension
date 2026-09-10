@@ -920,7 +920,7 @@ function augmentMissingFallbackSelectors(actions) {
   if (!actions?.length) return;
   for (const a of actions) {
     if (!a || (a.fallbackSelectors && a.fallbackSelectors.length)) continue;
-    if (a.type !== 'type' && a.type !== 'click' && a.type !== 'hover') continue;
+    if (a.type !== 'type' && a.type !== 'click' && a.type !== 'hover' && a.type !== 'wait' && a.type !== 'waitForElement') continue;
     const extras = [];
     const tag = (a.tagName || '').toLowerCase();
     const tagForName = tag === 'input' || tag === 'textarea' || tag === 'select' ? tag : 'textarea';

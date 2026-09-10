@@ -12,6 +12,10 @@
       if (action.openInNewWindow) part += ' [new window]';
       return part;
     },
+    getVariableKey: function(action) {
+      if (action.url && String(action.url).trim()) return '';
+      return (action.variableKey || '').toString().trim();
+    },
     renderBody: function(action, i, wfId, totalCount, helpers) {
       var escapeHtml = helpers.escapeHtml;
       var url = (action.url || '').toString().trim();

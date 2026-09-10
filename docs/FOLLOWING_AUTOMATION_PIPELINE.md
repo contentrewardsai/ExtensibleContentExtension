@@ -5,7 +5,7 @@ Following automation policy lives in **Library workflows**, not on Pulse Followi
 ## Model
 
 1. **Global token blocklist** — Settings → `cfsFollowingAutomationGlobal.globalTokenBlocklist` (`solana[]`, `evm[]`). Canonical assets **cannot** be listed (wrapped SOL mint, WBNB, zero address). Emergency toggles: **pause all Following automation**, **pause watch polling**.
-2. **Always-on workflow** — `alwaysOn.enabled` + scopes (`followingAutomationSolana` / `followingAutomationBsc`). **`workflow.followingAutomation`** sets sizing, paper mode, Jupiter wrap/unwrap (Solana), auto-exec, slippage, etc.
+2. **Always-on workflow** — a **`checkRealtimeData`** step with Following automation sources (derived `alwaysOn.enabled` + scopes `followingAutomationSolana` / `followingAutomationBsc`). **`workflow.followingAutomation`** sets sizing, paper mode, Jupiter wrap/unwrap (Solana), auto-exec, slippage, etc.
 3. **Bind step** — **`selectFollowingAccount`** (`profileId`, `address`, `chain`) must match the watched wallet for that automation event. Multiple workflows can bind to different Following rows.
 4. **Pipeline steps** (ordered in `analyzed.actions`) — After the bind step, the SW may run:
    - **`rugcheckToken`** — `GET https://api.rugcheck.xyz/v1/tokens/{mint}/report` (optional **maxScoreNormalised** gate).

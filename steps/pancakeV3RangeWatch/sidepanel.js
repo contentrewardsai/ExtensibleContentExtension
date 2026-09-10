@@ -10,12 +10,17 @@
       v3PositionTokenId: '',
       pollIntervalMs: 30000,
       timeoutMs: 0,
+      waitUntilOutOfRange: true,
+      nearEdgePercent: '',
       saveDriftDirection: 'driftDirection',
       saveCurrentTick: 'currentTick',
       savePositionRange: 'positionRange',
     },
     getSummary: function(action) {
       var tid = (action.v3PositionTokenId || '').toString().trim();
+      var wait = action.waitUntilOutOfRange;
+      var oneShot = wait === false || wait === 'false' || wait === 0 || wait === '0';
+      if (oneShot) return tid ? 'One-shot V3 #' + tid : 'PancakeSwap V3 range check (one-shot)';
       return tid ? 'Watch V3 #' + tid : 'PancakeSwap V3 range watch';
     },
     getVariableKey: function() { return ''; },
@@ -28,6 +33,8 @@
       if (t) out.push({ rowKey: t, label: t, hint: 'current tick' });
       var r = (action.savePositionRange || '').trim();
       if (r) out.push({ rowKey: r, label: r, hint: 'range JSON' });
+      out.push({ rowKey: 'inRange', label: 'inRange', hint: 'true or false' });
+      out.push({ rowKey: 'triggerReason', label: 'triggerReason', hint: 'hard_oor | near_edge | in_range' });
       return out;
     },
   });

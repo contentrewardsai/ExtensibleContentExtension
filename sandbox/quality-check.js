@@ -28,6 +28,16 @@
   let embeddingPipeline = null;
   let asrPipeline = null;
   let flanPipeline = null;
+  let llamaPipeline = null;
+  let webllmEngine = null;
+  let webllmModelKey = '';
+  let tf4mod = null;
+  const QWEN3_MODEL_ID = 'onnx-community/Qwen3-4B-ONNX';
+  const QWEN_MODEL_ID = 'mlc-ai/Qwen2.5-7B-Instruct-q4f16_1-MLC';
+  const QWEN_WEBLLM_ID = 'Qwen2.5-7B-Instruct-q4f16_1-MLC';
+  const QWEN_WASM_NAME = 'Qwen2-7B-Instruct-q4f16_1_cs1k-webgpu.wasm';
+  const LOCAL_LOAD_MS = 240000;
+  const LOCAL_GEN_MS = 60000;
 
   function cosineSimilarity(a, b) {
     if (!a || !b || a.length !== b.length) return 0;
@@ -41,22 +51,24 @@
     return denom > 0 ? dot / denom : 0;
   }
 
-  const { env, pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
-  env.allowLocalModels = false;
-  env.useBrowserCache = false;
-  env.useWasmCache = false;
-  if (env?.backends?.onnx?.wasm) {
-    env.backends.onnx.wasm.numThreads = 1;
-  }
-
-  // LaMini (and optional bundled weights) load from chrome-extension://.../models/...
-  // Large Xenova files live under the user's project folder; parent reads them via postMessage.
+  let tf3mod = null;
   const localModelBase = (typeof window !== 'undefined' && window.location?.origin)
     ? window.location.origin + '/models/'
     : '';
-  if (localModelBase) {
-    env.localModelPath = localModelBase;
-    env.allowLocalModels = true;
+
+  async function getTf3() {
+    if (tf3mod) return tf3mod;
+    tf3mod = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+    if (tf3mod.env) {
+      tf3mod.env.allowLocalModels = !!localModelBase;
+      tf3mod.env.useBrowserCache = false;
+      tf3mod.env.useWasmCache = false;
+      if (localModelBase) tf3mod.env.localModelPath = localModelBase;
+      if (tf3mod.env.backends && tf3mod.env.backends.onnx && tf3mod.env.backends.onnx.wasm) {
+        tf3mod.env.backends.onnx.wasm.numThreads = 1;
+      }
+    }
+    return tf3mod;
   }
 
   const origFetch = globalThis.fetch.bind(globalThis);
@@ -97,7 +109,15 @@
     const url = typeof input === 'string' ? input : (input && input.url);
     if (localModelBase && typeof url === 'string' && url.startsWith(localModelBase)) {
       const rel = url.slice(localModelBase.length);
-      if (rel.includes('LaMini-Flan-T5-783M')) {
+      if (/\.onnx_data(_\d+)?$|params_shard_\d+\.bin$/i.test(rel)) {
+        return origFetch(input, init);
+      }
+      if (
+        rel.includes('LaMini-Flan-T5-783M') ||
+        rel.includes('Qwen3-4B-ONNX') ||
+        rel.includes('Qwen2.5-7B-Instruct-q4f16_1-MLC') ||
+        rel.includes(QWEN_WASM_NAME)
+      ) {
         try {
           const buf = await fetchModelBytesFromProject(rel);
           return new Response(buf, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
@@ -106,12 +126,42 @@
         }
       }
     }
+    const remoteRel = mapRemotePlannerUrl(url);
+    if (remoteRel) {
+      try {
+        const buf = await fetchModelBytesFromProject(remoteRel);
+        return new Response(buf, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
+      } catch (_) {
+        if (localModelBase) {
+          try {
+            return await origFetch(localModelBase + remoteRel, init);
+          } catch (_) {}
+        }
+      }
+    }
     return origFetch(input, init);
   };
 
+  function mapRemotePlannerUrl(url) {
+    if (typeof url !== 'string') return '';
+    var qwen = url.match(/huggingface\.co\/mlc-ai\/Qwen2\.5-7B-Instruct-q4f16_1-MLC\/resolve\/[^/]+\/(.+)$/);
+    if (qwen) return 'mlc-ai/Qwen2.5-7B-Instruct-q4f16_1-MLC/' + qwen[1];
+    var qwen3 = url.match(/huggingface\.co\/onnx-community\/Qwen3-4B-ONNX\/resolve\/[^/]+\/(.+)$/);
+    if (qwen3) return 'onnx-community/Qwen3-4B-ONNX/' + qwen3[1];
+    if (url.indexOf(QWEN_WASM_NAME) !== -1) return 'mlc-libs/' + QWEN_WASM_NAME;
+    return '';
+  }
+
+  function normalizePlannerModelKey(key) {
+    var k = String(key || '').trim().toLowerCase();
+    if (k === 'qwen' || k === 'qwen7b' || k === 'qwen2.5' || k === 'qwen2.5-7b') return 'qwen7b';
+    return 'qwen34b';
+  }
+
   async function getEmbeddingPipeline() {
     if (embeddingPipeline) return embeddingPipeline;
-    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+    var tf3 = await getTf3();
+    embeddingPipeline = await tf3.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
       quantized: true,
       progress_callback: () => {},
     });
@@ -120,7 +170,8 @@
 
   async function getAsrPipeline() {
     if (asrPipeline) return asrPipeline;
-    asrPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+    var tf3 = await getTf3();
+    asrPipeline = await tf3.pipeline('automatic-speech-recognition', 'Xenova/whisper-small.en', {
       quantized: true,
       progress_callback: () => {},
     });
@@ -151,9 +202,16 @@
     };
   }
 
-  async function transcribeAudio(audioInput) {
-    /* Accept both Blob and base64 data URL string (for chrome.runtime.sendMessage transport) */
+  async function transcribeAudio(audioInput, opts) {
+    /* Blob, data URL, or { buffer, type } transferred from the offscreen runner (IndexedDB handoff). */
+    const textOnly = !!(opts && opts.textOnly);
     let audioBlob = audioInput;
+    if (audioInput && typeof audioInput === 'object' && !(audioInput instanceof Blob) && audioInput.buffer) {
+      const buf = audioInput.buffer;
+      if (buf instanceof ArrayBuffer || ArrayBuffer.isView(buf)) {
+        audioBlob = new Blob([buf], { type: audioInput.type || 'audio/mp4' });
+      }
+    }
     if (typeof audioInput === 'string' && audioInput.startsWith('data:')) {
       try {
         const res = await fetch(audioInput);
@@ -194,6 +252,11 @@
         return { text: String(text || '').trim(), words };
       }
 
+      if (textOnly) {
+        const parsedFast = parseResult(await pipe(url));
+        return { ok: true, text: parsedFast.text };
+      }
+
       /* Attempt 1: word-level timestamps with chunking */
       let parsed = parseResult(
         await pipe(url, { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5 })
@@ -214,6 +277,46 @@
     }
   }
 
+  async function transcribeAudioBatch(inputs, opts) {
+    const list = Array.isArray(inputs) ? inputs : [inputs];
+    const parts = [];
+    const words = [];
+    const requestId = opts && opts.requestId;
+    const starts = Array.isArray(opts && opts.chunkStarts) ? opts.chunkStarts : [];
+    const wantWords = !(opts && opts.textOnly);
+    for (let i = 0; i < list.length; i++) {
+      if (requestId) {
+        try {
+          window.parent.postMessage({
+            type: 'qc-sandbox-progress',
+            id: requestId,
+            current: i + 1,
+            total: list.length,
+          }, '*');
+        } catch (_) { /* ignore */ }
+      }
+      const r = await transcribeAudio(list[i], { textOnly: !wantWords });
+      if (!r || !r.ok) {
+        return { ok: false, error: (r && r.error) || ('Chunk ' + (i + 1) + ' failed'), text: parts.join('\n'), words: words };
+      }
+      if (r.text && String(r.text).trim()) parts.push(String(r.text).trim());
+      const offset = typeof starts[i] === 'number' && isFinite(starts[i]) ? starts[i] : 0;
+      if (wantWords && Array.isArray(r.words)) {
+        for (let w = 0; w < r.words.length; w++) {
+          const word = r.words[w];
+          if (!word || !word.text) continue;
+          words.push({
+            text: String(word.text).trim(),
+            start: Math.round((Number(word.start) + offset) * 1000) / 1000,
+            end: Math.round((Number(word.end) + offset) * 1000) / 1000,
+            chunk: i + 1,
+          });
+        }
+      }
+    }
+    return { ok: true, text: parts.join('\n'), words: words };
+  }
+
   async function runWhisperCheck(transcript, expectedText, threshold) {
     const th = typeof threshold === 'number' ? threshold : 0.75;
     const outEmb = await embedText(transcript);
@@ -232,7 +335,8 @@
 
   async function getFlanPipeline() {
     if (flanPipeline) return flanPipeline;
-    flanPipeline = await pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-783M', {
+    var tf3 = await getTf3();
+    flanPipeline = await tf3.pipeline('text2text-generation', 'Xenova/LaMini-Flan-T5-783M', {
       quantized: true,
       progress_callback: () => {},
     });
@@ -316,6 +420,335 @@
     } catch (e) {
       return { ok: false, error: (e && e.message) || 'LaMini chat failed' };
     }
+  }
+
+  function splitAgentUserMessage(content) {
+    var shared = (typeof CFS_pageAgentSnapshot !== 'undefined' && CFS_pageAgentSnapshot.splitAgentUserMessage)
+      ? CFS_pageAgentSnapshot.splitAgentUserMessage
+      : null;
+    if (shared) return shared(content);
+    var s = String(content || '');
+    var idx = s.search(/\nPAGE\s/);
+    if (idx < 0) return { task: s.replace(/^Task:\s*/i, '').trim(), page: '' };
+    return {
+      task: s.slice(0, idx).replace(/^Task:\s*/i, '').trim(),
+      page: s.slice(idx + 1).trim(),
+    };
+  }
+
+  function buildLaminiPlannerPrompt(task, pageText) {
+    var shared = (typeof CFS_pageAgentSnapshot !== 'undefined' && CFS_pageAgentSnapshot.buildLaminiPlannerPrompt)
+      ? CFS_pageAgentSnapshot.buildLaminiPlannerPrompt
+      : null;
+    if (shared) return shared(task, pageText);
+    var page = String(pageText || '').trim();
+    var lines = page ? page.split('\n') : [];
+    if (lines.length > 41) page = lines.slice(0, 41).join('\n');
+    if (page.length > 2800) page = page.slice(0, 2799) + '…';
+    return [
+      'Pick the next web action. Output only one line with no explanation:',
+      'click[N] or type[N] your text or scroll down or done.',
+      'N is the index in brackets from PAGE. Do not invent an index.',
+      '',
+      'Task: ' + String(task || '').trim(),
+      '',
+      page || 'PAGE (empty)',
+      '',
+      'Action:',
+    ].join('\n');
+  }
+
+  /**
+   * Page agent via the already-working LaMini pipeline (not Qwen / wllama).
+   * Uses a T5 instruction, not the copywriting generateChat prompt.
+   */
+  async function generatePageAgent(messages, options) {
+    if (!messages || !Array.isArray(messages) || !messages.length) {
+      return { ok: false, error: 'Messages required', code: 'INVALID' };
+    }
+    var lastUser = messages.filter(function (m) { return m && m.role === 'user'; }).pop();
+    var parts = splitAgentUserMessage(lastUser ? lastUser.content : '');
+    if (!parts.task) return { ok: false, error: 'No task', code: 'INVALID' };
+    var opts = options || {};
+    try {
+      var flan = await getFlanPipeline();
+      var flanPrompt = buildLaminiPlannerPrompt(parts.task, parts.page);
+      var flanOut = await flan(flanPrompt, {
+        max_new_tokens: Math.min(opts.max_new_tokens || 32, 48),
+        temperature: opts.temperature == null ? 0.15 : opts.temperature,
+      });
+      var item = Array.isArray(flanOut) ? flanOut[0] : flanOut;
+      var rawText = (item && item.generated_text != null)
+        ? String(item.generated_text)
+        : (typeof item === 'string' ? item : '');
+      rawText = String(rawText).trim();
+      if (!rawText) return { ok: false, error: 'LaMini returned empty', code: 'EMPTY', model: 'Xenova/LaMini-Flan-T5-783M' };
+      return {
+        ok: true,
+        text: rawText,
+        model: 'Xenova/LaMini-Flan-T5-783M',
+        source: 'local',
+        modelKey: 'lamini',
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        error: (e && e.message) || 'LaMini page agent failed',
+        code: 'LLAMA_FAIL',
+        modelKey: 'lamini',
+      };
+    }
+  }
+
+  function withTimeout(promise, ms, label) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () {
+        reject(new Error(label || 'timeout'));
+      }, ms);
+      promise.then(
+        function (v) { clearTimeout(t); resolve(v); },
+        function (e) { clearTimeout(t); reject(e); }
+      );
+    });
+  }
+
+  async function fetchOk(path) {
+    try {
+      var head = await origFetch(path, { method: 'HEAD' });
+      if (head && head.ok) return true;
+    } catch (_) {}
+    try {
+      var ranged = await origFetch(path, { method: 'GET', headers: { Range: 'bytes=0-16' } });
+      return !!(ranged && (ranged.ok || ranged.status === 206));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function qwen3WeightsPresent() {
+    if (!localModelBase) return false;
+    return (
+      (await fetchOk(localModelBase + QWEN3_MODEL_ID + '/config.json')) &&
+      (await fetchOk(localModelBase + QWEN3_MODEL_ID + '/onnx/model_q4f16.onnx'))
+    );
+  }
+
+  async function qwenWeightsPresent() {
+    if (!localModelBase) return false;
+    return (
+      (await fetchOk(localModelBase + QWEN_MODEL_ID + '/mlc-chat-config.json')) &&
+      (await fetchOk(localModelBase + QWEN_MODEL_ID + '/tokenizer.json'))
+    );
+  }
+
+  async function llamaWeightsPresent(modelKey) {
+    var key = normalizePlannerModelKey(modelKey);
+    return key === 'qwen7b' ? qwenWeightsPresent() : qwen3WeightsPresent();
+  }
+
+  async function disposeQwen3() {
+    try {
+      if (llamaPipeline && typeof llamaPipeline.dispose === 'function') await llamaPipeline.dispose();
+    } catch (_) {}
+    llamaPipeline = null;
+  }
+
+  async function disposeQwen() {
+    try {
+      if (webllmEngine && typeof webllmEngine.unload === 'function') await webllmEngine.unload();
+    } catch (_) {}
+    webllmEngine = null;
+    webllmModelKey = '';
+  }
+
+  async function disposeLlama() {
+    await disposeQwen3();
+    await disposeQwen();
+    return { ok: true, loaded: false };
+  }
+
+  async function llamaStatus() {
+    return {
+      ok: true,
+      loaded: !!(llamaPipeline || webllmEngine),
+      model: llamaPipeline ? QWEN3_MODEL_ID : (webllmEngine ? QWEN_MODEL_ID : ''),
+      qwen3Loaded: !!llamaPipeline,
+      qwenLoaded: !!webllmEngine,
+    };
+  }
+
+  function unloadAsrForBigLocal() {
+    if (!asrPipeline) return Promise.resolve();
+    return (async function () {
+      try {
+        if (typeof asrPipeline.dispose === 'function') await asrPipeline.dispose();
+      } catch (_) {}
+      asrPipeline = null;
+    })();
+  }
+
+  async function getTf4() {
+    if (tf4mod) return tf4mod;
+    tf4mod = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0');
+    if (tf4mod.env) {
+      tf4mod.env.allowLocalModels = !!localModelBase;
+      tf4mod.env.useBrowserCache = false;
+      tf4mod.env.useWasmCache = false;
+      if (localModelBase) tf4mod.env.localModelPath = localModelBase;
+      if (tf4mod.env.backends && tf4mod.env.backends.onnx && tf4mod.env.backends.onnx.wasm) {
+        tf4mod.env.backends.onnx.wasm.numThreads = 1;
+      }
+    }
+    return tf4mod;
+  }
+
+  async function getQwen3Pipeline() {
+    if (llamaPipeline) return llamaPipeline;
+    if (!(await qwen3WeightsPresent())) {
+      var missing = new Error('Qwen3 4B is not downloaded');
+      missing.code = 'LLAMA_NOT_DOWNLOADED';
+      throw missing;
+    }
+    await disposeQwen();
+    await unloadAsrForBigLocal();
+    var tf = await getTf4();
+    try { console.log('[cfs-qwen3] loading', QWEN3_MODEL_ID); } catch (_) {}
+    llamaPipeline = await tf.pipeline('text-generation', QWEN3_MODEL_ID, {
+      dtype: 'q4f16',
+      device: 'webgpu',
+      progress_callback: function () {},
+    });
+    return llamaPipeline;
+  }
+
+  function messagesToChatMl(messages) {
+    var s = '';
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i] || {};
+      s += '<|im_start|>' + (m.role || 'user') + '\n' + String(m.content || '') + '<|im_end|>\n';
+    }
+    s += '<|im_start|>assistant\n';
+    return s;
+  }
+
+  function extractGeneratedText(out) {
+    var item = Array.isArray(out) ? out[0] : out;
+    var g = item && item.generated_text;
+    if (Array.isArray(g) && g.length) {
+      var last = g[g.length - 1];
+      if (last && last.content != null) return String(last.content).trim();
+    }
+    var text = g != null ? String(g).trim() : '';
+    return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  }
+
+  async function generateQwen3(messages, options) {
+    var pipe = await withTimeout(getQwen3Pipeline(), LOCAL_LOAD_MS, 'Qwen3 4B load timed out');
+    var opts = Object.assign({ max_new_tokens: 128, temperature: 0.2 }, options || {});
+    var genOpts = {
+      max_new_tokens: Math.min(opts.max_new_tokens || 128, 256),
+      temperature: opts.temperature == null ? 0.2 : opts.temperature,
+      enable_thinking: false,
+    };
+    var out;
+    try {
+      out = await withTimeout(pipe(messages, genOpts), LOCAL_GEN_MS, 'Qwen3 4B first token timed out');
+    } catch (_) {
+      var prompt = messagesToChatMl(messages);
+      out = await withTimeout(pipe(prompt, genOpts), LOCAL_GEN_MS, 'Qwen3 4B first token timed out');
+      var rawFallback = extractGeneratedText(out);
+      if (rawFallback.indexOf(prompt) === 0) rawFallback = rawFallback.slice(prompt.length).trim();
+      if (!rawFallback) return { ok: false, error: 'Qwen3 4B returned empty', code: 'EMPTY', model: QWEN3_MODEL_ID };
+      return { ok: true, text: rawFallback, model: QWEN3_MODEL_ID, source: 'local', modelKey: 'qwen34b' };
+    }
+    var raw = extractGeneratedText(out);
+    if (!raw) return { ok: false, error: 'Qwen3 4B returned empty', code: 'EMPTY', model: QWEN3_MODEL_ID };
+    return { ok: true, text: raw, model: QWEN3_MODEL_ID, source: 'local', modelKey: 'qwen34b' };
+  }
+
+  async function getQwenEngine() {
+    if (webllmEngine && webllmModelKey === 'qwen7b') return webllmEngine;
+    if (!(await qwenWeightsPresent())) {
+      var missing = new Error('Qwen 2.5 7B is not downloaded');
+      missing.code = 'LLAMA_NOT_DOWNLOADED';
+      throw missing;
+    }
+    await disposeQwen3();
+    await unloadAsrForBigLocal();
+    var webllm = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm');
+    var wasmUrl = localModelBase + 'mlc-libs/' + QWEN_WASM_NAME;
+    webllmEngine = await webllm.CreateMLCEngine(QWEN_WEBLLM_ID, {
+      appConfig: {
+        model_list: [
+          {
+            model: 'https://huggingface.co/' + QWEN_MODEL_ID,
+            model_id: QWEN_WEBLLM_ID,
+            model_lib: wasmUrl,
+            vram_required_MB: 5106,
+            overrides: { context_window_size: 4096 },
+          },
+        ],
+      },
+    });
+    webllmModelKey = 'qwen7b';
+    return webllmEngine;
+  }
+
+  async function generateQwen(messages, options) {
+    var engine = await withTimeout(getQwenEngine(), LOCAL_LOAD_MS, 'Qwen 7B load timed out');
+    var opts = Object.assign({ max_new_tokens: 128, temperature: 0.2 }, options || {});
+    var reply = await withTimeout(
+      engine.chat.completions.create({
+        messages: messages,
+        max_tokens: Math.min(opts.max_new_tokens || 128, 256),
+        temperature: opts.temperature == null ? 0.2 : opts.temperature,
+      }),
+      LOCAL_GEN_MS,
+      'Qwen 7B first token timed out'
+    );
+    var raw = reply && reply.choices && reply.choices[0] && reply.choices[0].message
+      ? String(reply.choices[0].message.content || '').trim()
+      : '';
+    if (!raw) return { ok: false, error: 'Qwen 7B returned empty', code: 'EMPTY', model: QWEN_MODEL_ID };
+    return { ok: true, text: raw, model: QWEN_MODEL_ID, source: 'local', modelKey: 'qwen7b' };
+  }
+
+  async function generateLlama(messages, options) {
+    if (!messages || !Array.isArray(messages) || !messages.length) {
+      return { ok: false, error: 'Messages required', code: 'INVALID' };
+    }
+    var opts = options || {};
+    var key = normalizePlannerModelKey(opts.modelKey);
+    try {
+      return key === 'qwen7b' ? await generateQwen(messages, opts) : await generateQwen3(messages, opts);
+    } catch (e) {
+      return {
+        ok: false,
+        error: (e && e.message) || 'Local model failed',
+        code: (e && e.code) || 'LLAMA_FAIL',
+        modelKey: key,
+      };
+    }
+  }
+
+  async function probeLlama(options) {
+    var key = normalizePlannerModelKey(options && options.modelKey);
+    if (!(await llamaWeightsPresent(key))) {
+      return {
+        ok: false,
+        loaded: false,
+        error: (key === 'qwen7b' ? 'Qwen 2.5 7B' : 'Qwen3 4B') + ' is not downloaded',
+        code: 'LLAMA_NOT_DOWNLOADED',
+        modelKey: key,
+      };
+    }
+    return generateLlama(
+      [
+        { role: 'system', content: 'Reply with the single word ok.' },
+        { role: 'user', content: 'ping' },
+      ],
+      { max_new_tokens: 8, temperature: 0, modelKey: key }
+    );
   }
 
   /**
@@ -462,9 +895,16 @@
     runEmbeddingCheck,
     runWhisperCheck,
     transcribeAudio,
+    transcribeAudioBatch,
     embedText,
     generateChat,
+    generatePageAgent,
     runLlm,
+    generateLlama,
+    probeLlama,
+    llamaWeightsPresent,
+    llamaStatus,
+    disposeLlama,
     synthesizeSpeech,
   };
 
@@ -474,7 +914,11 @@
     const { id, method, args } = e.data || {};
     if (!id || !method || !QualityCheck[method]) return;
     try {
-      const result = await QualityCheck[method](...(args || []));
+      const callArgs = args ? args.slice() : [];
+      if (method === 'transcribeAudioBatch') {
+        callArgs[1] = Object.assign({}, callArgs[1] || {}, { requestId: id });
+      }
+      const result = await QualityCheck[method](...callArgs);
       window.parent.postMessage({ type: 'qc-sandbox-response', id, result }, '*');
     } catch (err) {
       window.parent.postMessage({ type: 'qc-sandbox-response', id, error: String(err?.message || err) }, '*');

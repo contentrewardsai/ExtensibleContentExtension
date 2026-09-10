@@ -22,14 +22,16 @@ for (const p of [swPath, modPath]) {
 const sw = fs.readFileSync(swPath, 'utf8');
 const checks = [
   ["importScripts('remote-llm.js')", "importScripts('remote-llm.js')"],
-  ['CALL_REMOTE_LLM_CHAT', "msg.type === 'CALL_REMOTE_LLM_CHAT'"],
+  ['CALL_REMOTE_LLM_CHAT', "__CFS_swTypeHandlers['CALL_REMOTE_LLM_CHAT']"],
+  ['crai chat path', "provider === 'crai'"],
+  ['paid LLM fallback helper', 'cfsRunPaidLlmFallbackChat'],
   ['cfsLlmWorkflowProvider branch', 'cfsLlmWorkflowProvider'],
   ['CFS_remoteLlm.callRemoteLlmStep', 'CFS_remoteLlm.callRemoteLlmStep'],
   ['cfsSanitizeLlmChatMessages', 'cfsSanitizeLlmChatMessages'],
   ['cfsValidateRemoteChatInput', 'cfsValidateRemoteChatInput'],
   ['CALL_LLM msg llmProvider', 'msgLlmProvider'],
   ['CFS_CALL_LLM_MAX_PROMPT_CHARS', 'CFS_CALL_LLM_MAX_PROMPT_CHARS'],
-  ["CFS_LLM_TEST_PROVIDER", "msg.type === 'CFS_LLM_TEST_PROVIDER'"],
+  ["CFS_LLM_TEST_PROVIDER", "__CFS_swTypeHandlers['CFS_LLM_TEST_PROVIDER']"],
   ['CFS_LLM_API_KEY_MAX_CHARS', 'CFS_LLM_API_KEY_MAX_CHARS'],
   ['cfsAssertResolvedLlmModelLength', 'cfsAssertResolvedLlmModelLength'],
 ];
@@ -84,10 +86,13 @@ const settingsNeedles = [
   ['settings LLM section id', 'id="cfsLlmSection"'],
   ['cfsLlmWorkflowProviderSelect', 'id="cfsLlmWorkflowProviderSelect"'],
   ['cfsLlmChatProviderSelect', 'id="cfsLlmChatProviderSelect"'],
+  ['Content Rewards AI chat option', 'value="crai"'],
   ['workflow OpenAI model row class', 'cfs-llm-workflow-openai-model-row'],
   ['chat OpenAI model row class', 'cfs-llm-chat-openai-model-row'],
   ['saveCfsLlmWorkflowDefaultsBtn', 'id="saveCfsLlmWorkflowDefaultsBtn"'],
   ['saveCfsLlmChatDefaultsBtn', 'id="saveCfsLlmChatDefaultsBtn"'],
+  ['workflow paid fallback select', 'id="cfsLlmWorkflowFallbackSelect"'],
+  ['chat paid fallback select', 'id="cfsLlmChatFallbackSelect"'],
 ];
 for (const [label, needle] of settingsNeedles) {
   if (!settingsHtml.includes(needle)) {

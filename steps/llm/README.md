@@ -4,10 +4,10 @@ Runs a prompt with optional **`{{rowVariable}}`** substitution and saves the res
 
 ## Backends
 
-1. **Default (Settings):** **Extension Settings → Local Keys → LLM providers → Workflow — Call LLM default** (`lamini`, `openai`, `claude`, `gemini`, or `grok`). API keys for cloud providers are stored in `chrome.storage.local` (see **docs/PROGRAMMATIC_API.md**). Use **Test** next to each key to confirm credentials (or **`CFS_LLM_TEST_PROVIDER`** from code).
-2. **Per step:** In the side panel step editor, **Backend (optional)** overrides Settings for that step only. Optional **Model** maps to OpenAI model id or Claude/Gemini/Grok override.
+1. **Default (Settings):** **Extension Settings → General & APIs → Workflow LLM default** (`lamini`, `openai`, `claude`, `gemini`, `grok`, or `crai`). API keys for cloud providers are stored in `chrome.storage.local` (see **docs/PROGRAMMATIC_API.md**). Use **Test** next to each key to confirm credentials (or **`CFS_LLM_TEST_PROVIDER`** from code). **Content Rewards AI** (`crai`) uses Qwen 27B on the Content Rewards backend and requires a Whop login (paid or trial when the step runs).
+2. **Per step:** In the side panel step editor, **Backend (optional)** overrides Settings for that step only. Optional **Model** maps to OpenAI model id or Claude/Gemini/Grok override (not used for `crai`).
 
-Execution goes through the **service worker** (`CALL_LLM` → local QC sandbox for LaMini, or `background/remote-llm.js` for cloud). Requests time out after **120 seconds**. Trimmed prompts longer than **500,000** characters are rejected without calling a model. Cloud API keys are capped at **4096** characters (Settings and **`CFS_LLM_TEST_PROVIDER`**). Model ids and overrides are capped at **256** characters.
+Execution goes through the **service worker** (`CALL_LLM` → local QC sandbox for LaMini, `background/remote-llm.js` for cloud keys, or `cfsCallCloreAgentPlanner` for `crai`). Requests time out after **120 seconds**. Trimmed prompts longer than **500,000** characters are rejected without calling a model. Cloud API keys are capped at **4096** characters (Settings and **`CFS_LLM_TEST_PROVIDER`**). Model ids and overrides are capped at **256** characters.
 
 For **OpenAI** and **Grok** (OpenAI-compatible chat completions), model ids matching **`o` + digit** (e.g. o3, o4) or starting with **`gpt-5`** use **`max_completion_tokens`** and omit a custom **`temperature`**, matching vendor rules for reasoning-style models (same behavior as o1).
 

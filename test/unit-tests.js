@@ -2831,6 +2831,18 @@
     assertFalse(sk('   ', {}, getRow));
   }
 
+  function testRunIfAndOrCombinesComparisons() {
+    var ev = global.CFS_runIfCondition.evaluate;
+    function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
+    var row = { driftDirection: 'below', exitBelowPolicy: 'sell_stable', exitAbovePolicy: 'restake' };
+    assertTrue(ev('{{driftDirection}} === below && {{exitBelowPolicy}} === sell_stable', row, getRow));
+    assertFalse(ev('{{driftDirection}} === below && {{exitBelowPolicy}} === restake', row, getRow));
+    assertFalse(ev('{{driftDirection}} === above && {{exitAbovePolicy}} === restake', row, getRow));
+    row.driftDirection = 'above';
+    assertTrue(ev('{{driftDirection}} === above && {{exitAbovePolicy}} === restake', row, getRow));
+    assertTrue(ev('{{driftDirection}} === above || {{exitBelowPolicy}} === sell_stable', row, getRow));
+  }
+
   function testRunIfTripleEqualsAndNotEquals() {
     var ev = global.CFS_runIfCondition.evaluate;
     function getRow(row, k) { return row != null && row[k] !== undefined ? row[k] : ''; }
@@ -2915,6 +2927,10 @@
     assertTrue(!!cat.byType.CAPTURE_VISIBLE_TAB, 'CAPTURE_VISIBLE_TAB catalogued');
     assertEqual(cat.byType.CAPTURE_VISIBLE_TAB.auth, 'extension', 'CAPTURE_VISIBLE_TAB auth is this-extension');
     assertTrue(!!cat.byType.CFS_MCP_OPEN_RELAY, 'CFS_MCP_OPEN_RELAY catalogued');
+    assertTrue(!!cat.byType.CFS_AGENT_PLANNER, 'CFS_AGENT_PLANNER catalogued');
+    assertEqual(cat.byType.CFS_AGENT_PLANNER.auth, 'extension', 'CFS_AGENT_PLANNER auth is this-extension');
+    assertTrue(!!cat.byType.CFS_AGENT_PLANNER_STOP, 'CFS_AGENT_PLANNER_STOP catalogued');
+    assertTrue(!!cat.byType.CFS_AGENT_PLANNER_RETRY_LOCAL, 'CFS_AGENT_PLANNER_RETRY_LOCAL catalogued');
   }
 
   function testMcpCaptureTabHelpers() {
@@ -4004,6 +4020,385 @@
     assertTrue(e != null && e.indexOf('must differ') >= 0);
   }
 
+  function testAlwaysOnDeriveFromCheckRealtimeStep() {
+    var api = global.__CFS_alwaysOnFromSteps;
+    if (!api) throw new Error('__CFS_alwaysOnFromSteps not loaded');
+    var wf = {
+      analyzed: { actions: [{ type: 'checkRealtimeData', followingSolanaWatch: true, fileWatch: true }] },
+      alwaysOn: { boundRows: [{ v3PositionTokenId: 'keep-me' }], gasReloadEnabled: true },
+    };
+    api.applyDerivedAlwaysOn(wf);
+    assertTrue(wf.alwaysOn.enabled === true);
+    assertTrue(wf.alwaysOn.scopes.followingSolanaWatch === true);
+    assertTrue(wf.alwaysOn.scopes.fileWatch === true);
+    assertTrue(wf.alwaysOn.scopes.custom === false);
+    assertEqual(wf.alwaysOn.boundRows[0].v3PositionTokenId, 'keep-me');
+    assertTrue(wf.alwaysOn.gasReloadEnabled === true);
+  }
+
+  function testAlwaysOnEmptyCheckStepDisables() {
+    var api = global.__CFS_alwaysOnFromSteps;
+    var wf = {
+      analyzed: { actions: [{ type: 'checkRealtimeData', followingSolanaWatch: false }] },
+      alwaysOn: { enabled: true, boundRow: { v3PositionTokenId: 'x' } },
+    };
+    api.applyDerivedAlwaysOn(wf);
+    assertFalse(wf.alwaysOn.enabled);
+    assertEqual(wf.alwaysOn.boundRow.v3PositionTokenId, 'x');
+  }
+
+  function testAlwaysOnStepSwitchPausesWithoutClearingSources() {
+    var api = global.__CFS_alwaysOnFromSteps;
+    var wf = {
+      analyzed: {
+        actions: [{ type: 'checkRealtimeData', followingSolanaWatch: true, alwaysOnEnabled: false }],
+      },
+      alwaysOn: { boundRows: [{ v3PositionTokenId: 'keep-me' }] },
+    };
+    api.applyDerivedAlwaysOn(wf);
+    assertFalse(wf.alwaysOn.enabled);
+    assertTrue(wf.alwaysOn.scopes.followingSolanaWatch === true);
+    assertFalse(api.workflowAlwaysOnEnabled(wf));
+    assertTrue(api.workflowHasRealtimeSources(wf));
+    assertEqual(wf.alwaysOn.boundRows[0].v3PositionTokenId, 'keep-me');
+    api.setCheckStepsAlwaysOnEnabled(wf, true);
+    assertTrue(wf.alwaysOn.enabled === true);
+    assertTrue(api.workflowAlwaysOnEnabled(wf));
+  }
+
+  function testAlwaysOnMigrateLegacyInsertsOneStep() {
+    var api = global.__CFS_alwaysOnFromSteps;
+    var wf = {
+      analyzed: { actions: [{ type: 'click' }] },
+      alwaysOn: {
+        enabled: true,
+        scopes: { followingBscWatch: true, fileWatch: true },
+        conditions: { requireBscScanKeyForBsc: true },
+        projectId: 'proj1',
+        boundRows: [{ v3PositionTokenId: 'nft' }],
+      },
+    };
+    assertTrue(api.migrateLegacyAlwaysOnToStep(wf));
+    var checks = api.listCheckSteps(wf);
+    assertEqual(checks.length, 1);
+    assertTrue(checks[0].followingBscWatch === true);
+    assertTrue(checks[0].fileWatch === true);
+    assertTrue(wf.alwaysOn.enabled === true);
+    assertEqual(wf.alwaysOn.boundRows[0].v3PositionTokenId, 'nft');
+    assertFalse(api.migrateLegacyAlwaysOnToStep(wf));
+  }
+
+  function testAlwaysOnLatestVersionPerFamilyCollect() {
+    var api = global.__CFS_alwaysOnFromSteps;
+    var stored = {
+      workflows: {
+        wf_v1: {
+          initial_version: 'famA',
+          version: 1,
+          analyzed: { actions: [{ type: 'checkRealtimeData', followingSolanaWatch: true }] },
+        },
+        wf_v2: {
+          initial_version: 'famA',
+          version: 2,
+          analyzed: { actions: [{ type: 'checkRealtimeData', followingBscWatch: true }] },
+        },
+        wf_test: {
+          _testOnly: true,
+          analyzed: { actions: [{ type: 'checkRealtimeData', custom: true }] },
+        },
+      },
+    };
+    var members = api.collectLatestFamilyWorkflows(stored);
+    assertEqual(members.length, 1);
+    assertEqual(members[0].id, 'wf_v2');
+    var merged = global.__CFS_evaluateFollowingAutomation(stored);
+    assertTrue(merged.allowBscWatch === true);
+    assertTrue(merged.allowSolanaWatch === false);
+    assertTrue(merged.allowCustom === false);
+  }
+
+  function testV3MonitorStepsMigrationAndTickPlan() {
+    var api = global.CFS_v3MonitorSteps || global.__CFS_v3MonitorSteps;
+    if (!api) throw new Error('CFS_v3MonitorSteps not loaded');
+    var children = [
+      { type: 'runWorkflow', runIf: '{{driftDirection}} === below && {{exitBelowPolicy}} === sell_stable', workflowId: 'wf-bsc-v3-exit-stable' },
+      { type: 'runWorkflow', runIf: '{{driftDirection}} === below && {{exitBelowPolicy}} === restake', workflowId: 'wf-bsc-v3-restake' },
+      { type: 'runWorkflow', runIf: '{{driftDirection}} === above && {{exitAbovePolicy}} === sell_stable', workflowId: 'wf-bsc-v3-exit-stable' },
+      { type: 'runWorkflow', runIf: '{{driftDirection}} === above && {{exitAbovePolicy}} === restake', workflowId: 'wf-bsc-v3-restake' },
+    ];
+    var preset = {
+      analyzed: {
+        actions: [
+          { type: 'checkRealtimeData', priceRangeWatch: true, priceRangeMode: 'v3' },
+          { type: 'pancakeV3RangeWatch', waitUntilOutOfRange: false },
+        ].concat(children),
+      },
+      alwaysOn: {
+        priceRangeWatch: {
+          mode: 'v3',
+          onOutOfRange: children.map(function (c) { return { runIf: c.runIf, workflowId: c.workflowId }; }),
+        },
+      },
+    };
+    var before = preset.analyzed.actions.length;
+    var skip = api.migrateOnOutOfRangeToRunWorkflowSteps(preset);
+    assertEqual(skip.migrated, false);
+    assertEqual(skip.reason, 'has_runWorkflow');
+    assertEqual(preset.analyzed.actions.length, before);
+
+    var legacy = {
+      analyzed: { actions: [{ type: 'checkRealtimeData', priceRangeWatch: true }] },
+      alwaysOn: {
+        priceRangeWatch: {
+          onOutOfRange: [{ runIf: '{{driftDirection}} === below', workflowId: 'wf-exit' }],
+        },
+      },
+    };
+    var mig = api.migrateOnOutOfRangeToRunWorkflowSteps(legacy);
+    assertEqual(mig.migrated, true);
+    assertEqual(mig.added, 1);
+    assertEqual(legacy.analyzed.actions.filter(function (a) { return a.type === 'runWorkflow'; }).length, 1);
+
+    var ric = global.CFS_runIfCondition;
+    function evalRunIf(runIf, row) {
+      if (!String(runIf || '').trim()) return true;
+      if (!ric || typeof ric.evaluate !== 'function') return false;
+      return ric.evaluate(runIf, row, function (r, k) { return r && r[k]; });
+    }
+    var inRangeRow = api.seedTickRow(
+      { v3PositionTokenId: '1', exitBelowPolicy: 'sell_stable', exitAbovePolicy: 'restake' },
+      { ok: true, inRange: true, currentTick: 100, tickLower: 90, tickUpper: 110, v3PositionTokenId: '1' },
+      {},
+      api.classifyTriggerFromCheck({ inRange: true, currentTick: 100, tickLower: 90, tickUpper: 110 }, null)
+    );
+    var planIn = api.planMonitorTick(preset.analyzed.actions, inRangeRow, evalRunIf);
+    assertEqual(planIn.openTab, false);
+    assertEqual(planIn.children.length, 0);
+
+    var oorRow = api.seedTickRow(
+      { v3PositionTokenId: '1', exitBelowPolicy: 'sell_stable', exitAbovePolicy: 'restake' },
+      { ok: true, inRange: false, currentTick: 80, tickLower: 90, tickUpper: 110, v3PositionTokenId: '1' },
+      {},
+      api.classifyTriggerFromCheck({ inRange: false, currentTick: 80, tickLower: 90, tickUpper: 110 }, null)
+    );
+    var planOor = api.planMonitorTick(preset.analyzed.actions, oorRow, evalRunIf);
+    assertEqual(planOor.openTab, true);
+    assertEqual(planOor.children.length, 1);
+    assertEqual(planOor.children[0].workflowId, 'wf-bsc-v3-exit-stable');
+
+    var withClick = api.planMonitorTick(
+      [{ type: 'click' }, { type: 'pancakeV3RangeWatch' }, { type: 'runWorkflow', workflowId: 'wf-x', runIf: '' }],
+      oorRow,
+      evalRunIf
+    );
+    assertTrue(withClick.skipped.some(function (s) { return s.reason === 'tab_only_prefix'; }));
+    assertTrue(api.isSwTickSafeAction({ type: 'pancakeV3RangeWatch' }));
+    assertTrue(api.isSwTickSafeAction({ type: 'reconcileV3Positions' }));
+    assertTrue(api.isSwTickSafeAction({ type: 'bscPancake', operation: 'ensureNativeGasFromStable' }));
+    assertEqual(api.isSwTickSafeAction({ type: 'bscPancake', operation: 'v3SwapExactInputSingle' }), false);
+    assertEqual(api.isSwTickSafeAction({ type: 'click' }), false);
+
+    var storedLegacy = {
+      id: 'wf-bsc-v3-monitor',
+      alwaysOn: { enabled: true, scopes: { priceRangeWatch: true }, priceRangeWatch: { mode: 'v3' } },
+      analyzed: {
+        actions: [{ type: 'pancakeV3RangeWatch', v3PositionTokenId: '{{v3PositionTokenId}}' }],
+      },
+    };
+    var up = api.migrateStoredV3MonitorPrefix(storedLegacy);
+    assertEqual(up.migrated, true);
+    var types = storedLegacy.analyzed.actions.map(function (a) { return a.type + (a.operation ? ':' + a.operation : ''); });
+    assertEqual(types[0], 'checkRealtimeData');
+    assertEqual(types[1], 'bscPancake:ensureNativeGasFromStable');
+    assertEqual(types[2], 'reconcileV3Positions');
+    assertEqual(types[3], 'pancakeV3RangeWatch');
+    assertEqual(storedLegacy.analyzed.actions[3].waitUntilOutOfRange, false);
+    var again = api.migrateStoredV3MonitorPrefix(storedLegacy);
+    assertEqual(again.migrated, false);
+    assertEqual(again.reason, 'already_current');
+
+    var infiWf = {
+      analyzed: { actions: [{ type: 'pancakeInfiBinRangeWatch' }] },
+      alwaysOn: { scopes: { priceRangeWatch: true }, priceRangeWatch: { infiPositionTokenId: '1' } },
+    };
+    assertEqual(api.isV3AlwaysOnMonitor(infiWf), false);
+    assertEqual(api.migrateStoredV3MonitorPrefix(infiWf).migrated, false);
+
+    var tabWait = {
+      analyzed: { actions: [{ type: 'pancakeV3RangeWatch', waitUntilOutOfRange: true }] },
+    };
+    assertEqual(api.migrateStoredV3MonitorPrefix(tabWait).migrated, false);
+    assertEqual(tabWait.analyzed.actions[0].waitUntilOutOfRange, true);
+
+    var familyIds = api.familyMemberIds(
+      {
+        'wf-bsc-v3-monitor': { initial_version: 'wf-bsc-v3-monitor', version: 2 },
+        'wf-bsc-v3-monitor-v1': { initial_version: 'wf-bsc-v3-monitor', version: 1 },
+        other: { initial_version: 'other' },
+      },
+      'wf-bsc-v3-monitor',
+      { initial_version: 'wf-bsc-v3-monitor' }
+    );
+    assertTrue(familyIds.indexOf('wf-bsc-v3-monitor') >= 0);
+    assertTrue(familyIds.indexOf('wf-bsc-v3-monitor-v1') >= 0);
+    var activity = [
+      { workflowId: 'other', childWorkflowId: 'wf-other-child', kind: 'oor_trigger' },
+      { workflowId: 'wf-bsc-v3-monitor', childWorkflowId: 'wf-bsc-v3-exit-stable', kind: 'oor_trigger' },
+    ];
+    var last = api.lastActivityForFamily(activity, familyIds);
+    assertEqual(last && last.childWorkflowId, 'wf-bsc-v3-exit-stable');
+    assertEqual(api.lastActivityForFamily(activity, ['missing']), null);
+
+    var poll = {
+      ts: 1700000000000,
+      results: [
+        {
+          workflowId: 'wf-bsc-v3-monitor',
+          results: [{ v3PositionTokenId: '42', ok: true, inRange: true }],
+        },
+        {
+          workflowId: 'other-monitor',
+          results: [{ v3PositionTokenId: '99', ok: true, inRange: false, inactive: true }],
+        },
+      ],
+    };
+    assertEqual(api.lastPollHitForWorkflow(poll, 'wf-bsc-v3-monitor').workflowId, 'wf-bsc-v3-monitor');
+    var posOk = api.positionStatusFromLastPoll(poll, 'wf-bsc-v3-monitor', '42');
+    assertEqual(posOk.status, 'in range');
+    assertEqual(posOk.inRange, true);
+    var posOther = api.positionStatusFromLastPoll(poll, 'wf-bsc-v3-monitor', '99');
+    assertEqual(posOther.status, '');
+    var posForeign = api.positionStatusFromLastPoll(poll, 'other-monitor', '99');
+    assertEqual(posForeign.status, 'Inactive (OUT)');
+  }
+
+  function testRealtimeFeedsDedupeFollowingAndCustomKeys() {
+    var RF = global.CFS_realtimeFeeds;
+    var api = global.__CFS_alwaysOnFromSteps;
+    if (!RF || !api) throw new Error('realtime feeds not loaded');
+    var wfA = {
+      name: 'A',
+      initial_version: 'famA',
+      version: 1,
+      analyzed: {
+        actions: [{
+          type: 'checkRealtimeData',
+          followingSolanaWatch: true,
+          custom: true,
+          signalSource: 'httpPoll',
+          customUrl: 'https://hooks.example.com/tick?x=1',
+          headersJson: '{"Authorization":"a"}',
+        }],
+      },
+    };
+    var wfB = {
+      name: 'B',
+      initial_version: 'famB',
+      version: 1,
+      analyzed: {
+        actions: [{
+          type: 'checkRealtimeData',
+          followingSolanaWatch: true,
+          custom: true,
+          signalSource: 'httpPoll',
+          customUrl: 'https://hooks.example.com/tick?x=1',
+          headersJson: '{"Authorization":"a"}',
+        }],
+      },
+    };
+    var wfC = {
+      name: 'C',
+      initial_version: 'famC',
+      version: 1,
+      analyzed: {
+        actions: [{
+          type: 'checkRealtimeData',
+          custom: true,
+          signalSource: 'httpPoll',
+          customUrl: 'https://hooks.example.com/tick?x=1',
+          headersJson: '{"Authorization":"b"}',
+        }],
+      },
+    };
+    api.applyDerivedAlwaysOn(wfA);
+    api.applyDerivedAlwaysOn(wfB);
+    api.applyDerivedAlwaysOn(wfC);
+    var feeds = RF.collectFeeds({ workflows: { a: wfA, b: wfB, c: wfC } });
+    var following = feeds.filter(function (f) { return f.key === 'following:solana'; });
+    assertEqual(following.length, 1);
+    assertEqual(following[0].consumerFamilies.length, 2);
+    var custom = feeds.filter(function (f) { return f.source === 'customHttp'; });
+    assertEqual(custom.length, 2);
+    var sameAuth = RF.customHttpFeedKey('https://hooks.example.com/tick?x=1', '{"Authorization":"a"}');
+    var otherAuth = RF.customHttpFeedKey('https://hooks.example.com/tick?x=1', '{"Authorization":"b"}');
+    assertTrue(sameAuth !== otherAuth);
+    assertTrue(RF.clampCustomPollMs(2000) === RF.MIN_CUSTOM_POLL_MS);
+    assertTrue(RF.isDangerousUrl('file:///tmp/x'));
+    assertTrue(RF.hasTemplateVars('https://x.com/{{id}}'));
+    assertTrue(custom[0].signalConsumers && custom[0].signalConsumers.length >= 1);
+  }
+
+  function testRealtimeFeedsClmmDlmmJobCollect() {
+    var RF = global.CFS_realtimeFeeds;
+    var api = global.__CFS_alwaysOnFromSteps;
+    var clmmA = {
+      name: 'CLMM A',
+      initial_version: 'clmmFam',
+      version: 1,
+      analyzed: { actions: [{ type: 'checkRealtimeData', priceRangeWatch: true, priceRangeMode: 'raydiumClmm' }] },
+      alwaysOn: { boundRows: [{ poolId: 'pool1', positionNftMint: 'nft1' }] },
+    };
+    var clmmB = {
+      name: 'CLMM B',
+      initial_version: 'clmmFam2',
+      version: 1,
+      analyzed: { actions: [{ type: 'checkRealtimeData', priceRangeWatch: true, priceRangeMode: 'raydiumClmm' }] },
+      alwaysOn: { boundRows: [{ poolId: 'pool1', positionNftMint: 'nft2' }] },
+    };
+    var dlmm = {
+      name: 'DLMM',
+      initial_version: 'dlmmFam',
+      version: 1,
+      analyzed: { actions: [{ type: 'checkRealtimeData', priceRangeWatch: true, priceRangeMode: 'meteoraDlmm' }] },
+      alwaysOn: { boundRows: [{ lbPair: 'pair1', position: 'pos1' }] },
+    };
+    api.applyDerivedAlwaysOn(clmmA);
+    api.applyDerivedAlwaysOn(clmmB);
+    api.applyDerivedAlwaysOn(dlmm);
+    var stored = { workflows: { a: clmmA, b: clmmB, d: dlmm } };
+    var feeds = RF.collectFeeds(stored);
+    var clmmFeeds = feeds.filter(function (f) { return f.source === 'raydiumClmm'; });
+    assertEqual(clmmFeeds.length, 1);
+    assertEqual(clmmFeeds[0].consumerFamilies.length, 2);
+    var dlmmFeeds = feeds.filter(function (f) { return f.source === 'meteoraDlmm'; });
+    assertEqual(dlmmFeeds.length, 1);
+    var jobs = RF.collectClmmRangeJobs(stored);
+    assertEqual(jobs.length, 2);
+    assertEqual(jobs[0].positions.length, 1);
+    var dJobs = RF.collectDlmmRangeJobs(stored);
+    assertEqual(dJobs.length, 1);
+    assertEqual(dJobs[0].positions[0].lbPair, 'pair1');
+  }
+
+  function testRealtimeFeedsAnalyzeMergeOnce() {
+    var RF = global.CFS_realtimeFeeds;
+    var first = RF.mergeCheckRealtimeAfterAnalyze([
+      { type: 'selectFollowingAccount' },
+      { type: 'pancakeV3RangeWatch' },
+    ], 'https://pancakeswap.finance/liquidity');
+    assertTrue(first.merged);
+    var checks = first.actions.filter(function (a) { return a.type === 'checkRealtimeData'; });
+    assertEqual(checks.length, 1);
+    assertTrue(checks[0].followingSolanaWatch === true);
+    assertTrue(checks[0].priceRangeWatch === true);
+    var second = RF.mergeCheckRealtimeAfterAnalyze(first.actions, 'https://pancakeswap.finance/liquidity');
+    var checks2 = second.actions.filter(function (a) { return a.type === 'checkRealtimeData'; });
+    assertEqual(checks2.length, 1);
+    var hint = RF.mergeCheckRealtimeAfterAnalyze([{ type: 'click' }], 'https://app.raydium.io/clmm/position');
+    assertFalse(hint.merged);
+    assertTrue(hint.hint.indexOf('Raydium') >= 0);
+  }
+
   global.CFS_unitTestsRegistered = [
     testConnectedAccountLimitCanAddUnderCap,
     testConnectedAccountLimitAppend,
@@ -4184,6 +4579,7 @@
     testRunIfConditionLegacyFlag,
     testRunIfConditionLiteralTrue,
     testRunIfShouldSkipEmpty,
+    testRunIfAndOrCombinesComparisons,
     testRunIfTripleEqualsAndNotEquals,
     testRunIfSkipWhenRunIfAction,
     testRunIfComplementaryRunWorkflowPair,
@@ -4287,6 +4683,24 @@
     testCfsValidateRemoteChatInputEmpty,
     testCfsValidateRemoteChatInputTooMany,
     testCfsValidateRemoteChatInputValid,
+    testPageAgentRestrictedUrls,
+    testPageAgentSnapshotCollectsInteractive,
+    testPageAgentParsePlannerReply,
+    testPageAgentLaminiPrompt,
+    testPageAgentTypeDoesNotClickLinks,
+    testPageAgentRanksSearchBeforeLinks,
+    testPageAgentHopRouter,
+    testPageAgentPlannerShortTaskOnly,
+    testPageAgentPickTypableAndClickText,
+    testPageAgentHealCandidate,
+    testPlaybackHealSkipGuards,
+    testAnalyzeRunsWaitFallbacks,
+    testLocalLlmHardwareClassify,
+    testFormatLlamaBytes,
+    testLocalPlannerModelRegistry,
+    testAgentPlannerPaidAccess,
+    testCfsAgentPlannerLocalOnlyMissingWeights,
+    testExtensionApiAgentPlannerExported,
     testCfsValidateProjectRelativePath,
 
     // ── PersonalInfo sync tests ───────────────────────────────────────
@@ -4328,6 +4742,7 @@
     testSidepanelNormalizeScriptingError,
     testSidepanelNormalizePlaybackError,
     testSidepanelWorkflowContainsStepType,
+    testSidepanelWorkflowNeedsPageCompare,
     testSidepanelGetDelayBeforeNextRunMs,
     testSidepanelWorkflowNeedsVideoBatchWait,
     testSidepanelIsWorkflowCatalogKbEligible,
@@ -4364,6 +4779,15 @@
     testPancakeV3LpAmountsHelpers,
     testAlwaysOnBoundPositionsHelpers,
     testBscIndexerProvidersResolveAndCredits,
+    testAlwaysOnDeriveFromCheckRealtimeStep,
+    testAlwaysOnEmptyCheckStepDisables,
+    testAlwaysOnStepSwitchPausesWithoutClearingSources,
+    testAlwaysOnMigrateLegacyInsertsOneStep,
+    testAlwaysOnLatestVersionPerFamilyCollect,
+    testV3MonitorStepsMigrationAndTickPlan,
+    testRealtimeFeedsDedupeFollowingAndCustomKeys,
+    testRealtimeFeedsClmmDlmmJobCollect,
+    testRealtimeFeedsAnalyzeMergeOnce,
   ];
 
   // ── Player pure-function tests ─────────────────────────────────────
@@ -4745,6 +5169,403 @@
       return { ok: true };
     }
     assertTrue(cfsValidateRemoteChatInput([{ role: 'user', content: 'hello' }]).ok, 'single message ok');
+  }
+
+  function testPageAgentRestrictedUrls() {
+    var api = global.CFS_pageAgentSnapshot;
+    assertTrue(!!api, 'CFS_pageAgentSnapshot loaded');
+    assertTrue(api.isRestrictedPageUrl('chrome://extensions'), 'chrome://');
+    assertTrue(api.isRestrictedPageUrl('chrome-extension://abc/x.html'), 'chrome-extension://');
+    assertTrue(api.isRestrictedPageUrl('https://example.com/file.pdf'), 'pdf path');
+    assertFalse(api.isRestrictedPageUrl('https://example.com/app'), 'https ok');
+  }
+
+  function testPageAgentSnapshotCollectsInteractive() {
+    var api = global.CFS_pageAgentSnapshot;
+    var root = document.createElement('div');
+    root.style.cssText = 'position:absolute;left:0;top:0;';
+    root.innerHTML = '<button type="button" id="cfs-pa-go" style="display:inline-block;width:64px;height:24px;">Go</button><input aria-label="Email" value="a@b.com" style="display:inline-block;width:80px;height:24px;"><a href="#x" style="display:inline-block;width:40px;height:24px;">Link</a>';
+    document.body.appendChild(root);
+    try {
+      var snap = api.snapshotFromRoot(root, 'https://example.com/page');
+      assertTrue(snap.ok, 'snapshot ok');
+      assertTrue(snap.elements.length >= 3, 'at least 3 interactive');
+      var formatted = api.formatSnapshotForPrompt(snap);
+      assertTrue(formatted.indexOf('[1]') >= 0, 'indexed list');
+      assertTrue(formatted.indexOf('PAGE url=') === 0, 'url header');
+    } finally {
+      document.body.removeChild(root);
+    }
+  }
+
+  function testPageAgentParsePlannerReply() {
+    var parse = global.CFS_pageAgentSnapshot.parsePlannerReply;
+    var json = parse('{"action":"click","index":3}');
+    assertTrue(json.ok && json.action === 'click' && json.index === 3, 'json click');
+    var bracket = parse('click[3]');
+    assertTrue(bracket.ok && bracket.action === 'click' && bracket.index === 3, 'click[3]');
+    var typed = parse('type[1] hello world');
+    assertTrue(typed.ok && typed.action === 'type' && typed.index === 1 && typed.text.indexOf('hello') === 0, 'type[1]');
+    var done = parse('done');
+    assertTrue(done.ok && done.action === 'done', 'done');
+    var scroll = parse('scroll down');
+    assertTrue(scroll.ok && scroll.action === 'scroll' && scroll.text === 'down', 'scroll');
+    var think = parse('<think>reason about the page</think>\nclick[2]');
+    assertTrue(think.ok && think.action === 'click' && think.index === 2, 'strip think tags');
+    var prefixed = parse('Action: click[4]');
+    assertTrue(prefixed.ok && prefixed.action === 'click' && prefixed.index === 4, 'Action: click[4]');
+    var loose = parse('click 5');
+    assertTrue(loose.ok && loose.action === 'click' && loose.index === 5, 'click 5');
+    assertFalse(parse('').ok, 'empty');
+    assertFalse(parse('{"action":"explode"}').ok, 'unknown action');
+  }
+
+  function testPageAgentLaminiPrompt() {
+    var api = global.CFS_pageAgentSnapshot;
+    var split = api.splitAgentUserMessage('Task: search cats\n\nPAGE url=https://example.com title=Ex\n[1] textbox "Search"');
+    assertEqual(split.task, 'search cats');
+    assertTrue(split.page.indexOf('[1]') >= 0, 'keeps PAGE list');
+    var prompt = api.buildLaminiPlannerPrompt('search cats', 'PAGE url=https://example.com\n[1] textbox "Search"\n[2] button "Google Search"');
+    assertTrue(prompt.indexOf('click[N]') >= 0, 'action grammar');
+    assertTrue(prompt.indexOf('Task: search cats') >= 0, 'task');
+    assertTrue(/Action:\s*$/.test(prompt.trim()) || prompt.indexOf('\nAction:') >= 0, 'ends with Action:');
+    var many = [];
+    for (var i = 1; i <= 60; i++) many.push({ index: i, role: 'button', name: 'B' + i, tag: 'button' });
+    var compact = api.formatSnapshotForPrompt({ ok: true, url: 'https://example.com', title: 'T', elements: many }, { maxElements: 40, maxChars: 2800 });
+    assertTrue(compact.indexOf('[40]') >= 0, 'keeps 40');
+    assertTrue(compact.indexOf('[41]') < 0, 'drops 41');
+    var web = api.parseWebSearchTask('search for content rewards AI on Google');
+    assertTrue(!!web && web.query === 'content rewards AI', 'google search query');
+    assertTrue(api.isPageControlTask('search for content rewards AI on Google'), 'page control');
+    assertFalse(api.isPageControlTask('write 3 headlines for a bakery'), 'copy is not page control');
+  }
+
+  function testPageAgentTypeDoesNotClickLinks() {
+    var api = global.CFS_pageAgentSnapshot;
+    var root = document.createElement('div');
+    root.style.cssText = 'position:absolute;left:0;top:0;';
+    var a = document.createElement('a');
+    a.href = '#nope';
+    a.textContent = 'Search for Images';
+    a.style.cssText = 'display:inline-block;width:120px;height:24px;';
+    var clicked = 0;
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      clicked += 1;
+    });
+    root.appendChild(a);
+    document.body.appendChild(root);
+    try {
+      var snap = api.snapshotFromRoot(root, 'https://example.com');
+      assertTrue(snap.ok && snap.elements.length >= 1, 'has link');
+      var parsed = api.parsePlannerReply('type[' + snap.elements[0].index + '] hello');
+      var res = api.actOnSnapshot(snap, parsed);
+      assertFalse(res.ok, 'type on link fails');
+      assertEqual(clicked, 0, 'type must not click links');
+    } finally {
+      document.body.removeChild(root);
+    }
+  }
+
+  function testPageAgentRanksSearchBeforeLinks() {
+    var api = global.CFS_pageAgentSnapshot;
+    var root = document.createElement('div');
+    root.style.cssText = 'position:absolute;left:0;top:0;';
+    root.innerHTML =
+      '<a href="#img" style="display:inline-block;width:80px;height:24px;">Search for Images</a>' +
+      '<textarea aria-label="Search" style="display:inline-block;width:80px;height:24px;"></textarea>';
+    document.body.appendChild(root);
+    try {
+      var snap = api.snapshotFromRoot(root, 'https://example.com');
+      assertTrue(snap.ok && snap.elements.length >= 2, 'two controls');
+      assertEqual(snap.elements[0].role, 'textbox', 'search field first');
+    } finally {
+      document.body.removeChild(root);
+    }
+  }
+
+  function testPageAgentHopRouter() {
+    var api = global.CFS_pageAgentSnapshot;
+    var hops = api.splitLocalAiHops('go to https://reellu.com/ and find the Bitcoin Capitalist campaign. Click on it to go to the page.');
+    assertTrue(hops.length >= 2, 'navigate + click hops');
+    assertEqual(hops[0].kind, 'navigate');
+    assertTrue(hops[0].url.indexOf('reellu.com') >= 0, 'reellu url');
+    assertEqual(hops[1].kind, 'click_find');
+    assertTrue(/bitcoin capitalist/i.test(hops[1].needle), 'campaign needle');
+    assertEqual(api.classifyLocalAiTask('write 3 headlines for https://reellu.com'), 'chat');
+    assertEqual(api.classifyLocalAiTask('write 3 headlines for a bakery'), 'chat');
+    assertFalse(api.isPageControlTask('write 3 headlines for a bakery'), 'copy is chat');
+    assertEqual(api.classifyLocalAiTask('write a comment and type it into the comment box'), 'compose_type');
+    assertEqual(api.classifyLocalAiTask('type "hello world" in the search box'), 'type_literal');
+    assertTrue(api.isPageControlTask('search for content rewards AI on Google'), 'search still page control');
+    assertFalse(api.parseNavigateTask('write 3 headlines for https://reellu.com'), 'url in copy is not navigate');
+    var bareGo = api.parseNavigateTask('go to reellu.com');
+    assertTrue(!!bareGo && bareGo.kind === 'navigate', 'go to bare host');
+    assertTrue(bareGo.url.indexOf('https://reellu.com') === 0, 'bare host https');
+    var visit = api.parseNavigateTask('visit reellu.com');
+    assertTrue(!!visit && visit.url.indexOf('https://reellu.com') === 0, 'visit bare host');
+    var wwwOrg = api.parseNavigateTask('go to www.reellu.org');
+    assertTrue(!!wwwOrg && wwwOrg.url.indexOf('https://www.reellu.org') === 0, 'www + .org');
+    var bareHops = api.splitLocalAiHops('go to reellu.com and find Bitcoin Capitalist');
+    assertEqual(bareHops[0].kind, 'navigate');
+    assertTrue(bareHops[0].url.indexOf('reellu.com') >= 0, 'bare hop url');
+    assertEqual(bareHops[1].kind, 'click_find');
+    assertTrue(/bitcoin capitalist/i.test(bareHops[1].needle), 'remainder needle');
+    assertFalse(/reellu\.com/i.test(bareHops[1].needle || ''), 'domain not leftover needle');
+    assertEqual(api.classifyLocalAiTask('write 3 headlines for reellu.com'), 'chat');
+    assertFalse(api.parseNavigateTask('user@reellu.com'), 'email is not navigate');
+    assertFalse(api.parseNavigateTask('go to settings'), 'no-tld is not navigate');
+    assertTrue(api.looksLikeFailedBrowse('go to settings'), 'failed browse status');
+    assertFalse(api.looksLikeFailedBrowse('write 3 headlines for a bakery'), 'copy is not failed browse');
+    var openHost = api.parseNavigateTask('open reellu.com');
+    assertTrue(!!openHost && openHost.kind === 'navigate', 'open host is navigate');
+    assertEqual(api.classifyLocalAiTask('open the Bitcoin Capitalist campaign'), 'click_find');
+  }
+
+  function testPageAgentPlannerShortTaskOnly() {
+    var api = global.CFS_pageAgentSnapshot;
+    var hops = api.splitLocalAiHops('go to reellu.com and find Bitcoin Capitalist');
+    assertTrue(hops.length >= 2 && hops[1].kind === 'click_find', 'click hop after navigate');
+    assertTrue((hops[1].needle || '').indexOf('go to') < 0, 'planner hop is not the original paragraph');
+    var split = api.splitAgentUserMessage('Task: click the Bitcoin Capitalist\n\nPAGE [1] button "Bitcoin Capitalist"');
+    assertEqual(split.task, 'click the Bitcoin Capitalist');
+    assertTrue(split.task.indexOf('https://') < 0, 'short task only');
+  }
+
+  function testPlaybackHealSkipGuards() {
+    var heal = global.CFS_playbackHeal;
+    assertTrue(!!heal, 'playback heal loaded');
+    assertTrue(heal.shouldSkipHeal({ wf: { _testOnly: true }, failed: { type: 'wait' } }).skip, 'test workflow');
+    assertTrue(heal.shouldSkipHeal({ failed: { type: 'wait', iframeSelectors: [{}] } }).skip, 'iframe');
+    assertTrue(heal.shouldSkipHeal({
+      wf: { urlPattern: { origin: 'https://reellu.com' } },
+      failed: { type: 'wait' },
+      tabUrl: 'https://example.com/',
+    }).skip, 'origin mismatch');
+    assertFalse(heal.shouldSkipHeal({ failed: { type: 'wait' } }).skip, 'healable wait');
+    assertFalse(heal.isNotFoundPlaybackError({ ok: false, error: 'Could not establish connection' }, { isConnection: true, message: 'x' }), 'skip connection');
+    assertTrue(heal.isNotFoundPlaybackError({ ok: false, error: 'not found after 5s' }, { isConnection: false, message: 'not found after 5s' }), 'not-found');
+    assertFalse(heal.shouldPersistPendingHeal({ ok: false, actionIndex: 2 }, { actionIndex: 2 }), 'same fail does not persist');
+    assertTrue(heal.shouldPersistPendingHeal({ ok: true }, { actionIndex: 2 }), 'success persist');
+    var patched = heal.applyHealedSelectors(
+      { actions: [{ type: 'wait', waitForSelectors: [{ type: 'id', value: '#old', score: 10 }], duration: 5000 }] },
+      0,
+      [{ type: 'css', value: 'textarea[name="q"]', score: 9 }],
+      { type: 'wait', waitForSelectors: [{ type: 'id', value: '#old', score: 10 }] },
+      null
+    );
+    assertTrue(patched.ok, 'apply patch');
+    assertTrue(patched.actions[0].duration >= 10000, 'wait bumped');
+    assertTrue(String(patched.actions[0].waitForSelectors[0].value).indexOf('name="q"') >= 0, 'healed first');
+  }
+
+  function testAnalyzeRunsWaitFallbacks() {
+    var fn = global.analyzeRuns || global.mergeSingleRun;
+    assertTrue(typeof fn === 'function', 'analyzer loaded');
+    var run = {
+      url: 'https://www.google.com/',
+      actions: [
+        { type: 'wait', duration: 500, url: 'https://www.google.com/' },
+        {
+          type: 'type',
+          selectors: [{ type: 'id', value: '#APjFqb', score: 10 }],
+          name: 'q',
+          ariaLabel: 'Search',
+          recordedValue: 'x',
+          url: 'https://www.google.com/',
+        },
+      ],
+      startState: [],
+      endState: [],
+    };
+    var result = global.analyzeRuns ? global.analyzeRuns([run]) : global.mergeSingleRun(run);
+    assertTrue(result && result.actions && result.actions.length, 'analyzed actions');
+    var waitStep = (result.actions || []).find(function (a) {
+      return a && (a.type === 'wait' || a.type === 'waitForElement') && (a.waitFor === 'element' || (a.waitForSelectors && a.waitForSelectors.length));
+    });
+    if (!waitStep) waitStep = (result.actions || []).find(function (a) { return a && a.type === 'type'; });
+    assertTrue(!!waitStep, 'wait or type present');
+    var lists = [].concat(waitStep.waitForSelectors || [], waitStep.fallbackSelectors || [], waitStep.selectors || []);
+    assertTrue(lists.length >= 1, 'has selectors/fallbacks');
+  }
+
+  function testPageAgentPickTypableAndClickText() {
+    var api = global.CFS_pageAgentSnapshot;
+    var root = document.createElement('div');
+    root.style.cssText = 'position:absolute;left:0;top:0;';
+    root.innerHTML =
+      '<a href="#img" style="display:inline-block;width:80px;height:24px;">Search for Images</a>' +
+      '<textarea aria-label="Comment" style="display:inline-block;width:80px;height:24px;"></textarea>' +
+      '<div role="button" style="display:inline-block;width:160px;height:24px;"><span>Bitcoin Capitalist</span></div>';
+    document.body.appendChild(root);
+    try {
+      var snap = api.snapshotFromRoot(root, 'https://example.com');
+      var field = api.pickTypableField(snap.elements, 'comment');
+      assertTrue(!!field, 'found typable');
+      assertTrue(/comment/i.test(field.name), 'comment field');
+      var hit = api.findClickableByText(root, 'Bitcoin Capitalist');
+      assertTrue(!!hit && hit.el, 'found card');
+      var clicked = 0;
+      hit.el.addEventListener('click', function (ev) { ev.preventDefault(); clicked += 1; });
+      var parsed = api.parsePlannerReply(JSON.stringify({ action: 'clickText', text: 'Bitcoin Capitalist' }));
+      assertTrue(parsed.ok && parsed.action === 'clickText', 'parse clickText');
+      var live = api.snapshotFromRoot(root, 'https://example.com');
+      live._items = (live._items || []).concat([hit]);
+      var res = api.actOnSnapshot({ ok: true, _items: [hit] }, parsed);
+      assertTrue(res.ok, 'clickText acts');
+      assertEqual(clicked, 1, 'card clicked');
+    } finally {
+      document.body.removeChild(root);
+    }
+  }
+
+  function testPageAgentHealCandidate() {
+    var api = global.CFS_pageAgentSnapshot;
+    var failed = { type: 'wait', waitForSelectors: [{ type: 'id', value: '#APjFqb', score: 10 }] };
+    var next = { type: 'type' };
+    var ctx = { failedAction: failed, nextAction: next, pageUrl: 'https://www.google.com/' };
+    var elements = [
+      { index: 1, role: 'searchbox', name: 'Search', tag: 'textarea', disabled: false },
+      { index: 2, role: 'button', name: 'Google Search', tag: 'button', disabled: false },
+    ];
+    var picked = api.pickHealCandidate(elements, ctx);
+    assertTrue(!!picked, 'heal candidate');
+    assertEqual(picked.role, 'searchbox');
+    assertEqual(api.inferHealKind(failed, next, 'https://www.google.com/'), 'search');
+    assertTrue(api.selectorsLookLikeSearch(failed.waitForSelectors), 'stale google id looks like search');
+    assertTrue(api.selectorListHasValue(failed.waitForSelectors, '#APjFqb'), 'has stale id');
+    assertEqual(api.firstSelectorValue(failed), '#APjFqb');
+    var two = api.listHealCandidates([
+      { index: 1, role: 'searchbox', name: 'Search', tag: 'textarea', disabled: false },
+      { index: 2, role: 'searchbox', name: 'Search apps', tag: 'input', disabled: false },
+    ], ctx);
+    assertEqual(two.candidates.length, 2, 'ambiguous searchboxes');
+    assertTrue(api.pickHealCandidate(two.candidates, ctx) == null, 'no unique pick when several match');
+
+    var root = document.createElement('div');
+    root.style.cssText = 'position:absolute;left:0;top:0;';
+    root.innerHTML = '<textarea name="q" aria-label="Search" role="searchbox" style="display:inline-block;width:80px;height:24px;"></textarea>';
+    document.body.appendChild(root);
+    try {
+      var snap = api.snapshotFromRoot(root, 'https://www.google.com/');
+      var live = api.pickHealCandidate(snap._items || snap.elements, ctx);
+      assertTrue(!!live && live.el, 'live searchbox');
+      var selApi = global.CFS_selectors;
+      assertTrue(!!selApi && typeof selApi.generatePrimaryAndFallbackSelectors === 'function', 'selector helper');
+      var generated = selApi.generatePrimaryAndFallbackSelectors(live.el);
+      var all = [].concat(generated.primary || [], generated.fallbacks || []);
+      var blob = JSON.stringify(all);
+      assertTrue(all.length > 0, 'generated selectors');
+      assertTrue(/name="q"|name=\\"q\\"/.test(blob), 'name selector');
+      assertTrue(/aria-label/.test(blob), 'aria-label selector');
+      assertTrue(/searchbox|"role"/.test(blob), 'role selector');
+    } finally {
+      document.body.removeChild(root);
+    }
+  }
+
+  function testLocalLlmHardwareClassify() {
+    var hw = global.CFS_localLlmHardware;
+    assertTrue(!!hw, 'CFS_localLlmHardware loaded');
+    var noGpu = hw.classifyLocalLlmHardware({ hasWebGPU: false });
+    assertFalse(noGpu.likely, 'no WebGPU');
+    assertTrue(noGpu.hideDownload, 'hide download without WebGPU');
+    var lowRam = hw.classifyLocalLlmHardware({ hasWebGPU: true, deviceMemoryGiB: 4 });
+    assertFalse(lowRam.likely, 'low RAM');
+    assertTrue(lowRam.hideDownload, 'hide download on low RAM');
+    var ok = hw.classifyLocalLlmHardware({
+      hasWebGPU: true,
+      deviceMemoryGiB: 16,
+      maxBufferSize: 2 * 1024 * 1024 * 1024,
+      gpuAllocOk: true,
+    });
+    assertTrue(ok.likely, 'capable machine');
+    assertFalse(ok.hideDownload, 'show download when maybe');
+  }
+
+  function testFormatLlamaBytes() {
+    assertTrue(typeof global.cfsFormatLlamaBytes === 'function', 'cfsFormatLlamaBytes loaded');
+    assertEqual(global.cfsFormatLlamaBytes(500), '500 B');
+    assertTrue(global.cfsFormatLlamaBytes(2048).indexOf('KB') >= 0, 'KB');
+    assertTrue(global.cfsFormatLlamaBytes(2 * 1024 * 1024).indexOf('MB') >= 0, 'MB');
+    assertTrue(global.cfsFormatLlamaBytes(4 * 1024 * 1024 * 1024).indexOf('GB') >= 0, 'GB');
+  }
+
+  function testLocalPlannerModelRegistry() {
+    assertTrue(typeof global.cfsNormalizeLocalPlannerModelKey === 'function', 'normalize helper');
+    assertEqual(global.cfsNormalizeLocalPlannerModelKey('qwen'), 'qwen7b');
+    assertEqual(global.cfsNormalizeLocalPlannerModelKey('olmo'), 'qwen34b');
+    assertEqual(global.cfsNormalizeLocalPlannerModelKey('qwen3'), 'qwen34b');
+    assertEqual(global.cfsNormalizeLocalPlannerModelKey(''), 'qwen34b');
+    var qwen3 = global.cfsGetLocalPlannerModel('qwen34b');
+    var qwen = global.cfsGetLocalPlannerModel('qwen7b');
+    assertTrue(!!qwen3 && qwen3.engine === 'wllama', 'qwen3 wllama');
+    assertTrue(!!qwen && qwen.engine === 'webllm', 'qwen webllm');
+    assertTrue(qwen3.id.indexOf('Qwen3-4B-GGUF') >= 0, 'qwen3 id');
+    assertTrue(qwen.id.indexOf('Qwen2.5-7B-Instruct-q4f16_1-MLC') >= 0, 'qwen id');
+    var qwen3Files = global.cfsLocalPlannerDownloadEntries(qwen3);
+    var qwenFiles = global.cfsLocalPlannerDownloadEntries(qwen);
+    assertTrue(qwen3Files.length >= 1, 'qwen3 file list');
+    assertTrue(qwenFiles.length >= 90, 'qwen shards + wasm');
+    assertTrue(qwen3Files.some(function (e) { return e.rel === 'Qwen3-4B-Q4_K_M.gguf'; }), 'qwen3 gguf');
+    assertTrue(qwenFiles.some(function (e) { return e.rel === 'params_shard_0.bin'; }), 'qwen shard 0');
+    assertTrue(qwenFiles.some(function (e) { return /Qwen2-7B-Instruct-q4f16_1_cs1k-webgpu\.wasm/.test(e.dest); }), 'qwen wasm');
+    assertTrue(typeof global.cfsLocalPlannerDiskStatus === 'function', 'disk status helper');
+    return global.cfsLocalPlannerDiskStatus(null, 'qwen34b').then(function (st) {
+      assertTrue(!!st && st.complete === false, 'no folder is incomplete');
+      assertEqual(st.fileName, 'Qwen3-4B-Q4_K_M.gguf');
+      assertEqual(st.engine, 'wllama');
+    });
+  }
+
+  function testAgentPlannerPaidAccess() {
+    assertTrue(typeof global.cfsHasPaidOrTrialAccess === 'function', 'helper loaded');
+    assertFalse(global.cfsHasPaidOrTrialAccess(null), 'null');
+    assertFalse(global.cfsHasPaidOrTrialAccess({}), 'empty');
+    assertTrue(global.cfsHasPaidOrTrialAccess({ pro: true }), 'pro');
+    assertTrue(global.cfsHasPaidOrTrialAccess({ trial_active: true }), 'trial_active');
+    assertTrue(global.cfsHasPaidOrTrialAccess({ access: 'paid' }), 'access paid');
+    assertTrue(global.cfsHasPaidOrTrialAccess({ access: 'trial' }), 'access trial');
+    assertTrue(global.cfsHasPaidOrTrialAccess({ access: 'project_member' }), 'project_member');
+    assertFalse(global.cfsHasPaidOrTrialAccess({ access: 'free' }), 'free');
+  }
+
+  function testCfsAgentPlannerLocalOnlyMissingWeights() {
+    var map = global.cfsMapLocalPlannerResult;
+    var missing = global.cfsMissingWeightsPlannerReply;
+    assertTrue(typeof map === 'function' && typeof missing === 'function', 'planner local helpers');
+    var none = missing('qwen34b');
+    assertFalse(none.ok, 'missing weights not ok');
+    assertEqual(none.code, 'LLAMA_NOT_DOWNLOADED');
+    assertTrue(/Qwen3 4B/.test(none.error), '4B label');
+    assertEqual(none.modelKey, 'qwen34b');
+    var none7 = missing('qwen7b');
+    assertEqual(none7.code, 'LLAMA_NOT_DOWNLOADED');
+    assertTrue(/Qwen 2.5 7B/.test(none7.error), '7B label');
+    var mapped = map(
+      { ok: false, result: { ok: false, code: 'LLAMA_NOT_DOWNLOADED', error: 'Qwen3 4B is not downloaded' } },
+      { localOnly: true, modelKey: 'qwen34b' }
+    );
+    assertTrue(mapped.done, 'localOnly stops cascade');
+    assertFalse(mapped.ok, 'not ok');
+    assertEqual(mapped.code, 'LLAMA_NOT_DOWNLOADED');
+    var skipGen = map(null, { localOnly: true, modelKey: 'qwen34b', weightsPresent: false });
+    assertTrue(skipGen.done && skipGen.code === 'LLAMA_NOT_DOWNLOADED', 'weights probe short-circuits generateLlama');
+    var cascade = map(
+      { ok: false, error: 'Qwen3 4B is not downloaded', code: 'LLAMA_NOT_DOWNLOADED' },
+      { localOnly: false, modelKey: 'qwen34b' }
+    );
+    assertFalse(cascade.done, 'non-localOnly continues to cloud/Clore/LaMini');
+    assertFalse(global.cfsQcResultIsWeightsPresent({ ok: true, result: false }), 'absent weights');
+    assertTrue(global.cfsQcResultIsWeightsPresent({ ok: true, result: true }), 'present weights');
+    assertFalse(global.cfsQcResultIsWeightsPresent({ ok: false, error: 'QC sandbox timeout' }), 'qc fail is not present');
+  }
+
+  function testExtensionApiAgentPlannerExported() {
+    assertTrue(!!global.ExtensionApi, 'ExtensionApi loaded');
+    assertTrue(typeof global.ExtensionApi.agentPlanner === 'function', 'agentPlanner');
+    assertTrue(typeof global.ExtensionApi.hasPaidOrTrialAccess === 'function', 'hasPaidOrTrialAccess');
+    assertTrue(global.ExtensionApi.hasPaidOrTrialAccess({ pro: true }), 'api paid helper');
   }
 
   function testCfsValidateProjectRelativePath() {
@@ -5384,14 +6205,9 @@
   }
 
   function testSidepanelIsTestWorkflow() {
-    function isTestWorkflow(w) {
-      if (w && w._testOnly) return true;
-      var name = (w && w.name) ? w.name.toLowerCase().trim() : '';
-      if (!name) return false;
-      if (/\be2e\b/.test(name)) return true;
-      if (name === 'test' || /^test(\s|$|:|_|\.|-)/i.test(name)) return true;
-      return false;
-    }
+    var F = global.CFS_navWorkflowFilter;
+    if (!F) throw new Error('CFS_navWorkflowFilter missing');
+    var isTestWorkflow = F.isTestWorkflow;
     assertTrue(isTestWorkflow({ name: 'test' }), 'exact "test"');
     assertTrue(isTestWorkflow({ name: 'Test: something' }), '"Test:" prefix');
     assertTrue(isTestWorkflow({ name: 'test_workflow' }), '"test_" prefix');
@@ -5401,6 +6217,12 @@
     assertFalse(isTestWorkflow({ name: 'Latest content' }), 'no test pattern');
     assertFalse(isTestWorkflow({ name: 'Crypto Test Wallet' }), 'does not flag user names');
     assertFalse(isTestWorkflow({ name: 'attestation' }), 'does not flag substrings');
+    assertTrue(F.hideEnabled(undefined), 'hide defaults on');
+    assertTrue(F.hideEnabled(true), 'hide true');
+    assertFalse(F.hideEnabled(false), 'hide false');
+    assertTrue(F.isHiddenFromUserNav({ name: 'e2e login flow' }, true), 'hidden when setting on');
+    assertFalse(F.isHiddenFromUserNav({ name: 'e2e login flow' }, false), 'visible when setting off');
+    assertFalse(F.isHiddenFromUserNav({ name: 'My Workflow' }, true), 'normal not hidden');
   }
 
   function testSidepanelNormalizeScriptingError() {
@@ -5457,6 +6279,43 @@
     }, 'apifyActorRun'), 'inside loop');
     assertFalse(workflowContainsStepType(null, 'click'), 'null node');
     assertFalse(workflowContainsStepType({ actions: [] }, 'click'), 'empty actions');
+  }
+
+  function testSidepanelWorkflowNeedsPageCompare() {
+    var PAGE_COMPARE_STEP_TYPES = { comparePages: true, extractComputedStyles: true };
+    function workflowNeedsPageCompare(node, seen) {
+      if (!node) return false;
+      var actions = node.actions || (node.analyzed && node.analyzed.actions);
+      if (!Array.isArray(actions)) return false;
+      var visited = seen || new Set();
+      for (var i = 0; i < actions.length; i++) {
+        var a = actions[i];
+        if (!a || typeof a !== 'object') continue;
+        if (PAGE_COMPARE_STEP_TYPES[a.type]) return true;
+        if (a.type === 'loop' && workflowNeedsPageCompare({ actions: a.steps }, visited)) return true;
+        if (a.type === 'ifCondition') {
+          if (workflowNeedsPageCompare({ actions: a.thenSteps }, visited)) return true;
+          if (workflowNeedsPageCompare({ actions: a.elseSteps }, visited)) return true;
+        }
+        if (a.type === 'runWorkflow') {
+          if (a.nestedWorkflow && workflowNeedsPageCompare(a.nestedWorkflow, visited)) return true;
+        }
+      }
+      return false;
+    }
+    assertFalse(workflowNeedsPageCompare(null), 'null');
+    assertFalse(workflowNeedsPageCompare({ analyzed: { actions: [{ type: 'click' }] } }), 'click only');
+    assertTrue(workflowNeedsPageCompare({ analyzed: { actions: [{ type: 'comparePages' }] } }), 'comparePages');
+    assertTrue(workflowNeedsPageCompare({ analyzed: { actions: [{ type: 'extractComputedStyles' }] } }), 'extractComputedStyles');
+    assertTrue(workflowNeedsPageCompare({
+      actions: [{ type: 'ifCondition', thenSteps: [{ type: 'comparePages' }], elseSteps: [] }]
+    }), 'if thenSteps');
+    assertTrue(workflowNeedsPageCompare({
+      actions: [{ type: 'loop', steps: [{ type: 'extractComputedStyles' }] }]
+    }), 'loop steps');
+    assertTrue(workflowNeedsPageCompare({
+      actions: [{ type: 'runWorkflow', nestedWorkflow: { actions: [{ type: 'comparePages' }] } }]
+    }), 'nested workflow');
   }
 
   function testSidepanelGetDelayBeforeNextRunMs() {
@@ -6890,6 +7749,67 @@
       assertTrue(!!holder.querySelector('svg.steps-flow-svg'), 'renders svg');
       assertTrue(holder.querySelectorAll('[data-flow-clickable="1"]').length >= 2, 'clickable step nodes');
     }
+  }
+
+  if (typeof CFS_workflowRunMedia !== 'undefined') {
+    var rm = CFS_workflowRunMedia;
+    assertEqual(rm.GHL_ROOT_FOLDER, 'Workflows');
+    assertEqual(rm.safeRunDirName('run_abc-1'), 'abc-1');
+    assertDeepEqual(rm.localRecordingDirSegments('wf1', 'run_abc'), ['recordings', 'abc']);
+    assertEqual(rm.localRelPath('wf1', 'run_abc', 'capture.webm'), 'recordings/abc/capture.webm');
+    var ghlNames = rm.ghlFolderNames('my-wf', 'run_99');
+    assertEqual(ghlNames.root, 'Workflows');
+    assertEqual(ghlNames.workflow, 'my-wf');
+    assertEqual(ghlNames.run, '99');
+
+    var ownGhl = rm.pickHighLevelDest({
+      ghlLocations: [{ location_id: 'loc1', location_name: 'Agency', owned: true }],
+      hasShared: true,
+    }, { SHARED_STORAGE_SOURCE_ID: '__shared_storage__' });
+    assertEqual(ownGhl.kind, 'ghl');
+    assertEqual(ownGhl.id, 'loc1');
+
+    var backend = rm.pickHighLevelDest({ ghlLocations: [], hasShared: true }, { SHARED_STORAGE_SOURCE_ID: '__shared_storage__' });
+    assertEqual(backend.kind, 'shared');
+    assertEqual(backend.id, '__shared_storage__');
+
+    var skipSharedOwned = rm.pickHighLevelDest({
+      ghlLocations: [{ location_id: 'x', owned: false }],
+      hasShared: true,
+    });
+    assertEqual(skipSharedOwned.kind, 'shared');
+
+    assertTrue(rm.runHasSavedCapture({ mediaCaptureUrl: 'https://cdn.example/a.webm' }));
+    assertTrue(rm.runHasSavedCapture({ mediaCaptureFile: 'capture.webm' }));
+    assertFalse(rm.runHasSavedCapture({ runId: '1' }));
+
+    var plan = rm.captureReadPlan({ runId: 'run_abc', mediaCaptureDir: 'recordings/abc', mediaCaptureFile: 'capture.webm' }, 'main');
+    assertTrue(plan.candidates[0].dirSegments.join('/') === 'recordings/abc');
+    assertEqual(plan.candidates[0].file, 'capture.webm');
+    var legacy = rm.captureReadPlan({ runId: 'run_old', mediaCaptureFile: 'run-old-capture.webm' }, 'main');
+    assertTrue(legacy.candidates.some(function (c) { return c.dirSegments[0] === 'runs' && c.file === 'run-old-capture.webm'; }));
+
+    assertTrue(rm.missSaveHint(false, false).indexOf('Sign in') >= 0);
+    assertTrue(rm.missSaveHint(true, false).indexOf('HighLevel') >= 0);
+
+    assertEqual(rm.classifyTrackFilename('webcam.webm'), 'webcam');
+    assertEqual(rm.classifyTrackFilename('screen.webm'), 'screen');
+    assertEqual(rm.classifyTrackFilename('system.webm'), 'system');
+    assertEqual(rm.classifyTrackFilename('mic.webm'), 'mic');
+    assertEqual(rm.classifyTrackFilename('capture.webm'), 'screen');
+    assertEqual(rm.classifyTrackFilename('audio.m4a'), 'system');
+    assertEqual(rm.fileNameForRole('mic'), 'mic.webm');
+    var four = rm.tracksFromFilenames(['capture.webm', 'screen.webm', 'webcam.webm', 'system.webm', 'mic.webm', 'audio.m4a', 'run.json']);
+    assertEqual(four.length, 4);
+    assertEqual(four[0].file, 'screen.webm');
+    assertEqual(four[0].label, 'Screen capture');
+    assertEqual(four[1].role, 'webcam');
+    assertEqual(four[2].file, 'system.webm');
+    assertEqual(four[3].role, 'mic');
+    assertTrue(rm.isRecordingSessionName('recording-2026-09-08'));
+    assertTrue(rm.isRecordingSessionDir('recording-1', ['screen.webm', 'mic.webm']));
+    assertTrue(rm.isRecordingSessionDir('99', ['webcam.webm', 'capture.webm']));
+    assertFalse(rm.isRecordingSessionDir('photos', ['shot.png']));
   }
 
 })(typeof window !== 'undefined' ? window : globalThis);

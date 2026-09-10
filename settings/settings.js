@@ -20,12 +20,53 @@
   const CFS_LLM_WORKFLOW_PROVIDER = 'cfsLlmWorkflowProvider';
   const CFS_LLM_WORKFLOW_OPENAI_MODEL = 'cfsLlmWorkflowOpenaiModel';
   const CFS_LLM_WORKFLOW_MODEL_OVERRIDE = 'cfsLlmWorkflowModelOverride';
+  const CFS_LLM_WORKFLOW_FALLBACK = 'cfsLlmWorkflowFallback';
   const CFS_LLM_CHAT_PROVIDER = 'cfsLlmChatProvider';
   const CFS_LLM_CHAT_OPENAI_MODEL = 'cfsLlmChatOpenaiModel';
   const CFS_LLM_CHAT_MODEL_OVERRIDE = 'cfsLlmChatModelOverride';
+  const CFS_LLM_CHAT_FALLBACK = 'cfsLlmChatFallback';
   const CFS_LLM_KEY_MAX_LEN = 4096;
   /** Must match background/remote-llm.js CFS_LLM_MODEL_ID_MAX_CHARS. */
   const CFS_LLM_MODEL_ID_MAX_LEN = 256;
+  const CFS_LLM_PROVIDERS = ['lamini', 'openai', 'claude', 'gemini', 'grok', 'crai'];
+
+  function cfsLlmNormalizeProvider(raw) {
+    const p = String(raw || 'lamini').toLowerCase();
+    return CFS_LLM_PROVIDERS.includes(p) ? p : 'lamini';
+  }
+
+  function cfsLlmIsPaidCloudProvider(p) {
+    return p === 'openai' || p === 'claude' || p === 'gemini' || p === 'grok';
+  }
+
+  function cfsLlmNormalizeFallback(raw) {
+    return String(raw || 'lamini').toLowerCase() === 'crai' ? 'crai' : 'lamini';
+  }
+
+  async function cfsLlmCanUseCraiFallback() {
+    if (!(await isWhopLoggedIn())) return false;
+    if (typeof ExtensionApi === 'undefined' || typeof ExtensionApi.hasUpgraded !== 'function') return false;
+    try {
+      const up = await ExtensionApi.hasUpgraded();
+      return typeof ExtensionApi.hasPaidOrTrialAccess === 'function' && ExtensionApi.hasPaidOrTrialAccess(up);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function syncCraiLlmOptions() {
+    const loggedIn = await isWhopLoggedIn();
+    document.querySelectorAll('.cfs-llm-crai-option').forEach(function (opt) {
+      opt.disabled = !loggedIn;
+    });
+    document.querySelectorAll('.cfs-llm-crai-hint').forEach(function (el) {
+      el.style.display = loggedIn ? 'none' : '';
+    });
+    const canFallbackCrai = await cfsLlmCanUseCraiFallback();
+    document.querySelectorAll('.cfs-llm-crai-fallback-option').forEach(function (opt) {
+      opt.disabled = !canFallbackCrai;
+    });
+  }
 
   /** Pulse Following automation defaults (Solana + BSC); same key as sidepanel / service worker. */
   const CFS_FOLLOWING_AUTOMATION_GLOBAL_KEY = 'cfsFollowingAutomationGlobal';
@@ -532,6 +573,15 @@
       overrideRow.style.display = showOv ? '' : 'none';
       if (showOv) cfsLlmPopulateOverrideSelect(prefix, p);
     }
+    const fallbackRow = document.querySelector(
+      prefix === 'workflow' ? '.cfs-llm-workflow-fallback-row' : '.cfs-llm-chat-fallback-row'
+    );
+    const fallbackHint = document.getElementById(
+      prefix === 'workflow' ? 'cfsLlmWorkflowFallbackHint' : 'cfsLlmChatFallbackHint'
+    );
+    const showFallback = cfsLlmIsPaidCloudProvider(p);
+    if (fallbackRow) fallbackRow.style.display = showFallback ? '' : 'none';
+    if (fallbackHint) fallbackHint.style.display = showFallback ? '' : 'none';
   }
 
   async function loadCfsLlmDefaults() {
@@ -539,9 +589,11 @@
       CFS_LLM_WORKFLOW_PROVIDER,
       CFS_LLM_WORKFLOW_OPENAI_MODEL,
       CFS_LLM_WORKFLOW_MODEL_OVERRIDE,
+      CFS_LLM_WORKFLOW_FALLBACK,
       CFS_LLM_CHAT_PROVIDER,
       CFS_LLM_CHAT_OPENAI_MODEL,
       CFS_LLM_CHAT_MODEL_OVERRIDE,
+      CFS_LLM_CHAT_FALLBACK,
     ];
     const data = await chrome.storage.local.get(keys);
     const fixes = {};
@@ -571,15 +623,15 @@
     const wProv = document.getElementById('cfsLlmWorkflowProviderSelect');
     const cProv = document.getElementById('cfsLlmChatProviderSelect');
     if (wProv) {
-      wProv.value = ['lamini', 'openai', 'claude', 'gemini', 'grok'].includes(data[CFS_LLM_WORKFLOW_PROVIDER])
-        ? data[CFS_LLM_WORKFLOW_PROVIDER]
-        : 'lamini';
+      wProv.value = cfsLlmNormalizeProvider(data[CFS_LLM_WORKFLOW_PROVIDER]);
     }
     if (cProv) {
-      cProv.value = ['lamini', 'openai', 'claude', 'gemini', 'grok'].includes(data[CFS_LLM_CHAT_PROVIDER])
-        ? data[CFS_LLM_CHAT_PROVIDER]
-        : 'lamini';
+      cProv.value = cfsLlmNormalizeProvider(data[CFS_LLM_CHAT_PROVIDER]);
     }
+    const wFb = document.getElementById('cfsLlmWorkflowFallbackSelect');
+    const cFb = document.getElementById('cfsLlmChatFallbackSelect');
+    if (wFb) wFb.value = cfsLlmNormalizeFallback(data[CFS_LLM_WORKFLOW_FALLBACK]);
+    if (cFb) cFb.value = cfsLlmNormalizeFallback(data[CFS_LLM_CHAT_FALLBACK]);
     cfsLlmApplyOpenaiModelToUi('workflow', wOpenaiStored);
     cfsLlmApplyOpenaiModelToUi('chat', cOpenaiStored);
     cfsLlmUpdateProviderDependentRows('workflow');
@@ -596,12 +648,18 @@
     const cProvEl = document.getElementById('cfsLlmChatProviderSelect');
     if (wProvEl) wProvEl.dataset.cfsLlmPrevProvider = wProvEl.value || 'lamini';
     if (cProvEl) cProvEl.dataset.cfsLlmPrevProvider = cProvEl.value || 'lamini';
+    await syncCraiLlmOptions();
   }
 
   async function saveCfsLlmWorkflowDefaults() {
     const statusEl = document.getElementById('cfsLlmWorkflowDefaultsStatus');
     const wProv = document.getElementById('cfsLlmWorkflowProviderSelect');
-    const p = (wProv && wProv.value) || 'lamini';
+    const p = cfsLlmNormalizeProvider(wProv && wProv.value);
+    if (p === 'crai' && !(await isWhopLoggedIn())) {
+      setStatus(statusEl, 'Sign in with Whop to use Content Rewards AI (Qwen 27B).', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
     const openaiModel = cfsLlmReadOpenaiModelFromUi('workflow');
     const override =
       p === 'claude' || p === 'gemini' || p === 'grok' ? cfsLlmReadOverrideModelFromUi('workflow', p) : '';
@@ -626,10 +684,23 @@
       setTimeout(() => setStatus(statusEl, '', ''), 5000);
       return;
     }
+    const fallbackEl = document.getElementById('cfsLlmWorkflowFallbackSelect');
+    let fallback = cfsLlmNormalizeFallback(fallbackEl && fallbackEl.value);
+    if (cfsLlmIsPaidCloudProvider(p) && fallback === 'crai' && !(await cfsLlmCanUseCraiFallback())) {
+      setStatus(
+        statusEl,
+        'Sign in with a paid or trial Content Rewards account to use that fallback, or choose LaMini.',
+        'error'
+      );
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
+    if (!cfsLlmIsPaidCloudProvider(p)) fallback = cfsLlmNormalizeFallback(fallback);
     const payload = {
       [CFS_LLM_WORKFLOW_PROVIDER]: p,
       [CFS_LLM_WORKFLOW_OPENAI_MODEL]: openaiModel,
       [CFS_LLM_WORKFLOW_MODEL_OVERRIDE]: override,
+      [CFS_LLM_WORKFLOW_FALLBACK]: fallback,
     };
     await chrome.storage.local.set(payload);
     setStatus(statusEl, 'Workflow defaults saved.', 'success');
@@ -639,7 +710,12 @@
   async function saveCfsLlmChatDefaults() {
     const statusEl = document.getElementById('cfsLlmChatDefaultsStatus');
     const cProv = document.getElementById('cfsLlmChatProviderSelect');
-    const p = (cProv && cProv.value) || 'lamini';
+    const p = cfsLlmNormalizeProvider(cProv && cProv.value);
+    if (p === 'crai' && !(await isWhopLoggedIn())) {
+      setStatus(statusEl, 'Sign in with Whop to use Content Rewards AI (Qwen 27B).', 'error');
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
     const openaiModel = cfsLlmReadOpenaiModelFromUi('chat');
     const override =
       p === 'claude' || p === 'gemini' || p === 'grok' ? cfsLlmReadOverrideModelFromUi('chat', p) : '';
@@ -664,10 +740,22 @@
       setTimeout(() => setStatus(statusEl, '', ''), 5000);
       return;
     }
+    const fallbackEl = document.getElementById('cfsLlmChatFallbackSelect');
+    let fallback = cfsLlmNormalizeFallback(fallbackEl && fallbackEl.value);
+    if (cfsLlmIsPaidCloudProvider(p) && fallback === 'crai' && !(await cfsLlmCanUseCraiFallback())) {
+      setStatus(
+        statusEl,
+        'Sign in with a paid or trial Content Rewards account to use that fallback, or choose LaMini.',
+        'error'
+      );
+      setTimeout(() => setStatus(statusEl, '', ''), 5000);
+      return;
+    }
     const payload = {
       [CFS_LLM_CHAT_PROVIDER]: p,
       [CFS_LLM_CHAT_OPENAI_MODEL]: openaiModel,
       [CFS_LLM_CHAT_MODEL_OVERRIDE]: override,
+      [CFS_LLM_CHAT_FALLBACK]: fallback,
     };
     await chrome.storage.local.set(payload);
     setStatus(statusEl, 'Chat defaults saved.', 'success');
@@ -777,6 +865,13 @@
     document.getElementById('cfsLlmWorkflowOpenaiModelSelect')?.addEventListener('change', () => cfsLlmOpenaiModelUiSync('workflow'));
     document.getElementById('cfsLlmChatOpenaiModelSelect')?.addEventListener('change', () => cfsLlmOpenaiModelUiSync('chat'));
 
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener(function (changes, area) {
+        if (area === 'local' && changes.whop_auth) {
+          syncCraiLlmOptions();
+        }
+      });
+    }
     document.getElementById('saveCfsLlmWorkflowDefaultsBtn')?.addEventListener('click', saveCfsLlmWorkflowDefaults);
     document.getElementById('saveCfsLlmChatDefaultsBtn')?.addEventListener('click', saveCfsLlmChatDefaults);
   }
@@ -3357,6 +3452,22 @@
 
   // --- Crypto & Web3 Master Toggle ---
 
+  async function setupHideE2eTestingWorkflows() {
+    const F = window.CFS_navWorkflowFilter;
+    const key = (F && F.STORAGE_KEY) || 'cfsHideE2eTestingWorkflows';
+    const checkbox = document.getElementById('cfsHideE2eTestingWorkflows');
+    if (!checkbox) return;
+    const data = await chrome.storage.local.get(key);
+    const hide = F ? F.hideEnabled(data[key]) : data[key] !== false;
+    checkbox.checked = hide;
+    if (data[key] === undefined) {
+      await chrome.storage.local.set({ [key]: true });
+    }
+    checkbox.addEventListener('change', async () => {
+      await chrome.storage.local.set({ [key]: !!checkbox.checked });
+    });
+  }
+
   const CFS_CRYPTO_WEB3_ENABLED_KEY = 'cfsCryptoWeb3Enabled';
 
   function cfsCryptoWeb3UpdateVisibility(enabled) {
@@ -3449,6 +3560,7 @@
     document.getElementById('saveAsterV3KeysBtn')?.addEventListener('click', saveAsterV3Keys);
     document.getElementById('saveAsterFuturesKeysBtn')?.addEventListener('click', saveAsterFuturesKeys);
     document.getElementById('saveAsterFuturesRiskBtn')?.addEventListener('click', saveAsterFuturesRisk);
+    await setupHideE2eTestingWorkflows();
     document.getElementById('settingsOpenUnitTestsPageBtn')?.addEventListener('click', () => {
       try {
         chrome.tabs.create({ url: chrome.runtime.getURL('test/unit-tests.html') });

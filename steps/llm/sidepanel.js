@@ -50,6 +50,7 @@
         { value: 'claude', label: 'Claude (Anthropic)' },
         { value: 'gemini', label: 'Gemini' },
         { value: 'grok', label: 'Grok (xAI)' },
+        { value: 'crai', label: 'Content Rewards AI (Qwen 27B)' },
       ];
       var provOptsHtml = provOptions.map(function(po) {
         return '<option value="' + escapeHtml(po.value) + '"' + (po.value === llmProv ? ' selected' : '') + '>' + escapeHtml(po.label) + '</option>';

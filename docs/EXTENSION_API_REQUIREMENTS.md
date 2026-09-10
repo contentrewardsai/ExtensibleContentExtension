@@ -25,3 +25,7 @@ If the route is not implemented (**404**), the extension treats limits conservat
 - `appendConnectedProfileIfUnderCap` — legacy 404 path (storage length vs max).
 
 Load order for pages using `ExtensionApi`: `config.js` (or Whop auth config) → `shared/app-origin-guard.js` → `auth-fetch.js` → `workflow-normalize.js` → `dom-utils.js` → `api.js`.
+
+## `POST /api/extension/agent-planner`
+
+Authenticated; **403** if the user is not upgraded (`pro`, `trial_active`, or `access` of `paid` / `trial` / `project_member`). Prompt-to-workflow fallback when in-extension Llama 7B+ cannot load. See **docs/BACKEND.md** (Agent planner). Body `{ messages }`. Response `{ ok, text }` or `{ status: "running", jobId }` then `GET /api/extension/agent-planner?jobId=`. Server occupies a Clore box, pins Qwen 3.8 (`qwen38-27b`), returns assistant JSON `{ action, index, text? }`.

@@ -113,18 +113,30 @@
   }
 
   function collectInfiMonitorWorkflows(stored) {
-    var w = stored[WORKFLOWS_KEY];
-    if (!w || typeof w !== 'object' || Array.isArray(w)) return [];
-    var ids = Object.keys(w);
+    var helper = global.__CFS_alwaysOnFromSteps;
+    var members = helper && typeof helper.collectLatestFamilyWorkflows === 'function'
+      ? helper.collectLatestFamilyWorkflows(stored)
+      : [];
+    if (!members.length) {
+      var wAll = stored[WORKFLOWS_KEY];
+      if (wAll && typeof wAll === 'object' && !Array.isArray(wAll)) {
+        members = Object.keys(wAll).map(function (id) { return { id: id, wf: wAll[id] }; });
+      }
+    }
     var jobs = [];
     var api = boundPositionsApi();
-    for (var i = 0; i < ids.length; i++) {
-      var wfId = ids[i];
-      var wf = w[wfId];
-      if (!wf || !wf.alwaysOn || wf.alwaysOn.enabled !== true) continue;
-      var sc = (wf.alwaysOn && wf.alwaysOn.scopes) || {};
+    for (var i = 0; i < members.length; i++) {
+      var wfId = members[i].id;
+      var wf = members[i].wf;
+      var enabled = helper && typeof helper.workflowAlwaysOnEnabled === 'function'
+        ? helper.workflowAlwaysOnEnabled(wf)
+        : !!(wf && wf.alwaysOn && wf.alwaysOn.enabled === true);
+      if (!wf || !enabled) continue;
+      var sc = helper && typeof helper.scopesForWorkflow === 'function'
+        ? helper.scopesForWorkflow(wf)
+        : ((wf.alwaysOn && wf.alwaysOn.scopes) || {});
       if (!sc.priceRangeWatch) continue;
-      var prw = wf.alwaysOn.priceRangeWatch;
+      var prw = wf.alwaysOn && wf.alwaysOn.priceRangeWatch;
       if (!isInfiPriceRangeWatch(prw)) continue;
       var positions = api
         ? api.activeWatchPositions(wf.alwaysOn, 'infi')
@@ -364,7 +376,7 @@
   async function tick() {
     var minPoll = DEFAULT_POLL_MS;
     try {
-      var stored = await storageLocalGet([WORKFLOWS_KEY, STOP_KEY, JOBS_KEY]);
+      var stored = await storageLocalGet([WORKFLOWS_KEY, STOP_KEY, JOBS_KEY, 'cfsHideE2eTestingWorkflows']);
       var stop = stored[STOP_KEY];
       if (stop && stop.global === true) {
         await recordPoll({ ok: true, idle: true, reason: 'globally_stopped' });

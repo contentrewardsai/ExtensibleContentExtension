@@ -95,6 +95,8 @@
         "shared/cfs-frame-actions.js",
         "shared/workflow-plan.js",
         "shared/page-compare.js",
+        "shared/page-agent-snapshot.js",
+        "content/page-agent.js",
         "steps/registry.js",
         "steps/loader.js",
         "steps/click/handler.js",
@@ -154,7 +156,8 @@
     },
     {
       "resources": [
-        "models/*"
+        "models/*",
+        "wllama/*"
       ],
       "matches": [
         "<all_urls>"
@@ -167,7 +170,8 @@
   },
   "sandbox": {
     "pages": [
-      "sandbox/quality-check.html"
+      "sandbox/quality-check.html",
+      "sandbox/wllama-page.html"
     ]
   }
 }

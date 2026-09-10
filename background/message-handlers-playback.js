@@ -21,6 +21,21 @@
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CALL_REMOTE_LLM_CHAT' }); return; }
       return impl(msg, sender, sendResponse);
     }, { auth: "extension", async: true, schema: "extra" });
+    register("CFS_AGENT_PLANNER", function (msg, sender, sendResponse) {
+      var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_AGENT_PLANNER"];
+      if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_AGENT_PLANNER' }); return; }
+      return impl(msg, sender, sendResponse);
+    }, { auth: "extension", async: true, schema: "extra" });
+    register("CFS_AGENT_PLANNER_STOP", function (msg, sender, sendResponse) {
+      var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_AGENT_PLANNER_STOP"];
+      if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_AGENT_PLANNER_STOP' }); return; }
+      return impl(msg, sender, sendResponse);
+    }, { auth: "extension", async: true, schema: "extra" });
+    register("CFS_AGENT_PLANNER_RETRY_LOCAL", function (msg, sender, sendResponse) {
+      var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CFS_AGENT_PLANNER_RETRY_LOCAL"];
+      if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CFS_AGENT_PLANNER_RETRY_LOCAL' }); return; }
+      return impl(msg, sender, sendResponse);
+    }, { auth: "extension", async: false, schema: "extra" });
     register("CAPTURE_DISPLAY_AUDIO", function (msg, sender, sendResponse) {
       var impl = global.__CFS_swTypeHandlers && global.__CFS_swTypeHandlers["CAPTURE_DISPLAY_AUDIO"];
       if (typeof impl !== 'function') { sendResponse({ ok: false, error: 'Handler not installed: CAPTURE_DISPLAY_AUDIO' }); return; }

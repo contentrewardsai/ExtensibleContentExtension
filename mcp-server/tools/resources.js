@@ -689,5 +689,78 @@ export function registerResources(server, ctx) {
       };
     }
   );
+
+  server.resource(
+    'Realtime feeds',
+    'extensible://realtime-feeds',
+    async () => {
+      const keys = [
+        'workflows',
+        'cfsSolanaWatchLastPoll',
+        'cfsBscWatchLastPoll',
+        'cfsFileWatchLastPoll',
+        'cfsV3RangeWatchLastPoll',
+        'cfsInfiBinRangeWatchLastPoll',
+        'cfsCustomRealtimeLastPoll',
+        'cfsClmmRangeWatchLastPoll',
+        'cfsDlmmRangeWatchLastPoll',
+      ];
+      const res = await ctx.readStorage(keys);
+      const data = res?.data || {};
+      const wfs = data.workflows || {};
+      const best = {};
+      for (const [id, wf] of Object.entries(wfs)) {
+        if (!wf || typeof wf !== 'object') continue;
+        if (wf._testOnly) continue;
+        const family = wf.initial_version || id;
+        const ver = Number.parseInt(wf.version, 10);
+        const version = Number.isFinite(ver) && ver > 0 ? ver : 1;
+        const prev = best[family];
+        if (!prev || version >= prev.version) best[family] = { id, wf, version };
+      }
+      const consumers = [];
+      for (const family of Object.keys(best)) {
+        const { id, wf } = best[family];
+        const steps = (wf.analyzed && Array.isArray(wf.analyzed.actions) ? wf.analyzed.actions : [])
+          .filter((a) => a && a.type === 'checkRealtimeData');
+        const sources = {};
+        for (const step of steps) {
+          for (const k of ['followingSolanaWatch', 'followingBscWatch', 'followingAutomationSolana', 'followingAutomationBsc', 'fileWatch', 'priceRangeWatch', 'custom']) {
+            if (step[k] === true || step[k] === 'true') sources[k] = true;
+          }
+        }
+        const enabled = steps.length
+          ? Object.values(sources).some(Boolean)
+          : !!(wf.alwaysOn && wf.alwaysOn.enabled);
+        if (!enabled) continue;
+        consumers.push({
+          id,
+          name: wf.name || id,
+          family,
+          scopes: Object.keys(sources).length ? sources : (wf.alwaysOn && wf.alwaysOn.scopes) || {},
+        });
+      }
+      return {
+        contents: [{
+          uri: 'extensible://realtime-feeds',
+          mimeType: 'application/json',
+          text: JSON.stringify({
+            description: 'Shared service-worker feeds (not MCP subscribe). Consumers are workflows with checkRealtimeData / derived alwaysOn.',
+            lastPolls: {
+              followingSolana: data.cfsSolanaWatchLastPoll || null,
+              followingBsc: data.cfsBscWatchLastPoll || null,
+              fileWatch: data.cfsFileWatchLastPoll || null,
+              pancakeV3: data.cfsV3RangeWatchLastPoll || null,
+              pancakeInfi: data.cfsInfiBinRangeWatchLastPoll || null,
+              custom: data.cfsCustomRealtimeLastPoll || null,
+              raydiumClmm: data.cfsClmmRangeWatchLastPoll || null,
+              meteoraDlmm: data.cfsDlmmRangeWatchLastPoll || null,
+            },
+            consumers,
+          }, null, 2),
+        }],
+      };
+    }
+  );
 }
 
